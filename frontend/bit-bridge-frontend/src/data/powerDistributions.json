@@ -1,0 +1,50 @@
+[
+  {
+    "id": 1,
+    "name": "Ikeja Electric Payment - IKEDC",
+    "description": "Prepaid and Postpaid IKEDC payment",
+    "image": "/images/power-providers/Ikeja-Electric-Payment-PHCN.jpg",
+    "serviceID": "ikeja-electric",
+    "biller": "ikeja"
+  },
+  {
+    "id": 2,
+    "name": "Abuja Electric Payment - AEDC",
+    "description": "Prepaid and Postpaid AEDC payment",
+    "image": "/images/power-providers/Abuja-Electric.jpg",
+    "serviceID": "abuja-electric",
+    "biller": "abuja"
+  },
+  {
+    "id": 4,
+    "name": "Enugu Electric - EEDC",
+    "description": "Prepaid and Postpaid EEDC payment",
+    "image": "/images/power-providers/Enugu-Electric-EEDC.jpg",
+    "serviceID": "enugu-electric",
+    "biller": "enugu"
+  },
+  {
+    "id": 5,
+    "name": "Jos Electric - JED",
+    "description": "Prepaid and Postpaid JED payment",
+    "image": "/images/power-providers/Jos-Electric-JED.jpg",
+    "serviceID": "jos-electric",
+    "biller": "jos"
+  },
+  {
+    "id": 6,
+    "name": "PHED - Port Harcourt Electric",
+    "description": "Prepaid and Postpaid PHED payment",
+    "image": "/images/power-providers/Port-Harcourt-Electric.jpg",
+    "serviceID": "portharcourt-electric",
+    "biller": "PH"
+  },
+  {
+    "id": 7,
+    "name": "Eko Electric Payment - EKEDC",
+    "description": "Prepaid and Postpaid IKEDC payment",
+    "image": "/images/power-providers/Eko-Electric-Payment-PHCN.jpg",
+    "serviceID": "eko-electric",
+    "biller": "eko"
+  }
+]

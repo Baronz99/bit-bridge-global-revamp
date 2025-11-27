@@ -1,0 +1,25 @@
+# Read about fixtures at https://api.rubyonrails.org/classes/ActiveRecord/FixtureSet.html
+
+one:
+  provider: MyString
+  provision: MyString
+  value: 9.99
+  header_info: MyText
+  description: MyText
+  rating: 1
+  notice_info: MyText
+  alert_info: MyText
+  value_max: 9.99
+  value_min: 9.99
+
+two:
+  provider: MyString
+  provision: MyString
+  value: 9.99
+  header_info: MyText
+  description: MyText
+  rating: 1
+  notice_info: MyText
+  alert_info: MyText
+  value_max: 9.99
+  value_min: 9.99

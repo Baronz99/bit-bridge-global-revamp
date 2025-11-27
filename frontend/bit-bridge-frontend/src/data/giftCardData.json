@@ -1,0 +1,109 @@
+[
+  {
+    "id": 1,
+    "provider": "nordVpn",
+    "provision": "Airtime",
+    "value": "5NGN - 50000NGN",
+    "rate": 4.7,
+    "image": "/images/gift-cards/nordvpn-international.webp",
+    "description": "Buy NordVPN gift cards with crypto online. Pay on NordVPN with Bitcoin, Ethereum, USDT, USDC, Binance Pay, and other cryptocurrencies. Instant email delivery.",
+    "info": "This is for the NordVPN Standard Software Subscription For 6 Devices"
+  },
+  {
+    "id": 2,
+    "description": "Buy Spar gift cards with crypto online. Pay on Spar with Bitcoin, Ethereum, USDT, USDC, Binance Pay, and other cryptocurrencies. Instant email delivery.",
+    "provider": "spar",
+    "provision": "Airtime",
+    "value": "5NGN - 50000NGN",
+    "rate": 4.7,
+    "info": "This gift code may only work in Nigeria",
+    "image": "/images/gift-cards/spar-market-nigeria.webp"
+  },
+  {
+    "id": 3,
+    "image": "/images/gift-cards/sony-playstation-usa.webp",
+    "provider": "playstation",
+    "provision": "internationnal",
+    "value": "$10 - $250",
+    "rate": 4.7,
+    "description": "Access PlayStation Network using Cryptocurrency. The PlayStation Store is your gateway to a vast array of PlayStation games, PlayStation Plus, in-game currencies, movies, and more. This can be conveniently paid for using popular cryptocurrencies like Bitcoin, Binance Pay, USDT, Ethereum, Dash, Dogecoin, and Litecoin.",
+    "info": "",
+    "warning": "Only valid for accounts with USA as selected region. Region is selected during Playstation account creation."
+  },
+  {
+    "id": 4,
+    "provider": "steam",
+    "provision": "Airtime",
+    "value": "$5 - $100",
+    "rate": 4.7,
+    "description": "Buy Steam gift cards with Bitcoin, USDT, USDC, ETH, Dogecoin, Litecoin or Binance Pay. Without creating an account! Steam has become the best place to play and purchase games online, across multiple platforms.",
+    "attention": "Attention! This product is only valid for accounts with USD selected as the account currency.",
+    "image": "/images/gift-cards/steam-usa.webp"
+  },
+  {
+    "image": "/images/gift-cards/xbox-live-usa.webp",
+
+    "id": 5,
+    "info": "This gift card is only redeemable on the e-commerce platform",
+    "description": "Pay for Xbox with Crypto. Buy Xbox Gift Card with Bitcoin, Lightning, Ethereum, Binance Pay, Tether (USDT), USD Coin (USDC), Dogecoin, Litecoin or Dash. BitBridge Global's Xbox gift card lets you purchase what ever you want on the Microsoft Store.",
+    "provider": "xbox",
+    "provision": "Xbox USD International",
+    "value": "5NGN - 50000NGN",
+    "rate": 4.7,
+    "attention": "Attention! This product is only valid for accounts with the USA selected as the account region. The currency/region for an Xbox account is set during the account creation and cannot be modified afterward."
+  },
+  {
+    "image": "/images/gift-cards/nordvpn-international.webp",
+
+    "id": 6,
+    "provider": "skype",
+    "provision": "Airtime",
+    "value": "5NGN - 50000NGN",
+    "rate": 4.7,
+    "description": "Looking to purchase Skype credit or a virtual number? BitBridge Global's Skype gift card let's you pay for all of Skypes great services with Bitcoin, Ethereum, Dash, Dogecoin, and Litecoin."
+  },
+  {
+    "image": "/images/gift-cards/skype-usd-international.webp",
+
+    "id": 7,
+    "description": "Purchase your one year Bankless Citizenship with crypto. Buy a Bankless Citizenship gift card with Bitcoin, Lightning, Ethereum, Binance Pay, USDT, USDC, Dogecoin, Litecoin, Dash. Instant email delivery. No account required. Start living on crypto!",
+    "provider": "bankless",
+    "provision": "international",
+    "value": "1 year Subsrcription",
+    "rate": 4.7,
+    "attention": "When redeeming this gift card at Bankless, you will need to share details of a fully functioning debit or credit card. Even though it will not be charged, these details are required.",
+    "info": "This gift card is only redeemable on the e-commerce platform"
+  },
+  {
+    "image": "/images/gift-cards/cherry-credits-international.webp",
+
+    "id": 8,
+    "info": "This gift card is redeemable on the e-commerce platform & at the physical store",
+    "provider": "cherry credit",
+    "provision": "Cherry credits Multi-Game",
+    "value": "54 - $80",
+    "rate": 4.7,
+    "description": "Unlock limitless gaming potential with your Bitcoin, ETH or Tether through Cherry Credits Gift Card! Cherry Credits (CC) is a virtual currency that enables you to buy and enjoy over 1,000 games and digital content for popular games such as Black Desert, Dragon Nest, and Travian:Legends, as well as serving as a payment method on Steam and Ubisoft Store."
+  },
+  {
+    "image": "/images/gift-cards/kinguin-gift-card-international.webp",
+
+    "id": 9,
+    "provider": "Kinguin Games Store EUR",
+    "provision": "International",
+    "value": "€54 - €80",
+    "rate": 4.7,
+    "description": "Kinguin Games Store offers a vast selection of over 95,000 games, DLCs, software, and unique skins for gamers worldwide. Buy Kinguin Games Store International with Bitcoin, Lightning, Ethereum, Binance Pay, USDT, USDC, or from 6000+ cryptos on LI.FI. Instant email delivery. No account required. Start living on crypto!",
+    "category": "gift cards",
+    "info": "This gift card is redeemable on the e-commerce platform & at the physical store"
+  },
+  {
+    "image": "/images/gift-cards/suregifts-generic-nigeria.webp",
+
+    "id": 10,
+    "provider": "Suregift Multibrand",
+    "provision": "International",
+    "value": "NGN500 - NGN500",
+    "rate": 4.7
+  }
+]

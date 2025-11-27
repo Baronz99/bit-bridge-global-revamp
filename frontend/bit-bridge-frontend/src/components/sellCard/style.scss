@@ -1,0 +1,37 @@
+.sellCard {
+  .ant-row {
+    label {
+      @apply text-white !important;
+    }
+    .ant-input-number {
+      width: 100%;
+      background: none;
+    }
+    .ant-select-selector {
+      background: none;
+      .ant-select-selection-item {
+        color: white;
+        .ant-select-selection-search-input,
+        input {
+          color: white !important;
+          &::placeholder {
+            color: white; // Replace with your desired color
+          }
+        }
+      }
+    }
+    .ant-select-dropdown {
+      background: none;
+    }
+    .ant-input,
+    .ant-input-number-input {
+      @apply border border-alt bg-zinc-900 text-white py-3;
+    }
+  }
+}
+
+.ant-select-dropdown,
+.ant-select-item {
+  // background: none !important;
+  // color: white;
+}

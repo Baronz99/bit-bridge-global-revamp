@@ -1,0 +1,20 @@
+.add-gift-token {
+  &.ant-modal {
+    .ant-modal-content {
+      background-color: white;
+
+      .ant-modal-close-x {
+        color: black;
+      }
+    }
+  }
+  // background-color: red;
+
+  .ant-form {
+    .ant-form-item {
+      .ant-input {
+        @apply text-black;
+      }
+    }
+  }
+}

@@ -1,0 +1,15 @@
+# Read about fixtures at https://api.rubyonrails.org/classes/ActiveRecord/FixtureSet.html
+
+one:
+  description: MyString
+  amount: 9.99
+  recipient_id: MyString
+  trasaction_id: MyString
+  account: one
+
+two:
+  description: MyString
+  amount: 9.99
+  recipient_id: MyString
+  trasaction_id: MyString
+  account: two

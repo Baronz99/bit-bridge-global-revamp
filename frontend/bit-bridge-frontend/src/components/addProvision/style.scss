@@ -1,0 +1,10 @@
+.provision {
+  // background-color: yellow;
+  .ant-col {
+    &.ant-form-item-label {
+      label {
+        color: white;
+      }
+    }
+  }
+}

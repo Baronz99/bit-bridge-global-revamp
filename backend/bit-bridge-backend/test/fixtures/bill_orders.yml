@@ -1,0 +1,27 @@
+# Read about fixtures at https://api.rubyonrails.org/classes/ActiveRecord/FixtureSet.html
+
+one:
+  status: 1
+  meter_number: MyString
+  amount: 9.99
+  meter_type: 1
+  phone: MyString
+  serviceID: MyString
+  service_type: MyString
+  payment_type: 1
+  email: MyString
+  tariff_class: MyString
+  name: MyString
+
+two:
+  status: 1
+  meter_number: MyString
+  amount: 9.99
+  meter_type: 1
+  phone: MyString
+  serviceID: MyString
+  service_type: MyString
+  payment_type: 1
+  email: MyString
+  tariff_class: MyString
+  name: MyString

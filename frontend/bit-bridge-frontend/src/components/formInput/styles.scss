@@ -1,0 +1,151 @@
+.formInput.ant-form-item {
+  :where(.ant-input-outlined).ant-input-status-error:not(.ant-input-disabled):hover {
+    background-color: transparent !important;
+    border-color: #ff4d4f !important; /* or any custom color */
+  }
+
+  :where(.css-dev-only-do-not-override-1x0dypw).ant-input-outlined.ant-input-status-error:not(
+      .ant-input-disabled
+    ):focus,
+  :where(.css-dev-only-do-not-override-1x0dypw).ant-input-outlined.ant-input-status-error:not(
+      .ant-input-disabled
+    ):focus-within {
+    background-color: transparent !important;
+  }
+
+  flex: 1;
+  .ant-col {
+    .ant-input-suffix {
+      .anticon {
+        color: rgb(190, 190, 190);
+      }
+    }
+
+    .ant-input-affix-wrapper,
+    input {
+      background: none;
+      font-size: 16px;
+
+      @apply border border-alt py-3 text-white;
+
+      &::placeholder {
+        @apply text-gray-500;
+      }
+      &.ant-input-password {
+        font-size: 16px;
+        padding: 0 6px;
+      }
+    }
+
+    // }
+
+    .ant-input-number {
+      background: none;
+      font-size: 16px;
+      @apply border border-alt  text-white;
+    }
+  }
+  .ant-form-item-control {
+    width: 100%;
+    .ant-input {
+      // padding: 10px;
+    }
+  }
+
+  &.whiteBg {
+    .ant-col {
+      input {
+        background: none;
+        @apply border border-alt text-black;
+
+        &::placeholder {
+          @apply text-gray-500;
+        }
+
+        &.ant-input-number {
+          background: none;
+          @apply border border-alt text-black;
+        }
+      }
+    }
+    .ant-form-item-control {
+      width: 100%;
+      .ant-input {
+        font-size: 16px;
+      }
+    }
+  }
+}
+
+.white-bg {
+  .formInput.ant-form-item {
+    // background-color: red;
+
+    flex: 1;
+    .ant-col {
+      label {
+        color: black !important;
+      }
+
+      .ant-input-suffix {
+        .anticon {
+          color: rgb(190, 190, 190);
+        }
+      }
+
+      .ant-input-affix-wrapper,
+      input {
+        background: none;
+        font-size: 16px;
+
+        @apply border border-primary py-3 text-black;
+
+        &::placeholder {
+          @apply text-gray-500;
+        }
+        &.ant-input-password {
+          font-size: 16px;
+          padding: 0 6px;
+        }
+      }
+
+      // }
+
+      .ant-input-number {
+        background: none;
+        font-size: 16px;
+        @apply border border-alt  text-white;
+      }
+    }
+    .ant-form-item-control {
+      width: 100%;
+      .ant-input {
+        // padding: 10px;
+      }
+    }
+
+    &.whiteBg {
+      .ant-col {
+        input {
+          background: none;
+          @apply border border-alt text-black;
+
+          &::placeholder {
+            @apply text-gray-500;
+          }
+
+          &.ant-input-number {
+            background: none;
+            @apply border border-alt text-black;
+          }
+        }
+      }
+      .ant-form-item-control {
+        width: 100%;
+        .ant-input {
+          font-size: 16px;
+        }
+      }
+    }
+  }
+}

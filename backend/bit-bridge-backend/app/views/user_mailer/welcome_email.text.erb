@@ -1,0 +1,15 @@
+Welcome to Bitbridge Global
+
+Hello <%= @user.user_profile.first_name %>,
+
+Thank you for registering with Bitbridge Global. Please confirm your email address to complete your account setup.
+
+Confirm your email by visiting this link:
+<%= @confirmation_url %>
+
+If you didn't request this, please ignore this email.
+
+---
+© <%= Time.current.year %> <%= @app_name %>. All rights reserved.
+<%= @app_name %>
+<%= @company_address %>

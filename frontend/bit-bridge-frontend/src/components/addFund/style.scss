@@ -1,0 +1,37 @@
+.add-fund {
+  .ant-row {
+    label {
+      @apply text-white !important;
+    }
+    .ant-input-number {
+      width: 100%;
+      background: none;
+      @apply border border-alt text-white;
+    }
+    .ant-select-selector {
+      background: none;
+      @apply border border-alt text-white;
+
+      .ant-select-selection-item {
+        color: white;
+      }
+    }
+    .ant-upload {
+      .ant-upload-select {
+        @apply border border-alt text-white;
+      }
+    }
+
+    .ant-select-dropdown {
+      background: none;
+    }
+    .ant-input,
+    .ant-input-number-input {
+      @apply border border-alt text-white py-2;
+    }
+  }
+  .ant-btn {
+    // background: #000;
+    width: 100%;
+  }
+}

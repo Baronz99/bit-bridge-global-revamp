@@ -1,0 +1,27 @@
+Purchase Confirmation - BitBridge Global
+
+Dear <%= @order.name %>,
+
+Thank you for your purchase with BitBridge Global. Your order has been successfully processed.
+
+Order Details:
+-------------
+Order Number: <%= @order.transaction_id %>
+Date: <%= @order.created_at.strftime("%B %d, %Y %H:%M") %>
+Total Amount: <%= number_to_currency(@order.amount) %>
+Payment Method: <%= @order.payment_method %>
+
+
+
+For any questions about your order, please contact our support team at support@bitbridgeglobal.com.
+
+Thank you for choosing BitBridge Global!
+
+---
+© <%= Time.current.year %> BitBridge Global. All rights reserved.
+BitBridge Global Inc.
+123 Financial District, Suite 456
+New York, NY 10005, USA
+
+Website: https://www.bitbridgeglobal.com
+Email: info@bitbridgeglobal.com

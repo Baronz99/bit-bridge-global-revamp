@@ -1,0 +1,29 @@
+# Read about fixtures at https://api.rubyonrails.org/classes/ActiveRecord/FixtureSet.html
+
+one:
+  cardholder_id: MyString
+  card_id: MyString
+  transaction_reference: MyString
+  card_type: MyString
+  card_brand: MyString
+  card_currency: MyString
+  card_limit: 9.99
+  funding_amount: 9.99
+  pin_encrypted: MyString
+  status: MyString
+  meta_data: 
+  user: one
+
+two:
+  cardholder_id: MyString
+  card_id: MyString
+  transaction_reference: MyString
+  card_type: MyString
+  card_brand: MyString
+  card_currency: MyString
+  card_limit: 9.99
+  funding_amount: 9.99
+  pin_encrypted: MyString
+  status: MyString
+  meta_data: 
+  user: two

@@ -1,0 +1,52 @@
+.admin {
+  aside {
+    background: linear-gradient(#15283c9d, #15283cfa), url('/backgrounds/pattern_h.png');
+
+    ul {
+      li {
+        a {
+          position: relative;
+          padding: 4px 0;
+          &:hover::after {
+            width: 0%;
+          }
+          &::after {
+            width: 0%;
+            @apply bg-primary;
+            // height: 3px;
+            // // content: "";
+            // position: absolute;
+            // height: 2px;
+            // bottom: 0px;
+            // left: 0;
+            // transition: all 0.3s ease-in-out ;
+          }
+
+          &.active {
+            @apply text-alt;
+            &::after {
+              width: 0%;
+            }
+          }
+        }
+      }
+    }
+  }
+
+  header {
+    background-color: white !important;
+  }
+
+  .ant-modal {
+    .ant-modal-content {
+      @apply bg-gray-100;
+    }
+
+    .ant-modal-header {
+      background: none;
+    }
+    .ant-modal-title {
+      @apply text-white;
+    }
+  }
+}

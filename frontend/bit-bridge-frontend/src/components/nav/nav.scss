@@ -1,0 +1,39 @@
+ul {
+  li {
+    a {
+      @apply text-alt;
+      position: relative;
+      padding: 4px 0;
+      &:hover::after {
+        width: 100%;
+      }
+      &::after {
+        width: 0%;
+        @apply bg-primary;
+        height: 3px;
+        content: '';
+        position: absolute;
+        height: 2px;
+        bottom: 0px;
+        left: 0;
+        transition: all 0.3s ease-in-out;
+      }
+
+      &.active {
+        &::after {
+          width: 100%;
+        }
+      }
+    }
+  }
+}
+
+.navslide {
+  .ant-btn {
+    background: none;
+    &:hover {
+      // background-color: purple !important;
+    }
+    @apply text-alt border border-alt hover:bg-primary;
+  }
+}

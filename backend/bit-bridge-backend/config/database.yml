@@ -1,0 +1,24 @@
+default: &default
+  adapter: postgresql
+  encoding: unicode
+  host: 127.0.0.1
+  port: 5432
+  username: postgres
+  password: Aftersix
+  pool: <%= ENV.fetch("RAILS_MAX_THREADS", 5) %>
+
+development:
+  <<: *default
+  database: bitbridge_dev
+
+test:
+  <<: *default
+  database: bitbridge_test
+
+# Production: leave it to ENV for now (this is for the live server, not your laptop)
+production:
+  url: <%= ENV["DATABASE_URL"] %>
+
+staging:
+  <<: *default
+  database: bitbridge_staging

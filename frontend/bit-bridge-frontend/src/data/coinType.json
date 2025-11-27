@@ -1,0 +1,22 @@
+[
+  {
+    "value": "BITCOIN",
+    "label": "BITCOIN"
+  },
+  {
+    "value": "usdt",
+    "label": "USDT"
+  },
+  {
+    "value": "ethereum",
+    "label": "ETHEREUM"
+  },
+  {
+    "value": "bank",
+    "label": "Bank Transfer "
+  },
+  {
+    "value": "dogecoin",
+    "label": "DOGECOIN "
+  }
+]

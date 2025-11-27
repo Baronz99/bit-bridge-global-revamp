@@ -1,0 +1,87 @@
+[
+  {
+    "id": 1,
+    "name": "playstation",
+    "image": "/images/sales/playstation-giftcard.png"
+  },
+  {
+    "id": 2,
+    "name": "visa",
+    "image": "/images/sales/visa-giftcard.png"
+  },
+  {
+    "id": 3,
+    "name": "norddtrom",
+    "image": "/images/sales/norddtrom-giftcard.png"
+  },
+  {
+    "id": 4,
+    "name": "vanilla",
+    "image": "/images//sales/vanilla-giftcard.png"
+  },
+  {
+    "id": 5,
+    "name": "american express",
+    "image": "/images/sales/american-express-giftcard.png"
+  },
+  {
+    "id": 6,
+    "name": "Google play",
+    "image": "/images//sales/google-play-giftcard.png"
+  },
+  {
+    "id": 7,
+    "name": "target",
+    "image": "/images/sales/target-giftcard.png"
+  },
+  {
+    "id": 8,
+    "name": "offgamers",
+    "image": "/images//sales/offgamers-giftcard.png"
+  },
+  {
+    "id": 9,
+    "name": "nike",
+    "image": "/images//sales/nike-giftcard.png"
+  },
+  {
+    "id": 10,
+    "name": "visa",
+    "image": "/images//sales/ebay-giftcard.png"
+  },
+  {
+    "id": 11,
+    "name": "green dot",
+    "image": "/images//sales/green-dot-giftcard.png"
+  },
+  {
+    "id": 12,
+    "name": "home depot",
+    "image": "/images//sales/home-depot-giftcard.png"
+  },
+  {
+    "id": 13,
+    "name": "macys",
+    "image": "/images//sales/macys-giftcard.png"
+  },
+  {
+    "id": 14,
+    "name": "apple universe",
+    "image": "/images//sales/apple-universe-giftcard.png"
+  },
+  {
+    "id": 15,
+    "name": "sephora",
+    "image": "/images//sales/sephora-giftcard.png"
+  },
+  {
+    "id": 16,
+    "name": "amazon",
+    "image": "/images//sales/amazon-giftcard.png"
+  },
+  {
+    "id": 17,
+    "name": "steam",
+    "image": "/images/sales/steam-giftcard.png"
+  }
+]

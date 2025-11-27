@@ -1,0 +1,33 @@
+.bg {
+  background:
+    linear-gradient(rgb(229 231 235), rgba(17, 24, 39, 0.103)),
+    url('/public/backgrounds/pattern_h.png');
+  @apply bg-gray-200/50;
+}
+
+html {
+  scroll-padding-top: 100px; /* Adjust based on header height */
+  scroll-behavior: smooth;
+}
+
+.no-scroll {
+  scrollbar-width: none;
+}
+::-webkit-scrollbar {
+  width: 10px;
+  background: #1350926c;
+}
+::-webkit-scrollbar-thumb {
+  background: gray;
+  border-radius: 10px;
+  cursor: pointer;
+}
+
+/* .no-scroll::-webkit-scrollbar{
+    scrollbar-width: none;
+
+} */
+
+/* colgroup{
+  color: #;
+} */

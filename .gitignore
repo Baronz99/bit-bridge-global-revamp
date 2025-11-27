@@ -1,0 +1,23 @@
+# --- Global ignore rules ---
+
+# Node / Vite
+node_modules/
+dist/
+
+# Rails
+log/
+tmp/
+storage/
+
+# OS / editor junk
+.DS_Store
+Thumbs.db
+.vscode/
+
+# 🔒 Never commit env files (backend + frontend)
+.env
+.env.*
+backend/bit-bridge-backend/.env
+backend/bit-bridge-backend/.env.*
+frontend/bit-bridge-frontend/.env
+frontend/bit-bridge-frontend/.env.*

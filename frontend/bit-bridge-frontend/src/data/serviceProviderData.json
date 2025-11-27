@@ -1,0 +1,65 @@
+[
+  {
+    "id": 1,
+    "provider": "mtn",
+    "provision": "Airtime",
+    "value": "5NGN - 50000NGN",
+    "rate": 4.7
+  },
+  {
+    "id": 2,
+
+    "provider": "mtn",
+    "provision": "Airtime",
+    "value": "5NGN - 50000NGN",
+    "rate": 4.7
+  },
+  {
+    "id": 3,
+
+    "provider": "ntel",
+    "provision": "Airtime",
+    "value": "5NGN - 50000NGN",
+    "rate": 4.7
+  },
+  {
+    "id": 4,
+
+    "provider": "mtn",
+    "provision": "Airtime",
+    "value": "5NGN - 50000NGN",
+    "rate": 4.7
+  },
+  {
+    "id": 5,
+
+    "provider": "mtn",
+    "provision": "Airtime",
+    "value": "5NGN - 50000NGN",
+    "rate": 4.7
+  },
+  {
+    "id": 6,
+
+    "provider": "9-mobile",
+    "provision": "Airtime",
+    "value": "5NGN - 50000NGN",
+    "rate": 4.7
+  },
+  {
+    "id": 7,
+
+    "provider": "glo",
+    "provision": "Airtime",
+    "value": "5NGN - 50000NGN",
+    "rate": 4.7
+  },
+  {
+    "id": 8,
+
+    "provider": "airtel",
+    "provision": "Airtime",
+    "value": "5NGN - 50000NGN",
+    "rate": 4.7
+  }
+]

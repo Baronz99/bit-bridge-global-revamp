@@ -1,0 +1,19 @@
+.ant-steps {
+  .ant-steps-item-icon {
+    .ant-steps-icon {
+      color: yellow !important;
+    }
+  }
+
+  .ant-steps-item-content {
+    .ant-steps-item-title {
+      color: white !important;
+    }
+  }
+}
+
+:where(.css-dev-only-do-not-override-1x0dypw).ant-steps
+  .ant-steps-item-finish
+  .ant-steps-item-icon {
+  background: gray;
+}

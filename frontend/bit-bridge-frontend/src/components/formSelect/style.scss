@@ -1,0 +1,65 @@
+.ant-form-item.formInput {
+  .ant-form-item-label {
+    label {
+      @apply text-white;
+    }
+  }
+
+  .ant-select {
+    .ant-select-selector {
+      background: none;
+      @apply border border-alt py-3 text-gray-200;
+    }
+  }
+  &.whiteBg {
+    label {
+      @apply text-black;
+    }
+    .ant-select {
+      .ant-select-selector {
+        @apply text-gray-800;
+      }
+    }
+  }
+}
+
+.ant-form {
+  .ant-form-item-label {
+    label {
+      @apply text-white;
+    }
+  }
+
+  .ant-select {
+    .ant-select-selector {
+      background: none;
+      @apply border border-alt py-3 text-gray-200;
+
+      .ant-select-selection-placeholder {
+        @apply text-gray-200/50;
+      }
+    }
+  }
+  &.whiteBg {
+    label {
+      @apply text-black;
+    }
+    .ant-select {
+      .ant-select-selector {
+        @apply text-gray-800;
+      }
+    }
+  }
+}
+
+.ant-select {
+  .ant-select-selector {
+    background: none;
+    @apply border border-alt py-3 text-gray-200;
+  }
+  &.whiteBg {
+    .ant-select-selector {
+      @apply border border-alt py-3 text-gray-800;
+    }
+  }
+}

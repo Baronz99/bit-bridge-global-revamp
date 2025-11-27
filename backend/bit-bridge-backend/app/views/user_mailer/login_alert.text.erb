@@ -1,0 +1,11 @@
+New Login Detected
+
+Hello <%= @user.user_profile&.last_name || @user.email%>,
+
+We noticed a new login to your BitBridge Global account
+Confirm your email by visiting this link:
+
+If you didn't request this, please ignore this email.
+
+---
+© <%= Time.current.year %> All rights reserved.
