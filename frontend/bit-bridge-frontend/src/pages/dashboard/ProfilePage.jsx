@@ -65,7 +65,7 @@ const ProfileAccountPage = () => {
       first_name: '',
       last_name: '',
       phone_number: '',
-      date_of_birth: '',        // 👈 NEW
+      date_of_birth: '',
       address_line1: '',
       address_line2: '',
       city: '',
@@ -80,6 +80,10 @@ const ProfileAccountPage = () => {
   const [bvn, setBvn] = useState('')
   const [nin, setNin] = useState('')
 
+  // NEW: local file state for uploads
+  const [idDocumentFile, setIdDocumentFile] = useState(null)
+  const [proofOfAddressFile, setProofOfAddressFile] = useState(null)
+
   // hydrate local state from Redux user (including address)
   useEffect(() => {
     if (user) {
@@ -91,7 +95,7 @@ const ProfileAccountPage = () => {
           first_name: up.first_name || '',
           last_name: up.last_name || '',
           phone_number: up.phone_number || '',
-          date_of_birth: up.date_of_birth || '',   // 👈 NEW
+          date_of_birth: up.date_of_birth || '',
           address_line1: up.address_line1 || '',
           address_line2: up.address_line2 || '',
           city: up.city || '',
@@ -104,6 +108,8 @@ const ProfileAccountPage = () => {
       // reset BVN/NIN when user changes, so they don't show stale values
       setBvn('')
       setNin('')
+      setIdDocumentFile(null)
+      setProofOfAddressFile(null)
     }
   }, [user])
 
@@ -111,28 +117,48 @@ const ProfileAccountPage = () => {
     try {
       dispatch(SET_LOADING(true))
 
-      // This payload matches what the backend expects for /basic_profile
-      const payload = {
-        id_type: userInfo.id_type || '',
-        user_profile_attributes: {
-          first_name: userInfo.user_profile.first_name,
-          last_name: userInfo.user_profile.last_name,
-          phone_number: userInfo.user_profile.phone_number,
-          date_of_birth: userInfo.user_profile.date_of_birth || null, // 👈 NEW
-          address_line1: userInfo.user_profile.address_line1,
-          address_line2: userInfo.user_profile.address_line2,
-          city: userInfo.user_profile.city,
-          state: userInfo.user_profile.state,
-          country: userInfo.user_profile.country,
-          postal_code: userInfo.user_profile.postal_code,
-          proof_of_address_type: userInfo.user_profile.proof_of_address_type,
-        },
+      // Build FormData so we can send files + nested attributes
+      const formData = new FormData()
+
+      formData.append('user[id_type]', userInfo.id_type || '')
+
+      formData.append('user[user_profile_attributes][first_name]', userInfo.user_profile.first_name || '')
+      formData.append('user[user_profile_attributes][last_name]', userInfo.user_profile.last_name || '')
+      formData.append('user[user_profile_attributes][phone_number]', userInfo.user_profile.phone_number || '')
+      formData.append(
+        'user[user_profile_attributes][date_of_birth]',
+        userInfo.user_profile.date_of_birth || ''
+      )
+      formData.append(
+        'user[user_profile_attributes][address_line1]',
+        userInfo.user_profile.address_line1 || ''
+      )
+      formData.append(
+        'user[user_profile_attributes][address_line2]',
+        userInfo.user_profile.address_line2 || ''
+      )
+      formData.append('user[user_profile_attributes][city]', userInfo.user_profile.city || '')
+      formData.append('user[user_profile_attributes][state]', userInfo.user_profile.state || '')
+      formData.append('user[user_profile_attributes][country]', userInfo.user_profile.country || '')
+      formData.append(
+        'user[user_profile_attributes][postal_code]',
+        userInfo.user_profile.postal_code || ''
+      )
+      formData.append(
+        'user[user_profile_attributes][proof_of_address_type]',
+        userInfo.user_profile.proof_of_address_type || ''
+      )
+
+      // Attach files only if selected
+      if (idDocumentFile) {
+        formData.append('user[id_document]', idDocumentFile)
       }
 
-      // NOTE: bvn / nin are *not* sent yet – they’ll be used later
-      // for real-time verification with a partner API.
+      if (proofOfAddressFile) {
+        formData.append('user[proof_of_address]', proofOfAddressFile)
+      }
 
-      await updateBasicProfile(payload)
+      await updateBasicProfile(formData, true)
 
       // Refresh Redux user so profile + KYC centre see fresh data
       await dispatch(userProfile())
@@ -254,7 +280,7 @@ const ProfileAccountPage = () => {
               />
             </div>
 
-            {/* 👇 NEW: Date of birth field */}
+            {/* Date of birth */}
             <div>
               <label className="block text-sm font-medium text-gray-700">Date of birth</label>
               <input
@@ -353,21 +379,22 @@ const ProfileAccountPage = () => {
               )}
             </div>
 
-            {/* Upload ID – only for passport / driver’s licence (still disabled for now) */}
+            {/* Upload ID – now active when appropriate */}
             {(userInfo.id_type === 'drivers_license' ||
               userInfo.id_type === 'intl_passport') && (
               <div className="md:col-span-2">
                 <label className="block text-sm font-medium text-gray-700">
-                  Upload ID (coming soon)
+                  Upload ID document
                 </label>
                 <input
                   type="file"
                   accept="image/*,application/pdf"
-                  disabled
-                  className="mt-1 block w-full md:w-1/2 rounded-md border border-gray-300 p-2 bg-gray-100 text-gray-500 cursor-not-allowed"
+                  onChange={(e) => setIdDocumentFile(e.target.files?.[0] || null)}
+                  className="mt-1 block w-full md:w-1/2 rounded-md border border-gray-300 p-2 bg-white"
                 />
                 <p className="mt-1 text-xs text-gray-500">
-                  ID upload will be enabled when document storage is configured.
+                  You can upload a clear photo or PDF of your ID. If you upload again, it will
+                  replace the previous file.
                 </p>
               </div>
             )}
@@ -523,6 +550,23 @@ const ProfileAccountPage = () => {
                       </option>
                     ))}
                   </select>
+                </div>
+
+                {/* NEW: Proof of address upload */}
+                <div className="md:col-span-2">
+                  <label className="block text-sm font-medium text-gray-700">
+                    Upload proof of address
+                  </label>
+                  <input
+                    type="file"
+                    accept="image/*,application/pdf"
+                    onChange={(e) => setProofOfAddressFile(e.target.files?.[0] || null)}
+                    className="mt-1 block w-full md:w-1/2 rounded-md border border-gray-300 p-2 bg-white"
+                  />
+                  <p className="mt-1 text-xs text-gray-500">
+                    Example: utility bill, bank statement, or rent receipt showing your address.
+                    Optional, but helps unlock higher KYC tiers later.
+                  </p>
                 </div>
               </div>
             </div>

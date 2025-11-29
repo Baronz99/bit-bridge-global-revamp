@@ -3,13 +3,24 @@ import axios from 'axios'
 import { API_BASE_URL } from './config'
 
 // small helper so all onboarding calls send the JWT
-function authHeaders() {
+// now accepts an optional options object for special cases (e.g. multipart)
+function authHeaders(options = {}) {
   const token = localStorage.getItem('bitglobal')
 
-  return {
+  const base = {
     Accept: 'application/json',
-    'Content-Type': 'application/json',
     ...(token ? { Authorization: `Bearer ${token}` } : {}),
+  }
+
+  // For multipart/form-data we let the browser/axios set the Content-Type with boundary
+  if (options.multipart) {
+    return base
+  }
+
+  // Default: JSON requests
+  return {
+    ...base,
+    'Content-Type': 'application/json',
   }
 }
 
@@ -24,12 +35,23 @@ export async function saveOnboardingStage({ onboarding_stage }) {
 }
 
 // ---- 2) Basic + address profile (used by ProfileAccountPage) ----
-// NOTE: we expect a payload shaped like:
-// {
-//   id_type,
-//   user_profile_attributes: { first_name, last_name, phone_number, ... }
-// }
-export async function updateBasicProfile(payload) {
+// NOTE:
+// - If you call updateBasicProfile(payload)         -> sends JSON (old behaviour)
+// - If you call updateBasicProfile(formData, true) -> sends FormData (for file uploads)
+export async function updateBasicProfile(payload, isFormData = false) {
+  if (isFormData) {
+    // FormData path (for ID document + proof of address uploads)
+    const res = await axios.patch(
+      `${API_BASE_URL}/api/v1/users/basic_profile`,
+      payload,
+      {
+        headers: authHeaders({ multipart: true }),
+      }
+    )
+    return res.data
+  }
+
+  // Existing JSON behaviour (backwards compatible)
   const res = await axios.patch(
     `${API_BASE_URL}/api/v1/users/basic_profile`,
     {

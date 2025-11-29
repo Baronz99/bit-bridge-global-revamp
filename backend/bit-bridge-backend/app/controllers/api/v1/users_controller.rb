@@ -177,6 +177,8 @@ module Api
 
       # ========= BASIC PROFILE / LIGHT KYC =========
 
+            # ========= BASIC PROFILE / LIGHT KYC =========
+
       def basic_profile
         unless current_user
           return render json: { message: 'Not authenticated' }, status: :unauthorized
@@ -190,17 +192,28 @@ module Api
           profile = current_user.user_profile || current_user.build_user_profile
           profile.assign_attributes(profile_attrs)
 
+          # 🔹 Handle optional file uploads (ID & proof of address)
+          if params[:user].present?
+            if params[:user][:id_document].present?
+              profile.id_document.attach(params[:user][:id_document])
+            end
+
+            if params[:user][:proof_of_address].present?
+              profile.proof_of_address.attach(params[:user][:proof_of_address])
+            end
+          end
+
           unless profile.save
             raise ActiveRecord::Rollback, profile.errors.full_messages.to_sentence
           end
 
           current_user.id_type = id_type if id_type.present?
 
-          has_names    = profile.first_name.present? && profile.last_name.present?
-          has_phone    = profile.phone_number.present?
-          has_id_type  = current_user.id_type.present?
-          has_address  = profile.address_line1.present? && profile.city.present? && profile.country.present?
-          has_proof    = profile.proof_of_address_type.present?
+          has_names   = profile.first_name.present? && profile.last_name.present?
+          has_phone   = profile.phone_number.present?
+          has_id_type = current_user.id_type.present?
+          has_address = profile.address_line1.present? && profile.city.present? && profile.country.present?
+          has_proof   = profile.proof_of_address_type.present?
 
           if has_names && has_phone && has_id_type && has_address && has_proof
             if current_user.kyc_level.blank? || current_user.kyc_level == 'tier_0'
@@ -222,6 +235,7 @@ module Api
       rescue StandardError => e
         render json: { message: e.message }, status: :unprocessable_entity
       end
+
 
       # ========= CHANGE PASSWORD WHILE LOGGED IN =========
 
@@ -325,9 +339,11 @@ module Api
       end
 
       # For /basic_profile
-      def basic_profile_params
+            def basic_profile_params
         params.require(:user).permit(
           :id_type,
+          :id_document,        # 🔹 file field for ID
+          :proof_of_address,   # 🔹 file field for proof of address
           user_profile_attributes: %i[
             id
             first_name
@@ -343,6 +359,7 @@ module Api
           ]
         )
       end
+
 
       def generate_reset_token(user)
         raw, hashed = Devise.token_generator.generate(User, :reset_password_token)
