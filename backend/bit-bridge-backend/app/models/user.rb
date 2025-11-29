@@ -19,6 +19,9 @@ class User < ApplicationRecord
 
   accepts_nested_attributes_for :user_profile
 
+  # 👇 NEW: auto-confirm in staging
+  before_create :skip_confirmation_in_staging
+
   after_create :initialize_wallet
 
   default_scope { order(created_at: :desc) }
@@ -68,5 +71,13 @@ class User < ApplicationRecord
 
   def revoke_refresh_token!
     update!(refresh_token: nil, refresh_token_expires_at: nil)
+  end
+
+  private
+
+  # ✅ In staging, we don't want email confirmation to block demos,
+  # so we mark users as confirmed immediately.
+  def skip_confirmation_in_staging
+    skip_confirmation! if Rails.env.staging?
   end
 end
