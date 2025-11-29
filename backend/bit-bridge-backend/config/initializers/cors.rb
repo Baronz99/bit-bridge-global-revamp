@@ -1,19 +1,14 @@
-# frozen_string_literal: true
-
-# Be sure to restart your server when you modify this file.
-
-# Avoid CORS issues when API is called from the frontend app.
-# Handle Cross-Origin Resource Sharing (CORS) in order to accept cross-origin Ajax requests.
-
-# Read more: https://github.com/cyu/rack-cors
+# backend/bit-bridge-backend/config/initializers/cors.rb
 
 Rails.application.config.middleware.insert_before 0, Rack::Cors do
   allow do
-    origins '*'
+    origins 'http://localhost:3000',
+            'http://localhost:5173',
+            'https://startling-quokka-158897.netlify.app'
 
     resource '*',
              headers: :any,
-             expose: %w[Authorization Bit-Refresh-Token],
+             expose: ['Authorization'],
              methods: %i[get post put patch delete options head]
   end
 end
