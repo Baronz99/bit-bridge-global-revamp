@@ -33,14 +33,13 @@ const ViewUser = () => {
   const [transactionType, setTransactionType] = useState('deposit')
   const [formLayout] = useState('vertical')
 
-  useEffect(() => {
-    dispatch(getUser(id))
-  }, [])
-
   const [form] = Form.useForm()
 
+  useEffect(() => {
+    dispatch(getUser(id))
+  }, [dispatch, id])
+
   const handleSubmit = (values) => {
-    console.log(values)
     dispatch(SET_LOADING(true))
     dispatch(
       createUserTransaction({
@@ -84,8 +83,8 @@ const ViewUser = () => {
       }
     })
   }
+
   const handleUserstatus = () => {
-    console.log(user.active, user?.active ? false : true)
     dispatch(
       userUpdate({
         id,
@@ -109,50 +108,156 @@ const ViewUser = () => {
   const fromPos = activePage * no_items
   const toPos = no_items + fromPos
 
+  // ---------------------------
+  // 🔎 Derived profile & KYC info
+  // ---------------------------
+  const profile = user?.user_profile || {}
+
+  const fullName =
+    [profile.first_name, profile.last_name].filter(Boolean).join(' ') || 'Not provided'
+
+  const phoneNumber = profile.phone_number || 'Not provided'
+
+  const addressParts = [
+    profile.address_line1,
+    profile.address_line2,
+    profile.city,
+    profile.state,
+    profile.country,
+  ].filter(Boolean)
+
+  const addressDisplay = addressParts.length > 0 ? addressParts.join(', ') : 'Not provided'
+
+  const primaryUseCaseMap = {
+    send_receive: 'Send & receive money',
+    virtual_cards: 'Virtual cards & online spend',
+    airtime_utilities: 'Airtime, data & utilities',
+    taxes: 'Taxes & statutory payments',
+    student_life: 'Student life & campus spend',
+  }
+
+  const primaryUseCaseLabel =
+    (user?.primary_use_case && primaryUseCaseMap[user.primary_use_case]) ||
+    user?.primary_use_case ||
+    'Not set'
+
+  const onboardingStageLabel = user?.onboarding_stage
+    ? user.onboarding_stage.replace(/_/g, ' ')
+    : 'Not set'
+
+  const kycLevelLabel = user?.kyc_level || 'Not set'
+  const idTypeLabel = user?.id_type ? user.id_type.toUpperCase() : 'Not provided'
+
+  const isStudentUseCase = user?.primary_use_case === 'student_life'
+
   return (
     <>
       <div className="pt-5">
         <span
-          className="mb-5 bg-gray-50 shadow w-max p-3 rounded block"
+          className="mb-5 bg-gray-50 shadow w-max p-3 rounded block cursor-pointer"
           onClick={() => navigate(-1)}
         >
           <FaArrowLeft />
         </span>
 
         <div className="bg-white p-4 rounded-lg shadow ">
+          {/* Top summary: existing info + extended profile/KYC block */}
           <div className="flex flex-col md:flex-row justify-between">
             <div>
-              <p className="text-gray-500 font-semibold my-6">
-                {' '}
-                <span className="text-gray-800 font-semibold">Email</span> : {user?.email}{' '}
+              <p className="text-gray-500 font-semibold my-2">
+                <span className="text-gray-800 font-semibold">Email</span> : {user?.email ?? '—'}
               </p>
-              <p>
-                <span className="text-gray-800 font-semibold  my-6">Balance</span> :{' '}
-                <span> {nairaFormat(user?.wallet?.balance)}</span>
+              <p className="text-gray-500 font-semibold my-2">
+                <span className="text-gray-800 font-semibold">Balance</span> :{' '}
+                <span>{nairaFormat(user?.wallet?.balance)}</span>
               </p>
-              <p className="my-6">
+              <p className="my-2">
                 <span className="text-gray-800 font-semibold capitalize">Status</span> :{' '}
-                <span className="capitalize">{user?.status ?? 'Active'} </span>
+                <span className="capitalize">{user?.status ?? 'Active'}</span>
               </p>
             </div>
 
             <div>
-              <p className="text-gray-600 font-semibold  my-6">
-                {' '}
-                <span>USER ID </span>: {id}{' '}
+              <p className="text-gray-600 font-semibold my-2">
+                <span>USER ID </span>: {id}
               </p>
-              <p className=" my-6">
-                <span className="text-gray-800 font-semibold capitalize"> Type:</span>{' '}
-                <span className=" text-gray-800 font-semibold capitalize  "> {user?.role}</span>
+              <p className="my-2">
+                <span className="text-gray-800 font-semibold capitalize">Type:</span>{' '}
+                <span className="text-gray-800 font-semibold capitalize">
+                  {user?.role || 'user'}
+                </span>
               </p>
-              <p className=" my-6">
-                <span className="text-gray-800 font-semibold capitalize"></span> Wallet:{' '}
-                <span className=""> {'NGN'}</span>{' '}
+              <p className="my-2">
+                <span className="text-gray-800 font-semibold capitalize">Wallet:</span>{' '}
+                <span>NGN</span>
               </p>
             </div>
           </div>
+
+          {/* NEW: Profile & KYC / onboarding summary */}
+          <div className="mt-6 border-t pt-4 grid gap-4 md:grid-cols-2 lg:grid-cols-3 text-sm">
+            <div>
+              <p className="text-gray-500 uppercase text-xs font-semibold mb-1">
+                Full name
+              </p>
+              <p className="text-gray-900 font-medium">{fullName}</p>
+            </div>
+
+            <div>
+              <p className="text-gray-500 uppercase text-xs font-semibold mb-1">
+                Phone
+              </p>
+              <p className="text-gray-900">{phoneNumber}</p>
+            </div>
+
+            <div>
+              <p className="text-gray-500 uppercase text-xs font-semibold mb-1">
+                Primary use case
+              </p>
+              <p className="text-gray-900 font-medium">
+                {primaryUseCaseLabel}
+                {isStudentUseCase && (
+                  <span className="ml-2 inline-flex items-center rounded-full bg-blue-50 px-2 py-0.5 text-[10px] font-semibold text-blue-700 border border-blue-100">
+                    Student
+                  </span>
+                )}
+              </p>
+            </div>
+
+            <div>
+              <p className="text-gray-500 uppercase text-xs font-semibold mb-1">
+                Onboarding stage
+              </p>
+              <p className="text-gray-900 capitalize">{onboardingStageLabel}</p>
+            </div>
+
+            <div>
+              <p className="text-gray-500 uppercase text-xs font-semibold mb-1">
+                KYC level
+              </p>
+              <p className="text-gray-900 font-medium">{kycLevelLabel}</p>
+            </div>
+
+            <div>
+              <p className="text-gray-500 uppercase text-xs font-semibold mb-1">
+                ID type
+              </p>
+              <p className="text-gray-900">{idTypeLabel}</p>
+            </div>
+
+            <div className="md:col-span-2 lg:col-span-3">
+              <p className="text-gray-500 uppercase text-xs font-semibold mb-1">
+                Address
+              </p>
+              <p className="text-gray-900">{addressDisplay}</p>
+            </div>
+          </div>
+
+          {/* Wallet summary row (unchanged, just moved down slightly) */}
           <div
-            className={`${!user?.active && 'bg-red-700'} px-4 py-10 border-t border-b flex justify-between items-center`}
+            className={`mt-6 px-4 py-10 border-t border-b flex justify-between items-center ${
+              !user?.active && 'bg-red-700'
+            }`}
           >
             <div>
               <p className="font-medium">Wallet ID</p>
@@ -165,6 +270,7 @@ const ViewUser = () => {
             <ClickButton onClick={() => setOpenAccountModal(true)}>Fund Account</ClickButton>
           </div>
 
+          {/* Transactions table (existing) */}
           <div className="overflow-x-auto">
             <div className="">
               <div className="mt-4 flow-root">
@@ -237,13 +343,11 @@ const ViewUser = () => {
                             <tr key={item?.id}>
                               <td className="whitespace-nowrap w-20 border-b capitalize border-gray-200 px-3 py-3 text-sm text-gray-600/90  font-semibold ">
                                 <p className="font-bold">
-                                  {' '}
                                   <span>{index + fromPos + 1}</span>
                                 </p>
                               </td>
                               <td className="whitespace-nowrap border-b capitalize border-gray-200 px-3 py-3 text-sm text-gray-600/90  font-semibold ">
                                 <p className="font-bold">
-                                  {' '}
                                   <span className={`${pickTextColor(item?.transaction_type)}`}>
                                     {item?.transaction_type}
                                   </span>
@@ -254,28 +358,20 @@ const ViewUser = () => {
                               </td>
                               <td className="relative max-w-40 whitespace-nowrap border-b border-gray-200 py-3 pr-4 pl-3 text-left text-gray-900 text-sm sm:pr-8 lg:pr-8">
                                 {item?.bank ?? 'Not Available'}
-                              </td>{' '}
+                              </td>
                               <td className="relative max-w-40 whitespace-nowrap border-b border-gray-200 py-3 pr-4 pl-3 text-left text-gray-900 text-sm sm:pr-8 lg:pr-8">
                                 {item?.address ?? 'Not Available'}
                               </td>
                               <td className="relative whitespace-nowrap border-b border-gray-200 py-3 pr-4 pl-3 text-left text-gray-900 text-sm sm:pr-8 lg:pr-8">
                                 <span
-                                  className={`${statusStyle(item?.status)} py-1 w-full max-w-[200px] block  text-center px-3 border rounded-3xl`}
+                                  className={`${statusStyle(
+                                    item?.status
+                                  )} py-1 w-full max-w-[200px] block  text-center px-3 border rounded-3xl`}
                                 >
                                   {item?.status}
                                 </span>
                               </td>
-                              {/* <td className="relative whitespace-nowrap border-b border-gray-200 py-3 pr-4 pl-3 text-left text-gray-900 text-sm sm:pr-8 lg:pr-8">
-                                        <span className={` py-1 inline-block text-center px-3 rounded-3xl`}>
-                                            <img onClick={()=> {
-                                                setToggle(true)
-                                                setViewImage(item?.proof_url)
-                                            }} src= {item?.proof_url} className="w-20 border border-y-gray-400 h-20" alt="" />
-                                       
-                                        </span>
-                                        
 
-                                    </td>  */}
                               <td className="relative whitespace-nowrap border-b text-left border-gray-200 py-3 pr-4 pl-3 text-gray-900  text-sm sm:pr-8 lg:pr-8">
                                 {dateFormater(item?.created_at)}
                               </td>
@@ -306,7 +402,9 @@ const ViewUser = () => {
                         <span
                           onClick={() => setActivePage(index)}
                           key={index}
-                          className={`${activePage === index ? 'bg-gray-300' : 'bg-gray-100'}  border cursor-pointer0 px-4 rounded shadow`}
+                          className={`${
+                            activePage === index ? 'bg-gray-300' : 'bg-gray-100'
+                          }  border cursor-pointer0 px-4 rounded shadow`}
                         >
                           {index}
                         </span>
@@ -325,6 +423,7 @@ const ViewUser = () => {
             </div>
           </div>
 
+          {/* User purchases table (existing) */}
           <div className="overflow-x-auto">
             <div className="">
               <h3 className="text-xl font-semibold text-gray-700">User Purchases</h3>
@@ -338,7 +437,6 @@ const ViewUser = () => {
                             scope="col"
                             className="sticky top-0 z-10 border-b border-gray-200/50  bg-opacity-75 py-3.5 pl-4 pr-3 text-left text-xs font-semibold text-gray-900 backdrop-blur backdrop-filter sm:pl-6 lg:pl-8"
                           >
-                            {' '}
                             Email
                           </th>
                           <th
@@ -369,7 +467,7 @@ const ViewUser = () => {
                             scope="col"
                             className="sticky top-0 z-0  border-b border-gray-200/50 bg- bg-opacity-75 px-3 py-3.5 text-left text-xs font-semibold text-gray-900 backdrop-blur backdrop-filter lg:table-cell"
                           >
-                            Time{' '}
+                            Time
                           </th>
                           <th
                             scope="col"
@@ -393,7 +491,9 @@ const ViewUser = () => {
                           user?.bill_orders?.slice(0, 10).map((item) => (
                             <tr key={item?.id}>
                               <td className="whitespace-nowrap border-b border-gray-200 py-2 pl-3 pr-3 text-sm font-normal sm:pl-6 lg:pl-8">
-                                <p className="font-medium text-gray-600 leading-5">{item.email} </p>
+                                <p className="font-medium text-gray-600 leading-5">
+                                  {item.email}
+                                </p>
                               </td>
                               <td className="whitespace-nowrap  border-b border-gray-200 hidden px-3 py-4 text-sm text-gray-900 font-normal sm:table-cell capitalize">
                                 {item.service_type}
@@ -405,13 +505,10 @@ const ViewUser = () => {
                                 {item.status}
                               </td>
 
-                              {/* <td className="whitespace-nowrap border-b border-gray-200 hidden px-3 py-3 text-sm text-gray-600 sm:table-cell text-left"><span className="rounded-xl  text-xs border border-gray-200 py-1 px-2.5"> <span className= "text-base <%=set_empt_status(user.status)%>"> &#x2022;</span> <span></span></span></td> */}
                               <td className="relative whitespace-nowrap font-semibold border-b border-gray-200 py-3 pr-4 pl-3 text-left text-gray-900 text-sm sm:pr-8 lg:pr-8">
                                 <p className="font-bold">
                                   {nairaFormat(item?.total_amount, 'ngn')}
                                 </p>
-
-                                {/* {item?.order_items[0].amount ?? "Not Available"} */}
                               </td>
 
                               <td className="relative whitespace-nowrap border-b text-left border-gray-200 py-3 pr-4 pl-3 text-gray-900  text-sm sm:pr-8 lg:pr-8">
@@ -446,6 +543,7 @@ const ViewUser = () => {
         </div>
       </div>
 
+      {/* Approve / decline order modal */}
       <AppModal handleCancel={() => setOpen(false)} isModalOpen={open} title={'Approve Orders'}>
         <div className="flex my-6 justify-between">
           <ClickButton onClick={() => handleOrderUpdate('declined')} btnType="decline">
@@ -455,6 +553,7 @@ const ViewUser = () => {
         </div>
       </AppModal>
 
+      {/* Fund account modal */}
       <AppModal
         className={'white-bg'}
         handleCancel={() => setOpenAccountModal(false)}
@@ -465,13 +564,21 @@ const ViewUser = () => {
           <div className="flex gap-4 my-4">
             <button
               onClick={() => setTransactionType('deposit')}
-              className={`${transactionType == 'deposit' ? 'bg-alt text-primary' : 'bg-primary text-white'}  px-4 py-2 rounded-lg `}
+              className={`${
+                transactionType == 'deposit'
+                  ? 'bg-alt text-primary'
+                  : 'bg-primary text-white'
+              }  px-4 py-2 rounded-lg `}
             >
               Depodit
             </button>
             <button
               onClick={() => setTransactionType('withdrawal')}
-              className={`${transactionType == 'withdrawal' ? 'bg-alt text-primary' : 'bg-primary text-white'}  px-4 py-2 rounded-lg `}
+              className={`${
+                transactionType == 'withdrawal'
+                  ? 'bg-alt text-primary'
+                  : 'bg-primary text-white'
+              }  px-4 py-2 rounded-lg `}
             >
               Withdrawal
             </button>
@@ -519,6 +626,7 @@ const ViewUser = () => {
         </div>
       </AppModal>
 
+      {/* Activate / deactivate modal */}
       <AppModal
         className={'white-bg'}
         handleCancel={() => setOpenActivate(false)}
@@ -529,7 +637,7 @@ const ViewUser = () => {
           <ClickButton onClick={() => setOpenActivate(false)} btnType="decline">
             Cancel
           </ClickButton>
-          <ClickButton onClick={() => handleUserstatus('approved')}>
+          <ClickButton onClick={handleUserstatus}>
             {user?.active ? 'Deactivate Account' : 'Activate Account'}
           </ClickButton>
         </div>
