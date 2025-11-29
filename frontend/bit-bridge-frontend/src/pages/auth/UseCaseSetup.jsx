@@ -91,10 +91,22 @@ const UseCaseSetup = () => {
   const [selectedUseCase, setSelectedUseCase] = useState('')
   const [saving, setSaving] = useState(false)
 
+  // 👇 Greeting name (unchanged – still used only for the heading)
   const firstName =
     user?.user_profile?.first_name ||
     user?.email?.split('@')[0] ||
     'there'
+
+  // 👇 NEW: actual profile fields the user can edit on this step
+  const [profileFirstName, setProfileFirstName] = useState(
+    user?.user_profile?.first_name || ''
+  )
+  const [profileLastName, setProfileLastName] = useState(
+    user?.user_profile?.last_name || ''
+  )
+  const [dob, setDob] = useState(
+    user?.user_profile?.date_of_birth || ''
+  )
 
   // KYC summary box under the cards
   const selectedKycConfig = useMemo(
@@ -105,13 +117,24 @@ const UseCaseSetup = () => {
   const handleContinue = async () => {
     if (!selectedUseCase || saving) return
 
+    // 👇 Simple validation for the new fields
+    if (!profileFirstName || !profileLastName || !dob) {
+      alert('Please enter your first name, last name, and date of birth.')
+      return
+    }
+
     try {
       setSaving(true)
 
-      // Save choice + mark onboarding stage
+      // Save choice + mark onboarding stage + basic profile
       await saveOnboardingUseCase({
         primary_use_case: selectedUseCase,
         onboarding_stage: 'use_case_selected',
+        user_profile_attributes: {
+          first_name: profileFirstName,
+          last_name: profileLastName,
+          date_of_birth: dob,
+        },
       })
 
       // Refresh user in Redux so dashboard/banner sees new values
@@ -160,6 +183,53 @@ const UseCaseSetup = () => {
           and recommendations. You can still use other features later.
         </p>
 
+        {/* 👇 NEW: Tell us about yourself */}
+        <section className="mb-8">
+          <h2 className="text-sm font-semibold mb-3">
+            Tell us about yourself
+          </h2>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+            <div>
+              <label className="block text-xs font-medium mb-1 text-slate-300">
+                First name
+              </label>
+              <input
+                type="text"
+                value={profileFirstName}
+                onChange={(e) => setProfileFirstName(e.target.value)}
+                className="w-full rounded-xl border border-slate-700 bg-slate-900 px-3 py-2 text-sm outline-none focus:border-alt"
+                placeholder="e.g. John"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-medium mb-1 text-slate-300">
+                Last name
+              </label>
+              <input
+                type="text"
+                value={profileLastName}
+                onChange={(e) => setProfileLastName(e.target.value)}
+                className="w-full rounded-xl border border-slate-700 bg-slate-900 px-3 py-2 text-sm outline-none focus:border-alt"
+                placeholder="e.g. Doe"
+              />
+            </div>
+          </div>
+
+          <div className="max-w-xs">
+            <label className="block text-xs font-medium mb-1 text-slate-300">
+              Date of birth
+            </label>
+            <input
+              type="date"
+              value={dob}
+              onChange={(e) => setDob(e.target.value)}
+              className="w-full rounded-xl border border-slate-700 bg-slate-900 px-3 py-2 text-sm outline-none focus:border-alt"
+            />
+          </div>
+        </section>
+
         {/* Use-case cards */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
           {useCases.map((uc) => {
@@ -200,7 +270,10 @@ const UseCaseSetup = () => {
                 {selectedKycConfig.title}
               </h2>
               <p className="text-[11px] text-slate-400 mb-1">
-                Target KYC level: <span className="font-semibold text-alt">{selectedKycConfig.level}</span>
+                Target KYC level:{' '}
+                <span className="font-semibold text-alt">
+                  {selectedKycConfig.level}
+                </span>
               </p>
               <ul className="mt-1 space-y-1 text-[12px] text-slate-300">
                 {selectedKycConfig.points.map((point) => (

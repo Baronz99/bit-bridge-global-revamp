@@ -37,20 +37,27 @@ module Api
       #
       # Expect params like:
       # {
-      #   primary_use_case: "send_and_receive"
+      #   primary_use_case: "send_and_receive",
+      #   onboarding_stage: "use_case_selected",        # optional, we override to this anyway
+      #   user_profile_attributes: {
+      #     first_name: "John",
+      #     last_name: "Doe",
+      #     date_of_birth: "1995-01-01"
+      #   }
       # }
       def update_use_case
-        use_case = params[:primary_use_case]
+        attrs = use_case_params
+        use_case = attrs[:primary_use_case]
 
         unless use_case.present?
           return render json: { errors: ['primary_use_case is required'] },
                         status: :unprocessable_entity
         end
 
-        current_user.update!(
-          primary_use_case: use_case,
-          onboarding_stage: 'use_case_selected'
-        )
+        # Always force the stage to "use_case_selected" when this endpoint is hit
+        attrs[:onboarding_stage] = 'use_case_selected'
+
+        current_user.update!(attrs)
 
         render json: UserSerializer.new(current_user).as_json, status: :ok
       rescue ActiveRecord::RecordInvalid => e
@@ -91,6 +98,16 @@ module Api
           :last_name,
           :phone_number,
           :date_of_birth
+        )
+      end
+
+      # ✅ New: strong params for the use-case step,
+      # accepting nested user_profile_attributes.
+      def use_case_params
+        params.permit(
+          :primary_use_case,
+          :onboarding_stage,
+          user_profile_attributes: %i[first_name last_name date_of_birth]
         )
       end
     end

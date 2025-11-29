@@ -48,7 +48,7 @@ Rails.application.routes.draw do
         collection do
           post :fund_wallet
           post :register_cardholder
-          get :user_card
+          get  :user_card
           post :create_card
         end
       end
@@ -58,13 +58,13 @@ Rails.application.routes.draw do
       resources :accounts do
         collection do
           post :verify_kyc
-          get :get_account_number
-          get :user_accounts
-          get :get_user_account_detail
-          get :get_account_details
-          get :get_banks
+          get  :get_account_number
+          get  :user_accounts
+          get  :get_user_account_detail
+          get  :get_account_details
+          get  :get_banks
 
-          get :verify_transfer
+          get  :verify_transfer
           post :initiate_fund_transfer
           post :create_counter_party
         end
@@ -87,8 +87,8 @@ Rails.application.routes.draw do
           post :payment_order
           post :verify_meter
           post :process_payment
-          get :get_balance
-          get :get_price_list
+          get  :get_balance
+          get  :get_price_list
         end
         member do
           get :approve_data
@@ -115,7 +115,7 @@ Rails.application.routes.draw do
         collection do
           post :initialize_transaction
           post :create_user
-          get :user
+          get  :user
         end
       end
 
@@ -140,7 +140,7 @@ Rails.application.routes.draw do
         end
 
         member do
-          get :initialize_confirm_payment
+          get   :initialize_confirm_payment
           patch :initialize_confirm_payment
           patch :confirm_bill_payment
         end
@@ -149,8 +149,8 @@ Rails.application.routes.draw do
       resources :paystack_transactions do
         collection do
           post :initialize_payment
-          get :verify_payment
-          get :list_payments
+          get  :verify_payment
+          get  :list_payments
         end
 
         member do
@@ -170,14 +170,14 @@ Rails.application.routes.draw do
           patch :user_update
           patch :update_password          # used by reset-password form
           patch :user_password_update
-          post :password_reset           # send reset email
-          get  :password_reset           # optional: supports GET /users/password_reset?email=...
+          post  :password_reset           # send reset email
+          get   :password_reset           # optional: supports GET /users/password_reset?email=...
           patch :activate_user
-          get :resend_confirmation_token
+          get   :resend_confirmation_token
           patch :onboarding_stage
           patch :basic_profile
-    patch :use_case
-    patch :update_kyc_level
+          patch :use_case                # <- existing use_case route kept
+          patch :update_kyc_level
         end
       end
 
