@@ -35,7 +35,6 @@ const useCases = [
 ]
 
 // --- Simple KYC requirement matrix per use case ---
-// (we'll enforce this in the UX and later on the backend)
 const KYC_REQUIREMENTS = {
   salary: {
     level: 'tier_2',
@@ -89,26 +88,25 @@ const UseCaseSetup = () => {
   const { user } = useSelector((state) => state.auth)
 
   const [selectedUseCase, setSelectedUseCase] = useState('')
+
+  // new basic-profile fields on this step
+  const [firstNameInput, setFirstNameInput] = useState(
+    user?.user_profile?.first_name || ''
+  )
+  const [lastNameInput, setLastNameInput] = useState(
+    user?.user_profile?.last_name || ''
+  )
+  const [dobInput, setDobInput] = useState(
+    user?.user_profile?.date_of_birth || ''
+  )
+
   const [saving, setSaving] = useState(false)
 
-  // 👇 Greeting name (unchanged – still used only for the heading)
-  const firstName =
+  const firstNameForGreeting =
     user?.user_profile?.first_name ||
     user?.email?.split('@')[0] ||
     'there'
 
-  // 👇 NEW: actual profile fields the user can edit on this step
-  const [profileFirstName, setProfileFirstName] = useState(
-    user?.user_profile?.first_name || ''
-  )
-  const [profileLastName, setProfileLastName] = useState(
-    user?.user_profile?.last_name || ''
-  )
-  const [dob, setDob] = useState(
-    user?.user_profile?.date_of_birth || ''
-  )
-
-  // KYC summary box under the cards
   const selectedKycConfig = useMemo(
     () => (selectedUseCase ? KYC_REQUIREMENTS[selectedUseCase] : null),
     [selectedUseCase]
@@ -117,30 +115,27 @@ const UseCaseSetup = () => {
   const handleContinue = async () => {
     if (!selectedUseCase || saving) return
 
-    // 👇 Simple validation for the new fields
-    if (!profileFirstName || !profileLastName || !dob) {
-      alert('Please enter your first name, last name, and date of birth.')
+    if (!firstNameInput || !lastNameInput || !dobInput) {
+      alert('Please tell us your full name and date of birth to continue.')
       return
     }
 
     try {
       setSaving(true)
 
-      // Save choice + mark onboarding stage + basic profile
       await saveOnboardingUseCase({
         primary_use_case: selectedUseCase,
         onboarding_stage: 'use_case_selected',
         user_profile_attributes: {
-          first_name: profileFirstName,
-          last_name: profileLastName,
-          date_of_birth: dob,
+          first_name: firstNameInput,
+          last_name: lastNameInput,
+          date_of_birth: dobInput,
         },
       })
 
-      // Refresh user in Redux so dashboard/banner sees new values
+      // refresh Redux user so the rest of the app sees latest profile
       dispatch(userProfile())
 
-      // Heavy / banking use-cases should go straight to KYC centre
       const needsKycNow = [
         'salary',
         'vendor_payments',
@@ -151,7 +146,6 @@ const UseCaseSetup = () => {
       if (needsKycNow) {
         navigate('/dashboard/kyc')
       } else {
-        // Light users can go to dashboard, still with option to upgrade
         navigate('/dashboard/home')
       }
     } catch (err) {
@@ -160,6 +154,7 @@ const UseCaseSetup = () => {
       const backendMsg =
         err?.response?.data?.message ||
         err?.response?.data?.error ||
+        err?.response?.data?.errors?.join(', ') ||
         'Could not save your selection. Please try again.'
 
       alert(backendMsg)
@@ -175,60 +170,63 @@ const UseCaseSetup = () => {
           Step 2 of 3
         </p>
 
-        <h1 className="text-2xl md:text-3xl font-semibold mb-1">
-          How will you use BitBridge, {firstName}?
+        {/* NEW: basic profile block */}
+        <h1 className="text-2xl md:text-3xl font-semibold mb-2">
+          Tell us a bit about you
         </h1>
-        <p className="text-sm text-slate-400 mb-6 max-w-xl">
-          Choose your primary use case so we can personalise your limits, KYC flow,
-          and recommendations. You can still use other features later.
+        <p className="text-sm text-slate-400 mb-5 max-w-xl">
+          We’ll use this to personalise your account and KYC limits. You can
+          always review your details later in Settings.
         </p>
 
-        {/* 👇 NEW: Tell us about yourself */}
-        <section className="mb-8">
-          <h2 className="text-sm font-semibold mb-3">
-            Tell us about yourself
-          </h2>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-            <div>
-              <label className="block text-xs font-medium mb-1 text-slate-300">
-                First name
-              </label>
-              <input
-                type="text"
-                value={profileFirstName}
-                onChange={(e) => setProfileFirstName(e.target.value)}
-                className="w-full rounded-xl border border-slate-700 bg-slate-900 px-3 py-2 text-sm outline-none focus:border-alt"
-                placeholder="e.g. John"
-              />
-            </div>
-
-            <div>
-              <label className="block text-xs font-medium mb-1 text-slate-300">
-                Last name
-              </label>
-              <input
-                type="text"
-                value={profileLastName}
-                onChange={(e) => setProfileLastName(e.target.value)}
-                className="w-full rounded-xl border border-slate-700 bg-slate-900 px-3 py-2 text-sm outline-none focus:border-alt"
-                placeholder="e.g. Doe"
-              />
-            </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-8">
+          <div className="flex flex-col gap-1">
+            <label className="text-[11px] text-slate-400 uppercase tracking-[0.16em]">
+              First name
+            </label>
+            <input
+              type="text"
+              value={firstNameInput}
+              onChange={(e) => setFirstNameInput(e.target.value)}
+              className="bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-sm outline-none focus:border-alt"
+              placeholder="e.g. John"
+            />
           </div>
 
-          <div className="max-w-xs">
-            <label className="block text-xs font-medium mb-1 text-slate-300">
+          <div className="flex flex-col gap-1">
+            <label className="text-[11px] text-slate-400 uppercase tracking-[0.16em]">
+              Last name
+            </label>
+            <input
+              type="text"
+              value={lastNameInput}
+              onChange={(e) => setLastNameInput(e.target.value)}
+              className="bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-sm outline-none focus:border-alt"
+              placeholder="e.g. Doe"
+            />
+          </div>
+
+          <div className="flex flex-col gap-1 md:col-span-2">
+            <label className="text-[11px] text-slate-400 uppercase tracking-[0.16em]">
               Date of birth
             </label>
             <input
               type="date"
-              value={dob}
-              onChange={(e) => setDob(e.target.value)}
-              className="w-full rounded-xl border border-slate-700 bg-slate-900 px-3 py-2 text-sm outline-none focus:border-alt"
+              value={dobInput}
+              onChange={(e) => setDobInput(e.target.value)}
+              className="bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-sm outline-none focus:border-alt"
             />
           </div>
-        </section>
+        </div>
+
+        {/* ORIGINAL heading + use-case cards */}
+        <h2 className="text-xl md:text-2xl font-semibold mb-1">
+          How will you use BitBridge, {firstNameForGreeting}?
+        </h2>
+        <p className="text-sm text-slate-400 mb-6 max-w-xl">
+          Choose your primary use case so we can personalise your limits, KYC flow,
+          and recommendations. You can still use other features later.
+        </p>
 
         {/* Use-case cards */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
@@ -266,9 +264,9 @@ const UseCaseSetup = () => {
               <p className="text-[11px] uppercase tracking-[0.18em] text-slate-400 mb-1">
                 KYC requirements
               </p>
-              <h2 className="text-sm font-semibold mb-1">
+              <h3 className="text-sm font-semibold mb-1">
                 {selectedKycConfig.title}
-              </h2>
+              </h3>
               <p className="text-[11px] text-slate-400 mb-1">
                 Target KYC level:{' '}
                 <span className="font-semibold text-alt">
