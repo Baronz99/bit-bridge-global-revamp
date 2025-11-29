@@ -6,78 +6,81 @@ import { saveOnboardingUseCase } from '../../api/onboarding'
 import { userProfile } from '../../redux/actions/auth'
 
 // --- Available primary use cases ---
+// (Only keeping realistic BitBridge use cases)
 const useCases = [
   {
-    id: 'salary',
-    label: 'Salary & payouts',
-    description: 'Receive salary, stipends, or recurring payouts into BitBridge.',
-  },
-  {
-    id: 'vendor_payments',
-    label: 'Vendor / business payments',
-    description: 'Pay suppliers, freelancers, and small business expenses.',
-  },
-  {
-    id: 'taxes',
-    label: 'Taxes & statutory bills',
-    description: 'Handle tax, levies, and government-related payments.',
+    id: 'send_receive',
+    label: 'Send & receive money',
+    description:
+      'Transfer money to bank accounts or other BitBridge users quickly and securely.',
   },
   {
     id: 'virtual_cards',
     label: 'Virtual cards & online spend',
-    description: 'Use virtual cards for subscriptions and online purchases.',
+    description: 'Use virtual cards for subscriptions, online shopping, and digital services.',
   },
   {
     id: 'airtime_utilities',
     label: 'Airtime, data & utilities',
-    description: 'Primarily using BitBridge for phone top-ups and bills.',
+    description: 'Top up airtime, data, electricity, and essential bills from your BitBridge wallet.',
+  },
+  {
+    id: 'taxes',
+    label: 'Taxes & statutory bills',
+    description: 'Handle tax, levies, and government-related payments from one place.',
+  },
+  {
+    id: 'student_life',
+    label: 'Student life & campus spend',
+    description:
+      'Perfect for students managing data, subscriptions, school-related payments, and everyday campus spending.',
   },
 ]
 
 // --- Simple KYC requirement matrix per use case ---
 const KYC_REQUIREMENTS = {
-  salary: {
+  send_receive: {
     level: 'tier_2',
-    title: 'Standard KYC for salary accounts',
+    title: 'KYC for sending & receiving money',
     points: [
-      'BVN linked to your phone number',
-      'Government-issued ID (NIN, Int’l passport, driver’s licence, or voter’s card)',
-      'Basic personal details (name, DOB, address)',
+      'BVN or NIN linked to your phone number',
+      'Government-issued ID (NIN slip, Int’l passport, driver’s licence, or voter’s card)',
+      'Basic personal details (name, date of birth, address)',
     ],
   },
-  vendor_payments: {
+  virtual_cards: {
     level: 'tier_2',
-    title: 'Standard KYC for business / vendor payments',
+    title: 'KYC for virtual cards & online spend',
     points: [
       'BVN or NIN',
-      'Government-issued ID for the business owner',
-      'Business or workplace details',
+      'Government-issued ID',
+      'Sometimes a selfie or extra verification for higher limits',
+    ],
+  },
+  airtime_utilities: {
+    level: 'tier_1',
+    title: 'Light KYC for airtime, data & bills',
+    points: [
+      'Basic profile (name & phone number)',
+      'Upgrade later to unlock higher limits and banking features',
     ],
   },
   taxes: {
     level: 'tier_2',
-    title: 'Standard KYC for taxes & statutory payments',
+    title: 'KYC for tax & statutory payments',
     points: [
       'BVN or NIN',
       'Government-issued ID',
       'Address and basic profile details',
     ],
   },
-  virtual_cards: {
-    level: 'tier_2',
-    title: 'Standard KYC for virtual cards',
-    points: [
-      'BVN or NIN',
-      'Government-issued ID',
-      'Sometimes a selfie for extra verification',
-    ],
-  },
-  airtime_utilities: {
+  student_life: {
     level: 'tier_1',
-    title: 'Light KYC for bills & top-ups',
+    title: 'Light KYC for student life & campus spend',
     points: [
-      'Basic profile (name & phone number)',
-      'Upgrade later to unlock higher limits and banking features',
+      'Basic profile (name, date of birth, phone number)',
+      'School details or ID (optional for some features)',
+      'Upgrade later to unlock virtual cards and higher limits',
     ],
   },
 }
@@ -88,60 +91,68 @@ const UseCaseSetup = () => {
   const { user } = useSelector((state) => state.auth)
 
   const [selectedUseCase, setSelectedUseCase] = useState('')
-
-  // new basic-profile fields on this step
-  const [firstNameInput, setFirstNameInput] = useState(
-    user?.user_profile?.first_name || ''
-  )
-  const [lastNameInput, setLastNameInput] = useState(
-    user?.user_profile?.last_name || ''
-  )
-  const [dobInput, setDobInput] = useState(
-    user?.user_profile?.date_of_birth || ''
-  )
-
   const [saving, setSaving] = useState(false)
 
-  const firstNameForGreeting =
+  const firstName =
     user?.user_profile?.first_name ||
     user?.email?.split('@')[0] ||
     'there'
+
+  const [basicProfile, setBasicProfile] = useState({
+    first_name: user?.user_profile?.first_name || '',
+    last_name: user?.user_profile?.last_name || '',
+    date_of_birth: user?.user_profile?.date_of_birth || '',
+  })
 
   const selectedKycConfig = useMemo(
     () => (selectedUseCase ? KYC_REQUIREMENTS[selectedUseCase] : null),
     [selectedUseCase]
   )
 
+  const handleInputChange = (e) => {
+    const { name, value } = e.target
+    setBasicProfile((prev) => ({ ...prev, [name]: value }))
+  }
+
   const handleContinue = async () => {
     if (!selectedUseCase || saving) return
 
-    if (!firstNameInput || !lastNameInput || !dobInput) {
-      alert('Please tell us your full name and date of birth to continue.')
-      return
-    }
+    const { first_name, last_name, date_of_birth } = basicProfile
+
+    const hasBasicProfile =
+      first_name?.trim().length > 0 &&
+      last_name?.trim().length > 0 &&
+      date_of_birth?.trim().length > 0
 
     try {
       setSaving(true)
 
+      // 1) If user filled basic profile, send it first
+      if (hasBasicProfile) {
+        await saveOnboardingUseCase({
+          step: 'profile',
+          user: {
+            first_name,
+            last_name,
+            date_of_birth,
+          },
+        })
+      }
+
+      // 2) Always send use-case choice
       await saveOnboardingUseCase({
+        step: 'use_case',
         primary_use_case: selectedUseCase,
         onboarding_stage: 'use_case_selected',
-        user_profile_attributes: {
-          first_name: firstNameInput,
-          last_name: lastNameInput,
-          date_of_birth: dobInput,
-        },
       })
 
-      // refresh Redux user so the rest of the app sees latest profile
+      // Refresh Redux user
       dispatch(userProfile())
 
-      const needsKycNow = [
-        'salary',
-        'vendor_payments',
-        'taxes',
-        'virtual_cards',
-      ].includes(selectedUseCase)
+      // Heavier use-cases go straight to KYC centre
+      const needsKycNow = ['send_receive', 'virtual_cards', 'taxes'].includes(
+        selectedUseCase
+      )
 
       if (needsKycNow) {
         navigate('/dashboard/kyc')
@@ -154,7 +165,7 @@ const UseCaseSetup = () => {
       const backendMsg =
         err?.response?.data?.message ||
         err?.response?.data?.error ||
-        err?.response?.data?.errors?.join(', ') ||
+        err?.response?.data?.errors?.join?.(', ') ||
         'Could not save your selection. Please try again.'
 
       alert(backendMsg)
@@ -170,58 +181,60 @@ const UseCaseSetup = () => {
           Step 2 of 3
         </p>
 
-        {/* NEW: basic profile block */}
-        <h1 className="text-2xl md:text-3xl font-semibold mb-2">
+        {/* Basic profile section */}
+        <h1 className="text-2xl md:text-3xl font-semibold mb-1">
           Tell us a bit about you
         </h1>
-        <p className="text-sm text-slate-400 mb-5 max-w-xl">
-          We’ll use this to personalise your account and KYC limits. You can
+        <p className="text-sm text-slate-400 mb-6 max-w-xl">
+          We&apos;ll use this to personalise your account and KYC limits. You can
           always review your details later in Settings.
         </p>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-8">
-          <div className="flex flex-col gap-1">
-            <label className="text-[11px] text-slate-400 uppercase tracking-[0.16em]">
-              First name
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+          <div>
+            <label className="block text-xs text-slate-400 mb-1">
+              FIRST NAME
             </label>
             <input
               type="text"
-              value={firstNameInput}
-              onChange={(e) => setFirstNameInput(e.target.value)}
-              className="bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-sm outline-none focus:border-alt"
+              name="first_name"
+              value={basicProfile.first_name}
+              onChange={handleInputChange}
               placeholder="e.g. John"
+              className="w-full rounded-xl bg-slate-900 border border-slate-700 px-3 py-2 text-sm outline-none focus:border-alt"
             />
           </div>
-
-          <div className="flex flex-col gap-1">
-            <label className="text-[11px] text-slate-400 uppercase tracking-[0.16em]">
-              Last name
+          <div>
+            <label className="block text-xs text-slate-400 mb-1">
+              LAST NAME
             </label>
             <input
               type="text"
-              value={lastNameInput}
-              onChange={(e) => setLastNameInput(e.target.value)}
-              className="bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-sm outline-none focus:border-alt"
+              name="last_name"
+              value={basicProfile.last_name}
+              onChange={handleInputChange}
               placeholder="e.g. Doe"
-            />
-          </div>
-
-          <div className="flex flex-col gap-1 md:col-span-2">
-            <label className="text-[11px] text-slate-400 uppercase tracking-[0.16em]">
-              Date of birth
-            </label>
-            <input
-              type="date"
-              value={dobInput}
-              onChange={(e) => setDobInput(e.target.value)}
-              className="bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-sm outline-none focus:border-alt"
+              className="w-full rounded-xl bg-slate-900 border border-slate-700 px-3 py-2 text-sm outline-none focus:border-alt"
             />
           </div>
         </div>
 
-        {/* ORIGINAL heading + use-case cards */}
-        <h2 className="text-xl md:text-2xl font-semibold mb-1">
-          How will you use BitBridge, {firstNameForGreeting}?
+        <div className="mb-8 max-w-xs">
+          <label className="block text-xs text-slate-400 mb-1">
+            DATE OF BIRTH
+          </label>
+          <input
+            type="date"
+            name="date_of_birth"
+            value={basicProfile.date_of_birth}
+            onChange={handleInputChange}
+            className="w-full rounded-xl bg-slate-900 border border-slate-700 px-3 py-2 text-sm outline-none focus:border-alt"
+          />
+        </div>
+
+        {/* Use-case section */}
+        <h2 className="text-lg md:text-xl font-semibold mb-1">
+          How will you use BitBridge, {firstName}?
         </h2>
         <p className="text-sm text-slate-400 mb-6 max-w-xl">
           Choose your primary use case so we can personalise your limits, KYC flow,
@@ -257,7 +270,7 @@ const UseCaseSetup = () => {
           })}
         </div>
 
-        {/* KYC summary for the selected use case */}
+        {/* KYC summary */}
         <div className="mb-8">
           {selectedKycConfig ? (
             <div className="rounded-2xl border border-slate-700 bg-slate-900/80 px-4 py-3">
