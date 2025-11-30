@@ -62,15 +62,15 @@ export async function updateBasicProfile(payload, isFormData = false) {
   return res.data
 }
 
-// ---- 3) PRIMARY USE CASE (this is what UseCaseSetup uses) ----
+// ---- 3) PRIMARY USE CASE (used by UseCaseSetup) ----
+// This calls the onboarding controller directly with TOP-LEVEL params
+// so the backend sees `primary_use_case` correctly.
 export async function saveOnboardingUseCase({ primary_use_case, onboarding_stage }) {
   const res = await axios.patch(
-    `${API_BASE_URL}/api/v1/users/use_case`,
+    `${API_BASE_URL}/api/v1/onboarding/use_case`,
     {
-      user: {
-        primary_use_case,
-        onboarding_stage,
-      },
+      primary_use_case,
+      onboarding_stage,
     },
     { headers: authHeaders() }
   )

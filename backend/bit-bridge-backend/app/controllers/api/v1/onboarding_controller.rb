@@ -40,32 +40,25 @@ module Api
       # or:
       # { user: { primary_use_case: "send_receive", onboarding_stage: "use_case_selected" } }
       def update_use_case
-        # Support both top-level and nested params
-        use_case =
-          params[:primary_use_case].presence ||
-          params.dig(:user, :primary_use_case).presence
+  use_case = params[:primary_use_case]
 
-        stage =
-          params[:onboarding_stage].presence ||
-          params.dig(:user, :onboarding_stage).presence ||
-          'use_case_selected'
+  unless use_case.present?
+    return render json: { errors: ['primary_use_case is required'] },
+                  status: :unprocessable_entity
+  end
 
-        unless use_case
-          return render json: { errors: ['primary_use_case is required'] },
-                        status: :unprocessable_entity
-        end
+  current_user.update!(
+    primary_use_case:  use_case,
+    onboarding_stage: (params[:onboarding_stage].presence || 'use_case_selected')
+  )
 
-        current_user.update!(
-          primary_use_case:  use_case,
-          onboarding_stage: stage
-        )
+  render json: UserSerializer.new(current_user).as_json, status: :ok
+rescue ActiveRecord::RecordInvalid => e
+  render json: {
+    errors: current_user.errors.full_messages.presence || [e.message]
+  }, status: :unprocessable_entity
+end
 
-        render json: UserSerializer.new(current_user).as_json, status: :ok
-      rescue ActiveRecord::RecordInvalid => e
-        render json: {
-          errors: current_user.errors.full_messages.presence || [e.message]
-        }, status: :unprocessable_entity
-      end
 
       # POST /api/v1/onboarding/kyc
       #
