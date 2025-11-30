@@ -149,7 +149,7 @@ module Api
         end
       end
 
-            # ========= PRIMARY USE CASE + STAGE =========
+      # ========= PRIMARY USE CASE + STAGE =========
       # PATCH /api/v1/users/use_case
       # Frontend can send either:
       # { user: { primary_use_case: "...", onboarding_stage: "..." } }
@@ -190,10 +190,7 @@ module Api
         end
       end
 
-
       # ========= BASIC PROFILE / LIGHT KYC =========
-
-            # ========= BASIC PROFILE / LIGHT KYC =========
 
       def basic_profile
         unless current_user
@@ -251,7 +248,6 @@ module Api
       rescue StandardError => e
         render json: { message: e.message }, status: :unprocessable_entity
       end
-
 
       # ========= CHANGE PASSWORD WHILE LOGGED IN =========
 
@@ -322,6 +318,7 @@ module Api
             first_name
             last_name
             phone_number
+            date_of_birth
             address_line1
             address_line2
             city
@@ -343,6 +340,7 @@ module Api
             first_name
             last_name
             phone_number
+            date_of_birth
             address_line1
             address_line2
             city
@@ -355,7 +353,7 @@ module Api
       end
 
       # For /basic_profile
-            def basic_profile_params
+      def basic_profile_params
         params.require(:user).permit(
           :id_type,
           :id_document,        # 🔹 file field for ID
@@ -365,6 +363,7 @@ module Api
             first_name
             last_name
             phone_number
+            date_of_birth
             address_line1
             address_line2
             city
@@ -375,7 +374,6 @@ module Api
           ]
         )
       end
-
 
       def generate_reset_token(user)
         raw, hashed = Devise.token_generator.generate(User, :reset_password_token)
