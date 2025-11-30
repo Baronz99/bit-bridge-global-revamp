@@ -2,7 +2,7 @@
 import React, { useState, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useDispatch, useSelector } from 'react-redux'
-import { saveOnboardingUseCase } from '../../api/onboarding'
+import { saveOnboardingUseCase, updateBasicProfile } from '../../api/onboarding'
 import { userProfile } from '../../redux/actions/auth'
 
 // --- Available primary use cases ---
@@ -127,21 +127,24 @@ const UseCaseSetup = () => {
     try {
       setSaving(true)
 
-      // 1) If user filled basic profile, send it first
+      // 1) If user filled basic profile, send it via the basic_profile endpoint
       if (hasBasicProfile) {
-        await saveOnboardingUseCase({
-          step: 'profile',
-          user: {
+        await updateBasicProfile({
+          id_type: user?.id_type || '',
+          user_profile_attributes: {
             first_name,
             last_name,
+            phone_number:
+              user?.user_profile?.phone_number ||
+              user?.phone_number ||
+              '',
             date_of_birth,
           },
         })
       }
 
-      // 2) Always send use-case choice
+      // 2) Always send use-case choice to the onboarding/use_case endpoint
       await saveOnboardingUseCase({
-        step: 'use_case',
         primary_use_case: selectedUseCase,
         onboarding_stage: 'use_case_selected',
       })
