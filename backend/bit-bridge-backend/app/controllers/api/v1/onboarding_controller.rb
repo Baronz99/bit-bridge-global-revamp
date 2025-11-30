@@ -33,31 +33,32 @@ module Api
         }, status: :unprocessable_entity
       end
 
-      # PATCH /api/v1/onboarding/use_case
+           # PATCH /api/v1/onboarding/use_case
       #
-      # Expect params like:
-      # {
-      #   primary_use_case: "send_and_receive",
-      #   onboarding_stage: "use_case_selected",        # optional, we override to this anyway
-      #   user_profile_attributes: {
-      #     first_name: "John",
-      #     last_name: "Doe",
-      #     date_of_birth: "1995-01-01"
-      #   }
-      # }
+      # Accepts either:
+      # { primary_use_case: "send_receive", onboarding_stage: "use_case_selected" }
+      # or:
+      # { user: { primary_use_case: "send_receive", onboarding_stage: "use_case_selected" } }
       def update_use_case
-        attrs = use_case_params
-        use_case = attrs[:primary_use_case]
+        # Support both top-level and nested params
+        use_case =
+          params[:primary_use_case].presence ||
+          params.dig(:user, :primary_use_case).presence
 
-        unless use_case.present?
+        stage =
+          params[:onboarding_stage].presence ||
+          params.dig(:user, :onboarding_stage).presence ||
+          'use_case_selected'
+
+        unless use_case
           return render json: { errors: ['primary_use_case is required'] },
                         status: :unprocessable_entity
         end
 
-        # Always force the stage to "use_case_selected" when this endpoint is hit
-        attrs[:onboarding_stage] = 'use_case_selected'
-
-        current_user.update!(attrs)
+        current_user.update!(
+          primary_use_case:  use_case,
+          onboarding_stage: stage
+        )
 
         render json: UserSerializer.new(current_user).as_json, status: :ok
       rescue ActiveRecord::RecordInvalid => e
