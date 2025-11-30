@@ -98,10 +98,16 @@ const UseCaseSetup = () => {
     user?.email?.split('@')[0] ||
     'there'
 
+  // 🔹 Normalise DOB into "YYYY-MM-DD" for <input type="date">
+  const initialDob =
+    user?.user_profile?.date_of_birth
+      ? String(user.user_profile.date_of_birth).slice(0, 10)
+      : ''
+
   const [basicProfile, setBasicProfile] = useState({
     first_name: user?.user_profile?.first_name || '',
     last_name: user?.user_profile?.last_name || '',
-    date_of_birth: user?.user_profile?.date_of_birth || '',
+    date_of_birth: initialDob,
   })
 
   const selectedKycConfig = useMemo(
@@ -149,8 +155,8 @@ const UseCaseSetup = () => {
         onboarding_stage: 'use_case_selected',
       })
 
-      // Refresh Redux user
-      dispatch(userProfile())
+      // 🔹 Refresh Redux user and wait for it to complete
+      await dispatch(userProfile())
 
       // Heavier use-cases go straight to KYC centre
       const needsKycNow = ['send_receive', 'virtual_cards', 'taxes'].includes(
