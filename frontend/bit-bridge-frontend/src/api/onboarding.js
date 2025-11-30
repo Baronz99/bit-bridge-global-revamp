@@ -6,15 +6,19 @@ import { API_BASE_URL } from './config'
 function authHeaders() {
   const token = localStorage.getItem('bitglobal')
 
-  return {
+  const headers = {
     Accept: 'application/json',
-    // NOTE: we'll override Content-Type for FormData requests
     'Content-Type': 'application/json',
-    ...(token ? { Authorization: `Bearer ${token}` } : {}),
   }
+
+  if (token) {
+    headers.Authorization = `Bearer ${token}`
+  }
+
+  return headers
 }
 
-// ---- 1) Onboarding stage only ----
+// ---- 1) Basic onboarding stage (optional helper) ----
 export async function saveOnboardingStage({ onboarding_stage }) {
   const res = await axios.patch(
     `${API_BASE_URL}/api/v1/users/onboarding_stage`,
@@ -24,44 +28,64 @@ export async function saveOnboardingStage({ onboarding_stage }) {
   return res.data
 }
 
-// ---- 2) Basic + address profile (JSON OR FormData) ----
-// JSON shape (used on UseCaseSetup):
-//   updateBasicProfile({ id_type, user_profile_attributes: { ... } })
-//
-// FormData shape (used on ProfileAccountPage):
-//   const fd = new FormData()
-//   fd.append('user[id_type]', 'bvn')
-//   fd.append('user[user_profile_attributes][first_name]', 'John')
-//   ...
-//   updateBasicProfile(fd, true)
+/**
+ * 2) BASIC + ADDRESS PROFILE
+ *
+ * This helper supports TWO modes:
+ *
+ *  A) JSON mode (no file uploads):
+ *     updateBasicProfile({
+ *       id_type,
+ *       user_profile_attributes: { first_name, last_name, phone_number, date_of_birth, ... }
+ *     })
+ *
+ *     -> sends:
+ *        { user: { id_type, user_profile_attributes: { ... } } }
+ *        as JSON
+ *
+ *  B) FormData mode (file uploads, used on Profile page):
+ *     const fd = new FormData()
+ *     fd.append('user[id_type]', 'bvn')
+ *     fd.append('user[user_profile_attributes][first_name]', 'John')
+ *     ...
+ *     fd.append('user[id_document]', file)
+ *
+ *     updateBasicProfile(fd, true)
+ *
+ *     -> sends raw FormData; Rails sees params[:user] correctly.
+ */
 export async function updateBasicProfile(payload, isFormData = false) {
   const url = `${API_BASE_URL}/api/v1/users/basic_profile`
 
-  // 🔹 FormData path – used by ProfileAccountPage with file uploads
   if (isFormData) {
+    // 🚨 IMPORTANT:
+    // Do NOT wrap FormData inside { user: ... }.
+    // We already encoded keys like "user[...]" in the FormData itself.
+    //
+    // Also, we remove the JSON Content-Type header so the browser
+    // can set the correct multipart boundary for us.
+    const jsonHeaders = authHeaders()
+    const { 'Content-Type': _ignored, ...formHeaders } = jsonHeaders
+
     const res = await axios.patch(url, payload, {
-      headers: {
-        ...authHeaders(),
-        // let the browser set correct boundary
-        'Content-Type': 'multipart/form-data',
-      },
+      headers: formHeaders,
     })
     return res.data
   }
 
-  // 🔹 JSON path – used by UseCaseSetup (no files)
+  // JSON path – used by UseCaseSetup (no files)
   const res = await axios.patch(
     url,
+    { user: payload },
     {
-      user: payload,
-    },
-    { headers: authHeaders() }
+      headers: authHeaders(),
+    }
   )
+
   return res.data
 }
 
 // ---- 3) PRIMARY USE CASE (used by UseCaseSetup) ----
-// Sends a flat payload that OnboardingController#update_use_case accepts.
 export async function saveOnboardingUseCase({ primary_use_case, onboarding_stage }) {
   const res = await axios.patch(
     `${API_BASE_URL}/api/v1/onboarding/use_case`,
