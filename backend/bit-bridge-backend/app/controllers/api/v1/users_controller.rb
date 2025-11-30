@@ -149,20 +149,34 @@ module Api
         end
       end
 
-      # ========= PRIMARY USE CASE + STAGE =========
+            # ========= PRIMARY USE CASE + STAGE =========
       # PATCH /api/v1/users/use_case
-      # Frontend sends: { user: { primary_use_case: "...", onboarding_stage: "..." } }
-
+      # Frontend can send either:
+      # { user: { primary_use_case: "...", onboarding_stage: "..." } }
+      #   or
+      # { primary_use_case: "...", onboarding_stage: "..." }
       def use_case
         unless current_user
           return render json: { message: 'Not authenticated' }, status: :unauthorized
         end
 
-        attrs   = params.require(:user).permit(:primary_use_case, :onboarding_stage)
-        use_case = attrs[:primary_use_case]
-        stage    = attrs[:onboarding_stage]
+        # Be flexible about payload shape so we don't blow up with 400.
+        raw_attrs =
+          if params[:user].present?
+            params.require(:user).permit(:primary_use_case, :onboarding_stage)
+          else
+            params.permit(:primary_use_case, :onboarding_stage)
+          end
 
-        current_user.primary_use_case = use_case if use_case.present?
+        use_case = raw_attrs[:primary_use_case]
+        stage    = raw_attrs[:onboarding_stage]
+
+        unless use_case.present?
+          return render json: { message: 'primary_use_case is required' },
+                        status: :unprocessable_entity
+        end
+
+        current_user.primary_use_case = use_case
         current_user.onboarding_stage = stage if stage.present?
 
         if current_user.save
@@ -171,9 +185,11 @@ module Api
             data: UserSerializer.new(current_user)
           }, status: :ok
         else
-          render json: { message: current_user.errors.full_messages.to_sentence }, status: :unprocessable_entity
+          render json: { message: current_user.errors.full_messages.to_sentence },
+                 status: :unprocessable_entity
         end
       end
+
 
       # ========= BASIC PROFILE / LIGHT KYC =========
 
