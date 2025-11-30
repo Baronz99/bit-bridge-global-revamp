@@ -41,23 +41,14 @@ export async function updateBasicProfile(payload) {
 }
 
 // ---- 3) PRIMARY USE CASE (used by UseCaseSetup) ----
-// Uses the existing UsersController route:
-// PATCH /api/v1/users/use_case
-// Body:
-// {
-//   user: {
-//     primary_use_case: "...",
-//     onboarding_stage: "..."
-//   }
-// }
+// Talk directly to /api/v1/onboarding/use_case with a flat payload.
+// The backend also supports { user: { primary_use_case, onboarding_stage } }.
 export async function saveOnboardingUseCase({ primary_use_case, onboarding_stage }) {
   const res = await axios.patch(
-    `${API_BASE_URL}/api/v1/users/use_case`,
+    `${API_BASE_URL}/api/v1/onboarding/use_case`,
     {
-      user: {
-        primary_use_case,
-        onboarding_stage,
-      },
+      primary_use_case,
+      onboarding_stage,
     },
     { headers: authHeaders() }
   )

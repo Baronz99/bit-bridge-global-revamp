@@ -35,14 +35,12 @@ Rails.application.routes.draw do
   namespace :api do
     namespace :v1 do
       post 'monnify/webhook', to: 'webhooks#monnify'
-      post 'anchor/webhook', to: 'webhooks#anchor'
+      post 'anchor/webhook',  to: 'webhooks#anchor'
 
-      # ✅ ONBOARDING + KYC ROUTES
-      namespace :onboarding, path: 'onboarding' do
-        patch 'profile',  to: 'onboarding#update_profile'
-        patch 'use_case', to: 'onboarding#update_use_case'
-        post  'kyc',      to: 'onboarding#submit_kyc'
-      end
+      # ✅ ONBOARDING + KYC ROUTES (flat, hitting Api::V1::OnboardingController)
+      patch 'onboarding/profile',  to: 'onboarding#update_profile'
+      patch 'onboarding/use_case', to: 'onboarding#update_use_case'
+      post  'onboarding/kyc',      to: 'onboarding#submit_kyc'
 
       resources :cards do
         collection do
@@ -176,7 +174,7 @@ Rails.application.routes.draw do
           get   :resend_confirmation_token
           patch :onboarding_stage
           patch :basic_profile
-          patch :use_case                # <- existing use_case route kept
+          patch :use_case                 # <- existing use_case route kept
           patch :update_kyc_level
         end
       end
