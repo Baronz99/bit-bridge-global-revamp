@@ -95,7 +95,10 @@ const ProfileAccountPage = () => {
           first_name: up.first_name || '',
           last_name: up.last_name || '',
           phone_number: up.phone_number || '',
-          date_of_birth: up.date_of_birth || '',
+          // 🔹 Normalise DOB to "YYYY-MM-DD" for <input type="date">
+          date_of_birth: up.date_of_birth
+            ? String(up.date_of_birth).slice(0, 10)
+            : '',
           address_line1: up.address_line1 || '',
           address_line2: up.address_line2 || '',
           city: up.city || '',
