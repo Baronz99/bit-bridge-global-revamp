@@ -3,24 +3,13 @@ import axios from 'axios'
 import { API_BASE_URL } from './config'
 
 // small helper so all onboarding calls send the JWT
-// now accepts an optional options object for special cases (e.g. multipart)
-function authHeaders(options = {}) {
+function authHeaders() {
   const token = localStorage.getItem('bitglobal')
 
-  const base = {
-    Accept: 'application/json',
-    ...(token ? { Authorization: `Bearer ${token}` } : {}),
-  }
-
-  // For multipart/form-data we let the browser/axios set the Content-Type with boundary
-  if (options.multipart) {
-    return base
-  }
-
-  // Default: JSON requests
   return {
-    ...base,
+    Accept: 'application/json',
     'Content-Type': 'application/json',
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
   }
 }
 
@@ -35,23 +24,12 @@ export async function saveOnboardingStage({ onboarding_stage }) {
 }
 
 // ---- 2) Basic + address profile (used by ProfileAccountPage) ----
-// NOTE:
-// - If you call updateBasicProfile(payload)         -> sends JSON (old behaviour)
-// - If you call updateBasicProfile(formData, true) -> sends FormData (for file uploads)
-export async function updateBasicProfile(payload, isFormData = false) {
-  if (isFormData) {
-    // FormData path (for ID document + proof of address uploads)
-    const res = await axios.patch(
-      `${API_BASE_URL}/api/v1/users/basic_profile`,
-      payload,
-      {
-        headers: authHeaders({ multipart: true }),
-      }
-    )
-    return res.data
-  }
-
-  // Existing JSON behaviour (backwards compatible)
+// NOTE: we expect a payload shaped like:
+// {
+//   id_type,
+//   user_profile_attributes: { first_name, last_name, phone_number, ... }
+// }
+export async function updateBasicProfile(payload) {
   const res = await axios.patch(
     `${API_BASE_URL}/api/v1/users/basic_profile`,
     {
@@ -63,14 +41,23 @@ export async function updateBasicProfile(payload, isFormData = false) {
 }
 
 // ---- 3) PRIMARY USE CASE (used by UseCaseSetup) ----
-// This calls the onboarding controller directly with TOP-LEVEL params
-// so the backend sees `primary_use_case` correctly.
+// Uses the existing UsersController route:
+// PATCH /api/v1/users/use_case
+// Body:
+// {
+//   user: {
+//     primary_use_case: "...",
+//     onboarding_stage: "..."
+//   }
+// }
 export async function saveOnboardingUseCase({ primary_use_case, onboarding_stage }) {
   const res = await axios.patch(
-    `${API_BASE_URL}/api/v1/onboarding/use_case`,
+    `${API_BASE_URL}/api/v1/users/use_case`,
     {
-      primary_use_case,
-      onboarding_stage,
+      user: {
+        primary_use_case,
+        onboarding_stage,
+      },
     },
     { headers: authHeaders() }
   )
