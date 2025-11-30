@@ -26,9 +26,11 @@ const AuthSlice = createSlice({
   },
   extraReducers: (builder) => {
     builder
+      // SIGN UP
       .addCase(userSignUp.fulfilled, (state, action) => {
         return {
           ...state,
+          // backend returns { data: user, ... }
           user: action.payload.data,
           logged: true,
           loading: false,
@@ -47,36 +49,17 @@ const AuthSlice = createSlice({
           loading: true,
         }
       })
+
+      // LOGIN
       .addCase(userLogin.fulfilled, (state, action) => {
         return {
           ...state,
+          // backend returns { data: user, ... }
           user: action.payload.data,
           logged: true,
           loading: false,
         }
       })
-      .addCase(sendUserConfirmation.fulfilled, (state, action) => {
-        return {
-          ...state,
-          user: action.payload.data,
-          logged: true,
-          loading: false,
-        }
-      })
-
-      .addCase(sendUserConfirmation.pending, (state) => {
-        return {
-          ...state,
-          loading: true,
-        }
-      })
-      .addCase(sendUserConfirmation.rejected, (state) => {
-        return {
-          ...state,
-          loading: false,
-        }
-      })
-
       .addCase(userLogin.rejected, (state, action) => {
         return {
           ...state,
@@ -90,10 +73,37 @@ const AuthSlice = createSlice({
           loading: true,
         }
       })
+
+      // RESEND CONFIRMATION
+      .addCase(sendUserConfirmation.fulfilled, (state, action) => {
+        return {
+          ...state,
+          // backend returns { message, data: user }
+          user: action.payload.data,
+          logged: true,
+          loading: false,
+        }
+      })
+      .addCase(sendUserConfirmation.pending, (state) => {
+        return {
+          ...state,
+          loading: true,
+        }
+      })
+      .addCase(sendUserConfirmation.rejected, (state) => {
+        return {
+          ...state,
+          loading: false,
+        }
+      })
+
+      // ✅ USER PROFILE (this is the important one)
       .addCase(userProfile.fulfilled, (state, action) => {
         return {
           ...state,
-          user: action.payload?.data,
+          // UserService.getUserProfile already returns the plain user object
+          // so we use payload directly, NOT payload.data
+          user: action.payload,
           logged: true,
           loading: false,
         }
@@ -107,11 +117,13 @@ const AuthSlice = createSlice({
       .addCase(userProfile.rejected, (state, action) => {
         return {
           ...state,
-          message: action.payload.message,
+          message: action.payload?.message,
           logged: false,
           loading: false,
         }
       })
+
+      // LOGOUT
       .addCase(userLogout.fulfilled, (state) => {
         return {
           ...state,
