@@ -1,3 +1,5 @@
+// frontend/bit-bridge-frontend/src/redux/auth/index.js
+
 import { createSlice } from '@reduxjs/toolkit'
 import {
   sendUserConfirmation,
@@ -11,16 +13,18 @@ const initialState = {
   user: null,
   logged: false,
   loading: true,
+  message: null, // you already read state.message in some reducers
 }
 
 const AuthSlice = createSlice({
-  initialState,
   name: 'auth',
+  initialState,
   reducers: {
     resetUser: (state) => {
       return {
         ...state,
-        user: {},
+        user: null,
+        logged: false,
       }
     },
   },
@@ -39,7 +43,7 @@ const AuthSlice = createSlice({
       .addCase(userSignUp.rejected, (state, action) => {
         return {
           ...state,
-          message: action.payload.message,
+          message: action.payload?.message,
           loading: false,
         }
       })
@@ -63,7 +67,7 @@ const AuthSlice = createSlice({
       .addCase(userLogin.rejected, (state, action) => {
         return {
           ...state,
-          message: action.payload.message,
+          message: action.payload?.message,
           loading: false,
         }
       })
@@ -97,13 +101,14 @@ const AuthSlice = createSlice({
         }
       })
 
-      // ✅ USER PROFILE (this is the important one)
+      // USER PROFILE
       .addCase(userProfile.fulfilled, (state, action) => {
+        // If your thunk ever changes to return { data: user }, this still works.
+        const userData = action.payload?.data || action.payload
+
         return {
           ...state,
-          // UserService.getUserProfile already returns the plain user object
-          // so we use payload directly, NOT payload.data
-          user: action.payload,
+          user: userData,
           logged: true,
           loading: false,
         }
@@ -118,6 +123,7 @@ const AuthSlice = createSlice({
         return {
           ...state,
           message: action.payload?.message,
+          // I’ll leave logged=false as you had it, but you could keep the user logged in if you want.
           logged: false,
           loading: false,
         }

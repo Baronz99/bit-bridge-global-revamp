@@ -80,9 +80,17 @@ const ProfileAccountPage = () => {
   const [bvn, setBvn] = useState('')
   const [nin, setNin] = useState('')
 
-  // NEW: local file state for uploads
+  // local file state for uploads
   const [idDocumentFile, setIdDocumentFile] = useState(null)
   const [proofOfAddressFile, setProofOfAddressFile] = useState(null)
+
+  // 🟢 NEW: always (re)fetch full user profile when this page first mounts
+  // so that user.user_profile is populated after refresh / direct navigation
+  useEffect(() => {
+    if (!user?.user_profile) {
+      dispatch(userProfile())
+    }
+  }, [dispatch]) // runs on mount
 
   // hydrate local state from Redux user (including address)
   useEffect(() => {
@@ -95,10 +103,8 @@ const ProfileAccountPage = () => {
           first_name: up.first_name || '',
           last_name: up.last_name || '',
           phone_number: up.phone_number || '',
-          // 🔹 Normalise DOB to "YYYY-MM-DD" for <input type="date">
-          date_of_birth: up.date_of_birth
-            ? String(up.date_of_birth).slice(0, 10)
-            : '',
+          // Normalise DOB to "YYYY-MM-DD" for <input type="date">
+          date_of_birth: up.date_of_birth ? String(up.date_of_birth).slice(0, 10) : '',
           address_line1: up.address_line1 || '',
           address_line2: up.address_line2 || '',
           city: up.city || '',
@@ -125,9 +131,18 @@ const ProfileAccountPage = () => {
 
       formData.append('user[id_type]', userInfo.id_type || '')
 
-      formData.append('user[user_profile_attributes][first_name]', userInfo.user_profile.first_name || '')
-      formData.append('user[user_profile_attributes][last_name]', userInfo.user_profile.last_name || '')
-      formData.append('user[user_profile_attributes][phone_number]', userInfo.user_profile.phone_number || '')
+      formData.append(
+        'user[user_profile_attributes][first_name]',
+        userInfo.user_profile.first_name || ''
+      )
+      formData.append(
+        'user[user_profile_attributes][last_name]',
+        userInfo.user_profile.last_name || ''
+      )
+      formData.append(
+        'user[user_profile_attributes][phone_number]',
+        userInfo.user_profile.phone_number || ''
+      )
       formData.append(
         'user[user_profile_attributes][date_of_birth]',
         userInfo.user_profile.date_of_birth || ''
@@ -142,7 +157,10 @@ const ProfileAccountPage = () => {
       )
       formData.append('user[user_profile_attributes][city]', userInfo.user_profile.city || '')
       formData.append('user[user_profile_attributes][state]', userInfo.user_profile.state || '')
-      formData.append('user[user_profile_attributes][country]', userInfo.user_profile.country || '')
+      formData.append(
+        'user[user_profile_attributes][country]',
+        userInfo.user_profile.country || ''
+      )
       formData.append(
         'user[user_profile_attributes][postal_code]',
         userInfo.user_profile.postal_code || ''
@@ -555,7 +573,7 @@ const ProfileAccountPage = () => {
                   </select>
                 </div>
 
-                {/* NEW: Proof of address upload */}
+                {/* Proof of address upload */}
                 <div className="md:col-span-2">
                   <label className="block text-sm font-medium text-gray-700">
                     Upload proof of address
