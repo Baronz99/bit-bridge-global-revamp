@@ -1,6 +1,6 @@
 // src/pages/dashboard/ProfilePage.jsx
 
-import { useEffect, useState, useRef } from 'react'
+import { useEffect, useState } from 'react'
 import { useDispatch, useSelector } from 'react-redux'
 import { userDelete, userPasswordUpdate, userProfile } from '../../redux/actions/auth'
 import { useNavigate } from 'react-router-dom'
@@ -84,22 +84,10 @@ const ProfileAccountPage = () => {
   const [idDocumentFile, setIdDocumentFile] = useState(null)
   const [proofOfAddressFile, setProofOfAddressFile] = useState(null)
 
-  // 🟢 NEW: guard so we only fetch profile once, no infinite loop
-  const hasFetchedProfileRef = useRef(false)
-
+  // Fetch fresh profile ONCE when this page mounts
   useEffect(() => {
-    // only try to fetch if we have a logged-in user
-    if (!user) return
-
-    // if we've already fetched on this mount, don't do it again
-    if (hasFetchedProfileRef.current) return
-
-    // only fetch if user_profile is missing
-    if (!user.user_profile) {
-      hasFetchedProfileRef.current = true
-      dispatch(userProfile())
-    }
-  }, [dispatch, user])
+    dispatch(userProfile())
+  }, [dispatch])
 
   // hydrate local state from Redux user (including address)
   useEffect(() => {
@@ -123,7 +111,7 @@ const ProfileAccountPage = () => {
           proof_of_address_type: up.proof_of_address_type || '',
         },
       })
-      // reset BVN/NIN when user changes, so they don't show stale values
+      // reset BVN/NIN when user changes
       setBvn('')
       setNin('')
       setIdDocumentFile(null)
