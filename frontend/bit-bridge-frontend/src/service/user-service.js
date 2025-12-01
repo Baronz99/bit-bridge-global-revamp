@@ -1,34 +1,43 @@
-// src/service/user-service.js (or wherever this file lives)
+// src/service/user-service.js
 
-import { baseUrl } from '../redux/baseUrl'
-import request from '../redux/request'
+import axios from 'axios'
+import { baseUrl, apiRoute } from '../redux/baseUrl'
+import { fetchToken } from '../hooks/localStorage'
 
 export default class UserService {
   constructor() {
+    // kept so any existing `new UserService()` doesn't break,
+    // even though we only use the static method.
     this.baseUrl = baseUrl
-    this.apiRoute = '/api/v1/'
+    this.apiRoute = apiRoute
   }
 
   /**
-   * Always return the plain user object, e.g.
-   * {
-   *   id,
-   *   email,
-   *   onboarding_stage,
-   *   primary_use_case,
-   *   user_profile: { first_name, last_name, ... },
-   *   ...
-   * }
+   * Fetch the current logged-in user's full profile.
+   *
+   * - Calls: GET `${baseUrl}${apiRoute}users/user_profile`
+   * - Sends Authorization header with the JWT from localStorage
+   * - Always returns the plain user object.
    */
   static async getUserProfile() {
-    // Whatever `request` returns, we normalise it.
-    const raw = await request('users/user_profile')
+    const token = fetchToken()
 
-    // If request returns axios response -> raw.data = { data: user }
-    // If request returns response.data -> raw = { data: user }
-    // If it ever returns just user -> raw = user
-    const level1 = raw && raw.data ? raw.data : raw      // { data: user } OR user
-    const user   = level1 && level1.data ? level1.data : level1  // user
+    const response = await axios.get(
+      `${baseUrl}${apiRoute}users/user_profile`,
+      {
+        headers: {
+          Accept: 'application/json',
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        withCredentials: false,
+      }
+    )
+
+    const raw = response.data
+    // Backend often returns { data: user, ... }
+    const level1 = raw && raw.data ? raw.data : raw
+    const user = level1 && level1.data ? level1.data : level1
 
     return user
   }
