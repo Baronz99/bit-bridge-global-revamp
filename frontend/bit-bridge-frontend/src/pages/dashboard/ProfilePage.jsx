@@ -1,6 +1,6 @@
 // src/pages/dashboard/ProfilePage.jsx
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { useDispatch, useSelector } from 'react-redux'
 import { userDelete, userPasswordUpdate, userProfile } from '../../redux/actions/auth'
 import { useNavigate } from 'react-router-dom'
@@ -84,13 +84,22 @@ const ProfileAccountPage = () => {
   const [idDocumentFile, setIdDocumentFile] = useState(null)
   const [proofOfAddressFile, setProofOfAddressFile] = useState(null)
 
-  // 🟢 NEW: always (re)fetch full user profile when this page first mounts
-  // so that user.user_profile is populated after refresh / direct navigation
+  // 🟢 NEW: guard so we only fetch profile once, no infinite loop
+  const hasFetchedProfileRef = useRef(false)
+
   useEffect(() => {
-    if (!user?.user_profile) {
+    // only try to fetch if we have a logged-in user
+    if (!user) return
+
+    // if we've already fetched on this mount, don't do it again
+    if (hasFetchedProfileRef.current) return
+
+    // only fetch if user_profile is missing
+    if (!user.user_profile) {
+      hasFetchedProfileRef.current = true
       dispatch(userProfile())
     }
-  }, [dispatch]) // runs on mount
+  }, [dispatch, user])
 
   // hydrate local state from Redux user (including address)
   useEffect(() => {
