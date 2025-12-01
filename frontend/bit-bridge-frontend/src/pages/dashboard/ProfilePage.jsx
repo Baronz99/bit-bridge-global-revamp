@@ -84,6 +84,11 @@ const ProfileAccountPage = () => {
   const [idDocumentFile, setIdDocumentFile] = useState(null)
   const [proofOfAddressFile, setProofOfAddressFile] = useState(null)
 
+  // 🔹 Force a fresh profile fetch whenever this page is visited
+  useEffect(() => {
+    dispatch(userProfile())
+  }, [dispatch])
+
   // 🔹 Hydrate local state from Redux user (no extra fetch here)
   useEffect(() => {
     if (user) {
