@@ -15,6 +15,7 @@ import MainLayout from './layouts'
 import UtilityView from './pages/UtilityServicesPage/UtilityView'
 import LoginPage from './pages/auth/Login'
 
+
 // NEW – onboarding + KYC
 import OnboardingStart from './pages/auth/OnboardingStart'
 import UseCaseSetup from './pages/auth/UseCaseSetup'
@@ -103,19 +104,17 @@ const UtilityServices = lazy(() => import('./pages/UtilityServicesPage'))
 const ViewGiftCard = lazy(() => import('./pages/GiftCardPage/ViewGiftCard'))
 const CryptoExchangePage = lazy(() => import('./pages/cryptoExchangePage'))
 
+
+
 function App() {
   const { isLoading } = useSelector((state) => state.app)
 
-  // useEffect(() => {
-  // const script =   document.createElement('script');
-  // script.src = "https://sdk.monnify.com/plugin/monnify.js"
-  // script.async = true;
-  // document.body.appendChild(script)
-  // }, [])
-
+  // ✅ Call this just like you had it before
   userInitializeData()
 
+  // This is fine as a normal function too
   ScrollToTop()
+
   return (
     <div className="bg-gray-100 ">
       <Suspense fallback={<LoaderPage />}>

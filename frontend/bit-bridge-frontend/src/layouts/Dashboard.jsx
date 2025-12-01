@@ -51,7 +51,8 @@ const DashboardLayout = () => {
     dispatch(getWallet())
   }, [dispatch])
 
-  if (loading) {
+  // ✅ Only block the dashboard while auth is still loading AND we don't have a user yet
+  if (loading && !user) {
     return <LoaderPage />
   }
 
