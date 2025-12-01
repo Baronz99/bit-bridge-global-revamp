@@ -5,21 +5,14 @@ import { createAsyncThunk } from '@reduxjs/toolkit'
 import { toast } from 'react-toastify'
 import { API_BASE_URL } from './config'
 
-// --- LOCAL BASE URL RESOLUTION JUST FOR AUTH ---
-// We normalize the base URL and, if API_BASE_URL is not set correctly for
-// staging, we fall back to the Vite env vars.
-
+// --- BASE URL FOR AUTH ---
+// We normalise in case envs have a trailing slash.
 const normalizeBaseUrl = (url) => {
   if (!url) return ''
   return url.endsWith('/') ? url.slice(0, -1) : url
 }
 
-const AUTH_BASE_URL = normalizeBaseUrl(
-  API_BASE_URL ||
-    (import.meta.env.MODE === 'staging'
-      ? import.meta.env.VITE_APP_STAGING_BASE_URL
-      : import.meta.env.VITE_APP_DEV_BASE_URL || 'http://localhost:3000')
-)
+const AUTH_BASE_URL = normalizeBaseUrl(API_BASE_URL)
 
 // --- AUTH API HELPERS (direct axios calls) ---
 
@@ -95,11 +88,9 @@ export const userLogout = createAsyncThunk('auth/logout', async () => {
       },
     })
 
-    // We don't really care what the server says as long as we clear client state
     return { success: true }
   } catch (error) {
     console.error('Logout error:', error)
-    // Still resolve – we want reducers to run and clear auth state anyway
     return { success: false }
   } finally {
     // Always clear tokens on the client
@@ -110,8 +101,8 @@ export const userLogout = createAsyncThunk('auth/logout', async () => {
 })
 
 /* ------------------------------------------------------------------
-   NEW: Onboarding API helpers
-   These talk to the Rails routes we added under:
+   Onboarding API helpers
+   These talk to the Rails routes under:
 
    namespace :api do
      namespace :v1 do
@@ -126,12 +117,6 @@ export const userLogout = createAsyncThunk('auth/logout', async () => {
 -------------------------------------------------------------------*/
 
 // PATCH /api/v1/users/onboarding_basic
-// payload example:
-// {
-//   first_name: 'John',
-//   last_name: 'Doe',
-//   phone_number: '080...'
-// }
 export async function updateOnboardingBasics(payload) {
   const token = localStorage.getItem('bitglobal')
 
@@ -145,11 +130,6 @@ export async function updateOnboardingBasics(payload) {
 }
 
 // PATCH /api/v1/users/onboarding_use_case
-// payload example:
-// {
-//   primary_use_case: 'send_money',
-//   onboarding_stage: 'use_case_selected'
-// }
 export async function updateOnboardingUseCase(payload) {
   const token = localStorage.getItem('bitglobal')
 

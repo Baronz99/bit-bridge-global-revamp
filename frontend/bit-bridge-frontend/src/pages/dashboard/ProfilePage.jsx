@@ -84,12 +84,7 @@ const ProfileAccountPage = () => {
   const [idDocumentFile, setIdDocumentFile] = useState(null)
   const [proofOfAddressFile, setProofOfAddressFile] = useState(null)
 
-  // Fetch fresh profile ONCE when this page mounts
-  useEffect(() => {
-    dispatch(userProfile())
-  }, [dispatch])
-
-  // hydrate local state from Redux user (including address)
+  // 🔹 Hydrate local state from Redux user (no extra fetch here)
   useEffect(() => {
     if (user) {
       const up = user.user_profile || {}
@@ -178,7 +173,7 @@ const ProfileAccountPage = () => {
 
       await updateBasicProfile(formData, true)
 
-      // Refresh Redux user so profile + KYC centre see fresh data
+      // ✅ Refresh Redux user once after saving
       await dispatch(userProfile())
 
       toast('Profile updated', { type: 'success' })

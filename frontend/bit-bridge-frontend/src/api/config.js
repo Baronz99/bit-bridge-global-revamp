@@ -2,42 +2,54 @@
 import axios from 'axios'
 
 // -----------------------------------------------
-// BASE URL SELECTION LOGIC (Dev, Staging, Fallback)
+// BASE URL SELECTION LOGIC (Dev vs Staging)
 // -----------------------------------------------
 //
-// Priority:
-// 1. VITE_APP_STAGING_BASE_URL → used when running staging
-// 2. VITE_APP_DEV_BASE_URL     → used in local normal dev
-// 3. Fallback to http://localhost:4000 (safe staging default)
+// Priority based on Vite mode:
 //
-// NOTE:
-// - We ignore VITE_API_BASE_URL because it's outdated
-// - We remove trailing slashes to avoid double-slash errors
+//  - MODE === 'staging'
+//       → use VITE_APP_STAGING_BASE_URL
+//         (fallback: VITE_APP_DEV_BASE_URL → 'http://localhost:4000')
+//
+//  - any other mode (development, production)
+//       → use VITE_APP_DEV_BASE_URL
+//         (fallback: VITE_APP_STAGING_BASE_URL → 'http://localhost:3000')
+//
+// We also strip any trailing slashes so that things like
+// `${API_BASE_URL}/api/v1/...` do not end up with double slashes.
 // -----------------------------------------------
 
-function pickBaseUrl() {
-  const staging = import.meta.env.VITE_APP_STAGING_BASE_URL
-  if (staging && staging.length > 0) {
-    return staging.replace(/\/+$/, '') // trim trailing slash
-  }
-
-  const dev = import.meta.env.VITE_APP_DEV_BASE_URL
-  if (dev && dev.length > 0) {
-    return dev.replace(/\/+$/, '') // trim trailing slash
-  }
-
-  // final fallback → staging port
-  return 'http://localhost:4000'
+const stripTrailingSlash = (url) => {
+  if (!url) return ''
+  return url.replace(/\/+$/, '')
 }
 
-export const API_BASE_URL = pickBaseUrl()
+const MODE = import.meta.env.MODE
+
+let baseUrl = ''
+
+if (MODE === 'staging') {
+  // Staging build (Netlify / staging mode)
+  baseUrl =
+    stripTrailingSlash(import.meta.env.VITE_APP_STAGING_BASE_URL) ||
+    stripTrailingSlash(import.meta.env.VITE_APP_DEV_BASE_URL) ||
+    'http://localhost:4000'
+} else {
+  // Local dev (npm run dev) and normal production build
+  baseUrl =
+    stripTrailingSlash(import.meta.env.VITE_APP_DEV_BASE_URL) ||
+    stripTrailingSlash(import.meta.env.VITE_APP_STAGING_BASE_URL) ||
+    'http://localhost:3000'
+}
+
+export const API_BASE_URL = baseUrl
 
 // -----------------------------------------------
 // AXIOS INSTANCE
 // -----------------------------------------------
 const api = axios.create({
   baseURL: API_BASE_URL,
-  withCredentials: true, // safe default for Devise JWT refresh
+  withCredentials: true, // fine for token / cookie flows
 })
 
 export default api

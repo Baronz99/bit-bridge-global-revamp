@@ -6,7 +6,6 @@ import { saveOnboardingUseCase, updateBasicProfile } from '../../api/onboarding'
 import { userProfile } from '../../redux/actions/auth'
 
 // --- Available primary use cases ---
-// (Only keeping realistic BitBridge use cases)
 const useCases = [
   {
     id: 'send_receive',
@@ -22,7 +21,8 @@ const useCases = [
   {
     id: 'airtime_utilities',
     label: 'Airtime, data & utilities',
-    description: 'Top up airtime, data, electricity, and essential bills from your BitBridge wallet.',
+    description:
+      'Top up airtime, data, electricity, and essential bills from your BitBridge wallet.',
   },
   {
     id: 'taxes',
@@ -94,15 +94,12 @@ const UseCaseSetup = () => {
   const [saving, setSaving] = useState(false)
 
   const firstName =
-    user?.user_profile?.first_name ||
-    user?.email?.split('@')[0] ||
-    'there'
+    user?.user_profile?.first_name || user?.email?.split('@')[0] || 'there'
 
-  // 🔹 Normalise DOB into "YYYY-MM-DD" for <input type="date">
-  const initialDob =
-    user?.user_profile?.date_of_birth
-      ? String(user.user_profile.date_of_birth).slice(0, 10)
-      : ''
+  // Normalise DOB into "YYYY-MM-DD" for <input type="date">
+  const initialDob = user?.user_profile?.date_of_birth
+    ? String(user.user_profile.date_of_birth).slice(0, 10)
+    : ''
 
   const [basicProfile, setBasicProfile] = useState({
     first_name: user?.user_profile?.first_name || '',
@@ -125,40 +122,51 @@ const UseCaseSetup = () => {
 
     const { first_name, last_name, date_of_birth } = basicProfile
 
+    // Save if user filled ANY of the fields (first, last, or DOB)
     const hasBasicProfile =
-      first_name?.trim().length > 0 &&
-      last_name?.trim().length > 0 &&
-      date_of_birth?.trim().length > 0
+      (first_name && first_name.trim().length > 0) ||
+      (last_name && last_name.trim().length > 0) ||
+      (date_of_birth && date_of_birth.trim().length > 0)
 
     try {
       setSaving(true)
 
-      // 1) If user filled basic profile, send it via the basic_profile endpoint
+      // 1) If user filled any basic profile fields, send via basic_profile endpoint
       if (hasBasicProfile) {
-        await updateBasicProfile({
-          id_type: user?.id_type || '',
-          user_profile_attributes: {
-            first_name,
-            last_name,
-            phone_number:
-              user?.user_profile?.phone_number ||
-              user?.phone_number ||
-              '',
-            date_of_birth,
-          },
-        })
+        const formData = new FormData()
+
+        formData.append('user[id_type]', user?.id_type || '')
+
+        formData.append(
+          'user[user_profile_attributes][first_name]',
+          first_name || ''
+        )
+        formData.append(
+          'user[user_profile_attributes][last_name]',
+          last_name || ''
+        )
+        formData.append(
+          'user[user_profile_attributes][phone_number]',
+          user?.user_profile?.phone_number || user?.phone_number || ''
+        )
+        formData.append(
+          'user[user_profile_attributes][date_of_birth]',
+          date_of_birth || ''
+        )
+
+        await updateBasicProfile(formData, true)
       }
 
-      // 2) Always send use-case choice to the onboarding/use_case endpoint
+      // 2) Save primary use case
       await saveOnboardingUseCase({
         primary_use_case: selectedUseCase,
         onboarding_stage: 'use_case_selected',
       })
 
-      // 🔹 Refresh Redux user and wait for it to complete
+      // 3) Refresh Redux user
       await dispatch(userProfile())
 
-      // Heavier use-cases go straight to KYC centre
+      // 4) Route based on use-case
       const needsKycNow = ['send_receive', 'virtual_cards', 'taxes'].includes(
         selectedUseCase
       )

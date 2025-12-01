@@ -37,6 +37,19 @@ const useCaseConfig = {
     blurb: 'Use BitBridge mainly for top-ups and everyday bills.',
   },
 
+  // 🔹 New mappings for onboarding use-cases
+  send_receive: {
+    label: 'Send & receive money',
+    badge: 'P2P transfers',
+    blurb: 'Instant transfers to banks and other BitBridge users.',
+  },
+  student_life: {
+    label: 'Student life & campus spend',
+    badge: 'Student',
+    blurb:
+      'Use BitBridge for data, subscriptions, school-related payments and everyday campus spending.',
+  },
+
   // Legacy / fallback
   bill_payments: {
     label: 'Bill payments & utilities',
