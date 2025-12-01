@@ -6,8 +6,8 @@ import { fetchToken } from '../hooks/localStorage'
 
 export default class UserService {
   constructor() {
-    // kept so any existing `new UserService()` doesn't break,
-    // even though we only use the static method.
+    // Keep these so any old code using `new UserService()` won't break,
+    // even though we only use the static method below.
     this.baseUrl = baseUrl
     this.apiRoute = apiRoute
   }
@@ -35,10 +35,25 @@ export default class UserService {
     )
 
     const raw = response.data
-    // Backend often returns { data: user, ... }
-    const level1 = raw && raw.data ? raw.data : raw
-    const user = level1 && level1.data ? level1.data : level1
+    console.log('user_profile raw response:', raw)
 
-    return user
+    // Try several common shapes:
+    // 1) { data: { user: {...} } }
+    if (raw?.data?.user) {
+      return raw.data.user
+    }
+
+    // 2) { user: {...} }
+    if (raw?.user) {
+      return raw.user
+    }
+
+    // 3) { data: {...} }
+    if (raw?.data) {
+      return raw.data
+    }
+
+    // 4) Fallback: raw itself is the user
+    return raw
   }
 }
