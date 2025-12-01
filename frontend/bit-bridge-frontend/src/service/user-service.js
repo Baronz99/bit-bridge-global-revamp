@@ -6,8 +6,7 @@ import { fetchToken } from '../hooks/localStorage'
 
 export default class UserService {
   constructor() {
-    // Keep these so any old code using `new UserService()` won't break,
-    // even though we only use the static method below.
+    // Kept only so any old instantiations won't explode
     this.baseUrl = baseUrl
     this.apiRoute = apiRoute
   }
@@ -15,9 +14,17 @@ export default class UserService {
   /**
    * Fetch the current logged-in user's full profile.
    *
-   * - Calls: GET `${baseUrl}${apiRoute}users/user_profile`
-   * - Sends Authorization header with the JWT from localStorage
-   * - Always returns the plain user object.
+   * Staging + local backend both respond like:
+   * {
+   *   "data": {
+   *     "id": "...",
+   *     "email": "...",
+   *     "user_profile": { ... },
+   *     ...
+   *   }
+   * }
+   *
+   * So we always return raw.data as the user object.
    */
   static async getUserProfile() {
     const token = fetchToken()
@@ -37,23 +44,7 @@ export default class UserService {
     const raw = response.data
     console.log('user_profile raw response:', raw)
 
-    // Try several common shapes:
-    // 1) { data: { user: {...} } }
-    if (raw?.data?.user) {
-      return raw.data.user
-    }
-
-    // 2) { user: {...} }
-    if (raw?.user) {
-      return raw.user
-    }
-
-    // 3) { data: {...} }
-    if (raw?.data) {
-      return raw.data
-    }
-
-    // 4) Fallback: raw itself is the user
-    return raw
+    // For your backend, the "user" object is always in raw.data
+    return raw?.data || raw
   }
 }
