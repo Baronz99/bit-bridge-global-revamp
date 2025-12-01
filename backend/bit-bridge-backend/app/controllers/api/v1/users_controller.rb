@@ -193,61 +193,71 @@ module Api
       # ========= BASIC PROFILE / LIGHT KYC =========
 
       def basic_profile
-        unless current_user
-          return render json: { message: 'Not authenticated' }, status: :unauthorized
-        end
+  unless current_user
+    return render json: { message: 'Not authenticated' }, status: :unauthorized
+  end
 
-        permitted     = basic_profile_params
-        profile_attrs = permitted[:user_profile_attributes] || {}
-        id_type       = permitted[:id_type]
+  permitted     = basic_profile_params
+  profile_attrs = permitted[:user_profile_attributes] || {}
+  id_type       = permitted[:id_type]
 
-        ActiveRecord::Base.transaction do
-          profile = current_user.user_profile || current_user.build_user_profile
-          profile.assign_attributes(profile_attrs)
+  success = false  # 👈 Add this flag
 
-          # 🔹 Handle optional file uploads (ID & proof of address)
-          if params[:user].present?
-            if params[:user][:id_document].present?
-              profile.id_document.attach(params[:user][:id_document])
-            end
+  ActiveRecord::Base.transaction do
+    profile = current_user.user_profile || current_user.build_user_profile
+    profile.assign_attributes(profile_attrs)
 
-            if params[:user][:proof_of_address].present?
-              profile.proof_of_address.attach(params[:user][:proof_of_address])
-            end
-          end
-
-          unless profile.save
-            raise ActiveRecord::Rollback, profile.errors.full_messages.to_sentence
-          end
-
-          current_user.id_type = id_type if id_type.present?
-
-          has_names   = profile.first_name.present? && profile.last_name.present?
-          has_phone   = profile.phone_number.present?
-          has_id_type = current_user.id_type.present?
-          has_address = profile.address_line1.present? && profile.city.present? && profile.country.present?
-          has_proof   = profile.proof_of_address_type.present?
-
-          if has_names && has_phone && has_id_type && has_address && has_proof
-            if current_user.kyc_level.blank? || current_user.kyc_level == 'tier_0'
-              current_user.kyc_level = 'tier_1'
-            end
-          else
-            current_user.kyc_level ||= 'tier_0'
-          end
-
-          unless current_user.save
-            raise ActiveRecord::Rollback, current_user.errors.full_messages.to_sentence
-          end
-        end
-
-        render json: {
-          message: 'Profile updated',
-          data: UserSerializer.new(current_user)
-        }, status: :ok
-      rescue StandardError => e
-        render json: { message: e.message }, status: :unprocessable_entity
+    # 🔹 Handle optional file uploads (ID & proof of address)
+    if params[:user].present?
+      if params[:user][:id_document].present?
+        profile.id_document.attach(params[:user][:id_document])
       end
+
+      if params[:user][:proof_of_address].present?
+        profile.proof_of_address.attach(params[:user][:proof_of_address])
+      end
+    end
+
+    unless profile.save
+      Rails.logger.error "Profile save failed: #{profile.errors.full_messages}"  # 👈 Add logging
+      raise ActiveRecord::Rollback, profile.errors.full_messages.to_sentence
+    end
+
+    current_user.id_type = id_type if id_type.present?
+
+    has_names   = profile.first_name.present? && profile.last_name.present?
+    has_phone   = profile.phone_number.present?
+    has_id_type = current_user.id_type.present?
+    has_address = profile.address_line1.present? && profile.city.present? && profile.country.present?
+    has_proof   = profile.proof_of_address_type.present?
+
+    if has_names && has_phone && has_id_type && has_address && has_proof
+      if current_user.kyc_level.blank? || current_user.kyc_level == 'tier_0'
+        current_user.kyc_level = 'tier_1'
+      end
+    else
+      current_user.kyc_level ||= 'tier_0'
+    end
+
+    unless current_user.save
+      Rails.logger.error "User save failed: #{current_user.errors.full_messages}"  # 👈 Add logging
+      raise ActiveRecord::Rollback, current_user.errors.full_messages.to_sentence
+    end
+    
+    success = true  # 👈 Only set to true if we reach here
+  end
+
+  if success  # 👈 Check the flag
+    render json: {
+      message: 'Profile updated',
+      data: UserSerializer.new(current_user.reload)  # 👈 Reload to get fresh data
+    }, status: :ok
+  else
+    render json: { message: 'Failed to save profile' }, status: :unprocessable_entity
+  end
+rescue StandardError => e
+  render json: { message: e.message }, status: :unprocessable_entity
+end
 
       # ========= CHANGE PASSWORD WHILE LOGGED IN =========
 
