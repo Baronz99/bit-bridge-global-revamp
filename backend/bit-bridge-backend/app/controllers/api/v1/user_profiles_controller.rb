@@ -32,13 +32,15 @@ module Api
       end
 
       # PATCH/PUT /user_profiles/1
-      def update
-        if @user_profile.update(user_profile_params)
-          render json: @user_profile
-        else
-          render json: @user_profile.errors, status: :unprocessable_entity
-        end
-      end
+      def update_my_profile
+  @user_profile = current_user.user_profile || current_user.build_user_profile
+  
+  if @user_profile.update(user_profile_params)
+    render json: current_user
+  else
+    render json: @user_profile.errors, status: :unprocessable_entity
+  end
+end
 
       # DELETE /user_profiles/1
       def destroy
