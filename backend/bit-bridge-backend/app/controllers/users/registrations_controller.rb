@@ -68,21 +68,42 @@ module Users
 
 
     def respond_with(resource, _opts = {})
-      if request.method == 'POST' && resource.persisted?
-        # UserMailer.welcome_email(resource).deliver_now
-        render json: {
-          status: { code: 200, message: 'Signed up sucessfully.' },
-          data: UserSerializer.new(resource).as_json
-        }, status: :ok
-      elsif request.method == 'DELETE'
-        render json: {
-          status: { code: 200, message: 'Account deleted successfully.' }
-        }, status: :ok
-      else
-        render json: {
-          status: { code: 422, message: "User couldn't be created successfully. #{resource.errors.full_messages.to_sentence}" }
-        }, status: :unprocessable_entity
-      end
-    end
+  if request.method == 'POST' && resource.persisted?
+    # UserMailer.welcome_email(resource).deliver_now
+    render json: {
+      status: { code: 200, message: 'Signed up sucessfully.' },
+      data: UserSerializer.new(resource).as_json
+    }, status: :ok
+  elsif request.method == 'DELETE'
+    render json: {
+      status: { code: 200, message: 'Account deleted successfully.' }
+    }, status: :ok
+  else
+    # More detailed error for debugging
+    error_details = {
+      errors: resource.errors.full_messages,
+      error_details: resource.errors.details
+    }
+    
+    Rails.logger.error "Signup failed: #{error_details.inspect}"
+    
+    render json: {
+      status: { 
+        code: 422, 
+        message: "User couldn't be created successfully. #{resource.errors.full_messages.to_sentence}" 
+      },
+      debug: error_details
+    }, status: :unprocessable_entity
+  end
+rescue StandardError => e
+  # Catch any unexpected errors
+  Rails.logger.error "Signup exception: #{e.class} - #{e.message}"
+  Rails.logger.error e.backtrace.join("\n")
+  
+  render json: {
+    status: { code: 500, message: "Server error: #{e.message}" },
+    error_class: e.class.name
+  }, status: :internal_server_error
+end
   end
 end
