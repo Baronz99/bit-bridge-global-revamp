@@ -4,8 +4,8 @@ class User < ApplicationRecord
   include Devise::JWT::RevocationStrategies::JTIMatcher
   # Include default devise modules. Others available are:
   # :lockable, :timeoutable, :trackable and :omniauthable
-  devise :database_authenticatable, :registerable, :confirmable,
-         :recoverable, :rememberable, :validatable, :jwt_authenticatable, jwt_revocation_strategy: self
+  devise :database_authenticatable, :registerable,
+       :recoverable, :rememberable, :validatable, :jwt_authenticatable, jwt_revocation_strategy: self
 
   has_one :wallet, class_name: 'Wallet'
   has_many :transactions, through: :wallet
@@ -20,7 +20,7 @@ class User < ApplicationRecord
   accepts_nested_attributes_for :user_profile
 
   # 👇 NEW: auto-confirm in staging
-  before_create :skip_confirmation_in_staging
+  # before_create :skip_confirmation_in_staging
 
   after_create :initialize_wallet
 
