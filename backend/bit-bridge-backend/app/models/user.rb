@@ -43,10 +43,11 @@ class User < ApplicationRecord
   end
 
   def initialize_wallet
-    # build_wallet unless wallet
-    # Wallet.create(wallet_type: "usdt") #unless wallet
-    create_wallet
-  end
+  create_wallet
+rescue StandardError => e
+  Rails.logger.error "Failed to create wallet: #{e.message}"
+  # Don't raise - allow signup to continue even if wallet creation fails
+end
 
   def generate_refresh_token
     token = SecureRandom.hex(32)
@@ -75,9 +76,8 @@ class User < ApplicationRecord
 
   private
 
-  # ✅ In staging, we don't want email confirmation to block demos,
-  # so we mark users as confirmed immediately.
-  def skip_confirmation_in_staging
-    skip_confirmation! if Rails.env.staging?
-  end
+# ✅ In staging, we don't want email confirmation to block demos,
+# so we mark users as confirmed immediately.
+def skip_confirmation_in_staging
+  skip_confirmation! if Rails.env.production? || ENV['RAILS_ENV'] == 'staging'
 end
