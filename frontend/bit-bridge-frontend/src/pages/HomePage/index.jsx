@@ -23,20 +23,18 @@ const Home = () => {
         <section className="hero-header px-4">
           <div className="max-w-app-layout mx-auto h-full min-h-[640px] lg:min-h-[720px] flex items-center">
             <div className="grid md:grid-cols-2 gap-10 w-full hero-grid">
-              {/* LEFT – new main story */}
+              {/* LEFT – main story */}
               <div className="p-5 mt-10 bg-slate-950/70 backdrop-blur rounded-2xl border border-slate-800">
-                <p className="hero-eyebrow">
-                  SOCIAL DIGITAL PAYMENTS
-                </p>
+                <p className="hero-eyebrow">SOCIAL DIGITAL PAYMENTS</p>
 
                 <h1 className="hero-title">
                   Modern digital payment solutions, powered by social finance.
                 </h1>
 
                 <p className="hero-subtitle">
-                  Activate payment accounts through our banking partners, send to any Nigerian
-                  bank, create shared wallets, and handle everyday bills &amp; airtime — all
-                  from one secure platform.
+                  Activate payment accounts through our banking partners, send to any Nigerian bank,
+                  create shared wallets, and handle everyday bills &amp; airtime — all from one
+                  secure platform.
                 </p>
 
                 <div className="mt-6 flex flex-wrap gap-2 text-[11px] text-slate-100">
@@ -64,24 +62,26 @@ const Home = () => {
                   </button>
                 </div>
 
-                {/* TRUST / POSITIONING STATS (no sensitive numbers) */}
+                {/* TRUST / POSITIONING STATS */}
                 <div className="mt-8 hero-stat-grid text-xs text-slate-200">
                   <div className="hero-stat-card">
                     <p className="hero-stat-value">Partner-backed rails</p>
                     <p className="hero-stat-label">Bank-integrated payment infrastructure</p>
                   </div>
                   <div className="hero-stat-card">
-                    <p className="hero-stat-value">Multi-channel access</p>
-                    <p className="hero-stat-label">Web, mobile app &amp; dashboard</p>
+                    <p className="hero-stat-value">Reliable power payments</p>
+                    <p className="hero-stat-label">Electricity, cable &amp; internet in a few taps</p>
                   </div>
                   <div className="hero-stat-card">
                     <p className="hero-stat-value">Social-first design</p>
-                    <p className="hero-stat-label">Built for people, teams &amp; communities</p>
+                    <p className="hero-stat-label">
+                      Built for people, teams &amp; communities
+                    </p>
                   </div>
                 </div>
               </div>
 
-              {/* RIGHT – fresh “phone” snapshot */}
+              {/* RIGHT – phone snapshot */}
               <div className="mt-10 md:mt-0 flex items-center justify-center">
                 <div className="hero-phone">
                   <div className="hero-phone-inner">
@@ -108,7 +108,7 @@ const Home = () => {
                     </div>
 
                     <div className="hero-phone-section">
-                      <p className="hero-phone-section-title">Today’s activity</p>
+                      <p className="hero-phone-section-title">Today&apos;s activity</p>
                       <ul className="hero-phone-list">
                         <li>
                           <span className="hero-phone-list-dot credit" />
@@ -120,7 +120,9 @@ const Home = () => {
                         <li>
                           <span className="hero-phone-list-dot debit" />
                           <div>
-                            <p className="hero-phone-list-title">PHCN Bill • Shared Home Wallet</p>
+                            <p className="hero-phone-list-title">
+                              PHCN Bill • Shared Home Wallet
+                            </p>
                             <p className="hero-phone-list-meta">₦32,500 paid</p>
                           </div>
                         </li>
@@ -179,8 +181,8 @@ const Home = () => {
 
               <div className="text-xs text-slate-400 max-w-sm">
                 No more juggling multiple apps for accounts, bills and transfers. With BitBridge,
-                everything sits in one experience that’s simple enough for everyday use and powerful
-                enough for groups and organisations.
+                everything sits in one experience that&apos;s simple enough for everyday use and
+                powerful enough for groups and organisations.
               </div>
             </div>
 
