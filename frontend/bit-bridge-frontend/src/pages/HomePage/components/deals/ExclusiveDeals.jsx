@@ -1,8 +1,8 @@
 import { useNavigate } from 'react-router-dom'
 import cable from '../../../../assets/images/deals/cable.webp'
 import mobile from '../../../../assets/images/deals/mobile.webp'
-import pexels1 from '../../../../assets/images/deals/pexels-julia-m-cameron-4144038.jpg'
-import pexels2 from '../../../../assets/images/deals/pexels-n-voitkevich-6214473.jpg'
+import dealVirtualCard from '../../../../assets/images/deals/deal-virtual-card.jpg'
+import dealMobileTopup from '../../../../assets/images/deals/deal-mobile-topup.jpg'
 
 import ClickButton from '../../../../components/button/Button'
 
@@ -23,7 +23,7 @@ const ExclusiveDeals = () => {
       promo: 'Payment accounts & virtual cards',
       offer:
         'Use BitBridge as the home for your payment accounts and virtual cards for subscriptions, online services and safer digital spend.',
-      img: pexels2,
+      img: dealMobileTopup,
       link: '/dashboard/virtual-account',
     },
     {
@@ -31,7 +31,7 @@ const ExclusiveDeals = () => {
       promo: 'Mobile data & airtime that just works',
       offer:
         'Top up airtime and data for yourself or loved ones instantly across major networks — from one simple balance.',
-      img: pexels1,
+      img: dealVirtualCard,
       link: '/phone-top-up',
     },
   ]
