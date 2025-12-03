@@ -56,21 +56,26 @@ module Users
     private
 
     # Called on successful login
-    def respond_with(resource, _opts = {})
-      refresh_token = resource.generate_refresh_token
-      resource.update!(
-        refresh_token: refresh_token,
-        refresh_token_expires_at: 30.minutes.from_now
-      )
+    # Called on successful login
+def respond_with(resource, _opts = {})
+  refresh_token = resource.generate_refresh_token
+  resource.update!(
+    refresh_token: refresh_token,
+    refresh_token_expires_at: 30.minutes.from_now
+  )
 
-      response.set_header('Bit-Refresh-Token', refresh_token)
+  # Get the JWT access token from the request environment
+  access_token = request.env['warden-jwt_auth.token']
 
-      render json: {
-        status:  { code: 200, message: 'Logged in sucessfully.' },
-        message: 'Logged in sucessfully.',
-        data:    UserSerializer.new(resource).as_json
-      }, status: :ok
-    end
+  response.set_header('Bit-Refresh-Token', refresh_token)
+
+  render json: {
+    status:  { code: 200, message: 'Logged in sucessfully.' },
+    message: 'Logged in sucessfully.',
+    data:    UserSerializer.new(resource).as_json,
+    token: access_token  # ← Add this line!
+  }, status: :ok
+end
 
     # Called on logout
     def respond_to_on_destroy
