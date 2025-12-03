@@ -37,7 +37,7 @@ export default class UserService {
           'Content-Type': 'application/json',
           ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
-        withCredentials: false,
+        withCredentials: true,
       }
     )
 
