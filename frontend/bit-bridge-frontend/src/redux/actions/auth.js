@@ -172,26 +172,23 @@ const userLogin = createAsyncThunk('login/user-login', async (data, { rejectWith
 
     const result = response.data
 
-    // Access the access token from the response headers
-    const authorizationHeader = response.headers.authorization
-    const refreshRawToken = response.headers['bit-refresh-token']
+    // 🔹 Get token from response body (not header)
+    const accessToken = result.token
+    
+    // Get refresh token from header
+    const refreshtoken = response.headers['bit-refresh-token']
 
-    let accessToken = null
-    let refreshtoken = refreshRawToken
-
-    // If the authorization header is present, extract the token
-    if (authorizationHeader) {
-      if (authorizationHeader.startsWith('Bearer ')) {
-        accessToken = authorizationHeader.split(' ')[1] // Split to get the token part
-      } else {
-        console.warn('Unexpected format for Authorization header:', authorizationHeader)
-      }
+    // Save tokens to localStorage
+    if (accessToken) {
+      localStorage.setItem('bitglobal', accessToken)
     } else {
-      console.warn('Authorization header not found')
+      console.warn('No access token in response')
     }
-
-    localStorage.setItem('bitglobal', accessToken)
-    localStorage.setItem('refresh-token', refreshtoken)
+    
+    if (refreshtoken) {
+      localStorage.setItem('refresh-token', refreshtoken)
+    }
+    
     toast(result.message, { type: 'success' })
 
     return result
@@ -210,7 +207,6 @@ const userLogin = createAsyncThunk('login/user-login', async (data, { rejectWith
             result.message ?? 'Account Not Confirmed! An email confirmation has been sent to you',
             { type: 'success' }
           )
-          //  return rejectWithValue({ message: "Something went wrong" })
         } catch (err) {
           toast('Error resending confirmation email:', { type: 'error' })
           return rejectWithValue({ message: err.response.data.message })
