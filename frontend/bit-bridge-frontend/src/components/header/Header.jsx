@@ -1,9 +1,13 @@
 import { NavLink, useLocation, useNavigate } from 'react-router-dom'
 // import SearchField from '../serachField/SearchField'
 import Nav from '../nav/Nav'
-import { MenuUnfoldOutlined, QuestionCircleOutlined, ShoppingCartOutlined } from '@ant-design/icons'
+import {
+  MenuUnfoldOutlined,
+  QuestionCircleOutlined,
+  ShoppingCartOutlined,
+} from '@ant-design/icons'
 import './style.scss'
-import logo from '../../assets/logos/logo-mod.png'
+import logoIcon from '../../assets/logos/bitbridge-logo-clear.png'
 import { Badge, Button, Form } from 'antd'
 import { useEffect, useState } from 'react'
 import DrawerModal from '../drawer/Drawer'
@@ -14,6 +18,7 @@ import { userLogin, userLogout } from '../../redux/actions/auth'
 import FormInput from '../formInput/FormInput'
 import ClassicBtn from '../button/ClassicButton'
 import { toast } from 'react-toastify'
+
 const Header = () => {
   const [toggleNav, setToggle] = useState(false)
   const { pathname } = useLocation()
@@ -28,9 +33,10 @@ const Header = () => {
   const [showLogin, setShowLogin] = useState(false)
   const { user } = useSelector((state) => state.auth)
   const dispatch = useDispatch()
+
   useEffect(() => {
     dispatch(GET_CART())
-  }, [])
+  }, [dispatch])
 
   return (
     <>
@@ -43,8 +49,8 @@ const Header = () => {
         <Carts items={cartItems} />
       </DrawerModal>
 
-      <header className="absolute  bg-primar w-full top-0 z-10 left-0 p-4  px-0 border-b border-gray-700 shadow">
-        <div className=" max-w-app-layout -700 m-auto px-4">
+      <header className="absolute bg-primar w-full top-0 z-10 left-0 p-4 px-0 border-b border-gray-700 shadow">
+        <div className="max-w-app-layout -700 m-auto px-4">
           <div className="flex gap-3 flex-wrap md:flex-row flex-col justify-between items-center">
             <div className="w-full md:w-max flex items-center gap-4">
               <Button
@@ -54,25 +60,38 @@ const Header = () => {
                 icon={<MenuUnfoldOutlined />}
               />
 
-              <NavLink to={'/'} className={'text-3xl font-semibold'}>
-                <img src={logo} alt="logo" className="h-14 w- object-cover border" />
+              {/* Brand lockup */}
+              <NavLink to="/" className="flex items-center gap-3">
+                {/* Icon-only logo */}
+                <img
+                  src={logoIcon}
+                  alt="BitBridge Global logo"
+                  className="h-10 w-10 object-contain"
+                />
+
+                {/* Wordmark (hidden on very small screens to keep header clean) */}
+                <div className="leading-tight hidden sm:block">
+                  <div className="text-slate-100 font-semibold tracking-[0.16em] text-[11px] md:text-xs uppercase">
+                    BIT BRIDGE
+                  </div>
+                  <div className="text-slate-400 font-medium tracking-[0.26em] text-[9px] md:text-[10px] uppercase">
+                    GLOBAL
+                  </div>
+                </div>
               </NavLink>
             </div>
 
             {/* <SearchField className={"w-full max-w-md flex-"}/> */}
 
-            <div className="flex  items-center gap-4 md:justify-end justify-between w-full md:w-max">
-              {/* <NavLink to={"/"} className={`${inActive}  text-center font-semibold text-alt hover:bg-gray-800 hover:text-gray-200  border flex gap-3 py-2 px-4 rounded-3xl`} >
-              <QuestionCircleOutlined className={`${inActive} flex text-center`}/>
-              Help
-            </NavLink> */}
+            <div className="flex items-center gap-4 md:justify-end justify-between w-full md:w-max">
               <a
                 href={'/#app'}
-                className={`${inActive}  text-center font-semibold text-alt hover:bg-gray-800 hover:text-gray-200  border flex gap-3 py-2 px-4 rounded-3xl`}
+                className={`${inActive} text-center font-semibold text-alt hover:bg-gray-800 hover:text-gray-200 border flex gap-3 py-2 px-4 rounded-3xl`}
               >
                 <QuestionCircleOutlined className={`${inActive} flex text-center`} />
                 Get App
               </a>
+
               <Badge className="badge" count={cartItems.length} showZero>
                 <Button
                   className="bg-none"
@@ -83,26 +102,27 @@ const Header = () => {
                   size="middle"
                 />
               </Badge>
+
               {user ? (
                 <NavLink
                   onClick={() => dispatch(userLogout())}
-                  to={'/'}
+                  to="/"
                   className={`${inActive} block text-center`}
                 >
                   Log Out
                 </NavLink>
               ) : (
-                // <NavLink to={"/login"} className={"font-semibold"}>Login</NavLink>
-                <div className="relative z-10 ">
+                <div className="relative z-10">
                   <button
                     onClick={() => setShowLogin((prev) => !prev)}
-                    to={'/login'}
                     className={`${inActive} block text-center`}
                   >
                     Login
                   </button>
                   <div
-                    className={`${showLogin ? 'block' : 'hidden'} absolute  py-4 w-60 group-hover:block right-0`}
+                    className={`${
+                      showLogin ? 'block' : 'hidden'
+                    } absolute py-4 w-60 right-0`}
                   >
                     <div className="p-2 z-50 bg-gray-900 border border-primary rounded-lg">
                       <Form
@@ -116,7 +136,6 @@ const Header = () => {
                           dispatch(userLogin({ user: values })).then((result) => {
                             if (userLogin.fulfilled.match(result)) {
                               dispatch(SET_LOADING(false))
-                              console.log(result.payload.message)
                               navigate('/dashboard/home')
                               setShowLogin(false)
                             } else if (userLogin.rejected.match(result)) {
@@ -125,33 +144,34 @@ const Header = () => {
                           })
                         }}
                       >
-                        <FormInput name={'email'} placeholder={'Email'} />
-                        <FormInput type="password" name={'password'} placeholder={'**********'} />
-                        <ClassicBtn htmlType={'submit'} className={'w-full'}>
+                        <FormInput name="email" placeholder="Email" />
+                        <FormInput type="password" name="password" placeholder="**********" />
+                        <ClassicBtn htmlType="submit" className="w-full">
                           Sign In
                         </ClassicBtn>
                         <NavLink
-                          to={'/send-confirmation'}
+                          to="/send-confirmation"
                           className="btn text-center block text-alt"
                         >
                           Confirm Account
                         </NavLink>
                       </Form>
-                      <NavLink to={'/signup'} className={`${inActive} block text-center`}>
+                      <NavLink to="/signup" className={`${inActive} block text-center`}>
                         Sign up
                       </NavLink>
                     </div>
                   </div>
                 </div>
               )}
+
               {user && (
-                <NavLink to={'/dashboard/home'} className={`${inActive} block text-center`}>
+                <NavLink to="/dashboard/home" className={`${inActive} block text-center`}>
                   Account
                 </NavLink>
               )}
-              {/* <NavLink to={"/dashboard/home"}>Account</NavLink> */}
             </div>
           </div>
+
           <div className="max-w-7x m-auto">
             <Nav open={toggleNav} setToggle={setToggle} />
           </div>
