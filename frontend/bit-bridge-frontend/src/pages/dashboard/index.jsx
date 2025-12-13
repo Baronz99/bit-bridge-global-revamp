@@ -11,7 +11,7 @@ import Loading from '../../components/loader/Loading'
 import PowerComponent from '../../components/powerComponents/PowerComponent'
 import MobileTopUpViewComponents from './components/MobileTopUpViewComponent'
 import { MdAddCard, MdOutlineSell } from 'react-icons/md'
-import { PiHandWithdraw } from 'react-icons/pi'
+import { PiHandWithdraw, PiUsersThreeBold } from 'react-icons/pi'
 import { getRescentPurchaseOrder, repurchaseOrder } from '../../redux/actions/purchasePower'
 import { SET_LOADING, toggleShadowMode } from '../../redux/app'
 import { useNavigate } from 'react-router-dom'
@@ -62,6 +62,16 @@ const HomeDashboard = () => {
   const [showAccountNumber, setShowAccountNumber] = useState(false)
   const [formData, setFormData] = useState({})
   const [accountDetails, setAccountDetails] = useState(null)
+
+  // ✅ DISMISSIBLE ONBOARDING BANNER STATE (localStorage-backed)
+  const [showOnboardingBanner, setShowOnboardingBanner] = useState(() => {
+    return localStorage.getItem('bb_hide_onboarding_banner') !== 'true'
+  })
+
+  const dismissBanner = () => {
+    localStorage.setItem('bb_hide_onboarding_banner', 'true')
+    setShowOnboardingBanner(false)
+  }
 
   const handleRepurchase = (id) => {
     dispatch(SET_LOADING(true))
@@ -179,13 +189,27 @@ const HomeDashboard = () => {
   return (
     <>
       <div className="homeDashboard min-h-screen bg-slate-950 text-slate-100 p-4 md:p-6">
-        {/* ✅ Smart onboarding banner, driven by backend fields */}
-        <OnboardingBanner
-          stage={user?.onboarding_stage}
-          primaryUseCase={user?.primary_use_case}
-          hasVirtualAccount={Boolean(accounts?.length)}
-          onContinueClick={() => navigate('/dashboard/kyc')}
-        />
+        {/* ✅ Smart onboarding banner, driven by backend fields, now dismissible */}
+        {showOnboardingBanner && (
+          <div className="relative mb-3">
+            <OnboardingBanner
+              stage={user?.onboarding_stage}
+              primaryUseCase={user?.primary_use_case}
+              hasVirtualAccount={Boolean(accounts?.length)}
+              onContinueClick={() => navigate('/dashboard/kyc')}
+            />
+
+            {/* Close (X) button */}
+            <button
+              type="button"
+              onClick={dismissBanner}
+              className="absolute top-2 right-3 text-slate-400 hover:text-white text-lg"
+              aria-label="Dismiss onboarding"
+            >
+              ×
+            </button>
+          </div>
+        )}
 
         {/* Top: welcome + balance chip + quick actions */}
         <div className="mb-6 flex flex-col md:flex-row md:items-center md:justify-between gap-4">
@@ -330,6 +354,21 @@ const HomeDashboard = () => {
             <h3 className="font-semibold text-sm mb-1">Virtual accounts</h3>
             <p className="text-xs text-slate-400">
               Receive transfers into BitBridge via Anchor / Moniepoint.
+            </p>
+          </button>
+
+          {/* ✅ Shared Groups launcher */}
+          <button
+            type="button"
+            onClick={() => navigate('/dashboard/shared-groups')}
+            className="group text-left bg-slate-900 rounded-2xl border border-slate-800 p-4 hover:border-alt/70 hover:bg-slate-900/80 transition-colors"
+          >
+            <div className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-blue-500/20 text-blue-300 mb-3">
+              <PiUsersThreeBold />
+            </div>
+            <h3 className="font-semibold text-sm mb-1">Shared groups</h3>
+            <p className="text-xs text-slate-400">
+              Create groups for shared bills, trips and contributions.
             </p>
           </button>
         </div>
@@ -594,7 +633,7 @@ const HomeDashboard = () => {
             className="add-fund"
             name="bvn"
             type="text"
-            label={`BVN`}
+            label="BVN"
           />
 
           <Form.Item label={null}>

@@ -17,13 +17,11 @@ import { GET_CART, SET_LOADING } from '../../redux/app'
 import { userLogin, userLogout } from '../../redux/actions/auth'
 import FormInput from '../formInput/FormInput'
 import ClassicBtn from '../button/ClassicButton'
-import { toast } from 'react-toastify'
 
 const Header = () => {
   const [toggleNav, setToggle] = useState(false)
   const { pathname } = useLocation()
 
-  // const inActive = `inactive  ${(pathname !== "/" && pathname !== "/phone-top-up" ) ?  "text-primary" : "text-alt"}`
   const inActive = `inactive text-alt`
 
   const navigate = useNavigate()
@@ -69,8 +67,8 @@ const Header = () => {
                   className="h-10 w-10 object-contain"
                 />
 
-                {/* Wordmark (hidden on very small screens to keep header clean) */}
-                <div className="leading-tight hidden sm:block">
+                {/* Wordmark – now visible on mobile too */}
+                <div className="leading-tight">
                   <div className="text-slate-100 font-semibold tracking-[0.16em] text-[11px] md:text-xs uppercase">
                     BIT BRIDGE
                   </div>
@@ -80,8 +78,6 @@ const Header = () => {
                 </div>
               </NavLink>
             </div>
-
-            {/* <SearchField className={"w-full max-w-md flex-"}/> */}
 
             <div className="flex items-center gap-4 md:justify-end justify-between w-full md:w-max">
               <a

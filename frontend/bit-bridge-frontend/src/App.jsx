@@ -14,7 +14,8 @@ import Dogecoin from './pages/dashboard/crypto-exchange/Dogecoin'
 import MainLayout from './layouts'
 import UtilityView from './pages/UtilityServicesPage/UtilityView'
 import LoginPage from './pages/auth/Login'
-
+import CirclesPage from './pages/Circles/CirclesPage'
+import CirclesDetailPage from './pages/Circles/CirclesDetailPage' // ✅ NEW
 
 // NEW – onboarding + KYC
 import OnboardingStart from './pages/auth/OnboardingStart'
@@ -36,7 +37,7 @@ import Services from './pages/admin/services/Services'
 import AddProduct from './pages/admin/AddProducts'
 import ALogin from './pages/auth/admin/Login'
 import ASignup from './pages/auth/admin/SignUp'
-import { lazy, Suspense, useEffect } from 'react'
+import { lazy, Suspense } from 'react'
 import LoaderPage from './components/loader/LoaderPage'
 import CryptoSell from './pages/dashboard/crypto-exchange/CryptoSell'
 import AdminTransactions from './pages/admin/transactions/deposits'
@@ -104,8 +105,6 @@ const UtilityServices = lazy(() => import('./pages/UtilityServicesPage'))
 const ViewGiftCard = lazy(() => import('./pages/GiftCardPage/ViewGiftCard'))
 const CryptoExchangePage = lazy(() => import('./pages/cryptoExchangePage'))
 
-
-
 function App() {
   const { isLoading } = useSelector((state) => state.app)
 
@@ -158,6 +157,9 @@ function App() {
             <Route path="payment-details" element={<PurchaseDataDetails />} />
             <Route path="confirm-payment" element={<ComfirmDataPurchase />} />
           </Route>
+
+          {/* ⛔️ Public /circles route removed – circles now live only in dashboard */}
+          {/* <Route path="/circles" element={<CirclesPage />} /> */}
 
           <Route
             path="/utility-services"
@@ -285,6 +287,10 @@ function App() {
             <Route path="home" element={<HomeDashboard />}>
               <Route path="orders-transaction" element={<OrderTransact />} />
             </Route>
+
+            {/* ✅ NEW – SHARED GROUPS (INSIDE DASHBOARD ONLY) */}
+            <Route path="shared-groups" element={<CirclesPage />} />
+            <Route path="shared-groups/:id" element={<CirclesDetailPage />} />{/* ✅ NEW DETAIL ROUTE */}
 
             <Route path="approved-gift-cards" element={<GiftCardOrder />} />
             <Route path="wallet" element={<Account />} />

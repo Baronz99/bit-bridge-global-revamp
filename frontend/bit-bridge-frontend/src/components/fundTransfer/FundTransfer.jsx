@@ -50,6 +50,7 @@ export default function MoneyTransferFlow({ setIsfundTransferOpen }) {
       })
       .catch((err) => {
         console.log(err)
+        toast(err?.message || 'Failed to verify account', { type: 'error' })
       })
       .finally(() => {
         setLoading(false)
@@ -132,8 +133,6 @@ export default function MoneyTransferFlow({ setIsfundTransferOpen }) {
                 name="amount"
                 value={formData?.amount}
                 onChange={handleChange}
-                onBlur={fetchAccountName}
-                maxLength="10"
                 className="w-full bg-gray-800 border border-gray-700 rounded-lg p-2 mt-1 text-gray-100 focus:ring-2 focus:ring-blue-500 focus:outline-none"
                 placeholder="Enter Amount"
               />
@@ -146,12 +145,16 @@ export default function MoneyTransferFlow({ setIsfundTransferOpen }) {
                 name="description"
                 value={formData?.description}
                 onChange={handleChange}
-                onBlur={fetchAccountName}
-                maxLength="10"
                 className="w-full bg-gray-800 border border-gray-700 rounded-lg p-2 mt-1 text-gray-100 focus:ring-2 focus:ring-blue-500 focus:outline-none"
                 placeholder="Narrative"
               />
             </div>
+
+            {loading && (
+              <div className="bg-blue-900/30 border border-blue-600 p-3 rounded-lg text-center text-blue-300">
+                <span className="font-semibold">Verifying account...</span>
+              </div>
+            )}
 
             {formData?.account_name && (
               <div className="bg-green-900/30 border border-green-600 p-3 rounded-lg text-center text-green-300">
@@ -209,6 +212,7 @@ export default function MoneyTransferFlow({ setIsfundTransferOpen }) {
             </div>
 
             <AppButton
+              loading={loading}
               onClick={handleConfirm}
               disabled={formData?.pin?.length !== 4 || loading}
               className={`w-full py-2 rounded-lg font-semibold transition-colors ${

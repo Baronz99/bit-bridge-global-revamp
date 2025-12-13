@@ -5,6 +5,7 @@ import {
   LoginOutlined,
   MenuUnfoldOutlined,
   WalletOutlined,
+  IdcardOutlined, // ✅ NEW
 } from '@ant-design/icons'
 import PropTypes from 'prop-types'
 import { Navigate, NavLink, Outlet, useLocation } from 'react-router-dom'
@@ -13,12 +14,14 @@ import { useDispatch, useSelector } from 'react-redux'
 import { useEffect, useRef, useState } from 'react'
 import { userLogout } from '../redux/actions/auth'
 import DropDown from '../components/dropDown/DropDown'
-import logo from '../assets/logos/logo-mod.png'
 import { LuUtilityPole } from 'react-icons/lu'
 import { getWallet } from '../redux/actions/wallet'
 import DrawerModal from '../components/drawer/Drawer'
 import { SET_LOADING } from '../redux/app'
 import LoaderPage from '../components/loader/LoaderPage'
+
+// ✅ Use the same logo icon as the public header
+import logoIcon from '../assets/logos/bitbridge-logo-clear.png'
 
 const DashboardLayout = () => {
   const dispatch = useDispatch()
@@ -43,7 +46,6 @@ const DashboardLayout = () => {
     return () => {
       document.removeEventListener('mousedown', closeNav)
     }
-    // we intentionally ignore deps to keep behaviour stable
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
@@ -51,7 +53,7 @@ const DashboardLayout = () => {
     dispatch(getWallet())
   }, [dispatch])
 
-  // ✅ Only block the dashboard while auth is still loading AND we don't have a user yet
+  // Block dashboard while auth is still loading AND no user yet
   if (loading && !user) {
     return <LoaderPage />
   }
@@ -60,7 +62,6 @@ const DashboardLayout = () => {
     return <Navigate to="/login" state={{ from: location }} replace />
   }
 
-  // keep the same basic structure you had, just refined styles
   const baseNavItem =
     'flex flex-col justify-center items-center gap-1 text-[11px] md:text-xs transition-colors'
   const active = `${baseNavItem} text-alt`
@@ -69,7 +70,7 @@ const DashboardLayout = () => {
   return (
     <div className="relative h-screen bg-slate-950">
       <div className="max-w-[1500px] m-auto flex flex-col overflow-hidden h-screen">
-        {/* TOP BAR (refined, but same structure) */}
+        {/* TOP BAR */}
         <header className="flex justify-between items-center gap-4 rounded-2xl bg-gradient-to-r from-black via-slate-950 to-black border border-slate-800/70 md:py-5 py-3 px-5 md:px-7 mt-3 mb-3 shadow-sm">
           {/* Mobile menu button */}
           <button
@@ -81,13 +82,27 @@ const DashboardLayout = () => {
             <MenuUnfoldOutlined className="text-lg" />
           </button>
 
-          {/* Logo */}
-          <NavLink to="/dashboard" className="text-3xl text-white flex-1">
+          {/* Brand lockup – match homepage style */}
+          <NavLink
+            to="/dashboard/home"
+            className="flex-1 flex items-center gap-3 text-white"
+          >
+            {/* Icon-only logo */}
             <img
-              src={logo}
-              alt="BitBridge Global"
-              className="h-9 md:h-11 w-auto object-contain"
+              src={logoIcon}
+              alt="BitBridge Global logo"
+              className="h-9 w-9 md:h-10 md:w-10 object-contain"
             />
+
+            {/* Wordmark – hidden on very small screens to keep it clean */}
+            <div className="leading-tight hidden sm:block">
+              <div className="text-slate-100 font-semibold tracking-[0.16em] text-[11px] md:text-xs uppercase">
+                BIT BRIDGE
+              </div>
+              <div className="text-slate-400 font-medium tracking-[0.26em] text-[9px] md:text-[10px] uppercase">
+                GLOBAL
+              </div>
+            </div>
           </NavLink>
 
           {/* Desktop nav */}
@@ -121,6 +136,16 @@ const DashboardLayout = () => {
                     <span>Utility</span>
                   </NavLink>
                 </li>
+                {/* ✅ NEW: Verification (KYC) tab */}
+                <li>
+                  <NavLink
+                    to="/dashboard/kyc"
+                    className={({ isActive }) => (isActive ? active : normal)}
+                  >
+                    <IdcardOutlined className="text-xl" />
+                    <span>Verification</span>
+                  </NavLink>
+                </li>
                 <li>
                   <NavLink
                     to="/dashboard/transactions/orders"
@@ -133,11 +158,11 @@ const DashboardLayout = () => {
               </ul>
             </nav>
 
-            {/* User profile dropdown (unchanged behaviour) */}
+            {/* User profile dropdown */}
             <DropDown />
           </div>
 
-          {/* Right spacer on mobile to balance the flex layout */}
+          {/* Right spacer on mobile */}
           <div className="flex gap-4 md:hidden" />
         </header>
 
@@ -177,6 +202,16 @@ const DashboardLayout = () => {
                     >
                       <LuUtilityPole className="text-xl" />
                       <span>Utility</span>
+                    </NavLink>
+                  </li>
+                  {/* ✅ NEW: Verification (KYC) in mobile drawer */}
+                  <li onClick={() => setOpen(false)}>
+                    <NavLink
+                      to="/dashboard/kyc"
+                      className={({ isActive }) => (isActive ? active : normal)}
+                    >
+                      <IdcardOutlined className="text-xl" />
+                      <span>Verification</span>
                     </NavLink>
                   </li>
                   <li onClick={() => setOpen(false)}>

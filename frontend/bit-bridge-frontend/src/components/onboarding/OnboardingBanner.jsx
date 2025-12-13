@@ -1,6 +1,6 @@
 // src/components/onboarding/OnboardingBanner.jsx
 import React from 'react';
-import { AlertOutlined, CheckCircleOutlined } from '@ant-design/icons';
+import { AlertOutlined, CheckCircleOutlined, CloseOutlined } from '@ant-design/icons';
 
 /**
  * Smart top-of-dashboard banner
@@ -10,12 +10,16 @@ import { AlertOutlined, CheckCircleOutlined } from '@ant-design/icons';
  * - primaryUseCase: backend primary_use_case (string or null)
  * - hasVirtualAccount: boolean – whether user already has any Anchor/Moniepoint account
  * - onContinueClick: function – called when user presses CTA
+ * - dismissible: boolean – whether to show a small "x" close button
+ * - onDismiss: function – called when user clicks the close button
  */
 const OnboardingBanner = ({
   stage,
   primaryUseCase,
   hasVirtualAccount,
   onContinueClick,
+  dismissible = false,
+  onDismiss,
 }) => {
   // Normalise values
   const _stage = stage || 'email_confirmed';
@@ -56,11 +60,10 @@ const OnboardingBanner = ({
     cta = 'Continue setup';
   }
 
-  // NOTE: we ALWAYS render the banner; tone just changes styling.
   return (
     <div className="mb-5">
       <div
-        className={`w-full rounded-2xl border px-4 py-3 md:px-5 md:py-4 flex flex-col md:flex-row md:items-center md:justify-between gap-3
+        className={`w-full rounded-2xl border px-4 py-3 md:px-5 md:py-4 flex flex-col md:flex-row md:items-center md:justify-between gap-3 relative
           ${
             tone === 'ready'
               ? 'bg-emerald-900/20 border-emerald-500/60'
@@ -68,7 +71,7 @@ const OnboardingBanner = ({
           }`}
       >
         {/* Left: icon + text */}
-        <div className="flex items-start gap-3">
+        <div className="flex items-start gap-3 pr-6">
           <div className="mt-1">
             {tone === 'ready' ? (
               <CheckCircleOutlined className="text-emerald-400 text-lg" />
@@ -86,7 +89,7 @@ const OnboardingBanner = ({
           </div>
         </div>
 
-        {/* Right: CTA */}
+        {/* Right: CTA + label */}
         <div className="flex items-center gap-3 md:justify-end">
           {!isFullyReady && (
             <p className="hidden md:block text-[11px] uppercase tracking-[0.18em] text-slate-300/80">
@@ -106,6 +109,17 @@ const OnboardingBanner = ({
             {cta}
           </button>
         </div>
+
+        {/* ✅ Optional dismiss button */}
+        {dismissible && (
+          <button
+            type="button"
+            onClick={onDismiss}
+            className="absolute top-2 right-2 md:top-3 md:right-3 inline-flex h-6 w-6 items-center justify-center rounded-full bg-black/40 text-slate-300 hover:text-white hover:bg-black/60 text-xs"
+          >
+            <CloseOutlined />
+          </button>
+        )}
       </div>
     </div>
   );
