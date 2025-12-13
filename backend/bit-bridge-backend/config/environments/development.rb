@@ -14,11 +14,10 @@ Rails.application.configure do
 
   # -----------------------------------------
   # FRONTEND URL FOR DEVELOPMENT
-  # This makes password reset + confirmation emails point to local frontend.
+  # Used for links in emails (password reset, confirmation, etc.)
   # -----------------------------------------
   config.x.frontend_url = 'http://localhost:5173'
   # (In production.rb, this will instead be https://bitbridgeglobal.com)
-  # -----------------------------------------
 
   # SMTP mailer settings
   config.action_mailer.delivery_method = :smtp
@@ -35,10 +34,10 @@ Rails.application.configure do
     enable_starttls_auto: true
   }
 
-  # ✅ IMPORTANT: don’t break signup when SMTP times out
+  # ✅ Don’t break signup when SMTP fails
   config.action_mailer.raise_delivery_errors = false
   config.action_mailer.perform_deliveries    = true
-  # (Emails are still *attempted*, but failures are logged instead of raising 500.)
+  # (Emails are still attempted, but failures are logged instead of raising 500.)
 
   # Asset host for email images (if any)
   config.action_mailer.asset_host = 'http://localhost:3000'
@@ -63,7 +62,7 @@ Rails.application.configure do
     config.cache_store = :null_store
   end
 
-  # Active Storage
+  # ✅ Active Storage – use local disk in development
   config.active_storage.service = :local
 
   # Mailer caching

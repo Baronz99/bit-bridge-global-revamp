@@ -1,35 +1,40 @@
+# config/storage.yml
+
 test:
   service: Disk
   root: <%= Rails.root.join("tmp/storage") %>
 
+# Used by development (config.active_storage.service = :local)
 local:
   service: Disk
   root: <%= Rails.root.join("storage") %>
 
-# Use bin/rails credentials:edit to set the AWS secrets (as aws:access_key_id|secret_access_key)
+# Production S3 storage (only used when you set config.active_storage.service = :amazon)
+# This version does NOT raise errors when ENV vars are missing.
 amazon:
   service: S3
-  access_key_id: <%= ENV.fetch("AWS_ACCESS_KEY_ID") %>
-  secret_access_key: <%= ENV.fetch("AWS_SECRET_ACCESS_KEY") %>
-  region: <%= ENV.fetch("AWS_REGION", "us-east-1") %>
-  bucket: <%= ENV.fetch("AWS_S3_BUCKET") %>
+  access_key_id:     <%= ENV["AWS_ACCESS_KEY_ID"] %>
+  secret_access_key: <%= ENV["AWS_SECRET_ACCESS_KEY"] %>
+  region:            <%= ENV["AWS_REGION"] || "us-east-1" %>
+  bucket:            <%= ENV["AWS_S3_BUCKET"] %>
   # optional if you really need a custom endpoint:
   # endpoint: <%= ENV["AWS_S3_ENDPOINT"] %>
 
-# Remember not to checkin your GCS keyfile to a repository
+# Example GCS config (commented out)
 # google:
 #   service: GCS
 #   project: your_project
 #   credentials: <%= Rails.root.join("path/to/gcs.keyfile") %>
 #   bucket: your_own_bucket-<%= Rails.env %>
 
-# Use bin/rails credentials:edit to set the Azure Storage secret (as azure_storage:storage_access_key)
+# Example Azure config (commented out)
 # microsoft:
 #   service: AzureStorage
 #   storage_account_name: your_account_name
 #   storage_access_key: <%= Rails.application.credentials.dig(:azure_storage, :storage_access_key) %>
 #   container: your_container_name-<%= Rails.env %>
 
+# Example mirror config (commented out)
 # mirror:
 #   service: Mirror
 #   primary: local

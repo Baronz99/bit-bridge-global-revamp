@@ -1,11 +1,11 @@
-class User < ApplicationRecord
+class User < ApplicationRecord 
   attr_accessor :old_password, :confirm_password, :mode, :password_token
 
   include Devise::JWT::RevocationStrategies::JTIMatcher
-  # Include default devise modules. Others available are:
-  # :lockable, :timeoutable, :trackable and :omniauthable
+
   devise :database_authenticatable, :registerable,
-       :recoverable, :rememberable, :validatable, :jwt_authenticatable, jwt_revocation_strategy: self
+         :recoverable, :rememberable, :validatable, :jwt_authenticatable,
+         jwt_revocation_strategy: self
 
   has_one :wallet, class_name: 'Wallet'
   has_many :transactions, through: :wallet
@@ -16,11 +16,16 @@ class User < ApplicationRecord
   has_many :bill_orders
   has_many :accounts
   has_many :cards
+  
+
+  # 🔥 ADD THESE TWO FOR SHARED GROUPS (CIRCLES)
+  has_many :circle_memberships, dependent: :destroy
+  has_many :circles, through: :circle_memberships
+  has_many :owned_circles, class_name: 'Circle', foreign_key: :owner_id, inverse_of: :owner
+
+  # ---------------------------------------------
 
   accepts_nested_attributes_for :user_profile
-
-  # 👇 NEW: auto-confirm in staging
-  # before_create :skip_confirmation_in_staging
 
   after_create :initialize_wallet
 

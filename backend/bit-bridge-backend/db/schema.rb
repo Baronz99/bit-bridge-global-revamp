@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[7.1].define(version: 2025_11_25_000000) do
+ActiveRecord::Schema[7.1].define(version: 2025_12_07_124058) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pgcrypto"
   enable_extension "plpgsql"
@@ -148,6 +148,46 @@ ActiveRecord::Schema[7.1].define(version: 2025_11_25_000000) do
     t.string "id_type"
     t.string "phone"
     t.index ["user_id"], name: "index_cards_on_user_id"
+  end
+
+  create_table "circle_memberships", id: :uuid, default: -> { "gen_random_uuid()" }, force: :cascade do |t|
+    t.uuid "circle_id", null: false
+    t.uuid "user_id", null: false
+    t.integer "role", default: 0, null: false
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["circle_id", "user_id"], name: "index_circle_memberships_on_circle_id_and_user_id", unique: true
+    t.index ["circle_id"], name: "index_circle_memberships_on_circle_id"
+    t.index ["user_id"], name: "index_circle_memberships_on_user_id"
+  end
+
+  create_table "circle_transactions", id: :uuid, default: -> { "gen_random_uuid()" }, force: :cascade do |t|
+    t.uuid "circle_id", null: false
+    t.uuid "user_id", null: false
+    t.integer "amount_cents", default: 0, null: false
+    t.integer "direction", default: 0, null: false
+    t.string "kind", default: "manual", null: false
+    t.string "description"
+    t.string "reference"
+    t.datetime "occurred_at", null: false
+    t.jsonb "metadata", default: {}, null: false
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["circle_id", "occurred_at"], name: "index_circle_transactions_on_circle_id_and_occurred_at"
+    t.index ["circle_id"], name: "index_circle_transactions_on_circle_id"
+    t.index ["user_id"], name: "index_circle_transactions_on_user_id"
+  end
+
+  create_table "circles", id: :uuid, default: -> { "gen_random_uuid()" }, force: :cascade do |t|
+    t.string "name", null: false
+    t.string "purpose"
+    t.text "description"
+    t.uuid "owner_id", null: false
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.integer "balance_cents", default: 0, null: false
+    t.string "currency", default: "NGN", null: false
+    t.index ["owner_id"], name: "index_circles_on_owner_id"
   end
 
   create_table "currencies", id: :uuid, default: -> { "gen_random_uuid()" }, force: :cascade do |t|
@@ -379,6 +419,11 @@ ActiveRecord::Schema[7.1].define(version: 2025_11_25_000000) do
   add_foreign_key "bill_orders", "users", on_delete: :nullify
   add_foreign_key "card_tokens", "order_items"
   add_foreign_key "cards", "users"
+  add_foreign_key "circle_memberships", "circles"
+  add_foreign_key "circle_memberships", "users"
+  add_foreign_key "circle_transactions", "circles"
+  add_foreign_key "circle_transactions", "users"
+  add_foreign_key "circles", "users", column: "owner_id"
   add_foreign_key "electric_bill_orders", "order_details"
   add_foreign_key "order_details", "users"
   add_foreign_key "order_items", "order_details"

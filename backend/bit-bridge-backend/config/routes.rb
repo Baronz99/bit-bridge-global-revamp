@@ -21,10 +21,9 @@ Rails.application.routes.draw do
     registrations: 'users/registrations'
   }
 
-  # 👇 refresh token endpoint – frontend calls POST `${baseUrl}refresh`
   devise_scope :user do
-    get 'confirmation', to: 'users/confirmations#show'
-    post 'refresh', to: 'users/sessions#refresh'   # <-- changed from refresh_token to refresh
+    get  'confirmation', to: 'users/confirmations#show'
+    post 'refresh',      to: 'users/sessions#refresh'
   end
 
   get 'tokens', to: 'api/v1/tokens#token'
@@ -34,10 +33,11 @@ Rails.application.routes.draw do
 
   namespace :api do
     namespace :v1 do
+      # Webhooks
       post 'monnify/webhook', to: 'webhooks#monnify'
       post 'anchor/webhook',  to: 'webhooks#anchor'
 
-      # ✅ ONBOARDING + KYC ROUTES (flat, hitting Api::V1::OnboardingController)
+      # Onboarding + KYC
       patch 'onboarding/profile',  to: 'onboarding#update_profile'
       patch 'onboarding/use_case', to: 'onboarding#update_use_case'
       post  'onboarding/kyc',      to: 'onboarding#submit_kyc'
@@ -50,8 +50,6 @@ Rails.application.routes.draw do
           post :create_card
         end
       end
-
-      # ❌ `resources :refresh` removed – we now use top-level POST /refresh
 
       resources :accounts do
         collection do
@@ -88,6 +86,7 @@ Rails.application.routes.draw do
           get  :get_balance
           get  :get_price_list
         end
+
         member do
           get :approve_data
           get :update_status
@@ -166,17 +165,29 @@ Rails.application.routes.draw do
         collection do
           get  :user_profile
           patch :user_update
-          patch :update_password          # used by reset-password form
+          patch :update_password
           patch :user_password_update
-          post  :password_reset           # send reset email
-          get   :password_reset           # optional: supports GET /users/password_reset?email=...
+          post  :password_reset
+          get   :password_reset
           patch :activate_user
           get   :resend_confirmation_token
           patch :onboarding_stage
           patch :basic_profile
-          patch :use_case                 # <- existing use_case route kept
+          patch :use_case
           patch :update_kyc_level
         end
+      end
+
+      # ✅ Shared Circles Route + mini-wallet + member invites
+      resources :circles, only: %i[index show create] do
+        member do
+          post :fund   # POST /api/v1/circles/:id/fund
+        end
+
+        # nested memberships: /api/v1/circles/:circle_id/memberships
+        resources :memberships,
+                  controller: 'circle_memberships',
+                  only: [:create]
       end
 
       resources :statistics
