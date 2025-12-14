@@ -6,6 +6,8 @@ import {
   BankOutlined,
   SafetyCertificateOutlined,
   CreditCardOutlined,
+  CheckCircleOutlined,
+  LockOutlined,
 } from '@ant-design/icons'
 import { NavLink, useNavigate } from 'react-router-dom'
 
@@ -96,15 +98,130 @@ const kycLevelConfig = {
   },
 }
 
+// ---------- tier helpers ----------
+const tierOrder = ['tier_0', 'tier_1', 'tier_2']
+
+const normalizeTierKey = (raw) => {
+  const k = (raw ?? 'nil').toString()
+  if (k === 'nil' || k === '') return 'tier_0' // treat “not started” as Tier 0 for UI consistency
+  if (!tierOrder.includes(k)) return 'tier_0'
+  return k
+}
+
+const tierIndex = (tierKey) => tierOrder.indexOf(tierKey)
+
+const getTierState = (currentTierKey, tierKey) => {
+  const currentIdx = tierIndex(currentTierKey)
+  const idx = tierIndex(tierKey)
+
+  if (idx < currentIdx) return 'completed'
+  if (idx === currentIdx) return 'current'
+  return 'locked'
+}
+
+const tierCardCopy = {
+  tier_0: {
+    title: 'Tier 0',
+    body: 'Email confirmed. Pay bills and try BitBridge with lower limits.',
+    hint: 'Good for light usage',
+  },
+  tier_1: {
+    title: 'Tier 1',
+    body: 'Personal ID + BVN / NIN. Unlock local transfers & virtual accounts.',
+    hint: 'Unlock transfers',
+  },
+  tier_2: {
+    title: 'Tier 2',
+    body: 'Business / pro. For salary & vendor payouts and higher flows.',
+    hint: 'Higher limits',
+  },
+}
+
+const TierCard = ({ state, title, body, hint, onPrimary, primaryLabel }) => {
+  const isCurrent = state === 'current'
+  const isCompleted = state === 'completed'
+  const isLocked = state === 'locked'
+
+  const containerClass = [
+    'rounded-xl border p-3 transition',
+    isCurrent
+      ? 'border-alt bg-slate-950/90 shadow-[0_0_0_1px_rgba(250,204,21,0.25)]'
+      : 'border-slate-700/80 bg-slate-950/80',
+    isLocked ? 'opacity-80' : '',
+  ].join(' ')
+
+  const badgeClass = [
+    'inline-flex items-center gap-1 rounded-full px-2 py-[2px] text-[10px] uppercase tracking-[0.16em] border',
+    isCurrent
+      ? 'bg-alt/15 border-alt/60 text-alt'
+      : isCompleted
+        ? 'bg-emerald-900/30 border-emerald-600/50 text-emerald-200'
+        : 'bg-slate-900 border-slate-700 text-slate-300',
+  ].join(' ')
+
+  const badgeText =
+    (isCurrent && 'Current') || (isCompleted && 'Completed') || (isLocked && 'Locked')
+
+  const badgeIcon =
+    (isCurrent && <SafetyCertificateOutlined />) ||
+    (isCompleted && <CheckCircleOutlined />) ||
+    (isLocked && <LockOutlined />)
+
+  return (
+    <div className={containerClass}>
+      <div className="flex items-start justify-between gap-2 mb-2">
+        <div>
+          <p className="font-semibold mb-1 text-slate-100">{title}</p>
+          <p className="text-slate-400 text-[11px]">{hint}</p>
+        </div>
+
+        <span className={badgeClass}>
+          {badgeIcon}
+          {badgeText}
+        </span>
+      </div>
+
+      <p className="text-slate-400 text-[11px] leading-relaxed">{body}</p>
+
+      {isCurrent && typeof onPrimary === 'function' && primaryLabel ? (
+        <button
+          type="button"
+          onClick={onPrimary}
+          className="mt-3 inline-flex items-center px-3 py-1.5 rounded-lg bg-alt text-black text-xs font-semibold hover:brightness-110 transition"
+        >
+          {primaryLabel}
+        </button>
+      ) : null}
+    </div>
+  )
+}
+
 const KycCenter = () => {
   const { user } = useSelector((state) => state.auth) || {}
   const navigate = useNavigate()
 
   const primaryUseCase = user?.primary_use_case || 'airtime_utilities'
-  const kycLevelKey = (user?.kyc_level || 'nil').toString()
-  const kycInfo = kycLevelConfig[kycLevelKey] || kycLevelConfig.nil
+
+  const normalizedTierKey = normalizeTierKey(user?.kyc_level)
+  const rawKycLevelKey = (user?.kyc_level || 'nil').toString()
+  const kycInfo = kycLevelConfig[rawKycLevelKey] || kycLevelConfig.nil
+
   const useCaseInfo = useCaseConfig[primaryUseCase] || useCaseConfig.airtime_utilities
-  const hasTier1OrMore = ['tier_1', 'tier_2'].includes(kycLevelKey)
+
+  const hasTier1OrMore = ['tier_1', 'tier_2'].includes(normalizedTierKey)
+
+  // “next action” routing helpers
+  const goProfile = () => navigate('/dashboard/profile-account')
+  const goVirtualAccounts = () => navigate('/dashboard/virtual-account')
+  const goWallet = () => navigate('/dashboard/wallet') // if you don’t have this route, change to /dashboard/home
+
+  // Decide what button to show inside the CURRENT tier card
+  const currentTierPrimary =
+    normalizedTierKey === 'tier_0'
+      ? { label: 'Open profile', action: goProfile }
+      : normalizedTierKey === 'tier_1'
+        ? { label: 'Go to virtual accounts', action: goVirtualAccounts }
+        : { label: 'Review profile', action: goProfile }
 
   return (
     <div className="min-h-screen p-4 md:p-8 bg-slate-950 text-slate-100">
@@ -158,25 +275,30 @@ const KycCenter = () => {
             <h3 className="font-semibold text-slate-100">What your level means</h3>
             <p className="text-slate-300">{kycInfo.description}</p>
 
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-[11px]">
-              <div className="rounded-xl border border-slate-700/80 bg-slate-950/80 p-3">
-                <p className="font-semibold mb-1 text-slate-100">Tier 0</p>
-                <p className="text-slate-400">
-                  Email confirmed. Pay bills and try BitBridge with lower limits.
-                </p>
-              </div>
-              <div className="rounded-xl border border-slate-700/80 bg-slate-950/80 p-3">
-                <p className="font-semibold mb-1 text-slate-100">Tier 1</p>
-                <p className="text-slate-400">
-                  Personal ID + BVN / NIN. Unlock local transfers &amp; virtual accounts.
-                </p>
-              </div>
-              <div className="rounded-xl border border-slate-700/80 bg-slate-950/80 p-3">
-                <p className="font-semibold mb-1 text-slate-100">Tier 2</p>
-                <p className="text-slate-400">
-                  Business / pro. For salary &amp; vendor payouts and higher flows.
-                </p>
-              </div>
+            {/* Tier ladder (stateful) */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-[11px] mt-3">
+              {tierOrder.map((tKey) => {
+                const state = getTierState(normalizedTierKey, tKey)
+                const copy = tierCardCopy[tKey]
+
+                // Only show a CTA inside the CURRENT tier card, to keep UI clean
+                const onPrimary =
+                  state === 'current' ? currentTierPrimary.action : undefined
+                const primaryLabel =
+                  state === 'current' ? currentTierPrimary.label : undefined
+
+                return (
+                  <TierCard
+                    key={tKey}
+                    state={state}
+                    title={copy.title}
+                    body={copy.body}
+                    hint={copy.hint}
+                    onPrimary={onPrimary}
+                    primaryLabel={primaryLabel}
+                  />
+                )
+              })}
             </div>
           </div>
         </div>
@@ -189,7 +311,8 @@ const KycCenter = () => {
               Next steps to unlock everything
             </h3>
             <p className="text-xs text-slate-400 mb-4">
-              You only need **two** quick steps to reach Tier 1.
+              You only need <span className="font-semibold text-slate-200">two</span> quick
+              steps to reach Tier 1.
             </p>
 
             <ol className="space-y-3 text-sm">
@@ -207,7 +330,7 @@ const KycCenter = () => {
                   </p>
                   <button
                     type="button"
-                    onClick={() => navigate('/dashboard/profile-account')}
+                    onClick={goProfile}
                     className="mt-2 inline-flex items-center px-3 py-1.5 rounded-lg bg-alt text-black text-xs font-semibold hover:brightness-110 transition"
                   >
                     Open profile
@@ -240,10 +363,11 @@ const KycCenter = () => {
                     Once you are Tier 1, you can create a virtual bank account number so
                     incoming transfers go straight into your BitBridge wallet.
                   </p>
+
                   {hasTier1OrMore ? (
                     <button
                       type="button"
-                      onClick={() => navigate('/dashboard/virtual-account')}
+                      onClick={goVirtualAccounts}
                       className="mt-2 inline-flex items-center px-3 py-1.5 rounded-lg border border-alt text-alt text-xs font-semibold hover:bg-alt/10 transition"
                     >
                       Go to virtual accounts
@@ -266,12 +390,19 @@ const KycCenter = () => {
             >
               Back to dashboard
             </NavLink>
+
+            {/* context-aware “skip” */}
             <button
               type="button"
-              onClick={() => navigate('/dashboard/virtual-account')}
+              onClick={hasTier1OrMore ? goVirtualAccounts : goWallet}
               className="inline-flex items-center justify-center px-4 py-2.5 rounded-xl bg-alt text-black text-xs md:text-sm font-semibold hover:brightness-110 transition"
+              title={
+                hasTier1OrMore
+                  ? 'Go to virtual accounts'
+                  : 'Use wallet for now (virtual accounts unlock at Tier 1)'
+              }
             >
-              Skip for now – use wallet
+              {hasTier1OrMore ? 'Go to virtual accounts' : 'Skip for now – use wallet'}
             </button>
           </div>
         </div>
