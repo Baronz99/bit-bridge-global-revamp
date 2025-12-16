@@ -1,9 +1,12 @@
 // src/pages/Circles/CirclesDetailPage.jsx
 
 import { useEffect, useState } from 'react'
+import { useSelector } from 'react-redux'
 import { useNavigate, useParams } from 'react-router-dom'
 import ClassicBtn from '../../components/button/ClassicButton'
 import { API_BASE_URL } from '../../api/config'
+import DisputeModal from '../../components/DisputeModal'
+
 
 const API_BASE = (API_BASE_URL || '').replace(/\/$/, '')
 const getSessionToken = () => localStorage.getItem('bitglobal') || ''
@@ -25,6 +28,11 @@ const CirclesDetailPage = () => {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
 
+  const currentUser = useSelector((state) => state.auth.user)
+  const isMine = currentUser?.id && tx.user?.id === currentUser.id
+
+
+
   // funding state
   const [fundAmount, setFundAmount] = useState('5000')
   const [fundNote, setFundNote] = useState('')
@@ -44,6 +52,8 @@ const CirclesDetailPage = () => {
   const [inviting, setInviting] = useState(false)
   const [inviteError, setInviteError] = useState(null)
   const [inviteSuccess, setInviteSuccess] = useState(null)
+  const [activeDisputeTx, setActiveDisputeTx] = useState(null)
+
 
   // ---------- fetch circle (details + members + activity) ----------
   useEffect(() => {
@@ -771,6 +781,22 @@ const CirclesDetailPage = () => {
 
                         <span className="inline-flex items-center rounded-full border border-emerald-500/40 bg-emerald-500/10 px-2 py-[2px] text-[10px] tracking-[0.16em] uppercase text-emerald-200">
                           {pillLabel}
+                          <div className="mt-2 flex items-center justify-between">
+  {tx.dispute ? (
+    <span className="text-[11px] text-amber-400">
+      ⚠ Review requested • {tx.dispute.status}
+    </span>
+  ) : (
+    <button
+      type="button"
+      onClick={() => setActiveDisputeTx(tx)}
+      className="text-[11px] text-sky-300 hover:text-sky-100 underline underline-offset-4"
+    >
+      Request review
+    </button>
+  )}
+</div>
+
                         </span>
                       </div>
                     </li>
@@ -845,6 +871,20 @@ const CirclesDetailPage = () => {
           )}
         </section>
       </div>
+      {activeDisputeTx && (
+  <DisputeModal
+    tx={activeDisputeTx}
+    onClose={() => setActiveDisputeTx(null)}
+    onCreated={(dispute) => {
+      setActivity((prev) =>
+        prev.map((t) =>
+          t.id === activeDisputeTx.id ? { ...t, dispute } : t
+        )
+      )
+    }}
+  />
+)}
+
     </div>
   )
 }

@@ -3,6 +3,12 @@ class CircleTransaction < ApplicationRecord
   belongs_to :circle
   belongs_to :user
 
+  has_one :dispute, dependent: :destroy
+
+  has_many :reactions, class_name: "CircleTransactionReaction", dependent: :destroy
+
+
+
   enum direction: { credit: 0, debit: 1 }
 
   validates :amount_cents, numericality: { greater_than: 0 }

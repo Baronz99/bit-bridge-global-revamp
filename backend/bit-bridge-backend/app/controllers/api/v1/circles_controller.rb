@@ -20,59 +20,78 @@ module Api
       end
 
       # GET /api/v1/circles/:id
-      # GET /api/v1/circles/:id
-def show
-  memberships = @circle.circle_memberships.includes(:user)
-  recent_txs  = @circle.circle_transactions
-                       .includes(:user)
-                       .order(occurred_at: :desc)
-                       .limit(10)
+      def show
+        memberships = @circle.circle_memberships.includes(:user)
 
-  circle_json = @circle.as_json(
-    only: %i[id name purpose description created_at balance_cents currency],
-    include: {
-      owner: { only: %i[id email] }
-    }
-  )
+        recent_txs = @circle.circle_transactions
+                            .includes(:user, dispute: :raised_by)
+                            .order(occurred_at: :desc)
+                            .limit(10)
 
-  # Figure out who the current user is in this circle
-  membership_for_current = memberships.find { |m| m.user_id == current_user.id }
+        circle_json = @circle.as_json(
+          only: %i[id name purpose description created_at balance_cents currency],
+          include: {
+            owner: { only: %i[id email] }
+          }
+        )
 
-  current_role =
-    if @circle.owner_id == current_user.id
-      'owner'
-    elsif membership_for_current
-      membership_for_current.role # "admin" or "member"
-    else
-      'viewer'
-    end
+        # Figure out who the current user is in this circle
+        membership_for_current = memberships.find { |m| m.user_id == current_user.id }
 
-  can_withdraw =
-    (@circle.owner_id == current_user.id) ||
-    (membership_for_current && membership_for_current.admin?)
+        current_role =
+          if @circle.owner_id == current_user.id
+            'owner'
+          elsif membership_for_current
+            membership_for_current.role # "admin" or "member"
+          else
+            'viewer'
+          end
 
-  render json: circle_json.merge(
-    current_user_role: current_role,
-    can_withdraw: can_withdraw,
-    members: memberships.map do |m|
-      {
-        id:   m.id,
-        role: m.role,
-        user: {
-          id:    m.user.id,
-          email: m.user.email
-        }
-      }
-    end,
-    recent_transactions: recent_txs.as_json(
-      only: %i[id amount_cents direction kind description reference occurred_at],
-      include: {
-        user: { only: %i[id email] }
-      }
-    )
-  )
-end
+        can_withdraw =
+          (@circle.owner_id == current_user.id) ||
+          (membership_for_current && membership_for_current.admin?)
 
+        render json: circle_json.merge(
+          current_user_role: current_role,
+          can_withdraw: can_withdraw,
+          members: memberships.map do |m|
+            {
+              id: m.id,
+              role: m.role,
+              user: {
+                id: m.user.id,
+                email: m.user.email
+              }
+            }
+          end,
+          recent_transactions: recent_txs.map do |tx|
+            tx.as_json(
+              only: %i[id amount_cents direction kind description reference occurred_at],
+              include: { user: { only: %i[id email] } }
+            ).merge(
+              dispute: tx.dispute&.as_json(
+                only: %i[id status reason note created_at],
+                include: { raised_by: { only: %i[id email] } }
+              )
+
+              reactions_grouped = tx.reactions.group(:emoji).count
+my_reactions = tx.reactions.where(user_id: current_user.id).pluck(:emoji)
+
+tx.as_json(
+  only: %i[id amount_cents direction kind description reference occurred_at],
+  include: { user: { only: %i[id email] } }
+).merge(
+  dispute: ...,
+  reactions: {
+    counts: reactions_grouped,      # { "👍" => 2, "🎉" => 1 }
+    mine: my_reactions              # ["👍"]
+  }
+)
+
+            )
+          end
+        )
+      end
 
       # POST /api/v1/circles
       def create

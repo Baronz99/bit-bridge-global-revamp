@@ -190,6 +190,17 @@ Rails.application.routes.draw do
                   only: [:create]
       end
 
+      resources :circle_transactions, only: [] do
+  member do
+    post   :react
+    delete :unreact
+  end
+end
+
+
+      resources :disputes, only: [:create]
+
+
       resources :statistics
     end
   end

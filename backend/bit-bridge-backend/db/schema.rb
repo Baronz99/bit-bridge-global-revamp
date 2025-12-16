@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[7.1].define(version: 2025_12_07_124058) do
+ActiveRecord::Schema[7.1].define(version: 2025_12_16_132102) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pgcrypto"
   enable_extension "plpgsql"
@@ -161,6 +161,17 @@ ActiveRecord::Schema[7.1].define(version: 2025_12_07_124058) do
     t.index ["user_id"], name: "index_circle_memberships_on_user_id"
   end
 
+  create_table "circle_transaction_reactions", id: :uuid, default: -> { "gen_random_uuid()" }, force: :cascade do |t|
+    t.uuid "circle_transaction_id", null: false
+    t.uuid "user_id", null: false
+    t.string "emoji", null: false
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["circle_transaction_id", "user_id", "emoji"], name: "idx_circle_tx_reactions_unique", unique: true
+    t.index ["circle_transaction_id"], name: "index_circle_transaction_reactions_on_circle_transaction_id"
+    t.index ["user_id"], name: "index_circle_transaction_reactions_on_user_id"
+  end
+
   create_table "circle_transactions", id: :uuid, default: -> { "gen_random_uuid()" }, force: :cascade do |t|
     t.uuid "circle_id", null: false
     t.uuid "user_id", null: false
@@ -196,6 +207,18 @@ ActiveRecord::Schema[7.1].define(version: 2025_12_07_124058) do
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
     t.jsonb "exchange_rates"
+  end
+
+  create_table "disputes", force: :cascade do |t|
+    t.uuid "circle_transaction_id", null: false
+    t.uuid "raised_by_id", null: false
+    t.integer "status", default: 0, null: false
+    t.string "reason", null: false
+    t.text "note"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["circle_transaction_id"], name: "index_disputes_on_circle_transaction_id"
+    t.index ["raised_by_id"], name: "index_disputes_on_raised_by_id"
   end
 
   create_table "electric_bill_orders", id: :uuid, default: -> { "gen_random_uuid()" }, force: :cascade do |t|
@@ -421,9 +444,13 @@ ActiveRecord::Schema[7.1].define(version: 2025_12_07_124058) do
   add_foreign_key "cards", "users"
   add_foreign_key "circle_memberships", "circles"
   add_foreign_key "circle_memberships", "users"
+  add_foreign_key "circle_transaction_reactions", "circle_transactions"
+  add_foreign_key "circle_transaction_reactions", "users"
   add_foreign_key "circle_transactions", "circles"
   add_foreign_key "circle_transactions", "users"
   add_foreign_key "circles", "users", column: "owner_id"
+  add_foreign_key "disputes", "circle_transactions"
+  add_foreign_key "disputes", "users", column: "raised_by_id"
   add_foreign_key "electric_bill_orders", "order_details"
   add_foreign_key "order_details", "users"
   add_foreign_key "order_items", "order_details"
