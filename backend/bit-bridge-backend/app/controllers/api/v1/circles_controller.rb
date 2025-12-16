@@ -24,7 +24,7 @@ module Api
         memberships = @circle.circle_memberships.includes(:user)
 
         recent_txs = @circle.circle_transactions
-                            .includes(:user, dispute: :raised_by)
+                            .includes(:user, :reactions, dispute: :raised_by)
                             .order(occurred_at: :desc)
                             .limit(10)
 
@@ -65,6 +65,9 @@ module Api
             }
           end,
           recent_transactions: recent_txs.map do |tx|
+            reactions_grouped = tx.reactions.group(:emoji).count
+            my_reactions = tx.reactions.where(user_id: current_user.id).pluck(:emoji)
+
             tx.as_json(
               only: %i[id amount_cents direction kind description reference occurred_at],
               include: { user: { only: %i[id email] } }
@@ -72,22 +75,11 @@ module Api
               dispute: tx.dispute&.as_json(
                 only: %i[id status reason note created_at],
                 include: { raised_by: { only: %i[id email] } }
-              )
-
-              reactions_grouped = tx.reactions.group(:emoji).count
-my_reactions = tx.reactions.where(user_id: current_user.id).pluck(:emoji)
-
-tx.as_json(
-  only: %i[id amount_cents direction kind description reference occurred_at],
-  include: { user: { only: %i[id email] } }
-).merge(
-  dispute: ...,
-  reactions: {
-    counts: reactions_grouped,      # { "👍" => 2, "🎉" => 1 }
-    mine: my_reactions              # ["👍"]
-  }
-)
-
+              ),
+              reactions: {
+                counts: reactions_grouped, # { "👍" => 2, "🎉" => 1 }
+                mine: my_reactions         # ["👍"]
+              }
             )
           end
         )
@@ -203,7 +195,7 @@ tx.as_json(
           # 2) debit circle mini-wallet + log circle transaction
           @circle.apply_transaction!(
             amount_cents: amount_cents,
-            direction:    'debit', # or 'out' depending on your enum
+            direction:    'debit',
             user:         current_user,
             kind:         'payout',
             description:  note.presence || 'Payout to main wallet'
