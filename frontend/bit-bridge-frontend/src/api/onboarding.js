@@ -1,116 +1,73 @@
 // src/api/onboarding.js
-import axios from 'axios'
-import { API_BASE_URL } from './config'
-
-// small helper so all onboarding calls send the JWT
-function authHeaders() {
-  const token = localStorage.getItem('bitglobal')
-
-  const headers = {
-    Accept: 'application/json',
-    'Content-Type': 'application/json',
-  }
-
-  if (token) {
-    headers.Authorization = `Bearer ${token}`
-  }
-
-  return headers
-}
+import client from './client'
 
 // ---- 1) Basic onboarding stage (optional helper) ----
+// PATCH /api/v1/users/onboarding_stage
 export async function saveOnboardingStage({ onboarding_stage }) {
-  const res = await axios.patch(
-    `${API_BASE_URL}/api/v1/users/onboarding_stage`,
-    { user: { onboarding_stage } },
-    { headers: authHeaders() }
-  )
+  const res = await client.patch('/users/onboarding_stage', {
+    user: { onboarding_stage },
+  })
   return res.data
 }
 
 /**
- * 2) BASIC + ADDRESS PROFILE
+ * 2) BASIC PROFILE (name, phone, DOB)
  *
- * This helper supports TWO modes:
+ * PATCH /api/v1/onboarding/profile
  *
- *  A) JSON mode (no file uploads):
- *     updateBasicProfile({
- *       id_type,
- *       user_profile_attributes: { first_name, last_name, phone_number, date_of_birth, ... }
- *     })
- *
- *     -> sends:
- *        { user: { id_type, user_profile_attributes: { ... } } }
- *        as JSON
- *
- *  B) FormData mode (file uploads, used on Profile page):
- *     const fd = new FormData()
- *     fd.append('user[id_type]', 'bvn')
- *     fd.append('user[user_profile_attributes][first_name]', 'John')
- *     ...
- *     fd.append('user[id_document]', file)
- *
- *     updateBasicProfile(fd, true)
- *
- *     -> sends raw FormData; Rails sees params[:user] correctly.
+ * Supports TWO modes:
+ *  A) JSON mode: pass an object, it will be wrapped under { user: payload }
+ *  B) FormData mode: pass FormData and set isFormData = true
  */
 export async function updateBasicProfile(payload, isFormData = false) {
-  const url = `${API_BASE_URL}/api/v1/users/basic_profile`
+  const url = '/onboarding/profile'
 
   if (isFormData) {
-    // 🚨 IMPORTANT:
-    // Do NOT wrap FormData inside { user: ... }.
-    // We already encoded keys like "user[...]" in the FormData itself.
-    //
-    // Also, we remove the JSON Content-Type header so the browser
-    // can set the correct multipart boundary for us.
-    const jsonHeaders = authHeaders()
-    const { 'Content-Type': _ignored, ...formHeaders } = jsonHeaders
-
-    const res = await axios.patch(url, payload, {
-      headers: formHeaders,
+    // Do not set Content-Type manually; axios will set multipart boundary.
+    const res = await client.patch(url, payload, {
+      headers: { 'Content-Type': undefined },
     })
     return res.data
   }
 
-  // JSON path – used by UseCaseSetup (no files)
-  const res = await axios.patch(
-    url,
-    { user: payload },
-    {
-      headers: authHeaders(),
-    }
-  )
+  const res = await client.patch(url, { user: payload })
+  return res.data
+}
 
+/**
+ * 2b) EXTENDED KYC PROFILE (address + uploads)
+ *
+ * PATCH /api/v1/users/basic_profile
+ */
+export async function updateKycProfile(payload, isFormData = false) {
+  const url = '/users/basic_profile'
+
+  if (isFormData) {
+    const res = await client.patch(url, payload, {
+      headers: { 'Content-Type': undefined },
+    })
+    return res.data
+  }
+
+  const res = await client.patch(url, { user: payload })
   return res.data
 }
 
 // ---- 3) PRIMARY USE CASE (used by UseCaseSetup) ----
+// PATCH /api/v1/onboarding/use_case
 export async function saveOnboardingUseCase({ primary_use_case, onboarding_stage }) {
-  const res = await axios.patch(
-    `${API_BASE_URL}/api/v1/onboarding/use_case`,
-    {
-      primary_use_case,
-      onboarding_stage,
-    },
-    { headers: authHeaders() }
-  )
-
+  const res = await client.patch('/onboarding/use_case', {
+    primary_use_case,
+    onboarding_stage,
+  })
   return res.data
 }
 
 // ---- 4) (Optional) admin KYC level update helper ----
+// PATCH /api/v1/users/update_kyc_level
 export async function saveKycLevel({ kyc_level, id_type }) {
-  const res = await axios.patch(
-    `${API_BASE_URL}/api/v1/users/update_kyc_level`,
-    {
-      user: {
-        kyc_level,
-        id_type,
-      },
-    },
-    { headers: authHeaders() }
-  )
-
+  const res = await client.patch('/users/update_kyc_level', {
+    user: { kyc_level, id_type },
+  })
   return res.data
 }

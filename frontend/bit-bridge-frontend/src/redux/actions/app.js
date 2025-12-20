@@ -1,36 +1,51 @@
 import { createAsyncThunk } from '@reduxjs/toolkit'
-import axios from 'axios'
-import { apiRoute, baseUrl } from '../baseUrl'
-import { fetchToken } from '../../hooks/localStorage'
 import { toast } from 'react-toastify'
+import { signup } from '../../api/auth'
+import { TOKEN_KEY } from '../../api/client'
 
-const userSignUp = createAsyncThunk('sign-up/user-signUp', async (data, { rejectWithValue }) => {
-  try {
-    const response = await axios.post(`${baseUrl}signup`, data)
-    const result = response.data
+export const userSignUp = createAsyncThunk(
+  'sign-up/user-signUp',
+  async (data, { rejectWithValue }) => {
+    try {
+      const response = await signup(data)
+      const result = response.data
 
-    const authorizationHeader = response.headers.authorization
+      // Some backends return token in Authorization header on signup/login
+      const authorizationHeader =
+        response?.headers?.authorization || response?.headers?.Authorization
 
-    let accessToken = null
+      let accessToken = null
 
-    if (authorizationHeader) {
-      if (authorizationHeader.startsWith('Bearer ')) {
-        accessToken = authorizationHeader.split(' ')[1] // Split to get the token part
+      if (authorizationHeader) {
+        if (typeof authorizationHeader === 'string' && authorizationHeader.startsWith('Bearer ')) {
+          accessToken = authorizationHeader.split(' ')[1]
+        } else if (typeof authorizationHeader === 'string') {
+          // Sometimes the header is already the raw token
+          accessToken = authorizationHeader
+        } else {
+          console.warn('Unexpected format for Authorization header:', authorizationHeader)
+        }
       } else {
-        console.warn('Unexpected format for Authorization header:', authorizationHeader)
+        // If the API ever returns token in body instead, support that too
+        accessToken = result?.access_token || result?.token || null
       }
-    } else {
-      console.warn('Authorization header not found')
-    }
 
-    localStorage.setItem('bitglobal', JSON.stringify(accessToken))
-    return result
-  } catch (error) {
-    if (error.response) {
-      toast(error.response.message, { type: 'error' })
-      return rejectWithValue({ message: error.response.message })
-    }
+      if (accessToken) {
+        // Store raw token (not JSON.stringify) so client interceptor can use it directly
+        localStorage.setItem(TOKEN_KEY, accessToken)
+      } else {
+        console.warn('Access token not found in response header/body')
+      }
 
-    return rejectWithValue({ message: 'something went wrong' })
+      return result
+    } catch (error) {
+      const message =
+        error?.response?.data?.message ||
+        error?.message ||
+        'Something went wrong'
+
+      toast(message, { type: 'error' })
+      return rejectWithValue({ message })
+    }
   }
-})
+)

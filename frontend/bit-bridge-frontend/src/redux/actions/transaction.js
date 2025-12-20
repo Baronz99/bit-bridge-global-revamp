@@ -1,45 +1,41 @@
 import { createAsyncThunk } from '@reduxjs/toolkit'
-import { apiRoute, baseUrl } from '../baseUrl'
-import axios from 'axios'
-import { fetchToken } from '../../hooks/localStorage'
 import { toast } from 'react-toastify'
+import client from '../../api/client'
+
+const getErrorMessage = (error) =>
+  error?.response?.data?.message || error?.message || 'Something went wrong'
 
 export const createTransaction = createAsyncThunk(
   'transaction/client-deposit',
   async (data, { rejectWithValue }) => {
     const formData = new FormData()
 
-    data.address && formData.append('transaction[address]', data.address)
+    data?.address && formData.append('transaction[address]', data.address)
     formData.append('transaction[amount]', data.amount)
     formData.append('transaction[transaction_type]', data.transaction_type)
     data?.bank && formData.append('transaction[bank]', data.bank)
     formData.append('transaction[coin_type]', data.coin_type)
-    data.coupon_code && formData.append('transaction[coupon_code]', data.coupon_code)
+    data?.coupon_code && formData.append('transaction[coupon_code]', data.coupon_code)
 
-    if (data.proof && data.proof[0]) {
+    if (data?.proof && data?.proof[0]) {
       formData.append('transaction[proof]', data.proof[0].originFileObj)
     }
 
     try {
-      const response = await axios.post(`${baseUrl + apiRoute}transactions`, formData, {
-        headers: {
-          Authorization: `Bearer ${fetchToken()}`,
-          'Content-Type': 'multipart/form-data',
-        },
+      const response = await client.post('/transactions', formData, {
+        // Important: let axios set the multipart boundary
+        headers: { 'Content-Type': undefined },
       })
 
       const result = response.data
-      toast(result.message || 'Order created successfully', { type: 'success' })
+      toast(result?.message || 'Order created successfully', { type: 'success' })
       toast(result, { type: 'success' })
 
       return result
     } catch (error) {
-      if (error?.response) {
-        toast(error.response.data.message, { type: 'error' })
-
-        return rejectWithValue({ message: error.response.data.message })
-      }
-      return rejectWithValue({ message: 'Something went wrong' })
+      const message = getErrorMessage(error)
+      toast(message, { type: 'error' })
+      return rejectWithValue({ message })
     }
   }
 )
@@ -50,29 +46,17 @@ export const initializeMonifyPayment = createAsyncThunk(
     const transactionData = { transaction: data }
 
     try {
-      const response = await axios.post(
-        `${baseUrl + apiRoute}transactions/initialize_transaction`,
-        transactionData,
-        {
-          headers: {
-            Authorization: `Bearer ${fetchToken()}`,
-            'Content-Type': 'application/json',
-          },
-        }
-      )
-
+      const response = await client.post('/transactions/initialize_transaction', transactionData)
       const result = response.data
-      toast(result.message || 'Order created successfully', { type: 'success' })
+
+      toast(result?.message || 'Order created successfully', { type: 'success' })
       toast(result, { type: 'success' })
 
       return result
     } catch (error) {
-      if (error?.response) {
-        toast(error.response.data.message, { type: 'error' })
-
-        return rejectWithValue({ message: error.response.data.message })
-      }
-      return rejectWithValue({ message: 'Something went wrong' })
+      const message = getErrorMessage(error)
+      toast(message, { type: 'error' })
+      return rejectWithValue({ message })
     }
   }
 )
@@ -82,40 +66,33 @@ export const createUserTransaction = createAsyncThunk(
   async (data, { rejectWithValue }) => {
     const formData = new FormData()
 
-    data.address && formData.append('transaction[address]', data.address)
+    data?.address && formData.append('transaction[address]', data.address)
     formData.append('transaction[amount]', data.amount)
     formData.append('transaction[wallet_id]', data.wallet_id)
-
     formData.append('transaction[transaction_type]', data.transaction_type)
     data?.bank && formData.append('transaction[bank]', data.bank)
     data?.status && formData.append('transaction[status]', data.status)
     formData.append('transaction[coin_type]', data.coin_type)
-    data.coupon_code && formData.append('transaction[coupon_code]', data.coupon_code)
+    data?.coupon_code && formData.append('transaction[coupon_code]', data.coupon_code)
 
-    if (data.proof && data.proof[0]) {
+    if (data?.proof && data?.proof[0]) {
       formData.append('transaction[proof]', data.proof[0].originFileObj)
     }
 
     try {
-      const response = await axios.post(`${baseUrl + apiRoute}transactions/create_user`, formData, {
-        headers: {
-          Authorization: `Bearer ${fetchToken()}`,
-          'Content-Type': 'multipart/form-data',
-        },
+      const response = await client.post('/transactions/create_user', formData, {
+        headers: { 'Content-Type': undefined },
       })
 
       const result = response.data
-      toast(result.message || 'Order created successfully', { type: 'success' })
+      toast(result?.message || 'Order created successfully', { type: 'success' })
       toast(result, { type: 'success' })
 
       return result
     } catch (error) {
-      if (error?.response) {
-        toast(error.response.data.message, { type: 'error' })
-
-        return rejectWithValue({ message: error.response.data.message })
-      }
-      return rejectWithValue({ message: 'Something went wrong' })
+      const message = getErrorMessage(error)
+      toast(message, { type: 'error' })
+      return rejectWithValue({ message })
     }
   }
 )
@@ -124,20 +101,10 @@ export const updateTransaction = createAsyncThunk(
   'transaction/update-transaction',
   async ({ id, data }, { rejectWithValue }) => {
     try {
-      const response = await axios.patch(`${baseUrl + apiRoute}transactions/${id}`, data, {
-        headers: {
-          Authorization: `Bearer ${fetchToken()}`,
-        },
-      })
-
-      const result = response.data
-
-      return result
+      const response = await client.patch(`/transactions/${id}`, data)
+      return response.data
     } catch (error) {
-      if (error?.response) {
-        return rejectWithValue({ message: error.response.data.message })
-      }
-      return rejectWithValue({ message: 'Something went wrong' })
+      return rejectWithValue({ message: getErrorMessage(error) })
     }
   }
 )
@@ -146,43 +113,22 @@ export const getTransactions = createAsyncThunk(
   'transaction/get-transactions',
   async (_, { rejectWithValue }) => {
     try {
-      const response = await axios.get(`${baseUrl + apiRoute}transactions`, {
-        headers: {
-          Authorization: `Bearer ${fetchToken()}`,
-        },
-      })
-
-      const result = response.data
-
-      return result
+      const response = await client.get('/transactions')
+      return response.data
     } catch (error) {
-      if (error.response) {
-        return rejectWithValue({ message: error.response.data.message })
-      }
-
-      return rejectWithValue({ message: 'Something went wrong' })
+      return rejectWithValue({ message: getErrorMessage(error) })
     }
   }
 )
+
 export const getTransaction = createAsyncThunk(
   'transaction/get-transaction',
   async (id, { rejectWithValue }) => {
     try {
-      const response = await axios.get(`${baseUrl + apiRoute}transactions/${id}`, {
-        headers: {
-          Authorization: `Bearer ${fetchToken()}`,
-        },
-      })
-
-      const result = response.data
-
-      return result
+      const response = await client.get(`/transactions/${id}`)
+      return response.data
     } catch (error) {
-      if (error.response) {
-        return rejectWithValue({ message: error.response.data.message })
-      }
-
-      return rejectWithValue({ message: 'Something went wrong' })
+      return rejectWithValue({ message: getErrorMessage(error) })
     }
   }
 )
@@ -191,21 +137,10 @@ export const getUserTransactions = createAsyncThunk(
   'transaction/get-user-transactions',
   async ({ params }, { rejectWithValue }) => {
     try {
-      const response = await axios.get(`${baseUrl + apiRoute}transactions/user`, {
-        params,
-        headers: {
-          Authorization: `Bearer ${fetchToken()}`,
-        },
-      })
-
-      const result = response.data
-      return result
+      const response = await client.get('/transactions/user', { params })
+      return response.data
     } catch (error) {
-      if (error?.response) {
-        return rejectWithValue({ message: error.response.data.message })
-      }
-
-      return rejectWithValue({ message: 'Something went wrong' })
+      return rejectWithValue({ message: getErrorMessage(error) })
     }
   }
 )

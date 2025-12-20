@@ -28,7 +28,6 @@ Rails.application.routes.draw do
 
   get 'tokens', to: 'api/v1/tokens#token'
 
-  # Health check
   get 'up' => 'rails/health#show', as: :rails_health_check
 
   namespace :api do
@@ -37,10 +36,28 @@ Rails.application.routes.draw do
       post 'monnify/webhook', to: 'webhooks#monnify'
       post 'anchor/webhook',  to: 'webhooks#anchor'
 
+      # ✅ Termii delivery receipts (DLR)
+      post 'termii/dlr', to: 'termii_webhooks#dlr'
+
       # Onboarding + KYC
       patch 'onboarding/profile',  to: 'onboarding#update_profile'
       patch 'onboarding/use_case', to: 'onboarding#update_use_case'
       post  'onboarding/kyc',      to: 'onboarding#submit_kyc'
+
+      # ✅ Phone verification (Termii OTP)
+      post 'phone_verification/request', to: 'phone_verifications#request_code'
+      post 'phone_verification/verify',  to: 'phone_verifications#verify_code'
+      get  'phone_verification/status',  to: 'phone_verifications#status'
+
+      # ✅ Transaction PIN (single canonical routing)
+      resource :transaction_pin, only: [] do
+        post  :set            # POST  /api/v1/transaction_pin/set
+        post  :verify         # POST  /api/v1/transaction_pin/verify
+        patch :change         # PATCH /api/v1/transaction_pin/change
+
+        post 'reset/request',  to: 'transaction_pins#reset_request'  # POST /api/v1/transaction_pin/reset/request
+        post 'reset/confirm',  to: 'transaction_pins#reset_confirm'  # POST /api/v1/transaction_pin/reset/confirm
+      end
 
       resources :cards do
         collection do
@@ -73,9 +90,7 @@ Rails.application.routes.draw do
       resources :transaction_records
 
       resource :currencies do
-        collection do
-          get :get_currency
-        end
+        collection { get :get_currency }
       end
 
       resources :payment_processors do
@@ -91,7 +106,6 @@ Rails.application.routes.draw do
           get :approve_data
           get :update_status
           get :get_ref_order
-
           get :confirm_payment
           get :query_transaction
           get :repurchase
@@ -99,9 +113,7 @@ Rails.application.routes.draw do
       end
 
       resources :card_tokens do
-        collection do
-          get :user
-        end
+        collection { get :user }
       end
 
       resources :products
@@ -117,17 +129,13 @@ Rails.application.routes.draw do
       end
 
       resources :wallets do
-        collection do
-          get :user
-        end
+        collection { get :user }
       end
 
       resources :order_items
 
       resources :order_details do
-        collection do
-          get :user
-        end
+        collection { get :user }
       end
 
       resources :bill_orders do
@@ -156,14 +164,12 @@ Rails.application.routes.draw do
       end
 
       resources :user_profiles do
-        collection do
-          get :user
-        end
+        collection { get :user }
       end
 
       resources :users do
         collection do
-          get  :user_profile
+          get   :user_profile
           patch :user_update
           patch :update_password
           patch :user_password_update
@@ -178,32 +184,34 @@ Rails.application.routes.draw do
         end
       end
 
-      # ✅ Shared Circles Route + mini-wallet + member invites
+      # ✅ Shared Circles + mini-wallet + activities + audit/export
       resources :circles, only: %i[index show create] do
         member do
-          post :fund   # POST /api/v1/circles/:id/fund
+          post :fund
+          post :withdraw
+          get  :audit_summary
+          get  :export_csv
         end
 
-        # nested memberships: /api/v1/circles/:circle_id/memberships
+        resources :activities,
+                  controller: 'circle_activities',
+                  only: %i[index show create]
+
         resources :memberships,
                   controller: 'circle_memberships',
                   only: [:create]
       end
 
+      # ✅ Reactions for circle transactions
       resources :circle_transactions, only: [] do
-  member do
-    post   :react
-    delete :unreact
-  end
-end
-
+        member do
+          post   :react,   to: 'circle_transaction_reactions#react'
+          delete :unreact, to: 'circle_transaction_reactions#unreact'
+        end
+      end
 
       resources :disputes, only: [:create]
-
-
       resources :statistics
     end
   end
-
-  # root "posts#index"
 end

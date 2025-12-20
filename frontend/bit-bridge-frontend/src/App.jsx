@@ -15,7 +15,7 @@ import MainLayout from './layouts'
 import UtilityView from './pages/UtilityServicesPage/UtilityView'
 import LoginPage from './pages/auth/Login'
 import CirclesPage from './pages/Circles/CirclesPage'
-import CirclesDetailPage from './pages/Circles/CirclesDetailPage' // ✅ NEW
+import CirclesDetailPage from './pages/Circles/CirclesDetailPage'
 
 // NEW – onboarding + KYC
 import OnboardingStart from './pages/auth/OnboardingStart'
@@ -69,8 +69,6 @@ import Utility from './pages/dashboard/utility/Utility'
 import PowerUtilities from './pages/dashboard/utility/power/PowerUtilities'
 import PowerView from './pages/dashboard/utility/power/PowerView'
 import DashboardPowerForm from './pages/dashboard/utility/power/PowerForm'
-// import DashboardPurchaseDetails from './pages/dashboard/utility/power/PurchaseDetails'
-// import DashboardComfirmPurchase from './pages/dashboard/utility/power/ConfirmPurchase'
 import MainServices from './pages/services'
 import ProductView from './pages/ProductPage/ViewProduct'
 import CableUtilities from './pages/dashboard/utility/cable/CableUtilities'
@@ -98,6 +96,9 @@ import DashboardComfirmPurchase from './pages/dashboard/ConfirmPurchase'
 import VirtualCardApplication from './components/cardView/CardView'
 import CheckEmail from './pages/auth/CheckEmail'
 
+// ✅ NEW: Idle logout hook
+import useIdleLogout from './hooks/useIdleLogout'
+
 const ViewMobileTopUp = lazy(() => import('./pages/PhoneTopUp/ViewMobileTopUp'))
 const PhoneTopUp = lazy(() => import('./pages/PhoneTopUp'))
 const GiftCardPage = lazy(() => import('./pages/GiftCardPage'))
@@ -108,11 +109,12 @@ const CryptoExchangePage = lazy(() => import('./pages/cryptoExchangePage'))
 function App() {
   const { isLoading } = useSelector((state) => state.app)
 
-  // ✅ Call this just like you had it before
+  // ✅ existing init
   userInitializeData()
-
-  // This is fine as a normal function too
   ScrollToTop()
+
+  // ✅ NEW: web idle -> logout
+  useIdleLogout({ idleMs: 15 * 60 * 1000, enabled: true })
 
   return (
     <div className="bg-gray-100 ">
@@ -157,9 +159,6 @@ function App() {
             <Route path="payment-details" element={<PurchaseDataDetails />} />
             <Route path="confirm-payment" element={<ComfirmDataPurchase />} />
           </Route>
-
-          {/* ⛔️ Public /circles route removed – circles now live only in dashboard */}
-          {/* <Route path="/circles" element={<CirclesPage />} /> */}
 
           <Route
             path="/utility-services"
@@ -281,16 +280,14 @@ function App() {
             <Route path="profile-account" element={<ProfileAccountPage />} />
             <Route path="virtual-account" element={<VirtualCardApplication />} />
 
-            {/* NEW – KYC center */}
             <Route path="kyc" element={<KycCenter />} />
 
             <Route path="home" element={<HomeDashboard />}>
               <Route path="orders-transaction" element={<OrderTransact />} />
             </Route>
 
-            {/* ✅ NEW – SHARED GROUPS (INSIDE DASHBOARD ONLY) */}
             <Route path="shared-groups" element={<CirclesPage />} />
-            <Route path="shared-groups/:id" element={<CirclesDetailPage />} />{/* ✅ NEW DETAIL ROUTE */}
+            <Route path="shared-groups/:id" element={<CirclesDetailPage />} />
 
             <Route path="approved-gift-cards" element={<GiftCardOrder />} />
             <Route path="wallet" element={<Account />} />
@@ -311,7 +308,6 @@ function App() {
               <Route path="payment-details" element={<DashboardPurchaseDetails />} />
             </Route>
 
-            {/* mobile top up  */}
             <Route path="utilities/mobile-top-up" element={<MobileTopUps />} />
             <Route path="utilities/mobile-top-up/:id" element={<MobileView />}>
               <Route path="mobileform" element={<DashboardMobileForm />} />
@@ -336,7 +332,7 @@ function App() {
             </Route>
           </Route>
 
-          {/* NEW – Onboarding routes */}
+          {/* Onboarding routes */}
           <Route path="/onboarding" element={<OnboardingStart />} />
           <Route path="/onboarding/use-case" element={<UseCaseSetup />} />
 

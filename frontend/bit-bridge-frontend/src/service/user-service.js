@@ -1,8 +1,7 @@
 // src/service/user-service.js
 
-import axios from 'axios'
+import client from '../api/client'
 import { baseUrl, apiRoute } from '../redux/baseUrl'
-import { fetchToken } from '../hooks/localStorage'
 
 export default class UserService {
   constructor() {
@@ -12,46 +11,40 @@ export default class UserService {
   }
 
   /**
-   * Fetch the current logged-in user's full profile.
+   * Fetch the current logged-in user's profile.
    *
-   * Staging + local backend both respond like:
-   * {
-   *   "data": {
-   *     "id": "...",
-   *     "email": "...",
-   *     "user_profile": { ... },
-   *     ...
-   *   }
-   * }
-   *
-   * So we always return raw.data as the user object.
+   * Expected:
+   * { data: <user or serializer> } OR { data: { data: <user> } }
    */
   static async getUserProfile() {
-  const token = fetchToken()
+    try {
+      const response = await client.get('/users/user_profile')
+      const raw = response?.data
 
-  // Build headers safely so we never send "Bearer null"
-  const headers = {
-    Accept: 'application/json',
-    'Content-Type': 'application/json',
-  }
+      // Avoid noisy logs in production
+      if (import.meta?.env?.DEV) {
+        console.log('user_profile raw response:', raw)
+      }
 
-  // Only add Authorization if token is a real value
-  if (token && token !== 'null' && token !== 'undefined') {
-    headers.Authorization = `Bearer ${token}`
-  }
+      // Normalize shapes
+      // - some serializers: { data: { ... } }
+      // - some: { data: UserSerializer.new(...) } => nested again
+      return raw?.data?.data || raw?.data || raw
+    } catch (err) {
+      // Let global client interceptor handle 401 redirect.
+      // But still throw useful errors for non-401.
+      const status = err?.response?.status
+      const msg =
+        err?.response?.data?.message ||
+        err?.response?.data?.error ||
+        err?.message ||
+        'Failed to fetch user profile'
 
-  const response = await axios.get(
-    `${baseUrl}${apiRoute}users/user_profile`,
-    {
-      headers,
-      withCredentials: true, // 👈 send cookies for session auth
+      if (import.meta?.env?.DEV) {
+        console.error('getUserProfile failed:', { status, msg })
+      }
+
+      throw err
     }
-  )
-
-  const raw = response.data
-  console.log('user_profile raw response:', raw)
-
-  return raw?.data || raw
-}
-
+  }
 }

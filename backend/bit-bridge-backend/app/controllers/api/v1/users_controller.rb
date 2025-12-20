@@ -10,12 +10,14 @@ module Api
       # ========= PROFILE / BASIC CRUD =========
 
       def user_profile
-        if current_user.nil?
-          render json: { error: 'User not found or not authenticated' }, status: :unauthorized
-        else
-          render json: { data: UserSerializer.new(current_user) }, status: :ok
-        end
-      end
+  if current_user.nil?
+    render json: { error: 'User not found or not authenticated' }, status: :unauthorized
+  else
+    # ✅ Force plain hash serialization
+    render json: { data: UserSerializer.new(current_user).serializable_hash }, status: :ok
+  end
+end
+
 
       def index
         @users = User.all
@@ -126,8 +128,6 @@ module Api
       end
 
       # ========= ONBOARDING STAGE ONLY =========
-      # PATCH /api/v1/users/onboarding_stage
-      # Frontend sends: { user: { onboarding_stage: "..." } }
 
       def onboarding_stage
         unless current_user
@@ -150,17 +150,12 @@ module Api
       end
 
       # ========= PRIMARY USE CASE + STAGE =========
-      # PATCH /api/v1/users/use_case
-      # Frontend can send either:
-      # { user: { primary_use_case: "...", onboarding_stage: "..." } }
-      #   or
-      # { primary_use_case: "...", onboarding_stage: "..." }
+
       def use_case
         unless current_user
           return render json: { message: 'Not authenticated' }, status: :unauthorized
         end
 
-        # Be flexible about payload shape so we don't blow up with 400.
         raw_attrs =
           if params[:user].present?
             params.require(:user).permit(:primary_use_case, :onboarding_stage)
@@ -191,34 +186,45 @@ module Api
       end
 
       # ========= BASIC PROFILE / LIGHT KYC =========
+      # PATCH /api/v1/users/basic_profile
 
       def basic_profile
         unless current_user
           return render json: { message: 'Not authenticated' }, status: :unauthorized
         end
 
-        permitted     = basic_profile_params
-        profile_attrs = permitted[:user_profile_attributes] || {}
+        permitted = basic_profile_params
+
+        # ✅ Normalize nested params into a plain Hash with STRING keys
+        profile_attrs = (permitted[:user_profile_attributes] || {}).to_h
         id_type       = permitted[:id_type]
 
         error_message = nil
 
         ActiveRecord::Base.transaction do
           profile = current_user.user_profile || current_user.build_user_profile
+
+          # ✅ Handle DOB safely (do not wipe existing if blank)
+          dob_raw = profile_attrs["date_of_birth"].presence
+          profile_attrs.delete("date_of_birth")
+
           profile.assign_attributes(profile_attrs)
 
-          # 🔹 Handle optional file uploads (ID & proof of address)
-          if params[:user].present?
-            if params[:user][:id_document].present?
-              profile.id_document.attach(params[:user][:id_document])
-            end
-
-            if params[:user][:proof_of_address].present?
-              profile.proof_of_address.attach(params[:user][:proof_of_address])
+          if dob_raw.present?
+            begin
+              profile.date_of_birth = Date.iso8601(dob_raw.to_s)
+            rescue ArgumentError
+              error_message = "date_of_birth is invalid (use YYYY-MM-DD)"
+              raise ActiveRecord::Rollback
             end
           end
 
-          # Save profile first
+          # Optional file uploads
+          if params[:user].present?
+            profile.id_document.attach(params[:user][:id_document]) if params[:user][:id_document].present?
+            profile.proof_of_address.attach(params[:user][:proof_of_address]) if params[:user][:proof_of_address].present?
+          end
+
           unless profile.save
             error_message = profile.errors.full_messages.to_sentence
             Rails.logger.error "Profile save failed: #{error_message}"
@@ -313,7 +319,6 @@ module Api
         @user = User.find_by(id: params[:id])
       end
 
-      # General strong params
       def user_params
         params.require(:user).permit(
           :email,
@@ -343,7 +348,6 @@ module Api
         )
       end
 
-      # For /user_update
       def user_update_params
         params.require(:user).permit(
           :email,
@@ -365,12 +369,11 @@ module Api
         )
       end
 
-      # For /basic_profile
       def basic_profile_params
         params.require(:user).permit(
           :id_type,
-          :id_document,        # 🔹 file field for ID
-          :proof_of_address,   # 🔹 file field for proof of address
+          :id_document,
+          :proof_of_address,
           user_profile_attributes: %i[
             id
             first_name

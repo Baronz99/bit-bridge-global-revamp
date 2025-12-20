@@ -1,5 +1,5 @@
 // src/pages/auth/UseCaseSetup.jsx
-import React, { useState, useMemo } from 'react'
+import React, { useState, useMemo, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useDispatch, useSelector } from 'react-redux'
 import { saveOnboardingUseCase, updateBasicProfile } from '../../api/onboarding'
@@ -7,34 +7,11 @@ import { userProfile } from '../../redux/actions/auth'
 
 // --- Available primary use cases ---
 const useCases = [
-  {
-    id: 'send_receive',
-    label: 'Send & receive money',
-    description:
-      'Transfer money to bank accounts or other BitBridge users quickly and securely.',
-  },
-  {
-    id: 'virtual_cards',
-    label: 'Virtual cards & online spend',
-    description: 'Use virtual cards for subscriptions, online shopping, and digital services.',
-  },
-  {
-    id: 'airtime_utilities',
-    label: 'Airtime, data & utilities',
-    description:
-      'Top up airtime, data, electricity, and essential bills from your BitBridge wallet.',
-  },
-  {
-    id: 'taxes',
-    label: 'Taxes & statutory bills',
-    description: 'Handle tax, levies, and government-related payments from one place.',
-  },
-  {
-    id: 'student_life',
-    label: 'Student life & campus spend',
-    description:
-      'Perfect for students managing data, subscriptions, school-related payments, and everyday campus spending.',
-  },
+  { id: 'send_receive', label: 'Send & receive money', description: 'Transfer money to bank accounts or other BitBridge users quickly and securely.' },
+  { id: 'virtual_cards', label: 'Virtual cards & online spend', description: 'Use virtual cards for subscriptions, online shopping, and digital services.' },
+  { id: 'airtime_utilities', label: 'Airtime, data & utilities', description: 'Top up airtime, data, electricity, and essential bills from your BitBridge wallet.' },
+  { id: 'taxes', label: 'Taxes & statutory bills', description: 'Handle tax, levies, and government-related payments from one place.' },
+  { id: 'student_life', label: 'Student life & campus spend', description: 'Perfect for students managing data, subscriptions, school-related payments, and everyday campus spending.' },
 ]
 
 // --- Simple KYC requirement matrix per use case ---
@@ -51,28 +28,17 @@ const KYC_REQUIREMENTS = {
   virtual_cards: {
     level: 'tier_2',
     title: 'KYC for virtual cards & online spend',
-    points: [
-      'BVN or NIN',
-      'Government-issued ID',
-      'Sometimes a selfie or extra verification for higher limits',
-    ],
+    points: ['BVN or NIN', 'Government-issued ID', 'Sometimes a selfie or extra verification for higher limits'],
   },
   airtime_utilities: {
     level: 'tier_1',
     title: 'Light KYC for airtime, data & bills',
-    points: [
-      'Basic profile (name & phone number)',
-      'Upgrade later to unlock higher limits and banking features',
-    ],
+    points: ['Basic profile (name & phone number)', 'Upgrade later to unlock higher limits and banking features'],
   },
   taxes: {
     level: 'tier_2',
     title: 'KYC for tax & statutory payments',
-    points: [
-      'BVN or NIN',
-      'Government-issued ID',
-      'Address and basic profile details',
-    ],
+    points: ['BVN or NIN', 'Government-issued ID', 'Address and basic profile details'],
   },
   student_life: {
     level: 'tier_1',
@@ -93,19 +59,33 @@ const UseCaseSetup = () => {
   const [selectedUseCase, setSelectedUseCase] = useState('')
   const [saving, setSaving] = useState(false)
 
+  const [basicProfile, setBasicProfile] = useState({
+    first_name: '',
+    last_name: '',
+    date_of_birth: '',
+  })
+
   const firstName =
     user?.user_profile?.first_name || user?.email?.split('@')[0] || 'there'
 
-  // Normalise DOB into "YYYY-MM-DD" for <input type="date">
-  const initialDob = user?.user_profile?.date_of_birth
-    ? String(user.user_profile.date_of_birth).slice(0, 10)
-    : ''
+  // ✅ Hydrate inputs + selected use case from Redux user
+  useEffect(() => {
+    if (!user) return
 
-  const [basicProfile, setBasicProfile] = useState({
-    first_name: user?.user_profile?.first_name || '',
-    last_name: user?.user_profile?.last_name || '',
-    date_of_birth: initialDob,
-  })
+    const up = user.user_profile || {}
+    const dob = up.date_of_birth ? String(up.date_of_birth).slice(0, 10) : ''
+
+    setBasicProfile({
+      first_name: up.first_name || '',
+      last_name: up.last_name || '',
+      date_of_birth: dob,
+    })
+
+    if (user.primary_use_case && user.primary_use_case !== selectedUseCase) {
+      setSelectedUseCase(user.primary_use_case)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user])
 
   const selectedKycConfig = useMemo(
     () => (selectedUseCase ? KYC_REQUIREMENTS[selectedUseCase] : null),
@@ -120,39 +100,38 @@ const UseCaseSetup = () => {
   const handleContinue = async () => {
     if (!selectedUseCase || saving) return
 
-    const { first_name, last_name, date_of_birth } = basicProfile
+    const first_name = (basicProfile.first_name || '').trim()
+    const last_name = (basicProfile.last_name || '').trim()
+    const date_of_birth = (basicProfile.date_of_birth || '').trim()
 
-    // Save if user filled ANY of the fields (first, last, or DOB)
-    const hasBasicProfile =
-      (first_name && first_name.trim().length > 0) ||
-      (last_name && last_name.trim().length > 0) ||
-      (date_of_birth && date_of_birth.trim().length > 0)
+    // Save if user filled ANY field
+    const hasBasicProfile = !!(first_name || last_name || date_of_birth)
 
     try {
       setSaving(true)
 
-      // 1) If user filled any basic profile fields, send via basic_profile endpoint
+      // 1) Save basic profile (FormData)
       if (hasBasicProfile) {
         const formData = new FormData()
 
-        formData.append('user[id_type]', user?.id_type || '')
+        // Keep existing behavior: don't force id_type
+        if (user?.id_type) formData.append('user[id_type]', user.id_type)
 
-        formData.append(
-          'user[user_profile_attributes][first_name]',
-          first_name || ''
-        )
-        formData.append(
-          'user[user_profile_attributes][last_name]',
-          last_name || ''
-        )
-        formData.append(
-          'user[user_profile_attributes][phone_number]',
+        // ✅ Only send fields if they have values (prevents clearing)
+        if (first_name) formData.append('user[user_profile_attributes][first_name]', first_name)
+        if (last_name) formData.append('user[user_profile_attributes][last_name]', last_name)
+
+        // Keep phone unchanged here (your original logic)
+        const existingPhone =
           user?.user_profile?.phone_number || user?.phone_number || ''
-        )
-        formData.append(
-          'user[user_profile_attributes][date_of_birth]',
-          date_of_birth || ''
-        )
+        if (existingPhone) {
+          formData.append('user[user_profile_attributes][phone_number]', existingPhone)
+        }
+
+        // ✅ IMPORTANT: only send DOB if it has a value
+        if (date_of_birth) {
+          formData.append('user[user_profile_attributes][date_of_birth]', date_of_birth)
+        }
 
         await updateBasicProfile(formData, true)
       }
@@ -167,15 +146,9 @@ const UseCaseSetup = () => {
       await dispatch(userProfile())
 
       // 4) Route based on use-case
-      const needsKycNow = ['send_receive', 'virtual_cards', 'taxes'].includes(
-        selectedUseCase
-      )
-
-      if (needsKycNow) {
-        navigate('/dashboard/kyc')
-      } else {
-        navigate('/dashboard/home')
-      }
+      const needsKycNow = ['send_receive', 'virtual_cards', 'taxes'].includes(selectedUseCase)
+      if (needsKycNow) navigate('/dashboard/kyc')
+      else navigate('/dashboard/home')
     } catch (err) {
       console.error('Failed to save onboarding use case:', err)
 
@@ -198,20 +171,15 @@ const UseCaseSetup = () => {
           Step 2 of 3
         </p>
 
-        {/* Basic profile section */}
-        <h1 className="text-2xl md:text-3xl font-semibold mb-1">
-          Tell us a bit about you
-        </h1>
+        <h1 className="text-2xl md:text-3xl font-semibold mb-1">Tell us a bit about you</h1>
         <p className="text-sm text-slate-400 mb-6 max-w-xl">
-          We&apos;ll use this to personalise your account and KYC limits. You can
-          always review your details later in Settings.
+          We&apos;ll use this to personalise your account and KYC limits. You can always review
+          your details later in Settings.
         </p>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
           <div>
-            <label className="block text-xs text-slate-400 mb-1">
-              FIRST NAME
-            </label>
+            <label className="block text-xs text-slate-400 mb-1">FIRST NAME</label>
             <input
               type="text"
               name="first_name"
@@ -222,9 +190,7 @@ const UseCaseSetup = () => {
             />
           </div>
           <div>
-            <label className="block text-xs text-slate-400 mb-1">
-              LAST NAME
-            </label>
+            <label className="block text-xs text-slate-400 mb-1">LAST NAME</label>
             <input
               type="text"
               name="last_name"
@@ -237,9 +203,7 @@ const UseCaseSetup = () => {
         </div>
 
         <div className="mb-8 max-w-xs">
-          <label className="block text-xs text-slate-400 mb-1">
-            DATE OF BIRTH
-          </label>
+          <label className="block text-xs text-slate-400 mb-1">DATE OF BIRTH</label>
           <input
             type="date"
             name="date_of_birth"
@@ -249,16 +213,14 @@ const UseCaseSetup = () => {
           />
         </div>
 
-        {/* Use-case section */}
         <h2 className="text-lg md:text-xl font-semibold mb-1">
           How will you use BitBridge, {firstName}?
         </h2>
         <p className="text-sm text-slate-400 mb-6 max-w-xl">
-          Choose your primary use case so we can personalise your limits, KYC flow,
-          and recommendations. You can still use other features later.
+          Choose your primary use case so we can personalise your limits, KYC flow, and recommendations.
+          You can still use other features later.
         </p>
 
-        {/* Use-case cards */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
           {useCases.map((uc) => {
             const active = selectedUseCase === uc.id
@@ -287,21 +249,15 @@ const UseCaseSetup = () => {
           })}
         </div>
 
-        {/* KYC summary */}
         <div className="mb-8">
           {selectedKycConfig ? (
             <div className="rounded-2xl border border-slate-700 bg-slate-900/80 px-4 py-3">
               <p className="text-[11px] uppercase tracking-[0.18em] text-slate-400 mb-1">
                 KYC requirements
               </p>
-              <h3 className="text-sm font-semibold mb-1">
-                {selectedKycConfig.title}
-              </h3>
+              <h3 className="text-sm font-semibold mb-1">{selectedKycConfig.title}</h3>
               <p className="text-[11px] text-slate-400 mb-1">
-                Target KYC level:{' '}
-                <span className="font-semibold text-alt">
-                  {selectedKycConfig.level}
-                </span>
+                Target KYC level: <span className="font-semibold text-alt">{selectedKycConfig.level}</span>
               </p>
               <ul className="mt-1 space-y-1 text-[12px] text-slate-300">
                 {selectedKycConfig.points.map((point) => (
@@ -319,7 +275,6 @@ const UseCaseSetup = () => {
           )}
         </div>
 
-        {/* Footer actions */}
         <div className="flex justify-between items-center">
           <button
             type="button"

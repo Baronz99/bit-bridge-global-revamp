@@ -119,7 +119,7 @@ module Api
 
       def verify_transfer
         transfer_id = params[:transfer_id]
-        return render json: { message: 'transfer_id is required' }, status: :unprocessable_entity
+        return render json: { message: 'transfer_id is required' }, status: :unprocessable_entity if transfer_id.blank?
 
         service = AccountService.new
         service_response = service.verify_transfer_request(transfer_id)
@@ -148,6 +148,7 @@ module Api
         end
       end
 
+      # ✅ PIN enforced here (with lockouts)
       def initiate_fund_transfer
         service = AnchorService.new
         anchor_account = current_user.accounts.find_by(vendor: 'anchor')
@@ -155,6 +156,9 @@ module Api
         if anchor_account.nil? || anchor_account.useable_id.nil?
           return render json: { message: 'No Anchor account present' }, status: :not_found
         end
+
+        pin = params.dig(:account, :pin).to_s.strip
+        return unless require_transaction_pin!(pin)
 
         transfer_params = account_params.to_h.symbolize_keys.merge(
           source_id:             anchor_account.useable_id,
@@ -234,13 +238,6 @@ module Api
         end
       end
 
-      def set_account
-        @accout = Account.find_by(id: params[:id])
-        return if @accout
-
-        render json: { message: 'Account not found' }, status: :not_found
-      end
-
       def update
         service = AccountService.new
         service_response = service.update_wallet_account(params[:id], account_params)
@@ -309,6 +306,13 @@ module Api
 
       private
 
+      def set_account
+        @accout = Account.find_by(id: params[:id])
+        return if @accout
+
+        render json: { message: 'Account not found' }, status: :not_found
+      end
+
       # Strong params
       def account_params
         params.require(:account).permit(
@@ -332,8 +336,80 @@ module Api
           :dob,
           :bank_code,
           :bank,
-          :account_number
+          :account_number,
+          :pin # ✅ allow pin through params
         )
+      end
+
+      # ✅ Transaction PIN enforcement with lockouts + attempt tracking (safe if columns don't exist)
+      #
+      # Returns true to continue, otherwise renders JSON + returns false.
+      def require_transaction_pin!(pin)
+        # 1) Require PIN set (support both transaction_pin_set? and "transaction_pin" presence styles)
+        pin_is_set =
+          if current_user.respond_to?(:transaction_pin_set?)
+            current_user.transaction_pin_set?
+          elsif current_user.respond_to?(:transaction_pin_digest)
+            current_user.transaction_pin_digest.present?
+          elsif current_user.respond_to?(:transaction_pin)
+            current_user.transaction_pin.present?
+          else
+            false
+          end
+
+        unless pin_is_set
+          render json: { message: 'Please set a transaction PIN before making transfers.' }, status: :forbidden
+          return false
+        end
+
+        # 2) Check lock
+        if current_user.respond_to?(:transaction_pin_locked_until) &&
+           current_user.transaction_pin_locked_until.present? &&
+           current_user.transaction_pin_locked_until > Time.current
+          render json: { message: 'PIN locked. Please try again later.' }, status: :too_many_requests
+          return false
+        end
+
+        # 3) Validate provided PIN
+        provided = pin.to_s.strip
+        if provided.blank?
+          render json: { message: 'Transaction PIN is required' }, status: :unprocessable_entity
+          return false
+        end
+
+        # Prefer a validation method if you have one on User model
+        valid =
+          if current_user.respond_to?(:valid_transaction_pin?)
+            current_user.valid_transaction_pin?(provided)
+          elsif current_user.respond_to?(:authenticate_transaction_pin)
+            current_user.authenticate_transaction_pin(provided)
+          else
+            false
+          end
+
+        unless valid
+          # increment attempts + lock after 5 (only if columns exist)
+          if current_user.respond_to?(:transaction_pin_attempts) &&
+             current_user.respond_to?(:transaction_pin_attempts=) &&
+             current_user.respond_to?(:transaction_pin_locked_until=)
+
+            attempts = current_user.transaction_pin_attempts.to_i + 1
+            attrs = { transaction_pin_attempts: attempts }
+            attrs[:transaction_pin_locked_until] = 15.minutes.from_now if attempts >= 5
+            current_user.update!(attrs)
+          end
+
+          render json: { message: 'Invalid transaction PIN' }, status: :unprocessable_entity
+          return false
+        end
+
+        # 4) Reset attempts after success (only if columns exist)
+        if current_user.respond_to?(:transaction_pin_attempts=) &&
+           current_user.respond_to?(:transaction_pin_locked_until=)
+          current_user.update!(transaction_pin_attempts: 0, transaction_pin_locked_until: nil)
+        end
+
+        true
       end
 
       # 🔒 Anchor KYC guard

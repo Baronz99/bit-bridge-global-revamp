@@ -7,7 +7,7 @@ class UserProfileSerializer < ActiveModel::Serializer
              :first_name,
              :last_name,
              :phone_number,
-             :date_of_birth,          # used on ProfilePage
+             :date_of_birth,          # used on ProfilePage + onboarding
              :address_line1,
              :address_line2,
              :city,
@@ -15,8 +15,15 @@ class UserProfileSerializer < ActiveModel::Serializer
              :country,
              :postal_code,
              :proof_of_address_type,
+             :phone_verified_at,      # ✅ added (safe)
+             :phone_verified,         # ✅ added (safe boolean helper)
              :id_document_url,        # read-only URL for ID doc
              :proof_of_address_url    # read-only URL for proof of address
+
+  # ✅ boolean helper so frontend can simply check `user.user_profile.phone_verified`
+  def phone_verified
+    object.phone_verified_at.present?
+  end
 
   # --- Helpers for document URLs ---
 

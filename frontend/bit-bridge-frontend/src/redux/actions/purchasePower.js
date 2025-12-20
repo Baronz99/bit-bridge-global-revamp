@@ -1,35 +1,24 @@
 import { createAsyncThunk } from '@reduxjs/toolkit'
-import { apiRoute, baseUrl } from '../baseUrl'
-import axios from 'axios'
-import { fetchToken } from '../../hooks/localStorage'
 import { toast } from 'react-toastify'
+import client from '../../api/client'
 import { nairaFormat } from '../../utils/nairaFormat'
+
+const getErrorMessage = (error) =>
+  error?.response?.data?.message || error?.message || 'Something went wrong'
 
 export const createPurchaseOrder = createAsyncThunk(
   'purchase/purchase-power',
   async (data, { rejectWithValue }) => {
     try {
-      const response = await axios.post(
-        `${baseUrl + apiRoute}payment_processors/process_payment`,
-        data,
-        {
-          headers: {
-            Authorization: `Bearer ${fetchToken()}`,
-          },
-        }
-      )
-
+      const response = await client.post('/payment_processors/process_payment', data)
       const result = response.data
-      toast(result?.message || 'order has been initialized', { type: 'success' })
 
+      toast(result?.message || 'order has been initialized', { type: 'success' })
       return result
     } catch (error) {
-      if (error.response) {
-        toast(error.response.message, { type: 'error' })
-        return rejectWithValue({ message: error.response.data.message })
-      }
-      console.error(error)
-      return rejectWithValue({ message: 'Something went wrong' })
+      const message = getErrorMessage(error)
+      toast(message, { type: 'error' })
+      return rejectWithValue({ message })
     }
   }
 )
@@ -37,27 +26,15 @@ export const createPurchaseOrder = createAsyncThunk(
 export const initiatePurchaseOrder = createAsyncThunk(
   'purchase/inititate-purchase',
   async ({ params, queryId }) => {
-    //    const orderParams = new URLSearchParams(params).toString()
-    console.log(params)
     try {
-      const response = await axios.get(
-        `${baseUrl + apiRoute}bill_orders/${queryId}/initialize_confirm_payment`,
-        {
-          params,
-          headers: {
-            Authorization: `Bearer ${fetchToken()}`,
-          },
-        }
-      )
-
-      const data = response.data
-      return data
+      const response = await client.get(`/bill_orders/${queryId}/initialize_confirm_payment`, {
+        params,
+      })
+      return response.data
     } catch (error) {
-      if (error.response) {
-        throw new Error(error.response.data.message)
-      }
-
-      throw new Error(error.message || 'Something went wrong')
+      // Preserve previous behavior: this thunk throws errors instead of rejectWithValue
+      const message = getErrorMessage(error)
+      throw new Error(message)
     }
   }
 )
@@ -66,26 +43,16 @@ export const repurchaseOrder = createAsyncThunk(
   'purchase/repurchase-order',
   async (id, { rejectWithValue }) => {
     try {
-      const response = await axios.get(
-        `${baseUrl + apiRoute}payment_processors//${id}/repurchase`,
-        {
-          headers: {
-            Authorization: `Bearer ${fetchToken()}`,
-          },
-        }
-      )
-
+      // FIX: removed accidental double slash in original path
+      const response = await client.get(`/payment_processors/${id}/repurchase`)
       const result = response.data
-      toast(result.message || 'order has been Completed', { type: 'success' })
 
+      toast(result?.message || 'order has been Completed', { type: 'success' })
       return result
     } catch (error) {
-      if (error.response) {
-        toast(error.response.data.message, { type: 'error' })
-        return rejectWithValue({ message: error.response.data.message })
-      }
-      console.error(error)
-      return rejectWithValue({ message: 'Something went wrong' })
+      const message = getErrorMessage(error)
+      toast(message, { type: 'error' })
+      return rejectWithValue({ message })
     }
   }
 )
@@ -94,42 +61,23 @@ export const getPurchaseOrder = createAsyncThunk(
   'purchaseOrder/get-order',
   async (id, { rejectWithValue }) => {
     try {
-      const response = await axios.get(`${baseUrl + apiRoute}payment_processors/${id}`, {
-        headers: {
-          Authorization: `Bearer ${fetchToken()}`,
-        },
-      })
-
-      const result = response.data
-      return result
+      const response = await client.get(`/payment_processors/${id}`)
+      return response.data
     } catch (error) {
-      if (error.response) {
-        return rejectWithValue({ message: error.response.data.message })
-      }
-      console.error(error)
-      return rejectWithValue({ message: 'Something went wrong' })
+      return rejectWithValue({ message: getErrorMessage(error) })
     }
   }
 )
 
 export const getRescentPurchaseOrder = createAsyncThunk(
   'purchaseOrder/get-recent-purchase-order',
-  async (id, { rejectWithValue }) => {
+  async (_id, { rejectWithValue }) => {
     try {
-      const response = await axios.get(`${baseUrl + apiRoute}bill_orders/user_recent`, {
-        headers: {
-          Authorization: `Bearer ${fetchToken()}`,
-        },
-      })
-
+      const response = await client.get('/bill_orders/user_recent')
       const { data } = response.data
       return data
     } catch (error) {
-      if (error.response) {
-        return rejectWithValue({ message: error.response.data.message })
-      }
-      console.error(error)
-      return rejectWithValue({ message: 'Something went wrong' })
+      return rejectWithValue({ message: getErrorMessage(error) })
     }
   }
 )
@@ -138,25 +86,12 @@ export const confirmPayment = createAsyncThunk(
   'data/buy-data-orders',
   async ({ queryId, data }, { rejectWithValue }) => {
     try {
-      const response = await axios.patch(
-        `${baseUrl + apiRoute}bill_orders/${queryId}/confirm_bill_payment`,
-        { bill_order: data },
-        {
-          headers: {
-            Authorization: `Bearer ${fetchToken()}`,
-          },
-        }
-      )
-
-      const result = response.data
-
-      return result
+      const response = await client.patch(`/bill_orders/${queryId}/confirm_bill_payment`, {
+        bill_order: data,
+      })
+      return response.data
     } catch (error) {
-      if (error.response) {
-        return rejectWithValue({ message: error.response.data.message })
-      }
-      console.error(error.response)
-      return rejectWithValue({ message: 'Something went wrong' })
+      return rejectWithValue({ message: getErrorMessage(error) })
     }
   }
 )
@@ -165,31 +100,21 @@ export const getPriceList = createAsyncThunk(
   'payment/get-price-list',
   async ({ provider, service_type }, { rejectWithValue }) => {
     try {
-      const response = await axios.get(
-        `${baseUrl + apiRoute}payment_processors/get_price_list?provider=${provider}&service_type=${service_type}`,
-        {
-          headers: {
-            Authorization: `Bearer ${fetchToken()}`,
-          },
-        }
-      )
+      const response = await client.get('/payment_processors/get_price_list', {
+        params: { provider, service_type },
+      })
 
       const result = response.data
 
-      const priceListOptions = result.data.map((item) => {
-        return {
-          value: item.code,
-          label: `${nairaFormat(item?.price)} | ${item?.desc} |  ${item?.validity ?? ''}`,
-          amount: item?.price,
-        }
-      })
+      const priceListOptions = (result?.data || []).map((item) => ({
+        value: item.code,
+        label: `${nairaFormat(item?.price)} | ${item?.desc} |  ${item?.validity ?? ''}`,
+        amount: item?.price,
+      }))
+
       return priceListOptions
     } catch (error) {
-      if (error.response) {
-        return rejectWithValue({ message: error.response.data.message })
-      }
-      console.error(error)
-      return rejectWithValue({ message: 'Something went wrong' })
+      return rejectWithValue({ message: getErrorMessage(error) })
     }
   }
 )
@@ -198,48 +123,20 @@ export const queryTransaction = createAsyncThunk(
   'payment/query-transaction',
   async ({ id }, { rejectWithValue }) => {
     try {
-      const response = await axios.get(
-        `${baseUrl + apiRoute}payment_processors/${id}/query_transaction`,
-        {
-          headers: {
-            Authorization: `Bearer ${fetchToken()}`,
-          },
-        }
-      )
-
-      const result = response.data
-
-      return result
+      const response = await client.get(`/payment_processors/${id}/query_transaction`)
+      return response.data
     } catch (error) {
-      if (error.response) {
-        console.log(error.response.data)
-        return rejectWithValue({ message: error.response.data.message })
-      }
-      console.error(error)
-      return rejectWithValue({ message: 'Something went wrong' })
+      return rejectWithValue({ message: getErrorMessage(error) })
     }
   }
 )
 
 export const getRefOrder = createAsyncThunk('order/ref-order', async (id, { rejectWithValue }) => {
   try {
-    const response = await axios.get(
-      `${baseUrl + apiRoute}payment_processors/${id}/get_ref_order`,
-      {
-        headers: {
-          Authorization: `Bearer ${fetchToken()}`,
-        },
-      }
-    )
-
+    const response = await client.get(`/payment_processors/${id}/get_ref_order`)
     const { data } = response.data
-
     return data
   } catch (error) {
-    if (error.response) {
-      return rejectWithValue({ message: error.response.data.message })
-    }
-    console.error(error)
-    return rejectWithValue({ message: 'Something went wrong' })
+    return rejectWithValue({ message: getErrorMessage(error) })
   }
 })

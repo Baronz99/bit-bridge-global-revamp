@@ -1,0 +1,33 @@
+/* frontend/bit-bridge-frontend/src/pages/auth/login-overrides.css */
+
+/* 1) Remove weird yellow highlight/border lines caused by browser autofill/focus */
+.login-page .ant-input-affix-wrapper,
+.login-page .ant-input {
+  box-shadow: none !important;
+}
+
+/* Keep your focus ring clean (blue-ish), not yellow */
+.login-page .ant-input-affix-wrapper-focused {
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.25) !important;
+  border-color: rgba(59, 130, 246, 0.65) !important;
+}
+
+/* 2) Chrome autofill fix (this is usually the real culprit) */
+.login-page input:-webkit-autofill,
+.login-page input:-webkit-autofill:hover,
+.login-page input:-webkit-autofill:focus,
+.login-page input:-webkit-autofill:active {
+  -webkit-text-fill-color: #ffffff !important;
+  caret-color: #ffffff !important;
+
+  /* Paint over the yellow autofill background */
+  -webkit-box-shadow: 0 0 0px 1000px rgba(17, 24, 39, 0.55) inset !important;
+  box-shadow: 0 0 0px 1000px rgba(17, 24, 39, 0.55) inset !important;
+
+  transition: background-color 9999s ease-out 0s !important;
+}
+
+/* 3) Remove outline artifacts */
+.login-page input:focus {
+  outline: none !important;
+}

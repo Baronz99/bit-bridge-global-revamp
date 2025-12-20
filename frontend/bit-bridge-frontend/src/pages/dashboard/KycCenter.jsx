@@ -1,6 +1,8 @@
 // src/pages/dashboard/KycCenter.jsx
 import React from 'react'
 import { useSelector } from 'react-redux'
+import PhoneVerifyModal from '../../components/PhoneVerifyModal'
+
 import {
   IdcardOutlined,
   BankOutlined,
@@ -208,6 +210,15 @@ const KycCenter = () => {
 
   const useCaseInfo = useCaseConfig[primaryUseCase] || useCaseConfig.airtime_utilities
 
+  // ✅ Phone verification modal
+  const [showPhoneModal, setShowPhoneModal] = React.useState(false)
+
+  // Supports either top-level fields (recommended) or nested profile
+  const phoneVerified =
+    user?.phone_verified === true ||
+    !!user?.phone_verified_at ||
+    !!user?.user_profile?.phone_verified_at
+
   const hasTier1OrMore = ['tier_1', 'tier_2'].includes(normalizedTierKey)
 
   // “next action” routing helpers
@@ -328,13 +339,31 @@ const KycCenter = () => {
                     Make sure your name and phone number in your profile match your bank
                     records.
                   </p>
-                  <button
-                    type="button"
-                    onClick={goProfile}
-                    className="mt-2 inline-flex items-center px-3 py-1.5 rounded-lg bg-alt text-black text-xs font-semibold hover:brightness-110 transition"
-                  >
-                    Open profile
-                  </button>
+
+                  <div className="mt-2 flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={goProfile}
+                      className="inline-flex items-center px-3 py-1.5 rounded-lg bg-alt text-black text-xs font-semibold hover:brightness-110 transition"
+                    >
+                      Open profile
+                    </button>
+
+                    {phoneVerified ? (
+                      <span className="inline-flex items-center gap-1 text-emerald-300 text-xs">
+                        <CheckCircleOutlined />
+                        Phone verified
+                      </span>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => setShowPhoneModal(true)}
+                        className="inline-flex items-center px-3 py-1.5 rounded-lg border border-alt text-alt text-xs font-semibold hover:bg-alt/10 transition"
+                      >
+                        Verify phone number
+                      </button>
+                    )}
+                  </div>
                 </div>
               </li>
 
@@ -407,6 +436,13 @@ const KycCenter = () => {
           </div>
         </div>
       </div>
+
+      {/* ✅ Phone verification modal mount (keeps existing flows intact) */}
+      <PhoneVerifyModal
+        open={showPhoneModal}
+        onClose={() => setShowPhoneModal(false)}
+        defaultPhone={user?.user_profile?.phone_number}
+      />
     </div>
   )
 }

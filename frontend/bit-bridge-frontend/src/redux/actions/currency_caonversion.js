@@ -1,18 +1,18 @@
 import { createAsyncThunk } from '@reduxjs/toolkit'
-import axios from 'axios'
-import { apiRoute, baseUrl } from '../baseUrl'
+import client from '../../api/client'
 
 export const getConversion = createAsyncThunk(
   'conversion/get-converted-rate',
-  async ({ to_curr, from_curr, amount }) => {
+  async ({ to_curr, from_curr, amount }, { rejectWithValue }) => {
     try {
-      const response = await axios.get(
-        `${baseUrl + apiRoute}currencies/get_currency?to_curr=${to_curr}&from_curr=${from_curr}&amount=${amount}`
-      )
-      const result = response.data
-      return result
+      const response = await client.get('/currencies/get_currency', {
+        params: { to_curr, from_curr, amount },
+      })
+      return response.data
     } catch (error) {
-      console.error(error.message)
+      const message =
+        error?.response?.data?.message || error?.message || 'Something went wrong'
+      return rejectWithValue({ message })
     }
   }
 )

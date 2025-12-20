@@ -1,4 +1,9 @@
-import { applyMiddleware, combineReducers, configureStore } from '@reduxjs/toolkit'
+// src/redux/configStore.js (or wherever this file lives in your project)
+
+import { configureStore, combineReducers } from '@reduxjs/toolkit'
+import logger from 'redux-logger'
+
+import phoneVerificationReducer from '../redux/phoneVerification'
 import {
   accountReducer,
   AppReducer,
@@ -14,8 +19,6 @@ import {
   userReducer,
   WalletReducer,
 } from '.'
-import { thunk } from 'redux-thunk'
-import logger from 'redux-logger'
 
 const rootReducer = combineReducers({
   auth: AuthReducer,
@@ -31,8 +34,20 @@ const rootReducer = combineReducers({
   user: userReducer,
   stat: statisticsReducer,
   account: accountReducer,
+
+  // ✅ Phone verification (OTP)
+  phoneVerification: phoneVerificationReducer,
 })
 
-const store = configureStore({ reducer: rootReducer }, applyMiddleware(thunk, logger))
+const isDev = import.meta?.env?.DEV === true
+
+const store = configureStore({
+  reducer: rootReducer,
+  middleware: (getDefaultMiddleware) => {
+    const base = getDefaultMiddleware({ serializableCheck: false })
+    return isDev ? base.concat(logger) : base
+  },
+  devTools: isDev,
+})
 
 export default store

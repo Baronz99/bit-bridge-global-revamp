@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[7.1].define(version: 2025_12_16_132102) do
+ActiveRecord::Schema[7.1].define(version: 2025_12_19_070606) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pgcrypto"
   enable_extension "plpgsql"
@@ -150,6 +150,21 @@ ActiveRecord::Schema[7.1].define(version: 2025_12_16_132102) do
     t.index ["user_id"], name: "index_cards_on_user_id"
   end
 
+  create_table "circle_activities", id: :uuid, default: -> { "gen_random_uuid()" }, force: :cascade do |t|
+    t.uuid "circle_id", null: false
+    t.uuid "created_by_id", null: false
+    t.string "name", null: false
+    t.integer "target_amount_cents", null: false
+    t.datetime "deadline_at", null: false
+    t.integer "contribution_frequency", default: 0, null: false
+    t.integer "status", default: 0, null: false
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["circle_id", "status"], name: "index_circle_activities_on_circle_id_and_status"
+    t.index ["circle_id"], name: "index_circle_activities_on_circle_id"
+    t.index ["created_by_id"], name: "index_circle_activities_on_created_by_id"
+  end
+
   create_table "circle_memberships", id: :uuid, default: -> { "gen_random_uuid()" }, force: :cascade do |t|
     t.uuid "circle_id", null: false
     t.uuid "user_id", null: false
@@ -184,6 +199,9 @@ ActiveRecord::Schema[7.1].define(version: 2025_12_16_132102) do
     t.jsonb "metadata", default: {}, null: false
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
+    t.uuid "circle_activity_id"
+    t.index ["circle_activity_id"], name: "index_circle_transactions_on_circle_activity_id"
+    t.index ["circle_id", "circle_activity_id"], name: "index_circle_transactions_on_circle_id_and_circle_activity_id"
     t.index ["circle_id", "occurred_at"], name: "index_circle_transactions_on_circle_id_and_occurred_at"
     t.index ["circle_id"], name: "index_circle_transactions_on_circle_id"
     t.index ["user_id"], name: "index_circle_transactions_on_user_id"
@@ -290,6 +308,32 @@ ActiveRecord::Schema[7.1].define(version: 2025_12_16_132102) do
     t.index ["provision_id"], name: "index_order_items_on_provision_id"
   end
 
+  create_table "phone_verification_codes", force: :cascade do |t|
+    t.uuid "user_id", null: false
+    t.string "phone_e164", null: false
+    t.string "otp_digest", null: false
+    t.datetime "expires_at", null: false
+    t.datetime "last_sent_at"
+    t.integer "attempts", default: 0, null: false
+    t.integer "send_count", default: 0, null: false
+    t.string "status", default: "pending", null: false
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.string "provider"
+    t.string "provider_message_id"
+    t.string "provider_status"
+    t.datetime "last_status_at"
+    t.string "ip_address"
+    t.string "user_agent"
+    t.index ["expires_at"], name: "index_phone_verification_codes_on_expires_at"
+    t.index ["phone_e164", "created_at"], name: "index_phone_verification_codes_on_phone_e164_and_created_at"
+    t.index ["provider_message_id"], name: "index_phone_verification_codes_on_provider_message_id"
+    t.index ["status"], name: "index_phone_verification_codes_on_status"
+    t.index ["user_id", "created_at"], name: "index_phone_verification_codes_on_user_id_and_created_at"
+    t.index ["user_id", "phone_e164"], name: "index_phone_verification_codes_on_user_id_and_phone_e164"
+    t.index ["user_id"], name: "index_phone_verification_codes_on_user_id"
+  end
+
   create_table "products", id: :uuid, default: -> { "gen_random_uuid()" }, force: :cascade do |t|
     t.boolean "featured", default: false
     t.string "extra_info"
@@ -326,6 +370,29 @@ ActiveRecord::Schema[7.1].define(version: 2025_12_16_132102) do
     t.decimal "value_range", default: [], array: true
     t.string "service_type"
     t.index ["product_id"], name: "index_provisions_on_product_id"
+  end
+
+  create_table "transaction_pin_reset_codes", force: :cascade do |t|
+    t.uuid "user_id", null: false
+    t.string "phone_e164", null: false
+    t.string "otp_digest", null: false
+    t.datetime "expires_at", null: false
+    t.string "status", default: "pending", null: false
+    t.integer "attempts", default: 0, null: false
+    t.integer "send_count", default: 0, null: false
+    t.datetime "last_sent_at"
+    t.string "ip_address"
+    t.string "user_agent"
+    t.string "provider", default: "termii"
+    t.string "provider_message_id"
+    t.string "provider_status"
+    t.datetime "last_status_at"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["expires_at"], name: "index_transaction_pin_reset_codes_on_expires_at"
+    t.index ["status"], name: "index_transaction_pin_reset_codes_on_status"
+    t.index ["user_id", "phone_e164"], name: "index_transaction_pin_reset_codes_on_user_id_and_phone_e164"
+    t.index ["user_id"], name: "index_transaction_pin_reset_codes_on_user_id"
   end
 
   create_table "transaction_records", id: :uuid, default: -> { "gen_random_uuid()" }, force: :cascade do |t|
@@ -386,6 +453,9 @@ ActiveRecord::Schema[7.1].define(version: 2025_12_16_132102) do
     t.string "postal_code"
     t.string "proof_of_address_type"
     t.date "date_of_birth"
+    t.string "phone_e164"
+    t.datetime "phone_verified_at"
+    t.index ["phone_e164"], name: "index_user_profiles_on_phone_e164"
     t.index ["user_id"], name: "index_user_profiles_on_user_id"
   end
 
@@ -411,10 +481,15 @@ ActiveRecord::Schema[7.1].define(version: 2025_12_16_132102) do
     t.string "kyc_level"
     t.string "id_type"
     t.string "id_number"
+    t.string "transaction_pin_digest"
+    t.datetime "transaction_pin_set_at"
+    t.integer "transaction_pin_attempts", default: 0, null: false
+    t.datetime "transaction_pin_locked_until"
     t.index ["confirmation_token"], name: "index_users_on_confirmation_token", unique: true
     t.index ["email"], name: "index_users_on_email", unique: true
     t.index ["jti"], name: "index_users_on_jti", unique: true
     t.index ["reset_password_token"], name: "index_users_on_reset_password_token", unique: true
+    t.index ["transaction_pin_locked_until"], name: "index_users_on_transaction_pin_locked_until"
   end
 
   create_table "vendors", id: :uuid, default: -> { "gen_random_uuid()" }, force: :cascade do |t|
@@ -442,10 +517,13 @@ ActiveRecord::Schema[7.1].define(version: 2025_12_16_132102) do
   add_foreign_key "bill_orders", "users", on_delete: :nullify
   add_foreign_key "card_tokens", "order_items"
   add_foreign_key "cards", "users"
+  add_foreign_key "circle_activities", "circles"
+  add_foreign_key "circle_activities", "users", column: "created_by_id"
   add_foreign_key "circle_memberships", "circles"
   add_foreign_key "circle_memberships", "users"
   add_foreign_key "circle_transaction_reactions", "circle_transactions"
   add_foreign_key "circle_transaction_reactions", "users"
+  add_foreign_key "circle_transactions", "circle_activities"
   add_foreign_key "circle_transactions", "circles"
   add_foreign_key "circle_transactions", "users"
   add_foreign_key "circles", "users", column: "owner_id"
@@ -456,7 +534,9 @@ ActiveRecord::Schema[7.1].define(version: 2025_12_16_132102) do
   add_foreign_key "order_items", "order_details"
   add_foreign_key "order_items", "products"
   add_foreign_key "order_items", "provisions"
+  add_foreign_key "phone_verification_codes", "users"
   add_foreign_key "provisions", "products"
+  add_foreign_key "transaction_pin_reset_codes", "users"
   add_foreign_key "transaction_records", "bill_orders"
   add_foreign_key "transaction_records", "transactions", column: "exchange_id"
   add_foreign_key "transactions", "accounts"
