@@ -19,7 +19,6 @@ const MAX_RECENTS = 5
 const normalizeBaseUrl = (url) => (url ? (url.endsWith('/') ? url.slice(0, -1) : url) : '')
 const AUTH_BASE = normalizeBaseUrl(API_BASE_URL).replace(/\/api\/v1$/i, '')
 
-
 // -------------------------
 // Helpers
 // -------------------------
@@ -73,6 +72,28 @@ const getErrorMessage = (error, fallback = 'Something went wrong') =>
   (typeof error?.response?.data === 'string' ? error.response.data : null) ||
   error?.message ||
   fallback
+
+// Small helper: a friendlier auth error message for login
+const getLoginToastMessage = (error) => {
+  const status = error?.response?.status
+
+  // Wrong credentials
+  if (status === 401 || status === 403) return 'Invalid email or password.'
+
+  // Try backend messages if present
+  const backendMsg =
+    error?.response?.data?.message ||
+    error?.response?.data?.error ||
+    (typeof error?.response?.data === 'string' ? error.response.data : null)
+
+  if (backendMsg) return backendMsg
+
+  // Network / server issues
+  if (!status) return 'Network error. Please check your connection and try again.'
+  if (status >= 500) return 'Server error. Please try again shortly.'
+
+  return 'Login failed. Please try again.'
+}
 
 // -------------------------
 // SIGN UP (POST /signup)
@@ -155,7 +176,6 @@ export const userLogin = createAsyncThunk(
     } catch (error) {
       const raw = error?.response?.data
       const rawString = typeof raw === 'string' ? raw : ''
-      const msg = getErrorMessage(error, 'Login failed')
 
       const needsConfirm =
         rawString.includes('confirm your email') ||
@@ -176,12 +196,13 @@ export const userLogin = createAsyncThunk(
         return rejectWithValue({ message: 'Account not confirmed' })
       }
 
+      // ✅ Friendly login toast (instead of "Request failed with status code 401")
+      const msg = getLoginToastMessage(error)
       toast(msg, { type: 'error' })
       return rejectWithValue({ message: msg })
     }
   }
 )
-
 
 // -------------------------
 // REFRESH TOKEN (POST /refresh)  (NOT /api/v1)
@@ -354,13 +375,6 @@ export const userProfile = createAsyncThunk(
     try {
       const res = await client.get('/users/user_profile')
 
-      /**
-       * We normalize to a plain user object because the backend may return:
-       * 1) { data: { ...plainFields } }
-       * 2) { data: { attributes: { ...fields } } }          (JSON:API style)
-       * 3) { data: { data: { attributes: { ...fields } } } } (double-wrapped)
-       * 4) { ...plainFields } (rare but possible)
-       */
       const top = res?.data
       const payload = top?.data ?? top
 
@@ -382,8 +396,6 @@ export const userProfile = createAsyncThunk(
     }
   }
 )
-
-
 
 // -------------------------
 // LOGOUT (DELETE /logout)  (NOT /api/v1)
