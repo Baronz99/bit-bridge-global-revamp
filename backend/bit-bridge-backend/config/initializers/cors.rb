@@ -16,14 +16,12 @@ DEV_ORIGINS = [
 Rails.application.config.middleware.insert_before 0, Rack::Cors do
   allow do
     origins do |origin, _env|
-      # Allow non-browser clients (no Origin header, e.g. curl, Postman)
-      next true if origin.nil?
+  next true if origin.nil?
 
-      # Allow if origin is one of:
-      # - Netlify / other frontends from ENV
-      # - Local dev hosts
-      ALLOWED_ORIGINS.include?(origin) || DEV_ORIGINS.include?(origin)
-    end
+  allowed = (ALLOWED_ORIGINS + DEV_ORIGINS)
+  allowed.any? { |o| origin.start_with?(o) }
+end
+
 
     resource "*",
              headers: :any,
