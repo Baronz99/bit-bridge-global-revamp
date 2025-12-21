@@ -36,6 +36,8 @@ Rails.application.routes.draw do
       post 'monnify/webhook', to: 'webhooks#monnify'
       post 'anchor/webhook',  to: 'webhooks#anchor'
 
+       post "/login", to: "sessions#create"
+
       # ✅ Termii delivery receipts (DLR)
       post 'termii/dlr', to: 'termii_webhooks#dlr'
 
