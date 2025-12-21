@@ -107,53 +107,81 @@ export const userSignUp = createAsyncThunk(
 // -------------------------
 // LOGIN (POST /login)
 // -------------------------
-export const userLogin = createAsyncThunk('login/user-login', async (data, { rejectWithValue }) => {
-  try {
-    const response = await apiLogin(data)
-    const result = response.data
+export const userLogin = createAsyncThunk(
+  'login/user-login',
+  async (data, { rejectWithValue }) => {
+    try {
+      // 1) login (your /api/v1/login)
+      const response = await apiLogin(data)
+      const result = response.data
 
-    const accessToken = result?.token
-    const refreshToken = response?.headers?.['bit-refresh-token']
+      const accessToken = result?.token
+      const refreshToken = response?.headers?.['bit-refresh-token']
 
-    if (accessToken) saveAccessToken(accessToken)
-    else console.warn('No access token in login response body')
+      if (accessToken) saveAccessToken(accessToken)
+      else console.warn('No access token in login response body')
 
-    if (refreshToken) saveRefreshToken(refreshToken)
-    else console.warn('No Bit-Refresh-Token header found on login response')
+      if (refreshToken) saveRefreshToken(refreshToken)
+      else console.warn('No Bit-Refresh-Token header found on login response')
 
-    const email = data?.user?.email
-    if (email) saveEmailToRecents(email)
+      const email = data?.user?.email
+      if (email) saveEmailToRecents(email)
 
-    toast(result?.message || 'Logged in', { type: 'success' })
-    return result
-  } catch (error) {
-    const raw = error?.response?.data
-    const rawString = typeof raw === 'string' ? raw : ''
-    const msg = getErrorMessage(error, 'Login failed')
-
-    const needsConfirm =
-      rawString.includes('confirm your email') ||
-      String(error?.response?.data?.message || '').includes('confirm your email')
-
-    if (needsConfirm) {
+      // 2) ✅ immediately fetch full profile using the token we just stored
+      // client interceptor will attach Authorization header automatically
+      let fullUser = null
       try {
-        const email = data?.user?.email
-        if (email) saveEmailToRecents(email)
+        const profileRes = await client.get('/users/user_profile')
+        const top = profileRes?.data
+        const payload = top?.data ?? top
 
-        await client.get('/users/resend_confirmation_token', { params: { email } })
-        toast('Account not confirmed. A confirmation email has been sent.', { type: 'success' })
-      } catch {
-        toast('Error resending confirmation email', { type: 'error' })
+        fullUser =
+          payload?.attributes ||
+          payload?.data?.attributes ||
+          payload?.data?.data?.attributes ||
+          payload?.data ||
+          payload
+      } catch (e) {
+        console.warn('Profile hydrate after login failed:', e?.response?.status || e?.message)
       }
 
-      toast('Account not confirmed', { type: 'error' })
-      return rejectWithValue({ message: 'Account not confirmed' })
-    }
+      toast(result?.message || 'Logged in', { type: 'success' })
 
-    toast(msg, { type: 'error' })
-    return rejectWithValue({ message: msg })
+      // 3) return a consistent shape so reducers don’t lose fields
+      return {
+        ...result,
+        user: fullUser || result?.user || result,
+      }
+    } catch (error) {
+      const raw = error?.response?.data
+      const rawString = typeof raw === 'string' ? raw : ''
+      const msg = getErrorMessage(error, 'Login failed')
+
+      const needsConfirm =
+        rawString.includes('confirm your email') ||
+        String(error?.response?.data?.message || '').includes('confirm your email')
+
+      if (needsConfirm) {
+        try {
+          const email = data?.user?.email
+          if (email) saveEmailToRecents(email)
+
+          await client.get('/users/resend_confirmation_token', { params: { email } })
+          toast('Account not confirmed. A confirmation email has been sent.', { type: 'success' })
+        } catch {
+          toast('Error resending confirmation email', { type: 'error' })
+        }
+
+        toast('Account not confirmed', { type: 'error' })
+        return rejectWithValue({ message: 'Account not confirmed' })
+      }
+
+      toast(msg, { type: 'error' })
+      return rejectWithValue({ message: msg })
+    }
   }
-})
+)
+
 
 // -------------------------
 // REFRESH TOKEN (POST /refresh)  (NOT /api/v1)
@@ -324,12 +352,26 @@ export const userProfile = createAsyncThunk(
   'auth/user-profile',
   async (_, { rejectWithValue }) => {
     try {
-      // Always hit the same endpoint and always return the same shape
       const res = await client.get('/users/user_profile')
 
-      // Backend currently returns: { data: UserSerializer.new(current_user) }
-      // So we unwrap one level to keep Redux clean.
-      return res.data?.data || res.data
+      /**
+       * We normalize to a plain user object because the backend may return:
+       * 1) { data: { ...plainFields } }
+       * 2) { data: { attributes: { ...fields } } }          (JSON:API style)
+       * 3) { data: { data: { attributes: { ...fields } } } } (double-wrapped)
+       * 4) { ...plainFields } (rare but possible)
+       */
+      const top = res?.data
+      const payload = top?.data ?? top
+
+      const user =
+        payload?.attributes ||
+        payload?.data?.attributes ||
+        payload?.data?.data?.attributes ||
+        payload?.data ||
+        payload
+
+      return user
     } catch (error) {
       const message =
         error?.response?.data?.message ||
@@ -340,6 +382,7 @@ export const userProfile = createAsyncThunk(
     }
   }
 )
+
 
 
 // -------------------------

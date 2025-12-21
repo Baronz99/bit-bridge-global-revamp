@@ -8,7 +8,7 @@ import {
   ProFormText,
 } from '@ant-design/pro-components'
 import { Button, ConfigProvider, Tabs, message, theme } from 'antd'
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import './style.scss'
 
 // ✅ NEW: small CSS overrides (removes yellow autofill/focus border)
@@ -37,14 +37,28 @@ const LoginPage = () => {
   const savedEmail =
     typeof window !== 'undefined' ? localStorage.getItem('email') || '' : ''
 
+  // ✅ Prefer explicit ?returnTo=... if present (your axios 401 redirect uses it)
+  const returnTo = useMemo(() => {
+    try {
+      const qs = new URLSearchParams(window.location.search)
+      const rt = qs.get('returnTo')
+      // Basic safety: only allow internal paths
+      if (rt && rt.startsWith('/')) return rt
+    } catch {
+      // no-op
+    }
+    return null
+  }, [])
+
   // ✅ Fix: never navigate during render (this caused blank page + warning)
   useEffect(() => {
     if (logged) {
-      navigate('/dashboard/home', { replace: true })
+      // If they already got logged (e.g. token restored), go where they intended
+      navigate(returnTo || location.state?.from?.pathname || '/dashboard/home', {
+        replace: true,
+      })
     }
-  }, [logged, navigate])
-
-  useEffect(() => {}, [])
+  }, [logged, navigate, location.state, returnTo])
 
   if (!logged) {
     return (
@@ -66,17 +80,11 @@ const LoginPage = () => {
                 dispatch(SET_LOADING(false))
                 setLoading(false)
 
-                const payloadUser =
-                  result.payload?.data || result.payload?.user || result.payload || {}
-
-                const onboardingStage = payloadUser?.onboarding_stage
-
-                const nextPath =
-                  !onboardingStage || onboardingStage === 'not_started'
-                    ? '/onboarding/use-case'
-                    : location.state?.from?.pathname || '/dashboard/home'
-
-                navigate(nextPath, { replace: true })
+                // ✅ BEST UX: always go dashboard after login
+                // KYC/onboarding is handled inside the app (banner + KYC center)
+                navigate(returnTo || location.state?.from?.pathname || '/dashboard/home', {
+                  replace: true,
+                })
               } else if (userLogin.rejected.match(result)) {
                 setLoading(false)
                 dispatch(SET_LOADING(false))
@@ -119,8 +127,7 @@ const LoginPage = () => {
               backdropFilter: 'blur(4px)',
             },
             title: 'Securely Bridge Your Digital Assets',
-            subTitle:
-              'Access your BitBridge account and seamlessly manage your digital assets.',
+            subTitle: 'Access your BitBridge account and seamlessly manage your digital assets.',
             text: ' Enjoy a secure, fast, and user-friendly experience while bridging assets across networks',
             action: (
               <Button
@@ -220,9 +227,7 @@ const LoginPage = () => {
                 name="captcha"
                 rules={[{ required: true, message: 'Please enter the verification code' }]}
                 onGetCaptcha={async () => {
-                  message.success(
-                    'Verification code successfully obtained! The code is: 1234'
-                  )
+                  message.success('Verification code successfully obtained! The code is: 1234')
                 }}
               />
             </>

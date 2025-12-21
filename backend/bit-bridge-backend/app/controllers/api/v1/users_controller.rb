@@ -10,13 +10,19 @@ module Api
       # ========= PROFILE / BASIC CRUD =========
 
       def user_profile
-  if current_user.nil?
-    render json: { error: 'User not found or not authenticated' }, status: :unauthorized
-  else
-    # ✅ Force plain hash serialization
-    render json: { data: UserSerializer.new(current_user).serializable_hash }, status: :ok
-  end
+  return render json: { error: 'User not found or not authenticated' }, status: :unauthorized if current_user.nil?
+
+  serialized = UserSerializer.new(current_user).serializable_hash
+
+  # If serializer returns JSON:API style: { data: { attributes: {...} } }
+  attrs =
+    serialized.dig(:data, :attributes) ||
+    serialized.dig('data', 'attributes') ||
+    serialized
+
+  render json: { data: attrs }, status: :ok
 end
+
 
 
       def index

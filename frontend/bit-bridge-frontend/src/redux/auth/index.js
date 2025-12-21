@@ -27,6 +27,33 @@ const cloneUser = (u) => {
   }
 }
 
+/**
+ * ✅ Normalize common backend shapes into a plain user object.
+ * Handles:
+ * - plain user: { first_name, ... }
+ * - wrapped: { data: { ... } }
+ * - JSON:API-ish: { data: { attributes: { ... } } }
+ * - double-wrapped: { data: { data: { attributes: { ... } } } }
+ */
+const normalizeUserPayload = (payload) => {
+  if (!payload) return null
+
+  // If thunk returns { message, ... } etc, try to locate user-ish parts
+  const p = payload?.data ?? payload?.user ?? payload
+
+  // unwrap JSON:API styles if present
+  const user =
+    p?.attributes ||
+    p?.data?.attributes ||
+    p?.data?.data?.attributes ||
+    p?.data ||
+    p
+
+  // If still not an object, give up
+  if (!user || typeof user !== 'object') return null
+  return user
+}
+
 const AuthSlice = createSlice({
   name: 'auth',
   initialState,
@@ -57,7 +84,7 @@ const AuthSlice = createSlice({
         state.message = null
       })
       .addCase(userSignUp.fulfilled, (state, action) => {
-        const userData = action.payload?.data || action.payload?.user || action.payload
+        const userData = normalizeUserPayload(action.payload)
         state.user = cloneUser(userData)
         state.logged = true
         state.loading = false
@@ -74,7 +101,7 @@ const AuthSlice = createSlice({
         state.message = null
       })
       .addCase(userLogin.fulfilled, (state, action) => {
-        const userData = action.payload?.data || action.payload?.user || action.payload
+        const userData = normalizeUserPayload(action.payload)
         state.user = cloneUser(userData)
         state.logged = true
         state.loading = false
@@ -91,7 +118,7 @@ const AuthSlice = createSlice({
         state.message = null
       })
       .addCase(sendUserConfirmation.fulfilled, (state, action) => {
-        const userData = action.payload?.data || null
+        const userData = normalizeUserPayload(action.payload)
         state.user = cloneUser(userData)
         state.loading = false
       })
@@ -106,9 +133,11 @@ const AuthSlice = createSlice({
         state.message = null
       })
       .addCase(userProfile.fulfilled, (state, action) => {
-        const userData = action.payload?.data || action.payload
+        const userData = normalizeUserPayload(action.payload)
         state.user = cloneUser(userData) // ✅ always new reference
-        state.logged = true
+
+        // ✅ Only mark logged=true if we actually got a user object
+        state.logged = !!userData
         state.loading = false
       })
       .addCase(userProfile.rejected, (state, action) => {

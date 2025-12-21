@@ -7,6 +7,7 @@ export const useInitializeData = () => {
   const dispatch = useDispatch()
 
   useEffect(() => {
+    // Only fetch profile if a token exists
     if (getToken()) dispatch(userProfile())
   }, [dispatch])
 }
