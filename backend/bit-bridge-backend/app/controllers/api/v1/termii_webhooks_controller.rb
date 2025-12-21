@@ -4,10 +4,16 @@ module Api
   module V1
     class TermiiWebhooksController < ApplicationController
       # Termii will not be logged-in, so skip auth
-      skip_before_action :authenticate_user!
+      skip_before_action :authenticate_user!, raise: false
 
-      # If you use CSRF protection in API mode, keep this:
-      protect_from_forgery with: :null_session
+      # NOTE:
+      # Do NOT use protect_from_forgery in API controllers (ActionController::API).
+      # It causes boot crashes on Heroku.
+      #
+      # If your app is ActionController::Base (non-API), you can enable:
+      # protect_from_forgery with: :null_session
+      #
+      # But since you're API-mode, we simply don't use CSRF here.
 
       # POST /api/v1/termii/dlr
       def dlr
@@ -17,7 +23,11 @@ module Api
         secret = ENV["TERMII_WEBHOOK_SECRET"].to_s
         if secret.present?
           incoming = request.headers["X-Webhook-Secret"].to_s
-          unless ActiveSupport::SecurityUtils.secure_compare(incoming, secret)
+
+          # secure_compare requires same length; guard it
+          unless incoming.present? &&
+                 incoming.bytesize == secret.bytesize &&
+                 ActiveSupport::SecurityUtils.secure_compare(incoming, secret)
             Rails.logger.warn("[TERMII DLR] Unauthorized webhook attempt")
             return render json: { message: "Unauthorized" }, status: :unauthorized
           end
