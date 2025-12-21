@@ -90,3 +90,5 @@ export function requestPhoneOtp(payload = {}) {
 export function verifyPhoneOtp(payload) {
   return client.post('/phone_verification/verify', payload)
 }
+
+console.log('AUTH BASE URL:', AUTH_BASE_URL)
