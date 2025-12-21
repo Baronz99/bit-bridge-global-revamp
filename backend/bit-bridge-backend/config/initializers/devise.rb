@@ -307,7 +307,8 @@ Devise.setup do |config|
   config.responder.redirect_status = :see_other
 
   config.jwt do |jwt|
-    jwt.secret = Rails.application.credentials[:secret_key_base] || ENV['SECRET_KEY_BASE']
+    jwt.secret = Rails.application.secret_key_base
+
     jwt.dispatch_requests = [
       ['POST', %r{^/login$}]
     ]

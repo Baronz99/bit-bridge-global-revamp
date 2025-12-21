@@ -1,14 +1,14 @@
 import { useEffect } from 'react'
-import { useDispatch, useSelector } from 'react-redux'
+import { useDispatch } from 'react-redux'
 import { userProfile } from '../redux/actions/auth'
+import { getToken } from '../api/client'
 
 export const useInitializeData = () => {
-  const { user, logged } = useSelector((state) => state.auth)
   const dispatch = useDispatch()
 
   useEffect(() => {
-    dispatch(userProfile())
-  }, [])
+    if (getToken()) dispatch(userProfile())
+  }, [dispatch])
 }
 
 export default useInitializeData

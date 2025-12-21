@@ -4,7 +4,8 @@ import { createAsyncThunk } from '@reduxjs/toolkit'
 import { toast } from 'react-toastify'
 import client, { TOKEN_KEY, clearToken } from '../../api/client'
 import { API_BASE_URL } from '../../api/config'
-import { signup as apiSignup, login as apiLogin, REFRESH_TOKEN_KEY } from '../../api/auth'
+import { signup as apiSignup, apiLoginV1 as apiLogin, REFRESH_TOKEN_KEY } from '../../api/auth'
+
 import UserService from '../../service/user-service'
 
 // -------------------------
@@ -16,7 +17,8 @@ const RECENT_EMAILS_KEY = 'recent_emails'
 const MAX_RECENTS = 5
 
 const normalizeBaseUrl = (url) => (url ? (url.endsWith('/') ? url.slice(0, -1) : url) : '')
-const AUTH_BASE = normalizeBaseUrl(API_BASE_URL)
+const AUTH_BASE = normalizeBaseUrl(API_BASE_URL).replace(/\/api\/v1$/i, '')
+
 
 // -------------------------
 // Helpers

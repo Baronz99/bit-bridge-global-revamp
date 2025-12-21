@@ -6,8 +6,7 @@ import { API_BASE_URL } from './config'
 /**
  * Normalize base URL to avoid double slashes
  */
-const normalizeBaseUrl = (url) => (url ? (url.endsWith('/') ? url.slice(0, -1) : url) : '')
-const BASE = normalizeBaseUrl(API_BASE_URL)
+const normalizeBaseUrl = (url) => (url ? url.replace(/\/+$/, '') : '')
 
 /**
  * Keep token key consistent everywhere
@@ -27,7 +26,7 @@ export const getToken = () => {
     if (!raw) return null
 
     // common case: token string already
-    if (raw.startsWith('Bearer ')) return raw.replace(/^Bearer\s+/i, '').trim()
+    if (/^Bearer\s+/i.test(raw)) return raw.replace(/^Bearer\s+/i, '').trim()
     if (raw.startsWith('ey')) return raw.trim()
 
     // sometimes stored as JSON
@@ -67,9 +66,14 @@ export const clearAuthStorage = () => {
 /**
  * Central Axios client
  * All /api/v1 calls should use this instance
+ *
+ * IMPORTANT:
+ * config.js should already export API_BASE_URL like:
+ *   https://.../api/v1
+ * So do NOT append /api/v1 here.
  */
 const client = axios.create({
-  baseURL: `${BASE}/api/v1`,
+  baseURL: normalizeBaseUrl(API_BASE_URL), // ✅ exactly .../api/v1
   headers: {
     Accept: 'application/json',
     'Content-Type': 'application/json',
@@ -110,24 +114,22 @@ client.interceptors.response.use(
     const status = error?.response?.status
 
     if (status === 401) {
-  // ✅ Only force-login redirect if the user had a token (session expired / invalid token)
-  // If there was NO token, home/public pages should not get redirected.
-  const hadToken = !!getToken()
+      // Only force-login redirect if the user had a token (session expired / invalid token)
+      const hadToken = !!getToken()
 
-  clearAuthStorage()
+      clearAuthStorage()
 
-  try {
-    window.dispatchEvent(new CustomEvent('bitbridge:unauthorized'))
-  } catch {
-    // no-op
-  }
+      try {
+        window.dispatchEvent(new CustomEvent('bitbridge:unauthorized'))
+      } catch {
+        // no-op
+      }
 
-  if (hadToken && !isAuthPage()) {
-    const returnTo = encodeURIComponent(window.location.pathname + window.location.search)
-    window.location.assign(`/login?returnTo=${returnTo}`)
-  }
-}
-
+      if (hadToken && !isAuthPage()) {
+        const returnTo = encodeURIComponent(window.location.pathname + window.location.search)
+        window.location.assign(`/login?returnTo=${returnTo}`)
+      }
+    }
 
     return Promise.reject(error)
   }
