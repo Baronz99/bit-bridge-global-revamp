@@ -2,6 +2,8 @@
 
 class CreateTransactionPinResetCodes < ActiveRecord::Migration[7.1]
   def change
+    return if table_exists?(:transaction_pin_reset_codes)
+
     create_table :transaction_pin_reset_codes do |t|
       # IMPORTANT: users.id is UUID in this app, so reference must be UUID
       t.references :user, null: false, foreign_key: true, type: :uuid
@@ -26,8 +28,9 @@ class CreateTransactionPinResetCodes < ActiveRecord::Migration[7.1]
       t.timestamps
     end
 
-    add_index :transaction_pin_reset_codes, [:user_id, :phone_e164]
-    add_index :transaction_pin_reset_codes, :expires_at
-    add_index :transaction_pin_reset_codes, :status
+    # Indexes: name them so they don't collide across envs
+    add_index :transaction_pin_reset_codes, [:user_id, :phone_e164], name: "idx_pin_reset_codes_user_phone"
+    add_index :transaction_pin_reset_codes, :expires_at, name: "idx_pin_reset_codes_expires_at"
+    add_index :transaction_pin_reset_codes, :status, name: "idx_pin_reset_codes_status"
   end
 end
