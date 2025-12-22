@@ -59,5 +59,9 @@ Rails.application.configure do
   Rails.application.routes.default_url_options[:host] = ENV['STAGING_BACKEND_HOST']
 Rails.application.routes.default_url_options[:protocol] = "https"
 
+config.log_tags = [:request_id]
+config.log_level = :debug
+
+
 
 end
