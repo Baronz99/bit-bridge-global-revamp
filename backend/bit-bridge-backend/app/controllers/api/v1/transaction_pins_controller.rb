@@ -303,18 +303,25 @@ module Api
       private
 
       # ✅ Require verified phone for set/change (but NOT for reset flow)
-      def ensure_phone_verified!
-        up = current_user.user_profile
-        verified =
-          current_user.phone_verified == true ||
-          current_user.phone_verified_at.present? ||
-          up&.phone_verified_at.present?
+def ensure_phone_verified!
+  up = current_user.user_profile
 
-        return if verified
+  # Some envs might not have these columns, so guard with respond_to?
+  user_verified =
+    (current_user.respond_to?(:phone_verified) && current_user.phone_verified == true) ||
+    (current_user.respond_to?(:phone_verified_at) && current_user.phone_verified_at.present?)
 
-        render json: { message: 'Phone number must be verified before setting a transaction PIN' },
-               status: :unprocessable_entity
-      end
+  profile_verified =
+    up.present? && up.respond_to?(:phone_verified_at) && up.phone_verified_at.present?
+
+  return if user_verified || profile_verified
+
+  Rails.logger.warn("[PIN] blocked: phone not verified user_id=#{current_user.id}")
+
+  render json: { message: 'Phone number must be verified before setting a transaction PIN' },
+         status: :unprocessable_entity
+end
+
 
       def require_verified_phone!
   verified = current_user.user_profile&.phone_verified_at.present?
