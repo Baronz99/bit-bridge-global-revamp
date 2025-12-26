@@ -426,6 +426,8 @@ export default function VirtualCardApplication() {
       ? cardDetails.card_status === 'active'
       : true
 
+  const cardStatusLabel = isCardActive ? 'Active' : 'Frozen'
+
   const detailItems = [
     { label: 'Status', value: isCardActive ? 'Active' : 'Frozen' },
     { label: 'Brand', value: cardDetails?.card_brand || cardDetails?.brand },
@@ -665,7 +667,7 @@ export default function VirtualCardApplication() {
         }
       `}</style>
       <div className="virtual-card-page min-h-screen px-4 py-8">
-      <div className="max-w-6xl mx-auto space-y-8">
+        <div className="max-w-6xl mx-auto space-y-8">
         <header className="px-2 md:px-4 flex flex-col md:flex-row md:items-center md:justify-between gap-4">
           <div>
             <h1 className="text-2xl md:text-3xl font-semibold tracking-tight">Virtual Cards</h1>
@@ -696,6 +698,39 @@ export default function VirtualCardApplication() {
             </div>
           </div>
         </header>
+
+        <section className="vc-surface rounded-2xl p-6 md:p-7 border border-slate-800 shadow-lg">
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              <h2 className="text-lg font-semibold">My cards</h2>
+              <p className="text-xs text-slate-400 mt-1">
+                Your active cards will appear here.
+              </p>
+            </div>
+            <span className="text-xs text-slate-400">
+              {hasCardId ? '1 card' : 'No cards'}
+            </span>
+          </div>
+
+          {hasCardId ? (
+            <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm text-slate-200">
+              <div className="vc-inset rounded-xl border border-slate-800 px-4 py-3">
+                <p className="text-xs text-slate-400">Card ID</p>
+                <p className="mt-1 font-mono text-[13px] break-all">
+                  {card?.card_id || 'Not available'}
+                </p>
+              </div>
+              <div className="vc-inset rounded-xl border border-slate-800 px-4 py-3">
+                <p className="text-xs text-slate-400">Status</p>
+                <p className="mt-1 font-semibold">{cardStatusLabel}</p>
+              </div>
+            </div>
+          ) : (
+            <p className="mt-4 text-xs text-slate-400">
+              No cards yet. Create a card below to get started.
+            </p>
+          )}
+        </section>
 
         {hasCardId && (
           <section className="grid grid-cols-1 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)] gap-8">

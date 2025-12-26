@@ -5,6 +5,7 @@ import {
   LoginOutlined,
   MenuUnfoldOutlined,
   WalletOutlined,
+  CreditCardOutlined,
   IdcardOutlined, // ✅ NEW
 } from '@ant-design/icons'
 import PropTypes from 'prop-types'
@@ -136,6 +137,15 @@ const DashboardLayout = () => {
                     <span>Utility</span>
                   </NavLink>
                 </li>
+                <li>
+                  <NavLink
+                    to="/dashboard/virtual-cards"
+                    className={({ isActive }) => (isActive ? active : normal)}
+                  >
+                    <CreditCardOutlined className="text-xl" />
+                    <span>Cards</span>
+                  </NavLink>
+                </li>
                 {/* ✅ NEW: Verification (KYC) tab */}
                 <li>
                   <NavLink
@@ -202,6 +212,15 @@ const DashboardLayout = () => {
                     >
                       <LuUtilityPole className="text-xl" />
                       <span>Utility</span>
+                    </NavLink>
+                  </li>
+                  <li onClick={() => setOpen(false)}>
+                    <NavLink
+                      to="/dashboard/virtual-cards"
+                      className={({ isActive }) => (isActive ? active : normal)}
+                    >
+                      <CreditCardOutlined className="text-xl" />
+                      <span>Cards</span>
                     </NavLink>
                   </li>
                   {/* ✅ NEW: Verification (KYC) in mobile drawer */}
