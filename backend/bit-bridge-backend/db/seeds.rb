@@ -3,11 +3,14 @@
 # Ensure the existence of records required to run the application in every environment (production, development, test).
 # This script is idempotent, meaning it can be run multiple times without creating duplicate records.
 
-# Create a default user
 puts 'seeding data....'
-User.find_or_create_by!(email: 'emmiemenz@gmail.com') do |user|
-  user.password = 'chemistry101'
-  user.role = 'admin'
+
+# Create a default user (skip in staging)
+unless Rails.env.staging?
+  User.find_or_create_by!(email: 'emmiemenz@gmail.com') do |user|
+    user.password = 'chemistry101'
+    user.role = 'admin'
+  end
 end
 
 # Seed product
@@ -254,34 +257,6 @@ products = [
     info: 'Accepted by multiple top brands across various industries.',
     attention: 'Ensure the store accepts Suregift before purchasing.',
     notice_info: 'Redemption availability depends on participating retailers.'
-  },
-  {
-    provider: 'mtn',
-    provision: 'Mobile Airtime',
-    min_value: 5.0,
-    max_value: 50_000.0,
-    currency: 'NGN',
-    rate: 4.7,
-    description: 'MTN provides reliable telecommunication services across Nigeria. Recharge airtime to stay connected effortlessly. Enjoy seamless communication with the MTN network, offering nationwide coverage and competitive pricing.',
-    header_info: 'Recharge your MTN line with airtime for uninterrupted communication.',
-    info: 'Use this to recharge any MTN line within Nigeria for voice calls, SMS, and data.',
-    attention: 'Ensure the airtime value matches your communication needs.',
-    notice_info: 'MTN recharge can be used for voice, data, and text services.',
-    category: 'mobile provider'
-  },
-  {
-    provider: 'mtn',
-    provision: 'Bundle Data',
-    min_value: 500.0,
-    max_value: 50_000.0,
-    currency: 'NGN',
-    rate: 4.7,
-    description: 'MTN offers a variety of data bundles to suit different browsing needs. Recharge with data bundles for uninterrupted internet connectivity, available in multiple plans.',
-    header_info: 'Top-up your MTN line with data bundles to browse and stream without limits.',
-    info: 'Use this to recharge any MTN line within Nigeria with data plans.',
-    attention: 'Choose a data bundle based on your internet usage.',
-    notice_info: 'Data bundles are valid for browsing, social media, and streaming.',
-    category: 'mobile provider'
   },
   {
     provider: 'ntel',

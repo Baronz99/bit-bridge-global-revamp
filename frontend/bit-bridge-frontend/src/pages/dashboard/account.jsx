@@ -17,7 +17,7 @@ import { NavLink, useSearchParams } from 'react-router-dom'
 import ShadowValue from '../../components/ShadowValue'
 import { toast } from 'react-toastify'
 
-// ✅ NEW
+// NEW
 import {
   activateTunnelWallet,
   convertNgnToUsd,
@@ -56,7 +56,7 @@ const tunnelWallet = data?.tunnel
   const [isfundTransferOpen, setIsfundTransferOpen] = useState(false)
   const [isWithdrawModalOpened, setIsWithdrawalModalOpen] = useState(false)
 
-  // ✅ Tunnel state
+  // Tunnel state
   const [usdWallet, setUsdWallet] = useState(null)
   const [usdTx, setUsdTx] = useState([])
   const [tunnelLoading, setTunnelLoading] = useState(false)
@@ -96,7 +96,7 @@ const tunnelWallet = data?.tunnel
     dispatch(getBankList())
   }, [dispatch])
 
-  // ✅ Fetch tunnel wallet + USD transactions when in Tunnel mode
+  // Fetch tunnel wallet + USD transactions when in Tunnel mode
   useEffect(() => {
     const run = async () => {
       if (!isTunnel) return
@@ -172,7 +172,7 @@ const tunnelWallet = data?.tunnel
     })
   }
 
-  // ✅ Tunnel convert
+  // Tunnel convert
   const openConvert = () => {
     setConvertDirection(isTunnel ? 'usd_to_ngn' : 'ngn_to_usd')
     setIsConvertOpen(true)
@@ -274,7 +274,7 @@ const tunnelWallet = data?.tunnel
       : 'px-3 py-1 rounded-full bg-black/40 border border-slate-600 text-[11px] text-slate-200'
   }, [isTunnel])
 
-  const activeCurrencyLabel = isTunnel ? 'USD • Tunnel' : 'NGN • Bridge'
+  const activeCurrencyLabel = isTunnel ? 'USD - Tunnel' : 'NGN - Bridge'
 
   const txList = isTunnel ? usdTx : wallet?.transactions
 
@@ -303,7 +303,7 @@ const tunnelWallet = data?.tunnel
                 }`}
                 aria-pressed={!isTunnel}
               >
-                🌉 Bridge (NGN)
+                Bridge (NGN)
               </button>
               <button
                 type="button"
@@ -313,7 +313,7 @@ const tunnelWallet = data?.tunnel
                 }`}
                 aria-pressed={isTunnel}
               >
-                🚇 Tunnel (USD)
+                Tunnel (USD)
               </button>
             </div>
           </div>
@@ -325,7 +325,7 @@ const tunnelWallet = data?.tunnel
                 <>
                   USD balance:{' '}
                   <span className="font-semibold text-orange-300">
-                    <ShadowValue placeholder="•••">
+                    <ShadowValue placeholder="***">
                       USD {usdFormat(usdBalance)}
                     </ShadowValue>
                   </span>
@@ -379,7 +379,7 @@ const tunnelWallet = data?.tunnel
 
                   <div className="text-3xl md:text-4xl font-semibold">
                     {isTunnel ? (
-                      <ShadowValue placeholder="•••">USD {usdFormat(usdBalance)}</ShadowValue>
+                      <ShadowValue placeholder="***">USD {usdFormat(usdBalance)}</ShadowValue>
                     ) : (
                       <ShadowValue>{nairaFormat(balance, 'ngn')}</ShadowValue>
                     )}
@@ -393,7 +393,7 @@ const tunnelWallet = data?.tunnel
                         disabled={tunnelLoading}
                         className="px-4 py-2 rounded-xl bg-indigo-500 text-white text-xs font-semibold hover:bg-indigo-400 disabled:opacity-60"
                       >
-                        Convert NGN → USD
+                        Convert NGN to USD
                       </button>
 
                       <span className="text-xs text-slate-400">
@@ -408,7 +408,7 @@ const tunnelWallet = data?.tunnel
                         disabled={tunnelLoading}
                         className="px-4 py-2 rounded-xl bg-orange-500 text-black text-xs font-semibold hover:bg-orange-400 disabled:opacity-60"
                       >
-                        Convert USD → NGN
+                        Convert USD to NGN
                       </button>
 
                       <span className="text-xs text-slate-400">
@@ -435,7 +435,7 @@ const tunnelWallet = data?.tunnel
                   to={isTunnel ? '/dashboard/transactions?wallet_type=usd' : '/dashboard/transactions?wallet_type=ngn'}
                   className={isTunnel ? 'text-xs text-orange-300 hover:text-orange-200' : 'text-xs text-indigo-300 hover:text-indigo-200'}
                 >
-                  View all →
+                  View all
                 </NavLink>
               </div>
 
@@ -499,7 +499,7 @@ const tunnelWallet = data?.tunnel
                             ) : (
                               <tr>
                                 <td colSpan={4} className="py-8 text-center text-sm text-slate-500">
-                                  {tunnelLoading ? 'Loading…' : 'No transactions yet.'}
+                                  {tunnelLoading ? 'Loading...' : 'No transactions yet.'}
                                 </td>
                               </tr>
                             )}
@@ -557,7 +557,7 @@ const tunnelWallet = data?.tunnel
         <MoneyTransferFlow setIsfundTransferOpen={setIsfundTransferOpen} />
       </AppModal>
 
-      {/* ✅ Tunnel conversion modal */}
+      {/* Tunnel conversion modal */}
       <AppModal title={'Convert'} isModalOpen={isConvertOpen} handleCancel={() => setIsConvertOpen(false)}>
         <div className="space-y-3">
           <div className="text-xs text-slate-300">
@@ -612,7 +612,7 @@ const tunnelWallet = data?.tunnel
 
           <div className="rounded-xl border border-slate-800 bg-slate-950/60 px-3 py-2 text-xs text-slate-300">
             {quoteLoading ? (
-              <p>Fetching live rate…</p>
+              <p>Fetching live rate...</p>
             ) : convertQuote ? (
               <div className="space-y-1">
                 <p>
@@ -641,7 +641,7 @@ const tunnelWallet = data?.tunnel
             value={convertPin}
             onChange={(e) => setConvertPin(e.target.value)}
             className="w-full rounded-xl bg-slate-950 border border-slate-700 px-3 py-2 text-sm text-slate-100"
-            placeholder="••••"
+            placeholder="****"
             inputMode="numeric"
             type="password"
             maxLength={4}
@@ -653,7 +653,7 @@ const tunnelWallet = data?.tunnel
             disabled={tunnelLoading}
             className="w-full mt-2 px-4 py-2 rounded-xl bg-orange-500 text-black text-sm font-semibold hover:bg-orange-400 disabled:opacity-60"
           >
-            {tunnelLoading ? 'Converting…' : 'Convert'}
+            {tunnelLoading ? 'Converting...' : 'Convert'}
           </button>
         </div>
       </AppModal>
@@ -708,7 +708,7 @@ const TransactionComp = ({
             type="button"
             onClick={onOpenConvert}
             className="flex flex-col items-center justify-center gap-1 text-purple-300 hover:text-alt cursor-pointer"
-            title="Convert NGN → USD"
+            title="Convert NGN to USD"
           >
             <span className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-purple-900/40 border border-purple-600/60">
               <WalletOutlined />

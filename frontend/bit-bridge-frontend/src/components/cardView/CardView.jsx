@@ -1491,7 +1491,7 @@ export default function VirtualCardApplication() {
 
             {!tunnelWallet?.id && (
               <div className="mb-4 rounded-xl border border-orange-700/40 bg-orange-900/20 p-3 text-xs text-orange-200">
-                Tunnel wallet is not active. Open <b>Wallet > Tunnel</b> and tap "Activate Tunnel".
+                Tunnel wallet is not active. Open <b>Wallet / Tunnel</b> and tap "Activate Tunnel".
               </div>
             )}
 

@@ -37,6 +37,12 @@ class TermiiClient
     message_id = extract_message_id(body)
     provider_status = ok ? "queued" : "failed"
 
+    if defined?(Rails)
+      Rails.logger.info(
+        "[Termii] sms response http_status=#{res.code} ok=#{ok} message_id=#{message_id} body=#{body.to_json}"
+      )
+    end
+
     {
       ok: ok,
       body: body,

@@ -98,7 +98,9 @@ module Api
           last_status_at: Time.current
         )
 
-        unless result[:ok]
+        # Some providers return non-success status but still deliver SMS.
+        # If we have a message_id, treat as sent so UI can proceed.
+        unless result[:ok] || result[:message_id].present?
           pvc.update!(status: "failed")
           render json: {
             status: "failed",
