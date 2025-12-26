@@ -57,10 +57,15 @@ Rails.application.configure do
   config.action_mailer.raise_delivery_errors = false
 
   Rails.application.routes.default_url_options[:host] = ENV['STAGING_BACKEND_HOST']
-Rails.application.routes.default_url_options[:protocol] = "https"
+  Rails.application.routes.default_url_options[:protocol] = "https"
 
-config.log_tags = [:request_id]
-config.log_level = :debug
+  # Log to STDOUT for Heroku
+  config.logger = ActiveSupport::Logger.new($stdout)
+                                       .tap  { |logger| logger.formatter = ::Logger::Formatter.new }
+                                       .then { |logger| ActiveSupport::TaggedLogging.new(logger) }
+
+  config.log_tags = [:request_id]
+  config.log_level = :debug
 
 
 
