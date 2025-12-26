@@ -19,6 +19,16 @@ module Api
           render json: { errors: ["Invalid phone number format"] }, status: :unprocessable_entity and return
         end
 
+        # Prevent sending OTP to a phone already tied to another user.
+        if UserProfile.where.not(user_id: current_user.id)
+                      .where(phone_number: phone_raw)
+                      .exists?
+          render json: {
+            status: "phone_in_use",
+            message: "Phone number is already in use."
+          }, status: :unprocessable_entity and return
+        end
+
         current_phone_raw = profile.phone_number
         current_phone_e164 =
           profile.phone_e164.presence ||
