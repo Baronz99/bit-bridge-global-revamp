@@ -396,4 +396,64 @@ products.each do |product_data|
   end
 end
 
+
+# Ensure core mobile providers have VTU/DATA provisions
+mobile_providers = [
+  { provider: 'mtn', label: 'MTN' },
+  { provider: 'glo', label: 'Glo' },
+  { provider: 'airtel', label: 'Airtel' },
+  { provider: '9-mobile', label: '9mobile' }
+]
+
+mobile_providers.each do |entry|
+  product = Product.find_or_create_by!(provider: entry[:provider], category: 'mobile provider') do |record|
+    record.provision = 'Mobile Services'
+    record.currency = 0
+    record.rate = 5
+    record.header_info = "Top up #{entry[:label]} airtime and data."
+    record.description = "#{entry[:label]} mobile services for airtime and data."
+    record.min_value = 50
+    record.max_value = 150_000
+  end
+
+  [
+    { name: 'Airtime', service_type: 'VTU', min: 50, max: 50_000 },
+    { name: 'Data', service_type: 'DATA', min: 50, max: 150_000 }
+  ].each do |provision|
+    Provision.find_or_create_by!(product: product, name: provision[:name], service_type: provision[:service_type]) do |record|
+      record.currency = 0
+      record.provision_value_type = 1
+      record.value_range = [provision[:min], provision[:max]]
+      record.description = "#{provision[:name]} for #{entry[:label]}."
+    end
+  end
+end
+
+
+# Seed cable TV providers as utility services
+cable_providers = [
+  { provider: 'dstv', label: 'DSTV' },
+  { provider: 'gotv', label: 'GOTV' },
+  { provider: 'startimes', label: 'Startimes' }
+]
+
+cable_providers.each do |entry|
+  product = Product.find_or_create_by!(provider: entry[:provider], category: 'utility') do |record|
+    record.provision = 'Cable Subscription'
+    record.currency = 0
+    record.rate = 5
+    record.header_info = "Subscribe to #{entry[:label]} plans."
+    record.description = "#{entry[:label]} cable TV subscriptions and renewals."
+    record.min_value = 100
+    record.max_value = 200_000
+  end
+
+  Provision.find_or_create_by!(product: product, name: 'Cable Subscription', service_type: 'CABLE') do |record|
+    record.currency = 0
+    record.provision_value_type = 1
+    record.value_range = [100, 200_000]
+    record.description = "Cable subscriptions for #{entry[:label]}."
+  end
+end
+
 puts 'seeding completed'

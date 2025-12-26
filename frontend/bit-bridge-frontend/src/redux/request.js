@@ -1,9 +1,16 @@
-import client, { TOKEN_KEY, clearToken } from '../api/client'
-import { API_BASE_URL } from '../api/config'
+import client, { clearToken } from '../api/client'
+import { API_ROOT_URL } from '../api/config'
 
 // NOTE: keep using your existing helper to avoid breaking other codepaths.
 // But we will sanitize token values because this repo stores JSON.stringify() tokens in some places.
 import { fetchToken } from '../hooks/localStorage'
+import {
+  TOKEN_KEY,
+  cookieAuthEnabled,
+  getRefreshToken,
+  setAccessToken,
+  setRefreshToken,
+} from '../auth/tokenStore'
 
 // Keep same signature & behavior
 const request = async (url, options = {}) => {
@@ -38,9 +45,9 @@ const request = async (url, options = {}) => {
    * but elsewhere (auth.js) you use localStorage('refresh-token').
    * We support both so we don't break existing flows.
    */
-  const getRefreshToken = () => {
+  const getRefreshTokenLegacy = () => {
     try {
-      const rt = localStorage.getItem('refresh-token')
+      const rt = getRefreshToken()
       return normalizeToken(rt) || normalizeToken(fetchToken())
     } catch {
       return normalizeToken(fetchToken())
@@ -52,11 +59,13 @@ const request = async (url, options = {}) => {
    * so we call API_BASE_URL + '/refresh' directly.
    */
   const refreshAccessToken = async () => {
-    const refreshToken = getRefreshToken()
-    if (!refreshToken) throw new Error('No refresh token stored')
+    const refreshToken = getRefreshTokenLegacy()
+    if (!refreshToken && !cookieAuthEnabled()) {
+      throw new Error('No refresh token stored')
+    }
 
     // Ensure trailing slash behavior is safe
-    const base = API_BASE_URL?.endsWith('/') ? API_BASE_URL.slice(0, -1) : API_BASE_URL
+    const base = API_ROOT_URL?.endsWith('/') ? API_ROOT_URL.slice(0, -1) : API_ROOT_URL
 
     const response = await fetch(`${base}/refresh`, {
       method: 'POST',
@@ -64,8 +73,9 @@ const request = async (url, options = {}) => {
         Accept: 'application/json',
         'Content-Type': 'application/json',
         // IMPORTANT: backend expects raw refresh token (not "Bearer ...") based on your auth.js
-        'Bit-Refresh-Token': refreshToken,
+        ...(refreshToken ? { 'Bit-Refresh-Token': refreshToken } : {}),
       },
+      credentials: cookieAuthEnabled() ? 'include' : 'same-origin',
     })
 
     if (!response.ok) {
@@ -75,8 +85,8 @@ const request = async (url, options = {}) => {
     const result = await response.json()
 
     // Save new tokens (store raw strings, not JSON.stringify)
-    if (result?.access_token) localStorage.setItem(TOKEN_KEY, result.access_token)
-    if (result?.refresh_token) localStorage.setItem('refresh-token', result.refresh_token)
+    if (result?.access_token) setAccessToken(result.access_token)
+    if (result?.refresh_token) setRefreshToken(result.refresh_token)
 
     return result
   }

@@ -223,7 +223,7 @@ const KycCenter = () => {
 
   // “next action” routing helpers
   const goProfile = () => navigate('/dashboard/profile-account')
-  const goVirtualAccounts = () => navigate('/dashboard/virtual-account')
+  const goVirtualAccounts = () => navigate('/dashboard/virtual-accounts')
   const goWallet = () => navigate('/dashboard/wallet') // if you don’t have this route, change to /dashboard/home
 
   // Decide what button to show inside the CURRENT tier card

@@ -11,6 +11,18 @@ module Api
       # ✅ For production: require verified phone to SET/CHANGE PIN
       before_action :ensure_phone_verified!, only: [:set, :change]
 
+      # GET /api/v1/transaction_pin/status
+def status
+  render json: {
+    pin_set: current_user.transaction_pin_set?,
+    pin_set_at: current_user.transaction_pin_set_at,
+    locked: current_user.transaction_pin_locked?,
+    lock_remaining_seconds: current_user.transaction_pin_lock_remaining_seconds
+  }, status: :ok
+end
+
+
+
       # POST /api/v1/transaction_pin/set
       # body: { pin: "1234" }  OR  { transaction_pin: "1234" }
       def set
@@ -19,6 +31,13 @@ module Api
         if pin.blank?
           return render json: { message: 'PIN is required' }, status: :unprocessable_entity
         end
+
+        if current_user.transaction_pin_set?
+  return render json: {
+    message: 'Transaction PIN already set. Use change PIN or forgot PIN.'
+  }, status: :conflict
+end
+
 
         begin
           current_user.set_transaction_pin!(pin)
@@ -56,7 +75,8 @@ module Api
           return render json: {
             message: "Too many failed attempts. Try again in #{(secs / 60.0).ceil} minute(s).",
             locked: true,
-            retry_after_seconds: secs
+            retry_after_seconds: secs,
+            attempts_remaining: 0
           }, status: :too_many_requests
         end
 
@@ -69,7 +89,7 @@ module Api
           message: 'Invalid transaction PIN',
           valid: false,
           attempts_remaining: [remaining, 0].max
-        }, status: :unauthorized
+        }, status: :unprocessable_entity
       end
 
       # PATCH /api/v1/transaction_pin/change
@@ -99,7 +119,8 @@ module Api
           return render json: {
             message: "Too many failed attempts. Try again in #{(secs / 60.0).ceil} minute(s).",
             locked: true,
-            retry_after_seconds: secs
+            retry_after_seconds: secs,
+            attempts_remaining: 0
           }, status: :too_many_requests
         end
 
@@ -109,7 +130,7 @@ module Api
             message: 'Invalid current PIN',
             valid: false,
             attempts_remaining: [remaining, 0].max
-          }, status: :unauthorized
+          }, status: :unprocessable_entity
         end
 
         begin

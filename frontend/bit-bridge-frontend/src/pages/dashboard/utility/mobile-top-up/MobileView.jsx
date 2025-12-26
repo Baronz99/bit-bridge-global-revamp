@@ -31,10 +31,12 @@ const MobileView = () => {
           <div>
             <div>
               <p className="md:text-3xl text-xl text-gray-200 mb-4 mt-0 font-semibold ">
-                {selectedProvider?.name}
+                {selectedProvider?.product?.provider || selectedProvider?.name}
               </p>
               <p className="text-lg text-gray-300">
-                {selectedProvider?.description.substring(0, 100)}...
+                {(selectedProvider?.product?.description || selectedProvider?.description || '')
+                  .substring(0, 100)}
+                ...
               </p>
             </div>
           </div>

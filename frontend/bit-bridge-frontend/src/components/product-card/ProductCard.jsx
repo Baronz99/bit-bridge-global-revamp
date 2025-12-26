@@ -17,6 +17,16 @@ const ProductCard = ({
   const navigate = useNavigate()
 
   const imagePic = splitString(provider)
+  const imageOverrides = {
+    startimes: 'startimes-logo.png',
+  }
+  const overrideImage = imageOverrides[imagePic]
+  const imageSrc = overrideImage
+    ? `/images/providers/${overrideImage}`
+    : `/images/providers/${imagePic}.webp`
+  const imageClassName = overrideImage
+    ? 'w-full h-full object-contain bg-white p-4'
+    : 'w-full md:object-cover object-fill h-full'
 
   return (
     <div
@@ -27,11 +37,7 @@ const ProductCard = ({
       className=""
     >
       <div className="md:h-52 border shadow cursor-pointer hover:scale-105 rounded-md hover:shadow-xl transition-all ease-linear duration-300  bg-white overflow-hidden">
-        <img
-          src={`/images/providers/${imagePic}.webp`}
-          alt=""
-          className="w-full md:object-cover object-fill  h-full"
-        />
+        <img src={imageSrc} alt="" className={imageClassName} />
       </div>
 
       {isDetails && (

@@ -24,7 +24,7 @@ const ExclusiveDeals = () => {
       offer:
         'Use BitBridge as the home for your payment accounts and virtual cards for subscriptions, online services and safer digital spend.',
       img: dealMobileTopup,
-      link: '/dashboard/virtual-account',
+      link: '/dashboard/virtual-accounts',
     },
     {
       id: 3,

@@ -1,6 +1,6 @@
 import React, { useCallback, useState } from 'react'
 
-const AccountNumbers = ({ accounts, generate, onView }) => {
+const AccountNumbers = ({ accounts, generate, onView, showView = true }) => {
   //   const [accounts, setAccounts] = useState({
   //     savings: null,
   //     investment: null,
@@ -65,12 +65,14 @@ const AccountNumbers = ({ accounts, generate, onView }) => {
                         Bank: {accounts[0]?.account_number}
                       </p>
 
-                      <button
-                        onClick={() => onView(i, accounts[i])}
-                        className="text-sm text-gray-100 mt-1  hover:text-alt"
-                      >
-                        View
-                      </button>
+                      {showView && onView ? (
+                        <button
+                          onClick={() => onView(i, accounts[i])}
+                          className="text-sm text-gray-100 mt-1  hover:text-alt"
+                        >
+                          View
+                        </button>
+                      ) : null}
                     </>
                   ) : (
                     <button

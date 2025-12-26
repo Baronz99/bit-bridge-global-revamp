@@ -10,10 +10,9 @@ import { useDispatch, useSelector } from 'react-redux'
 import Loading from '../../components/loader/Loading'
 import PowerComponent from '../../components/powerComponents/PowerComponent'
 import MobileTopUpViewComponents from './components/MobileTopUpViewComponent'
-import { MdAddCard, MdOutlineSell } from 'react-icons/md'
-import { PiHandWithdraw, PiUsersThreeBold } from 'react-icons/pi'
 import { getRescentPurchaseOrder, repurchaseOrder } from '../../redux/actions/purchasePower'
 import { SET_LOADING, toggleShadowMode } from '../../redux/app'
+import { getWallet } from '../../redux/actions/wallet'
 import { useNavigate } from 'react-router-dom'
 import AppModal from '../../components/modal/Modal'
 
@@ -35,10 +34,11 @@ import ShadowValue from '../../components/ShadowValue'
 
 // ✅ Toasts
 import { toast } from 'react-toastify'
+import { dashboardServices } from '../../data/dashboardServices'
 
 const HomeDashboard = () => {
   const { recentOrders } = useSelector((state) => state.purchase)
-  const { wallet, loading } = useSelector((state) => state.wallet)
+  const { data: walletData, loading } = useSelector((state) => state.wallet)
   const { user } = useSelector((state) => state.auth)
   const { shadowMode } = useSelector((state) => state.app || {})
   const {
@@ -58,6 +58,7 @@ const HomeDashboard = () => {
   const [openAccount, setIsOpenAccount] = useState(false)
   const [selectedBiller, setSelectedBillier] = useState()
   const [selectedItem, setSelectedItem] = useState('Top Up')
+  const [balanceMode, setBalanceMode] = useState('bridge')
   const [current, setCurrent] = useState(1)
   const [showAccountNumber, setShowAccountNumber] = useState(false)
   const [formData, setFormData] = useState({})
@@ -89,6 +90,10 @@ const HomeDashboard = () => {
 
   useEffect(() => {
     dispatch(getUserAccount())
+  }, [dispatch])
+
+  useEffect(() => {
+    dispatch(getWallet())
   }, [dispatch])
 
   useEffect(() => {
@@ -184,7 +189,41 @@ const HomeDashboard = () => {
   const firstName =
     user?.user_profile?.first_name || user?.email?.split('@')[0] || 'there'
 
-  const balance = wallet?.balance ?? 0
+  const bridgeWallet = walletData?.bridge
+  const tunnelWallet = walletData?.tunnel
+
+  const activeWallet =
+    balanceMode === 'tunnel' && tunnelWallet ? tunnelWallet : bridgeWallet
+  const balance = activeWallet?.balance ?? 0
+  const balanceLabel = balanceMode === 'tunnel' ? 'usd' : 'ngn'
+
+  const formatBalance = (amount) => {
+    if (balanceLabel === 'usd') {
+      return new Intl.NumberFormat('en-US', {
+        style: 'currency',
+        currency: 'USD',
+        minimumFractionDigits: 2,
+      }).format(amount || 0)
+    }
+    return nairaFormat(amount, 'ngn')
+  }
+
+  const handleServiceAction = (action) => {
+    if (!action) return
+    if (action.type === 'select') {
+      setSelectedItem(action.value)
+      return
+    }
+    if (action.type === 'navigate' && action.to) {
+      navigate(action.to)
+    }
+  }
+
+  const quickServices = dashboardServices.filter((item) => item.quickLabel)
+  const primaryServiceCards = dashboardServices.filter(
+    (item) => item.card && !item.featured
+  )
+  const featuredService = dashboardServices.find((item) => item.featured)
 
   return (
     <>
@@ -238,9 +277,22 @@ const HomeDashboard = () => {
                   </div>
                 ) : (
                   <span className="text-lg md:text-xl font-semibold">
-                    <ShadowValue>{nairaFormat(balance, 'ngn')}</ShadowValue>
+                    <ShadowValue>{formatBalance(balance)}</ShadowValue>
                   </span>
                 )}
+              </div>
+
+              <div>
+                <select
+                  value={balanceMode}
+                  onChange={(e) => setBalanceMode(e.target.value)}
+                  className="bg-slate-950/70 border border-slate-700 text-slate-200 text-[11px] rounded-full px-3 py-1 focus:outline-none focus:border-alt"
+                >
+                  <option value="bridge">Bridge (NGN)</option>
+                  <option value="tunnel" disabled={!tunnelWallet}>
+                    Tunnel (USD)
+                  </option>
+                </select>
               </div>
             </div>
 
@@ -250,7 +302,7 @@ const HomeDashboard = () => {
                 Commission earned:{' '}
                 <span className="font-semibold text-emerald-400">
                   <ShadowValue>
-                    {nairaFormat(wallet?.commission ?? 0, 'ngn')}
+                    {nairaFormat(bridgeWallet?.commission ?? 0, 'ngn')}
                   </ShadowValue>
                 </span>
               </span>
@@ -272,107 +324,121 @@ const HomeDashboard = () => {
               </button>
             </div>
 
-            {/* Quick actions */}
-            <div className="flex flex-wrap gap-2 mt-1">
-              <button
-                type="button"
-                onClick={() => navigate('/dashboard/wallet')}
-                className="px-3 py-1.5 text-xs rounded-full bg-alt/90 text-black font-medium hover:bg-alt transition-colors"
-              >
-                Fund wallet
-              </button>
-              <button
-                type="button"
-                onClick={() => setSelectedItem('Top Up')}
-                className="px-3 py-1.5 text-xs rounded-full bg-slate-900 border border-slate-700 text-slate-200 hover:border-alt/70 transition-colors"
-              >
-                Buy airtime / data
-              </button>
-              <button
-                type="button"
-                onClick={() => setSelectedItem('Electric Bills')}
-                className="px-3 py-1.5 text-xs rounded-full bg-slate-900 border border-slate-700 text-slate-200 hover:border-alt/70 transition-colors"
-              >
-                Pay electricity
-              </button>
-            </div>
+           {/* Quick actions */}
+<div className="flex flex-wrap gap-2 mt-1">
+  <button
+    type="button"
+    onClick={() => navigate('/dashboard/wallet')}
+    className="px-3 py-1.5 text-xs rounded-full bg-alt/90 text-black font-medium hover:bg-alt transition-colors"
+  >
+    Bridge wallet (NGN)
+  </button>
+
+  <button
+    type="button"
+    onClick={() => navigate('/dashboard/wallet?mode=tunnel')}
+    className="px-3 py-1.5 text-xs rounded-full bg-orange-500 text-black font-medium hover:bg-orange-400 transition-colors"
+    title="Tunnel wallet (USD preview)"
+  >
+    Tunnel wallet (USD)
+  </button>
+
+  {quickServices.map((item) => (
+    <button
+      key={item.key}
+      type="button"
+      onClick={() => handleServiceAction(item.quickAction || item.action)}
+      className="px-3 py-1.5 text-xs rounded-full bg-slate-900 border border-slate-700 text-slate-200 hover:border-alt/70 transition-colors"
+    >
+      {item.quickLabel}
+    </button>
+  ))}
+</div>
+
           </div>
         </div>
 
         {/* Second: service launcher cards */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 mb-6">
-          <button
-            type="button"
-            onClick={() => setSelectedItem('Top Up')}
-            className="group text-left bg-slate-900 rounded-2xl border border-slate-800 p-4 hover:border-alt/70 hover:bg-slate-900/80 transition-colors"
-          >
-            <div className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-sky-500/20 text-sky-300 mb-3">
-              <MdAddCard />
+        <section className="mb-6">
+          <div className="mb-3 flex items-center justify-between">
+            <div>
+              <p className="text-[11px] uppercase tracking-[0.2em] text-slate-500">
+                Quick services
+              </p>
+              <h3 className="text-lg md:text-xl font-semibold">Pay & top up faster</h3>
             </div>
-            <h3 className="font-semibold text-sm mb-1">Airtime & Data</h3>
-            <p className="text-xs text-slate-400">
-              Top up MTN, GLO and more in seconds.
-            </p>
-          </button>
+            <button
+              type="button"
+              onClick={() => navigate('/utility-services')}
+              className="text-xs text-slate-300 hover:text-white transition"
+            >
+              Browse all
+            </button>
+          </div>
 
-          <button
-            type="button"
-            onClick={() => setSelectedItem('Electric Bills')}
-            className="group text-left bg-slate-900 rounded-2xl border border-slate-800 p-4 hover:border-alt/70 hover:bg-slate-900/80 transition-colors"
-          >
-            <div className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-amber-500/20 text-amber-300 mb-3">
-              <PiHandWithdraw />
+          <div className="grid grid-cols-1 md:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)] gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              {primaryServiceCards.map((item) => {
+                const Icon = item.card?.icon
+                return (
+                  <button
+                    key={item.key}
+                    type="button"
+                    onClick={() => handleServiceAction(item.cardAction || item.action)}
+                    className="group text-left relative overflow-hidden rounded-2xl border border-slate-800 bg-slate-900/80 p-5 shadow-[0_12px_30px_rgba(15,23,42,0.25)] hover:border-alt/70 hover:bg-slate-900 transition"
+                  >
+                    <div
+                      className={`absolute -right-10 -top-10 h-24 w-24 rounded-full ${item.card?.glowClass} blur-2xl`}
+                    />
+                    <div
+                      className={`inline-flex h-11 w-11 items-center justify-center rounded-2xl ${item.card?.iconClass}`}
+                    >
+                      {Icon ? <Icon /> : null}
+                      {!Icon && item.card?.iconText ? (
+                        <span className="text-xs font-bold">{item.card.iconText}</span>
+                      ) : null}
+                    </div>
+                    <h3 className="font-semibold text-base mt-4">{item.label}</h3>
+                    <p className="text-xs text-slate-400 mt-1">{item.description}</p>
+                    <div className="mt-4 text-[11px] text-slate-400">
+                      {item.card?.cta} ?
+                    </div>
+                  </button>
+                )
+              })}
             </div>
-            <h3 className="font-semibold text-sm mb-1">Electricity</h3>
-            <p className="text-xs text-slate-400">
-              Pay your power bills across major DISCOs.
-            </p>
-          </button>
 
-          <button
-            type="button"
-            onClick={() => setSelectedItem('TV Subscription')}
-            className="group text-left bg-slate-900 rounded-2xl border border-slate-800 p-4 hover:border-alt/70 hover:bg-slate-900/80 transition-colors"
-          >
-            <div className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-fuchsia-500/20 text-fuchsia-300 mb-3">
-              <MdOutlineSell />
-            </div>
-            <h3 className="font-semibold text-sm mb-1">Cable TV</h3>
-            <p className="text-xs text-slate-400">
-              Renew DSTV, GOTV and others with a few taps.
-            </p>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => navigate('/dashboard/virtual-account')}
-            className="group text-left bg-slate-900 rounded-2xl border border-slate-800 p-4 hover:border-alt/70 hover:bg-slate-900/80 transition-colors"
-          >
-            <div className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-emerald-500/20 text-emerald-300 mb-3">
-              <span className="text-xs font-bold">VA</span>
-            </div>
-            <h3 className="font-semibold text-sm mb-1">Virtual accounts</h3>
-            <p className="text-xs text-slate-400">
-              Receive transfers into BitBridge via Anchor / Moniepoint.
-            </p>
-          </button>
-
-          {/* ✅ Shared Groups launcher */}
-          <button
-            type="button"
-            onClick={() => navigate('/dashboard/shared-groups')}
-            className="group text-left bg-slate-900 rounded-2xl border border-slate-800 p-4 hover:border-alt/70 hover:bg-slate-900/80 transition-colors"
-          >
-            <div className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-blue-500/20 text-blue-300 mb-3">
-              <PiUsersThreeBold />
-            </div>
-            <h3 className="font-semibold text-sm mb-1">Shared groups</h3>
-            <p className="text-xs text-slate-400">
-              Create groups for shared bills, trips and contributions.
-            </p>
-          </button>
-        </div>
-
+            {featuredService ? (
+              <button
+                type="button"
+                onClick={() => handleServiceAction(featuredService.cardAction || featuredService.action)}
+                className="group text-left relative overflow-hidden rounded-3xl border border-slate-800 bg-gradient-to-br from-slate-900 via-slate-950 to-slate-900 p-6 shadow-[0_16px_40px_rgba(15,23,42,0.35)] hover:border-alt/70 transition"
+              >
+                <div
+                  className={`absolute right-4 top-4 h-20 w-20 rounded-full ${featuredService.card?.glowClass} blur-2xl`}
+                />
+                <div
+                  className={`inline-flex h-12 w-12 items-center justify-center rounded-2xl ${featuredService.card?.iconClass}`}
+                >
+                  {featuredService.card?.icon ? (
+                    <featuredService.card.icon />
+                  ) : (
+                    <span className="text-xs font-bold">
+                      {featuredService.card?.iconText}
+                    </span>
+                  )}
+                </div>
+                <h3 className="font-semibold text-lg mt-5">{featuredService.label}</h3>
+                <p className="text-sm text-slate-400 mt-2 max-w-sm">
+                  {featuredService.description}
+                </p>
+                <div className="mt-6 text-xs text-slate-300">
+                  {featuredService.card?.cta} ?
+                </div>
+              </button>
+            ) : null}
+          </div>
+        </section>
         {/* Third: recent activity + accounts snapshot */}
         <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 mb-6">
           {/* Recent transactions / purchases */}
@@ -412,7 +478,7 @@ const HomeDashboard = () => {
           </div>
 
           {/* Accounts snapshot (Anchor / Moniepoint) */}
-          <div className="bg-slate-900 rounded-2xl border border-slate-800 p-5 lg:p-6">
+          <div id="accounts" className="bg-slate-900 rounded-2xl border border-slate-800 p-5 lg:p-6">
             <div className="flex items-center justify-between mb-3">
               <div>
                 <h5 className="text-lg font-semibold">Your accounts</h5>
@@ -435,37 +501,41 @@ const HomeDashboard = () => {
         </div>
 
         {/* Fourth: services switcher (detailed forms) */}
-        <div className="bg-slate-900 rounded-2xl border border-slate-800 p-5 lg:p-6 min-h-[260px]">
-          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 mb-4">
-            <h4 className="text-alt md:text-2xl text-lg font-medium">
-              {label}
-            </h4>
-            <ul className="flex flex-wrap gap-2">
-              {items.map((item) => (
-                <li key={item.label}>
-                  <NavButton
-                    onClick={() => setSelectedItem(item.name)}
-                    className={`${
-                      selectedItem === item.name && 'active'
-                    } block py-1.5 px-3 rounded-xl text-xs md:text-sm`}
-                  >
-                    {item.btn}
-                  </NavButton>
-                </li>
-              ))}
-            </ul>
-          </div>
+        <section className="mb-6">
+          <div className="rounded-2xl border border-slate-800 bg-slate-900/70 p-4 lg:p-5 shadow-[0_12px_30px_rgba(15,23,42,0.28)]">
+            <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 mb-4">
+              <div className="flex flex-wrap items-center gap-2 text-slate-500">
+                <span className="text-[10px] uppercase tracking-[0.2em]">Services</span>
+                <span className="text-slate-600">/</span>
+                <h4 className="text-alt text-lg md:text-xl font-semibold">
+                  {label}
+                </h4>
+              </div>
+              <ul className="flex flex-wrap gap-2">
+                {items.map((item) => (
+                  <li key={item.label}>
+                    <NavButton
+                      onClick={() => setSelectedItem(item.name)}
+                      className={`${selectedItem === item.name && 'active'} block py-1.5 px-3 rounded-full text-[10px] md:text-[11px] tracking-wide uppercase`}
+                    >
+                      {item.btn}
+                    </NavButton>
+                  </li>
+                ))}
+              </ul>
+            </div>
 
-          <div className="flex justify-center items-center h-full">
-            {items.map((item) =>
-              item.name === selectedItem ? (
-                <div key={item.name} className="w-full">
-                  {item.render}
-                </div>
-              ) : null
-            )}
+            <div className="rounded-xl border border-slate-800 bg-slate-950/40 p-3 md:p-4">
+              {items.map((item) =>
+                item.name === selectedItem ? (
+                  <div key={item.name} className="w-full">
+                    {item.render}
+                  </div>
+                ) : null
+              )}
+            </div>
           </div>
-        </div>
+        </section>
       </div>
 
       {/* Repurchase modal */}

@@ -11,6 +11,7 @@ const FormSelect = ({
   mode,
   disabled,
   label,
+  loading = false,
 }) => {
   return (
     <>
@@ -30,7 +31,7 @@ const FormSelect = ({
           className="h-12"
           name={name}
           onChange={onChange}
-          loading={true}
+          loading={loading}
           disabled={disabled}
           mode={mode}
           // defaultActiveFirstOption={true}
@@ -53,5 +54,6 @@ FormSelect.propTypes = {
   placeholder: PropTypes.string,
   mode: PropTypes.string,
   disabled: PropTypes.bool,
+  loading: PropTypes.bool,
 }
 export default FormSelect

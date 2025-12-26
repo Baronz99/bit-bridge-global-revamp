@@ -4,26 +4,16 @@ import { useNavigate } from 'react-router-dom'
 import { useDispatch, useSelector } from 'react-redux'
 import { SET_LOADING } from '../redux/app'
 import { forceLogout } from '../redux/auth'
+import { clearAuthStorage } from '../auth/tokenStore'
 
 
 // ✅ Use your centralized token keys (match src/api/client.js + src/api/auth.js conventions)
-const TOKEN_KEY = 'bitglobal'
-const REFRESH_TOKEN_KEY = 'refresh-token'
-
 // Defaults
-const DEFAULT_IDLE_MS = 15 * 60 * 1000 // 15 minutes
-const HIDDEN_GRACE_MS = 2 * 60 * 1000 // 2 minutes hidden grace
-
-function clearAuthStorage() {
-  try {
-    localStorage.removeItem(TOKEN_KEY)
-    localStorage.removeItem(REFRESH_TOKEN_KEY)
-    // keep email / recent emails if you want
-  } catch (_) {}
-}
+const DEFAULT_IDLE_MS = 10 * 60 * 1000 // 10 minutes
 
 export default function useIdleLogout({
   idleMs = DEFAULT_IDLE_MS,
+  hiddenGraceMs = null,
   enabled = true,
   redirectTo = '/login?reason=idle',
 } = {}) {
@@ -115,7 +105,8 @@ export default function useIdleLogout({
         hiddenAtRef.current = null
 
         // If they left the tab hidden too long, force logout
-        if (hiddenFor >= HIDDEN_GRACE_MS) {
+        const effectiveHiddenGraceMs = hiddenGraceMs ?? idleMs
+        if (hiddenFor >= effectiveHiddenGraceMs) {
           logoutNow('idle')
           return
         }

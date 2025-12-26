@@ -2,10 +2,11 @@
 
 import axios from 'axios'
 import { API_BASE_URL } from './config'
-import client, { TOKEN_KEY } from './client'
+import client from './client'
+import { getAccessToken, cookieAuthEnabled, REFRESH_TOKEN_KEY } from '../auth/tokenStore'
 
 // Single source of truth for refresh token key (used by redux/actions/auth.js too)
-export const REFRESH_TOKEN_KEY = 'refresh-token'
+export { REFRESH_TOKEN_KEY }
 
 // --------------------
 // Helpers
@@ -27,24 +28,7 @@ const ROOT_BASE_URL = normalizedApiBase.replace(/\/api\/v1$/i, '')
 // - plain JWT string
 // - "Bearer <jwt>"
 // - JSON string { token: "..."} or { access_token: "..." }
-const readAccessToken = () => {
-  const raw = localStorage.getItem(TOKEN_KEY)
-  if (!raw) return null
-
-  // Bearer token
-  if (/^Bearer\s+/i.test(raw)) return raw.replace(/^Bearer\s+/i, '').trim()
-
-  // plain JWT heuristic
-  if (raw.startsWith('ey')) return raw.trim()
-
-  // JSON fallback
-  try {
-    const obj = JSON.parse(raw)
-    return (obj?.token || obj?.access_token || '').trim() || null
-  } catch {
-    return raw.trim() || null
-  }
-}
+const readAccessToken = () => getAccessToken()
 
 // --------------------
 // Auth client (ROOT only, NOT /api/v1)
@@ -56,6 +40,7 @@ const authClient = axios.create({
     'Content-Type': 'application/json',
   },
   timeout: 60_000,
+  withCredentials: cookieAuthEnabled(),
 })
 
 authClient.interceptors.request.use((config) => {
@@ -79,11 +64,9 @@ export function login(payload) {
 
 export function refresh(refreshToken) {
   // POST /refresh (Devise scope route)
-  return authClient.post('/refresh', null, {
-    headers: {
-      'Bit-Refresh-Token': refreshToken,
-    },
-  })
+  const headers = {}
+  if (refreshToken) headers['Bit-Refresh-Token'] = refreshToken
+  return authClient.post('/refresh', null, { headers })
 }
 
 export function logout() {

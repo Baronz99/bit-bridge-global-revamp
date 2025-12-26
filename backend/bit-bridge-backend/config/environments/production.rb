@@ -29,12 +29,15 @@ Rails.application.configure do
     protocol: 'https'
   }
 
+  smtp_user = ENV['SMTP_USERNAME'] || Rails.application.credentials.dig(:smtp, :user_name)
+  smtp_password = ENV['SMTP_PASSWORD'] || Rails.application.credentials.dig(:smtp, :password)
+
   config.action_mailer.smtp_settings = {
-    address: 'smtp.hostinger.com',
-    port: 587,
-    user_name: 'support@bitbridgeglobal.com',
-    password: '@Support-bitbridgeglobal-123',
-    authentication: 'plain',
+    address: ENV.fetch('SMTP_ADDRESS', 'smtp.hostinger.com'),
+    port: ENV.fetch('SMTP_PORT', 587),
+    user_name: smtp_user,
+    password: smtp_password,
+    authentication: ENV.fetch('SMTP_AUTH', 'plain'),
     enable_starttls_auto: true
   }
 

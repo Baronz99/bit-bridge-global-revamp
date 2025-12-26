@@ -1,16 +1,30 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useDispatch, useSelector } from 'react-redux'
 import { delProduct, getProducts } from '../../../redux/actions/product'
 import OptionDropDown from '../../../components/optionDropDown/OPtionDropDown'
 import AppModal from '../../../components/modal/Modal'
 import ClickButton from '../../../components/button/Button'
 import { toast } from 'react-toastify'
+import { useLocation } from 'react-router-dom'
 
 const Products = () => {
   const [open, setOpen] = useState(false)
   const [selectedId, setSelectedId] = useState()
   const { products } = useSelector((state) => state.product)
   const dispatch = useDispatch()
+  const location = useLocation()
+
+  const categoryFilter = useMemo(() => {
+    const params = new URLSearchParams(location.search)
+    return params.get('category')
+  }, [location.search])
+
+  const filteredProducts = useMemo(() => {
+    if (!categoryFilter) return products
+    return (products || []).filter(
+      (item) => String(item.category) === String(categoryFilter)
+    )
+  }, [products, categoryFilter])
   useEffect(() => {
     dispatch(getProducts())
   }, [])
@@ -30,6 +44,11 @@ const Products = () => {
   return (
     <div className="bg-gray-100 p-4">
       <h3 className="font-semibold text-xl text-gray-900">Products</h3>
+      {categoryFilter ? (
+        <p className="text-sm text-gray-500 mt-1">
+          Filtering by category: <span className="capitalize">{categoryFilter}</span>
+        </p>
+      ) : null}
 
       <div className="mt-4 px-0 bg-gray-100 overflow-x-auto flow-root">
         <div className="mx-1 my-2 sm:mx-2 lg:mx-0">
@@ -66,7 +85,7 @@ const Products = () => {
               </thead>
 
               <tbody>
-                {products?.map((item) => (
+                {filteredProducts?.map((item) => (
                   <tr key={item?.id}>
                     <td className="whitespace-nowrap border-b border-gray-200 py-2 pl-3 pr-3 text-sm font-normal sm:pl-6 lg:pl-8">
                       <p className="font-medium text-gray-600 leading-5">{item.provider} </p>

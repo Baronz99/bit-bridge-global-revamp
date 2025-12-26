@@ -1,15 +1,56 @@
-import React, { useEffect, useState } from 'react'
-import { motion } from 'framer-motion'
+import React, { useEffect, useMemo, useState } from 'react'
+import { AnimatePresence, motion } from 'framer-motion'
 import states from '../../data/states.json'
 import { useDispatch, useSelector } from 'react-redux'
 import { createCard, getUserCard, registerCardHolder } from '../../redux/actions/account'
+import { getWallet } from '../../redux/actions/wallet'
+import ShadowValue from '../../components/ShadowValue'
+import client from '../../api/client'
+
+//  Use your reusable masked PIN input (4 digits)
+import TransactionPinInput from '../../components/pin/TransactionPinInput' // adjust if needed
+
+const PIN_LENGTH = 4
 
 export default function VirtualCardApplication() {
+  const dispatch = useDispatch()
+
   const { user } = useSelector((state) => state.auth)
   const { card } = useSelector((state) => state.account)
 
+  //  NEW: wallet slice shape is state.wallet.data.bridge/tunnel
+  const { data: walletData, loading: walletLoading } = useSelector((state) => state.wallet)
+  const tunnelWallet = walletData?.tunnel || null // USD wallet
+  const tunnelUsdBalance = useMemo(() => {
+    const b = tunnelWallet?.balance
+    if (b === null || b === undefined || Number.isNaN(Number(b))) return 0
+    return Number(b)
+  }, [tunnelWallet?.balance])
+
   const [cardType, setCardType] = useState('virtual') // 'virtual' or 'physical'
+  const [submitting, setSubmitting] = useState(false)
+  const [success, setSuccess] = useState(null)
+  const [successCreate, setSuccessCreate] = useState(null)
+  const [availableStates, setAvailableStates] = useState(states)
+  const [copiedCardId, setCopiedCardId] = useState(false)
+  const [copiedCardholderId, setCopiedCardholderId] = useState(false)
+  const [animatedUsdBalance, setAnimatedUsdBalance] = useState(0)
+  const [cardTilt, setCardTilt] = useState({ x: 0, y: 0 })
+  const [cardDetails, setCardDetails] = useState(null)
+  const [cardBalance, setCardBalance] = useState(null)
+  const [cardInfoLoading, setCardInfoLoading] = useState(false)
+  const [showCardDetails, setShowCardDetails] = useState(false)
+  const [cardReveal, setCardReveal] = useState(null)
+  const [cardRevealLoading, setCardRevealLoading] = useState(false)
+  const [cardRevealError, setCardRevealError] = useState(null)
+  const [revealCooldownUntil, setRevealCooldownUntil] = useState(0)
+  const [copiedPan, setCopiedPan] = useState(false)
+  const [freezeLoading, setFreezeLoading] = useState(false)
+  const [freezeError, setFreezeError] = useState(null)
+  const [showInlineFund, setShowInlineFund] = useState(false)
+
   const [formData, setFormData] = useState({
+    // cardholder fields
     first_name: '',
     last_name: '',
     phone: '',
@@ -23,26 +64,24 @@ export default function VirtualCardApplication() {
     id_type: 'NIGERIAN_BVN_VERIFICATION',
     bvn: '',
     selfie_image: '',
-    meta_data: {
-      any_key: '',
-    },
+    meta_data: { any_key: '' },
     email: '',
     limit: 5000,
     deliveryAddress: '',
     design: 'midnight',
     agreeTos: false,
+
     // card creation fields
     card_brand: 'Mastercard',
     card_currency: 'USD',
     card_type: 'Virtual',
     card_limit: 5000,
-    amount: '',
-    pin: '',
-  })
 
-  const [submitting, setSubmitting] = useState(false)
-  const [success, setSuccess] = useState(null)
-  const [successCreate, setSuccessCreate] = useState(null)
+    // funding fields
+    amount: '',
+    transaction_pin: '', //  backend expects 4 digits
+    wallet_type: 'usd',   //  force tunnel
+  })
 
   const designs = [
     { id: 'midnight', label: 'Midnight' },
@@ -50,26 +89,136 @@ export default function VirtualCardApplication() {
     { id: 'graphite', label: 'Graphite' },
   ]
 
-  const dispatch = useDispatch()
+  const hasCardholder = Boolean(card?.cardholder_id)
+  const hasCardId = Boolean(card?.card_id)
+  const showCardholderForm = !hasCardholder
+  const showCreateForm = hasCardholder && !hasCardId
+  const lastFunding = Number(card?.amount || 0)
+  const hasLastFunding = lastFunding > 0
+  const todaysSpend = 0
+  const failedAttempts = 0
+  const lastMerchant = null
+  const hasLastMerchant = Boolean(lastMerchant)
+  const spendTrend = [0, 0, 0, 0, 0, 0, 0]
+  const hasTrend = spendTrend.some((value) => value > 0)
+  const hasInsights =
+    hasLastFunding || todaysSpend > 0 || failedAttempts > 0 || hasLastMerchant || hasTrend
 
   useEffect(() => {
     dispatch(getUserCard())
+    dispatch(getWallet()) //  ensure we have tunnel wallet status/balance
   }, [dispatch])
+
+  useEffect(() => {
+    const start = animatedUsdBalance
+    const end = tunnelUsdBalance
+    if (start === end) return
+
+    const duration = 800
+    const startTime = performance.now()
+    let raf
+
+    const step = (now) => {
+      const progress = Math.min((now - startTime) / duration, 1)
+      const eased = 1 - Math.pow(1 - progress, 3)
+      setAnimatedUsdBalance(start + (end - start) * eased)
+      if (progress < 1) raf = requestAnimationFrame(step)
+    }
+
+    raf = requestAnimationFrame(step)
+    return () => cancelAnimationFrame(raf)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tunnelUsdBalance])
+
+  useEffect(() => {
+    if (!card?.id || !card?.card_id) return
+
+    let isMounted = true
+    setCardInfoLoading(true)
+
+    const loadCardInfo = async () => {
+      try {
+        const [detailsRes, balanceRes] = await Promise.all([
+          client.get(`/cards/${card?.id}/details`),
+          client.get(`/cards/${card?.id}/balance`),
+        ])
+
+        if (!isMounted) return
+        const detailsData = detailsRes?.data?.data || null
+        const balanceData = balanceRes?.data?.data || null
+        console.debug('[VirtualCards] card details response', detailsData)
+        console.debug('[VirtualCards] card balance response', balanceData)
+        setCardDetails(detailsData)
+        setCardBalance(balanceData)
+      } catch (error) {
+        if (!isMounted) return
+        setCardDetails(null)
+        setCardBalance(null)
+      } finally {
+        if (!isMounted) return
+        setCardInfoLoading(false)
+      }
+    }
+
+    loadCardInfo()
+
+    return () => {
+      isMounted = false
+    }
+  }, [card?.id, card?.card_id])
+
+  useEffect(() => {
+    let isMounted = true
+
+    const normalizeStates = (payload) => {
+      if (!payload) return null
+      if (Array.isArray(payload)) {
+        return payload
+          .map((item) => (typeof item === 'string' ? item : item.state || item.name || item.label))
+          .filter(Boolean)
+      }
+
+      if (payload.states) return normalizeStates(payload.states)
+      if (payload.data) return normalizeStates(payload.data)
+      if (payload.items) return normalizeStates(payload.items)
+
+      return null
+    }
+
+    const loadStates = async () => {
+      try {
+        const response = await client.get('/cards/get_all_states', { params: { country: 'NG' } })
+        const normalized = normalizeStates(response.data.data)
+
+        if (isMounted && normalized.length) {
+          setAvailableStates(normalized)
+        }
+      } catch (error) {
+        // Fallback to local states list
+      }
+    }
+
+    loadStates()
+
+    return () => {
+      isMounted = false
+    }
+  }, [])
 
   // Prefill from logged-in user
   useEffect(() => {
     if (!user) return
     setFormData((prev) => ({
       ...prev,
-      first_name: user.user_profile?.first_name || '',
-      last_name: user.user_profile?.last_name || '',
-      phone: user.user_profile?.phone_number || '',
+      first_name: user.user_profile.first_name || '',
+      last_name: user.user_profile.last_name || '',
+      phone: user.user_profile.phone_number || '',
       email_address: user.email || '',
       country: 'Nigeria',
     }))
   }, [user])
 
-  // Prefill from existing card (if any)
+  // Prefill from existing cardholder profile (if any)
   useEffect(() => {
     if (!card) return
     setFormData((prev) => ({
@@ -84,13 +233,13 @@ export default function VirtualCardApplication() {
       card_currency: 'USD',
       card_type: 'Virtual',
       card_limit: 5000,
+      wallet_type: 'usd',
     }))
   }, [card])
 
   function handleChange(e) {
     const { name, value, type, checked } = e.target
 
-    // handle nested meta_data.any_key
     if (name === 'meta_data.any_key') {
       setFormData((prev) => ({
         ...prev,
@@ -105,7 +254,12 @@ export default function VirtualCardApplication() {
     }))
   }
 
-  function validate() {
+  const setPin = (nextPin) => {
+    const clean = String(nextPin || '').replace(/\D/g, '').slice(0, PIN_LENGTH)
+    setFormData((prev) => ({ ...prev, transaction_pin: clean }))
+  }
+
+  function validateCardholder() {
     if (!formData.agreeTos) return 'You must agree to the terms.'
     return null
   }
@@ -113,34 +267,27 @@ export default function VirtualCardApplication() {
   // Register cardholder
   async function handleSubmitCardholder(e) {
     e.preventDefault()
-    const err = validate()
+    const err = validateCardholder()
     if (err) return setSuccess({ ok: false, message: err })
 
     setSubmitting(true)
     setSuccess(null)
 
-    dispatch(
-      registerCardHolder({
-        card: formData,
-      })
-    )
+    dispatch(registerCardHolder({ card: formData }))
       .unwrap()
       .then(() => {
         setSuccess({
           ok: true,
-          message: `Application submitted for a ${cardType} card.`,
+          message: `Cardholder profile submitted (${cardType}).`,
         })
       })
       .catch((err) => {
-        console.log(err)
         setSuccess({
           ok: false,
-          message: `Application failed for ${cardType} card. ${err.message}`,
+          message: `Cardholder submission failed. ${err.message || ''}`,
         })
       })
-      .finally(() => {
-        setSubmitting(false)
-      })
+      .finally(() => setSubmitting(false))
   }
 
   // Create / fund card
@@ -150,74 +297,903 @@ export default function VirtualCardApplication() {
     setSubmitting(true)
     setSuccessCreate(null)
 
+    //  Require tunnel wallet activated
+    if (!tunnelWallet?.id) {
+      setSubmitting(false)
+      return setSuccessCreate({
+        ok: false,
+        message: 'Tunnel wallet (USD) is not active yet. Open Tunnel wallet and activate it first.',
+      })
+    }
+
+    //  Require amount and PIN
+    const amt = Number(formData.amount)
+    if (!amt || amt <= 0) {
+      setSubmitting(false)
+      return setSuccessCreate({ ok: false, message: 'Enter a valid funding amount.' })
+    }
+
+    if ((formData.transaction_pin || '').length !== PIN_LENGTH) {
+      setSubmitting(false)
+      return setSuccessCreate({ ok: false, message: `Enter your ${PIN_LENGTH}-digit transaction PIN.` })
+    }
+
     dispatch(
       createCard({
-        card: formData,
+        card: {
+          ...formData,
+          card_currency: 'USD',
+          wallet_type: 'usd',
+        },
       })
     )
       .unwrap()
       .then(() => {
-        setSuccessCreate({
-          ok: true,
-          message: `Application submitted for a ${cardType} card.`,
-        })
+        setSuccessCreate({ ok: true, message: 'Card created/funded successfully.' })
+        dispatch(getWallet())
       })
       .catch((err) => {
-        console.log(err)
         setSuccessCreate({
           ok: false,
-          message: `Application failed for ${cardType} card. ${err.message}`,
+          message: `Card creation failed. ${err.message || ''}`,
         })
       })
-      .finally(() => {
-        setSubmitting(false)
-      })
+      .finally(() => setSubmitting(false))
   }
 
+  const canCreate = !!tunnelWallet?.id && (formData.transaction_pin || '').length === PIN_LENGTH
+
+  const onCardMove = (event) => {
+    const rect = event.currentTarget.getBoundingClientRect()
+    const x = ((event.clientX - rect.left) / rect.width - 0.5) * 10
+    const y = ((event.clientY - rect.top) / rect.height - 0.5) * -10
+    setCardTilt({ x, y })
+  }
+
+  const onCardLeave = () => setCardTilt({ x: 0, y: 0 })
+
+  const isEncryptedValue = (value) => {
+    if (!value) return false
+    return String(value).startsWith('ev:')
+  }
+
+  const expiryValue = useMemo(() => {
+    const month = cardDetails?.expiry_month || cardDetails?.expiryMonth
+    const year = cardDetails?.expiry_year || cardDetails?.expiryYear
+    if (month && year && !isEncryptedValue(month) && !isEncryptedValue(year)) {
+      const paddedMonth = String(month).padStart(2, '0')
+      const shortYear = String(year).slice(-2)
+      return `${paddedMonth}/${shortYear}`
+    }
+
+    const raw = cardDetails?.expiry || cardDetails?.expiry_date
+    if (isEncryptedValue(raw)) return null
+    if (!raw) return null
+    const digits = String(raw).replace(/\D/g, '')
+    if (digits.length === 4) return `${digits.slice(0, 2)}/${digits.slice(2)}`
+    if (digits.length === 6) return `${digits.slice(0, 2)}/${digits.slice(4)}`
+    return String(raw)
+  }, [cardDetails])
+
+  const last4Value = cardDetails?.last_4 || cardDetails?.last4 || cardDetails?.last_four
+  const revealLast4 = cardReveal?.last_4 || cardReveal?.last4 || cardReveal?.last_four
+
+  const maskedPanValue = useMemo(() => {
+    if (cardDetails?.masked_pan && !isEncryptedValue(cardDetails.masked_pan)) return cardDetails.masked_pan
+    if (cardDetails?.card_pan && !isEncryptedValue(cardDetails.card_pan)) return cardDetails.card_pan
+    if (last4Value) return `**** **** **** ${last4Value}`
+    return null
+  }, [cardDetails, last4Value])
+
+  const revealPanValue = useMemo(() => {
+    if (cardReveal?.card_number && !isEncryptedValue(cardReveal.card_number)) return cardReveal.card_number
+    if (cardReveal?.card_pan && !isEncryptedValue(cardReveal.card_pan)) return cardReveal.card_pan
+    if (revealLast4) return `**** **** **** ${revealLast4}`
+    if (last4Value) return `**** **** **** ${last4Value}`
+    return null
+  }, [cardReveal, revealLast4, last4Value])
+
+  const revealExpiryValue = useMemo(() => {
+    if (!cardReveal) return null
+    const month = cardReveal.expiry_month || cardReveal.expiryMonth
+    const year = cardReveal.expiry_year || cardReveal.expiryYear
+    if (month && year && !isEncryptedValue(month) && !isEncryptedValue(year)) {
+      const paddedMonth = String(month).padStart(2, '0')
+      const shortYear = String(year).slice(-2)
+      return `${paddedMonth}/${shortYear}`
+    }
+
+    const raw = cardReveal.expiry || cardReveal.expiry_date
+    if (isEncryptedValue(raw)) return null
+    if (!raw) return null
+    const digits = String(raw).replace(/\D/g, '')
+    if (digits.length === 4) return `${digits.slice(0, 2)}/${digits.slice(2)}`
+    if (digits.length === 6) return `${digits.slice(0, 2)}/${digits.slice(4)}`
+    return String(raw)
+  }, [cardReveal])
+
+  const revealCvvValue = useMemo(() => {
+    if (!cardReveal?.cvv || isEncryptedValue(cardReveal.cvv)) return null
+    return String(cardReveal.cvv)
+  }, [cardReveal])
+
+  const isCardActive =
+    typeof cardDetails?.is_active === 'boolean'
+      ? cardDetails.is_active
+      : cardDetails?.status
+      ? cardDetails.status === 'active'
+      : cardDetails?.card_status
+      ? cardDetails.card_status === 'active'
+      : true
+
+  const detailItems = [
+    { label: 'Status', value: isCardActive ? 'Active' : 'Frozen' },
+    { label: 'Brand', value: cardDetails?.card_brand || cardDetails?.brand },
+    { label: 'Type', value: cardDetails?.card_type },
+    { label: 'Currency', value: cardDetails?.card_currency || cardDetails?.currency },
+  ].filter((item) => item.value)
+
+  const fundingTitle = 'Create / Fund Card'
+  const fundingCta = 'Create card'
+
+  const balanceAmountCents =
+    cardBalance?.balance ??
+    cardBalance?.available_balance ??
+    cardBalance?.ledger_balance ??
+    null
+
+  const balanceAmount =
+    balanceAmountCents === null || balanceAmountCents === undefined
+      ? null
+      : Number(balanceAmountCents) / 100
+
+  const cardPanDisplay = useMemo(() => {
+    if (cardDetails?.masked_pan) return cardDetails.masked_pan
+    const last4 = cardDetails?.last4 || cardDetails?.last_four
+    if (last4) return `**** **** **** ${last4}`
+    return '**** **** **** ****'
+  }, [cardDetails])
+
+
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 px-4 py-8">
-      <div className="max-w-6xl mx-auto space-y-10">
-        {/* Page header */}
-        <header className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+    <>
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap');
+
+        .virtual-card-page {
+          background:
+            radial-gradient(1200px 800px at 10% -10%, rgba(37, 99, 235, 0.25), transparent 60%),
+            radial-gradient(900px 700px at 90% -15%, rgba(14, 165, 233, 0.2), transparent 65%),
+            radial-gradient(700px 500px at 50% 20%, rgba(15, 23, 42, 0.4), transparent 70%),
+            linear-gradient(180deg, #0b1120 0%, #0f172a 45%, #0b1220 100%);
+          color: #e2e8f0;
+          font-family: 'Sora', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+          position: relative;
+        }
+
+        .virtual-card-page::before {
+          content: '';
+          position: fixed;
+          inset: 0;
+          background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140' viewBox='0 0 140 140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)' opacity='0.06'/%3E%3C/svg%3E");
+          opacity: 0.18;
+          pointer-events: none;
+          z-index: 0;
+        }
+
+        .virtual-card-page > * {
+          position: relative;
+          z-index: 1;
+        }
+
+        .virtual-card-page h1,
+        .virtual-card-page h2,
+        .virtual-card-page h3 {
+          font-family: 'Space Grotesk', 'Sora', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+          letter-spacing: -0.01em;
+        }
+
+        .virtual-card-page .vc-nav {
+          background: rgba(15, 23, 42, 0.55);
+          border: 1px solid rgba(148, 163, 184, 0.2);
+          backdrop-filter: blur(18px);
+        }
+
+        .virtual-card-page .vc-surface {
+          background: rgba(15, 23, 42, 0.62) !important;
+          border-color: rgba(148, 163, 184, 0.2) !important;
+          backdrop-filter: blur(16px);
+          box-shadow: 0 28px 60px -48px rgba(2, 6, 23, 0.9);
+        }
+
+        .virtual-card-page .vc-inset {
+          background: rgba(30, 41, 59, 0.7) !important;
+          border-color: rgba(148, 163, 184, 0.2) !important;
+        }
+
+        .virtual-card-page .vc-chip {
+          background: rgba(15, 23, 42, 0.55) !important;
+          border-color: rgba(148, 163, 184, 0.2) !important;
+          backdrop-filter: blur(12px);
+        }
+
+        .virtual-card-page .vc-button-primary {
+          background: linear-gradient(135deg, #2563eb, #38bdf8);
+          color: #f8fafc;
+          box-shadow: 0 14px 30px -18px rgba(37, 99, 235, 0.8);
+        }
+
+        .virtual-card-page .vc-button-secondary {
+          background: rgba(15, 23, 42, 0.6);
+          border: 1px solid rgba(148, 163, 184, 0.2);
+          color: #cbd5f5;
+        }
+
+        .virtual-card-page .vc-card-glass {
+          background: linear-gradient(135deg, rgba(56, 189, 248, 0.35), rgba(15, 23, 42, 0.9));
+          border: 1px solid rgba(255, 255, 255, 0.12);
+          box-shadow: 0 40px 90px -60px rgba(2, 6, 23, 0.9);
+          background-size: 140% 140%;
+          animation: cardGlow 8s ease infinite;
+        }
+
+        .virtual-card-page .vc-card-frozen {
+          animation: none;
+          background-position: 50% 50%;
+          filter: saturate(0.6);
+        }
+
+        .virtual-card-page .vc-card-frozen .vc-shimmer {
+          animation: none;
+          opacity: 0;
+        }
+
+        .virtual-card-page .vc-card-frozen::after {
+          content: '';
+          position: absolute;
+          inset: 0;
+          background: linear-gradient(140deg, rgba(15, 23, 42, 0.7), rgba(30, 41, 59, 0.45));
+          mix-blend-mode: multiply;
+          pointer-events: none;
+        }
+
+        .virtual-card-page .vc-neon-edge {
+          box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.1), 0 0 30px rgba(56, 189, 248, 0.35);
+        }
+
+        .virtual-card-page .vc-glow-ring {
+          box-shadow: 0 0 0 1px rgba(56, 189, 248, 0.2), 0 0 28px rgba(56, 189, 248, 0.35), inset 0 0 18px rgba(56, 189, 248, 0.2);
+        }
+
+        .virtual-card-page .vc-tilt {
+          transform: perspective(900px) rotateX(var(--tilt-x)) rotateY(var(--tilt-y));
+          transition: transform 0.3s ease;
+        }
+
+        .virtual-card-page .vc-shimmer {
+          background: linear-gradient(120deg, rgba(255, 255, 255, 0.05) 0%, rgba(255, 255, 255, 0.2) 40%, rgba(255, 255, 255, 0.05) 70%);
+          animation: shimmer 3.2s ease-in-out infinite;
+        }
+
+        .virtual-card-page .vc-reflection {
+          background: radial-gradient(circle at 20% 20%, rgba(255,255,255,0.35), transparent 60%);
+        }
+
+        .virtual-card-page .vc-pulse {
+          animation: pulse 1.6s ease-in-out infinite;
+        }
+
+        .virtual-card-page .vc-switch {
+          position: relative;
+          width: 44px;
+          height: 24px;
+          border-radius: 999px;
+          background: #1e293b;
+          transition: background 0.2s ease;
+        }
+
+        .virtual-card-page .vc-switch::after {
+          content: '';
+          position: absolute;
+          top: 3px;
+          left: 3px;
+          width: 18px;
+          height: 18px;
+          border-radius: 999px;
+          background: #f8fafc;
+          box-shadow: 0 2px 6px rgba(15, 23, 42, 0.5);
+          transition: transform 0.2s ease;
+        }
+
+        .virtual-card-page .vc-switch-input:checked + .vc-switch {
+          background: #2563eb;
+        }
+
+        .virtual-card-page .vc-switch-input:checked + .vc-switch::after {
+          transform: translateX(20px);
+        }
+
+        .virtual-card-page .vc-input {
+          background: rgba(15, 23, 42, 0.7);
+          border: 1px solid rgba(148, 163, 184, 0.2);
+          color: #e2e8f0;
+        }
+
+        .virtual-card-page .vc-input::placeholder {
+          color: rgba(148, 163, 184, 0.7);
+        }
+
+        .virtual-card-page .vc-chart-bar {
+          background: linear-gradient(180deg, rgba(56, 189, 248, 0.9), rgba(56, 189, 248, 0.1));
+        }
+
+        .virtual-card-page .vc-tooltip {
+          position: relative;
+        }
+
+        .virtual-card-page .vc-tooltip:hover::after {
+          content: attr(data-tip);
+          position: absolute;
+          left: 50%;
+          top: 115%;
+          transform: translateX(-50%);
+          background: #0f172a;
+          color: #f8fafc;
+          font-size: 11px;
+          padding: 6px 10px;
+          border-radius: 999px;
+          white-space: nowrap;
+          z-index: 10;
+        }
+
+        @keyframes shimmer {
+          0% { transform: translateX(-40%); }
+          50% { transform: translateX(40%); }
+          100% { transform: translateX(-40%); }
+        }
+
+        @keyframes cardGlow {
+          0% { background-position: 0% 50%; }
+          50% { background-position: 100% 50%; }
+          100% { background-position: 0% 50%; }
+        }
+
+        @keyframes pulse {
+          0% { box-shadow: 0 0 0 0 rgba(56, 189, 248, 0.45); }
+          70% { box-shadow: 0 0 0 12px rgba(56, 189, 248, 0); }
+          100% { box-shadow: 0 0 0 0 rgba(56, 189, 248, 0); }
+        }
+      `}</style>
+      <div className="virtual-card-page min-h-screen px-4 py-8">
+      <div className="max-w-6xl mx-auto space-y-8">
+        <header className="px-2 md:px-4 flex flex-col md:flex-row md:items-center md:justify-between gap-4">
           <div>
-            <h1 className="text-2xl md:text-3xl font-semibold tracking-tight">
-              Virtual Cards
-            </h1>
+            <h1 className="text-2xl md:text-3xl font-semibold tracking-tight">Virtual Cards</h1>
             <p className="mt-1 text-sm text-slate-400 max-w-xl">
-              Create a secure USD virtual card for online payments. Cardholder
-              details are verified once, then you can create and fund cards as
-              needed.
+              Create a secure USD virtual card for online payments. Cardholder details are verified once, then you can create and fund cards.
             </p>
           </div>
 
-          <div className="flex gap-2 bg-slate-900/60 border border-slate-800 rounded-xl px-3 py-2 text-xs text-slate-300">
-            <span className="inline-flex h-2 w-2 rounded-full bg-emerald-400 mt-1.5" />
-            <span>
-              Powered by BitBridge Global card partners. Your details are
-              encrypted and securely processed.
-            </span>
+          <div className="flex flex-col gap-2">
+            <div className="vc-chip relative overflow-hidden rounded-2xl border border-slate-800 px-4 py-3 text-xs text-slate-300">
+              <div className="absolute right-3 top-2 text-[40px] font-semibold text-slate-200/20">
+                USD
+              </div>
+              <div className="flex items-center gap-3">
+                <div>
+                  <p className="text-[10px] uppercase tracking-[0.3em] text-slate-300">Tunnel balance</p>
+                  {walletLoading ? (
+                    <p className="text-slate-500">Loading...</p>
+                  ) : tunnelWallet?.id ? (
+                    <p className="text-base font-semibold text-slate-100">
+                      <ShadowValue placeholder="****">USD {animatedUsdBalance.toFixed(2)}</ShadowValue>
+                    </p>
+                  ) : (
+                    <p className="text-sm text-red-400">Not activated</p>
+                  )}
+                </div>
+              </div>
+            </div>
           </div>
         </header>
 
-        {/* SECTION 1: Cardholder profile + live preview */}
-        <section className="grid grid-cols-1 lg:grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)] gap-8">
-          {/* Left - Cardholder form */}
-          <div className="bg-slate-900 rounded-2xl p-6 md:p-7 border border-slate-800 shadow-lg">
+        {hasCardId && (
+          <section className="grid grid-cols-1 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)] gap-8">
+            <div className="flex flex-col gap-6">
+              <div className="vc-surface rounded-2xl p-7 md:p-8 border border-slate-800 shadow-lg">
+                <div className="flex items-center justify-between mb-5">
+                  <div>
+                    <h2 className="text-xl font-semibold">Card Management</h2>
+                    <p className="text-xs text-slate-400 mt-1">Control limits, permissions, and card identity.</p>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 text-sm text-slate-200 items-stretch">
+                  <div className="vc-inset rounded-xl border border-slate-800 p-5">
+                    <div className="flex items-center justify-between gap-3 min-w-0">
+                      <p className="text-xs text-slate-400">Cardholder ID</p>
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          if (!card?.cardholder_id) return
+                          try {
+                            await navigator.clipboard.writeText(card?.cardholder_id)
+                            setCopiedCardholderId(true)
+                            setTimeout(() => setCopiedCardholderId(false), 1500)
+                          } catch (e) {
+                            setCopiedCardholderId(false)
+                          }
+                        }}
+                        className="flex items-center justify-center h-7 w-7 rounded-lg border border-slate-600 bg-slate-900 text-slate-300 hover:text-slate-100"
+                        aria-label="Copy cardholder ID"
+                        title={copiedCardholderId ? 'Copied' : 'Copy'}
+                      >
+                        <span className="sr-only">Copy</span>
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                          <path
+                            d="M9 9h9a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-9a2 2 0 0 1-2-2v-9a2 2 0 0 1 2-2Z"
+                            stroke="currentColor"
+                            strokeWidth="1.6"
+                          />
+                          <path
+                            d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"
+                            stroke="currentColor"
+                            strokeWidth="1.6"
+                          />
+                        </svg>
+                      </button>
+                    </div>
+                    <p className="mt-2 font-mono text-[13px] break-all sm:break-normal sm:truncate" title={card?.cardholder_id || ''}>
+                      {card?.cardholder_id || ''}
+                    </p>
+                  </div>
+                  <div className="vc-inset rounded-xl border border-slate-800 p-5">
+                    <div className="flex items-center justify-between gap-3 min-w-0">
+                      <p className="text-xs text-slate-400">Card ID</p>
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          if (!card?.card_id) return
+                          try {
+                            await navigator.clipboard.writeText(card?.card_id)
+                            setCopiedCardId(true)
+                            setTimeout(() => setCopiedCardId(false), 1500)
+                          } catch (e) {
+                            setCopiedCardId(false)
+                          }
+                        }}
+                        className="flex items-center justify-center h-7 w-7 rounded-lg border border-slate-600 bg-slate-900 text-slate-300 hover:text-slate-100"
+                        aria-label="Copy card ID"
+                        title={copiedCardId ? 'Copied' : 'Copy'}
+                      >
+                        <span className="sr-only">Copy</span>
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                          <path
+                            d="M9 9h9a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-9a2 2 0 0 1-2-2v-9a2 2 0 0 1 2-2Z"
+                            stroke="currentColor"
+                            strokeWidth="1.6"
+                          />
+                          <path
+                            d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"
+                            stroke="currentColor"
+                            strokeWidth="1.6"
+                          />
+                        </svg>
+                      </button>
+                    </div>
+                    <p className="mt-2 font-mono text-[13px] break-all sm:break-normal sm:truncate" title={card?.card_id || ''}>
+                      {card?.card_id || ''}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="mt-6 grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
+                  <div>
+                    <label className="block text-[11px] uppercase tracking-[0.2em] text-slate-400 mb-2">Card nickname</label>
+                    <input
+                      value={formData.first_name ? `${formData.first_name}'s Card` : 'Primary USD Card'}
+                      readOnly
+                      className="vc-input w-full rounded-xl px-3 py-2 text-sm"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] uppercase tracking-[0.2em] text-slate-400 mb-2">Monthly limit (USD)</label>
+                    <input
+                      value={formData.card_limit}
+                      readOnly
+                      className="vc-input w-full rounded-xl px-3 py-2 text-sm"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] uppercase tracking-[0.2em] text-slate-400 mb-2">Card type</label>
+                    <input value={card?.card_type || 'Virtual'} readOnly className="vc-input w-full rounded-xl px-3 py-2 text-sm" />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] uppercase tracking-[0.2em] text-slate-400 mb-2">Currency</label>
+                    <input value={card?.card_currency || 'USD'} readOnly className="vc-input w-full rounded-xl px-3 py-2 text-sm" />
+                  </div>
+                </div>
+
+                <div className="mt-6 flex flex-wrap gap-3 text-xs">
+                  <button
+                    type="button"
+                    onClick={() => setShowInlineFund((prev) => !prev)}
+                    className="vc-button-primary px-4 py-2 rounded-xl font-semibold"
+                  >
+                    {showInlineFund ? 'Hide funding' : 'Fund Card'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      if (freezeLoading) return
+                      setFreezeLoading(true)
+                      setFreezeError(null)
+                      try {
+                        if (isCardActive) {
+                          await client.patch(`/cards/${card?.id}/freeze`)
+                        } else {
+                          await client.patch(`/cards/${card?.id}/unfreeze`)
+                        }
+                        const detailsRes = await client.get(`/cards/${card?.id}/details`)
+                        setCardDetails(detailsRes?.data?.data || null)
+                      } catch (error) {
+                        setFreezeError('Unable to update card status right now.')
+                      } finally {
+                        setFreezeLoading(false)
+                      }
+                    }}
+                    className="vc-button-secondary px-4 py-2 rounded-xl font-semibold text-xs"
+                  >
+                    {freezeLoading ? 'Updating...' : isCardActive ? 'Freeze card' : 'Unfreeze card'}
+                  </button>
+                </div>
+                <AnimatePresence initial={false}>
+                  {showInlineFund && (
+                    <motion.form
+                      key="inline-fund"
+                      initial={{ opacity: 0, scaleY: 0 }}
+                      animate={{ opacity: 1, scaleY: 1 }}
+                      exit={{ opacity: 0, scaleY: 0 }}
+                      transition={{ duration: 0.14, ease: 'easeOut' }}
+                      className="origin-top overflow-hidden mt-4"
+                      onSubmit={handleSubmitCreateCard}
+                    >
+                      <div className="vc-inset rounded-xl border border-slate-800 px-4 py-4 space-y-4">
+                        <div>
+                          <label className="block text-xs mb-1 text-slate-300">Funding amount (USD)</label>
+                          <input
+                            type="number"
+                            name="amount"
+                            value={formData.amount}
+                            onChange={handleChange}
+                            className="w-full bg-slate-800 border border-slate-700 rounded-md p-2.5 text-sm"
+                            placeholder="e.g. 10"
+                            min="1"
+                          />
+                          <p className="mt-1 text-[11px] text-slate-500">
+                            Available: <ShadowValue placeholder="***">USD {tunnelUsdBalance.toFixed(2)}</ShadowValue>
+                          </p>
+                        </div>
+                        <div>
+                          <label className="block text-xs mb-1 text-slate-300">
+                            Transaction PIN ({PIN_LENGTH} digits)
+                          </label>
+                          <TransactionPinInput
+                            value={formData.transaction_pin}
+                            onChange={setPin}
+                            length={PIN_LENGTH}
+                            disabled={submitting}
+                          />
+                        </div>
+                        <button
+                          type="submit"
+                          disabled={submitting || !canCreate || !tunnelWallet?.id}
+                          className="w-full px-4 py-2.5 bg-indigo-600 hover:bg-indigo-500 rounded-md font-semibold text-sm disabled:opacity-60"
+                        >
+                          {submitting ? 'Processing...' : 'Fund card'}
+                        </button>
+                        {successCreate && (
+                          <div
+                            className={`mt-2 p-3 rounded-md text-xs ${
+                              successCreate.ok
+                                ? 'bg-emerald-900/40 border border-emerald-600'
+                                : 'bg-red-900/40 border border-red-600'
+                            }`}
+                          >
+                            <p>{successCreate.message}</p>
+                          </div>
+                        )}
+                      </div>
+                    </motion.form>
+                  )}
+                </AnimatePresence>
+                {freezeError && <p className="mt-2 text-xs text-red-400">{freezeError}</p>}
+              </div>
+
+              {hasInsights && (
+                <div className="vc-surface rounded-2xl p-6 border border-slate-800 shadow-lg">
+                  <div className="flex items-center justify-between mb-4">
+                    <h4 className="text-sm font-semibold">Card Insights</h4>
+                    <span className="text-[11px] text-slate-400">Last 7 days</span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3 text-sm">
+                    {todaysSpend > 0 && (
+                      <div className="vc-inset rounded-xl border border-slate-800 px-3 py-3">
+                        <p className="text-xs text-slate-400">Today's spend</p>
+                        <p className="text-lg font-semibold">USD {todaysSpend.toFixed(2)}</p>
+                      </div>
+                    )}
+                    {hasLastFunding && (
+                      <div className="vc-inset rounded-xl border border-slate-800 px-3 py-3">
+                        <p className="text-xs text-slate-400">Last funding</p>
+                        <p className="text-lg font-semibold">USD {lastFunding.toFixed(2)}</p>
+                      </div>
+                    )}
+                    {hasLastMerchant && (
+                      <div className="vc-inset rounded-xl border border-slate-800 px-3 py-3">
+                        <p className="text-xs text-slate-400">Last merchant</p>
+                        <p className="text-sm font-semibold">{lastMerchant}</p>
+                      </div>
+                    )}
+                    {failedAttempts > 0 && (
+                      <div className="vc-inset rounded-xl border border-slate-800 px-3 py-3">
+                        <p className="text-xs text-slate-400">Failed attempts</p>
+                        <p className="text-lg font-semibold">{failedAttempts}</p>
+                      </div>
+                    )}
+                    {hasTrend && (
+                      <div className="vc-inset rounded-xl border border-slate-800 px-3 py-3">
+                        <p className="text-xs text-slate-400">Spend trend</p>
+                        <div className="mt-2 flex items-end gap-1 h-10">
+                          {spendTrend.map((value, index) => (
+                            <div
+                              key={`trend-${index}`}
+                              className="vc-chart-bar w-2 rounded-sm"
+                              style={{ height: `${Math.max(4, Math.min(40, value))}px` }}
+                            />
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="flex flex-col gap-6">
+              <div className="vc-surface rounded-2xl p-6 border border-slate-800 shadow-lg">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h3 className="text-base font-semibold">Virtual Card</h3>
+                    <p className="text-xs text-slate-400">Premium card surface with live controls.</p>
+                  </div>
+                  <div className="flex items-center gap-2 text-xs text-cyan-300">
+                    <span
+                      className={`h-2 w-2 rounded-full ${isCardActive ? 'bg-cyan-400 vc-pulse' : 'bg-slate-400'}`}
+                    />
+                    {isCardActive ? 'Active' : 'Frozen'}
+                  </div>
+                </div>
+
+                <div className="mt-6 min-h-[300px]">
+                  <div className="relative mx-auto max-w-md">
+                    <div
+                      className={`vc-tilt vc-card-glass vc-neon-edge relative w-full rounded-3xl p-6 text-white overflow-hidden min-h-[220px] ${
+                        isCardActive ? '' : 'vc-card-frozen'
+                      }`}
+                      onMouseMove={onCardMove}
+                      onMouseLeave={onCardLeave}
+                      style={{ '--tilt-x': `${cardTilt.y}deg`, '--tilt-y': `${cardTilt.x}deg` }}
+                    >
+                      <div className="absolute inset-0 vc-reflection opacity-60" />
+                      <div className="absolute -inset-2 vc-shimmer opacity-40" />
+                      <div className="relative z-10">
+                        <div className="flex items-center justify-between text-xs">
+                          <div className="font-semibold tracking-[0.12em]">BitBridge Global</div>
+                          <div className="flex items-center gap-2">
+                            <span className="text-[10px] uppercase text-slate-200/80">Lock</span>
+                          </div>
+                        </div>
+                        <div className="mt-6 text-2xl tracking-[0.22em] font-mono">{cardPanDisplay}</div>
+                        <div className="mt-4 flex items-center justify-between text-xs">
+                          <div>
+                            <p className="text-slate-200/70">Cardholder</p>
+                            <p className="text-sm font-medium">
+                              {formData.first_name || formData.last_name
+                                ? `${formData.first_name} ${formData.last_name}`
+                                : 'Full Name'}
+                            </p>
+                          </div>
+                          <div className="text-right">
+                            <p className="text-slate-200/70">Status</p>
+                            <p className="text-sm font-medium">{isCardActive ? 'Active' : 'Frozen'}</p>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="mt-6 grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs text-slate-400">
+                  <div className="vc-inset rounded-xl border border-slate-800 px-3 py-2">Protected by BitBridge Shield</div>
+                </div>
+              </div>
+
+              {(cardInfoLoading || detailItems.length > 0 || balanceAmount !== null) && (
+                <div className="vc-surface rounded-2xl p-6 border border-slate-800 shadow-lg">
+                  <div className="flex items-center justify-between mb-4">
+                    <h4 className="text-sm font-semibold">Card Details</h4>
+                    <span className="text-[11px] text-slate-400">Live from issuer</span>
+                  </div>
+
+                  {cardInfoLoading ? (
+                    <p className="text-xs text-slate-400">Loading card details...</p>
+                  ) : (
+                    <div className="space-y-4">
+                      {balanceAmount !== null && (
+                        <div className="vc-inset rounded-xl border border-slate-800 px-4 py-3">
+                          <p className="text-[11px] uppercase tracking-[0.2em] text-slate-400">Available balance</p>
+                          <p className="text-lg font-semibold text-slate-100">USD {Number(balanceAmount || 0).toFixed(2)}</p>
+                        </div>
+                      )}
+
+                      <div className="flex flex-wrap items-center justify-between gap-3">
+                        <p className="text-xs text-slate-400">
+                          Card numbers and CVV are protected. Use the secure viewer to reveal masked details.
+                        </p>
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            if (showCardDetails) {
+                              setShowCardDetails(false)
+                              return
+                            }
+                            const now = Date.now()
+                            if (now < revealCooldownUntil || cardRevealLoading) return
+                            setCardRevealLoading(true)
+                            setCardRevealError(null)
+                            try {
+                              const response = await client.get(`/cards/${card?.id}/reveal`)
+                              setCardReveal(response?.data?.data || null)
+                              setShowCardDetails(true)
+                              setRevealCooldownUntil(now + 3000)
+                            } catch (error) {
+                              setCardRevealError('Unable to reveal card details right now.')
+                            } finally {
+                              setCardRevealLoading(false)
+                            }
+                          }}
+                          className="vc-button-secondary px-4 py-2 rounded-xl text-xs font-semibold disabled:opacity-60"
+                          disabled={!showCardDetails && (cardRevealLoading || Date.now() < revealCooldownUntil)}
+                        >
+                          {cardRevealLoading ? 'Revealing...' : showCardDetails ? 'Hide card details' : 'View card details'}
+                        </button>
+                      </div>
+                      {cardRevealError && (
+                        <p className="text-xs text-red-400">{cardRevealError}</p>
+                      )}
+
+                      <AnimatePresence initial={false}>
+                        {showCardDetails && (
+                          <motion.div
+                            key="card-details-inline"
+                            initial={{ opacity: 0, scaleY: 0 }}
+                            animate={{ opacity: 1, scaleY: 1 }}
+                            exit={{ opacity: 0, scaleY: 0 }}
+                            transition={{ duration: 0.14, ease: 'easeOut' }}
+                            className="origin-top overflow-hidden will-change-transform"
+                          >
+                            <div className="vc-inset rounded-xl border border-slate-800 px-4 py-4 text-sm text-slate-200">
+                              <div className="grid gap-3">
+                            <div className="vc-inset rounded-xl border border-slate-800 px-3 py-3">
+                              <div className="flex items-center justify-between gap-2">
+                                <p className="text-[10px] uppercase tracking-[0.2em] text-slate-400">Card number</p>
+                                <button
+                                  type="button"
+                                  onClick={async () => {
+                                    if (!revealPanValue) return
+                                    try {
+                                      await navigator.clipboard.writeText(revealPanValue)
+                                      setCopiedPan(true)
+                                      setTimeout(() => setCopiedPan(false), 1500)
+                                    } catch (e) {
+                                      setCopiedPan(false)
+                                    }
+                                  }}
+                                  className="flex items-center justify-center h-7 w-7 rounded-lg border border-slate-600 bg-slate-900 text-slate-300 hover:text-slate-100"
+                                  aria-label="Copy card number"
+                                  title={copiedPan ? 'Copied' : 'Copy'}
+                                  disabled={!revealPanValue}
+                                >
+                                  <span className="sr-only">Copy</span>
+                                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                                    <path
+                                      d="M9 9h9a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-9a2 2 0 0 1-2-2v-9a2 2 0 0 1 2-2Z"
+                                      stroke="currentColor"
+                                      strokeWidth="1.6"
+                                    />
+                                    <path
+                                      d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"
+                                      stroke="currentColor"
+                                      strokeWidth="1.6"
+                                    />
+                                  </svg>
+                                </button>
+                              </div>
+                              <p className="text-base font-semibold">{revealPanValue || 'Unavailable'}</p>
+                            </div>
+                            <div className="grid grid-cols-2 gap-3">
+                              <div className="vc-inset rounded-xl border border-slate-800 px-3 py-3">
+                                <p className="text-[10px] uppercase tracking-[0.2em] text-slate-400">Expiry</p>
+                                <p className="text-sm font-semibold">{revealExpiryValue || 'Unavailable'}</p>
+                              </div>
+                              <div className="vc-inset rounded-xl border border-slate-800 px-3 py-3">
+                                <p className="text-[10px] uppercase tracking-[0.2em] text-slate-400">CVV</p>
+                                <p className="text-sm font-semibold">{revealCvvValue || 'Hidden'}</p>
+                              </div>
+                            </div>
+                            {cardReveal?.billing_address && (
+                              <div className="vc-inset rounded-xl border border-slate-800 px-3 py-3 text-xs text-slate-300">
+                                <p className="text-[10px] uppercase tracking-[0.2em] text-slate-400">Billing address</p>
+                                <p className="mt-1">
+                                  {cardReveal.billing_address.billing_address1 || 'N/A'}
+                                </p>
+                                <p>
+                                  {cardReveal.billing_address.billing_city || ''}{' '}
+                                  {cardReveal.billing_address.state || ''}
+                                </p>
+                                <p>
+                                  {cardReveal.billing_address.billing_country || ''}{' '}
+                                  {cardReveal.billing_address.billing_zip_code || ''}
+                                </p>
+                              </div>
+                            )}
+                            {(revealLast4 || last4Value) && (
+                              <p className="text-xs text-slate-400">Card ending in {revealLast4 || last4Value}</p>
+                            )}
+                              </div>
+                            </div>
+                          </motion.div>
+                        )}
+                      </AnimatePresence>
+
+                      {detailItems.length > 0 && (
+                        <div className="grid grid-cols-2 gap-3 text-xs text-slate-400">
+                          {detailItems.map((item) => (
+                            <div key={item.label} className="vc-inset rounded-xl border border-slate-800 px-3 py-2">
+                              <p className="text-[10px] uppercase tracking-[0.2em]">{item.label}</p>
+                              <p className="text-sm text-slate-100 mt-1 truncate" title={String(item.value)}>{item.value}</p>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          </section>
+        )}
+
+        
+
+        {showCardholderForm && (
+          /* SECTION 1 */
+          <section className="grid grid-cols-1 lg:grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)] gap-8">
+          {/* Left */}
+          <div className="vc-surface bg-slate-900 rounded-2xl p-6 md:p-7 border border-slate-800 shadow-lg">
             <div className="flex items-center justify-between mb-4">
               <div>
                 <h2 className="text-xl font-semibold">Cardholder Profile</h2>
-                <p className="text-xs text-slate-400 mt-1">
-                  We’ll use this information to verify and create your card.
-                </p>
+                <p className="text-xs text-slate-400 mt-1">We'll use this information to verify and create your card.</p>
               </div>
 
               <div className="flex gap-2 text-xs">
                 <button
                   type="button"
                   className={`px-3 py-1.5 rounded-lg font-medium transition-colors ${
-                    cardType === 'virtual'
-                      ? 'bg-indigo-600 text-white shadow'
-                      : 'bg-slate-800 text-slate-300'
+                    cardType === 'virtual' ? 'bg-indigo-600 text-white shadow' : 'bg-slate-800 text-slate-300'
                   }`}
                   onClick={() => setCardType('virtual')}
                   aria-pressed={cardType === 'virtual'}
@@ -228,9 +1204,7 @@ export default function VirtualCardApplication() {
                   type="button"
                   disabled
                   className={`px-3 py-1.5 rounded-lg font-medium transition-colors ${
-                    cardType === 'physical'
-                      ? 'bg-indigo-600 text-white shadow'
-                      : 'bg-slate-800 text-slate-500 cursor-not-allowed'
+                    cardType === 'physical' ? 'bg-indigo-600 text-white shadow' : 'bg-slate-800 text-slate-500 cursor-not-allowed'
                   }`}
                 >
                   Physical (coming soon)
@@ -239,7 +1213,6 @@ export default function VirtualCardApplication() {
             </div>
 
             <form onSubmit={handleSubmitCardholder} className="space-y-4">
-              {/* Basic info */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <input
                   name="first_name"
@@ -247,7 +1220,7 @@ export default function VirtualCardApplication() {
                   onChange={handleChange}
                   placeholder="First Name"
                   className="p-2.5 rounded-md bg-slate-800 border border-slate-700 text-sm w-full"
-                  disabled={!!user?.user_profile}
+                  disabled={!!user.user_profile}
                 />
                 <input
                   name="last_name"
@@ -255,7 +1228,7 @@ export default function VirtualCardApplication() {
                   onChange={handleChange}
                   placeholder="Last Name"
                   className="p-2.5 rounded-md bg-slate-800 border border-slate-700 text-sm w-full"
-                  disabled={!!user?.user_profile}
+                  disabled={!!user.user_profile}
                 />
                 <input
                   name="phone"
@@ -263,7 +1236,7 @@ export default function VirtualCardApplication() {
                   onChange={handleChange}
                   placeholder="Phone"
                   className="p-2.5 rounded-md bg-slate-800 border border-slate-700 text-sm w-full"
-                  disabled={!!user?.user_profile}
+                  disabled={!!user.user_profile}
                 />
                 <input
                   name="email_address"
@@ -271,15 +1244,12 @@ export default function VirtualCardApplication() {
                   onChange={handleChange}
                   placeholder="Email Address"
                   className="p-2.5 rounded-md bg-slate-800 border border-slate-700 text-sm w-full"
-                  disabled={!!user?.user_profile}
+                  disabled={!!user.user_profile}
                 />
               </div>
 
-              {/* Address */}
               <div className="pt-2">
-                <h3 className="text-sm font-semibold text-slate-200 mb-2">
-                  Address
-                </h3>
+                <h3 className="text-sm font-semibold text-slate-200 mb-2">Address</h3>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <input
                     name="address"
@@ -313,9 +1283,9 @@ export default function VirtualCardApplication() {
                     required
                   >
                     <option value="">Select State</option>
-                    {states.map((state) => (
-                      <option key={state} value={state}>
-                        {state}
+                    {availableStates.map((s) => (
+                      <option key={s} value={s}>
+                        {s}
                       </option>
                     ))}
                   </select>
@@ -337,11 +1307,8 @@ export default function VirtualCardApplication() {
                 </div>
               </div>
 
-              {/* Identity */}
               <div className="pt-2">
-                <h3 className="text-sm font-semibold text-slate-200 mb-2">
-                  Identity
-                </h3>
+                <h3 className="text-sm font-semibold text-slate-200 mb-2">Identity</h3>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <input
                     name="id_type"
@@ -349,7 +1316,7 @@ export default function VirtualCardApplication() {
                     onChange={handleChange}
                     placeholder="ID Type"
                     className="p-2.5 rounded-md bg-slate-800 border border-slate-700 text-sm w-full"
-                    disabled={!!user?.user_profile}
+                    disabled={!!user.user_profile}
                   />
                   <input
                     name="bvn"
@@ -361,12 +1328,9 @@ export default function VirtualCardApplication() {
                 </div>
               </div>
 
-              {/* Meta & limit */}
               <div className="pt-2 space-y-3">
                 <div>
-                  <h3 className="text-sm font-semibold text-slate-200 mb-1">
-                    Meta data (optional)
-                  </h3>
+                  <h3 className="text-sm font-semibold text-slate-200 mb-1">Meta data (optional)</h3>
                   <input
                     name="meta_data.any_key"
                     value={formData.meta_data.any_key}
@@ -377,9 +1341,7 @@ export default function VirtualCardApplication() {
                 </div>
 
                 <div>
-                  <label className="block text-sm text-slate-300 mb-1">
-                    Daily spend limit (USD)
-                  </label>
+                  <label className="block text-sm text-slate-300 mb-1">Daily spend limit (USD)</label>
                   <input
                     name="limit"
                     value={formData.limit}
@@ -387,60 +1349,11 @@ export default function VirtualCardApplication() {
                     type="number"
                     min={1000}
                     disabled
-                    className="w-full bg-slate-900 border border-slate-700 rounded-md p-2.5 text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    className="w-full bg-slate-900 border border-slate-700 rounded-md p-2.5 text-sm text-slate-100"
                   />
                 </div>
               </div>
 
-              {cardType === 'physical' && (
-                <div className="pt-2">
-                  <label className="block text-sm text-slate-300 mb-1">
-                    Delivery address
-                  </label>
-                  <textarea
-                    name="deliveryAddress"
-                    value={formData.deliveryAddress}
-                    onChange={handleChange}
-                    className="w-full bg-slate-900 border border-slate-700 rounded-md p-3 text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                    rows={3}
-                    placeholder="Street, City, State, Country"
-                  />
-                </div>
-              )}
-
-              {/* Design */}
-              <div className="pt-2">
-                <label className="block text-sm text-slate-300 mb-1">
-                  Card design
-                </label>
-                <div className="flex flex-wrap gap-2">
-                  {designs.map((d) => (
-                    <label
-                      key={d.id}
-                      className={`flex items-center gap-2 p-2 rounded-md cursor-pointer border text-xs ${
-                        formData.design === d.id
-                          ? 'border-indigo-500 bg-slate-800/80'
-                          : 'border-slate-700 bg-slate-900'
-                      }`}
-                    >
-                      <input
-                        type="radio"
-                        name="design"
-                        value={d.id}
-                        checked={formData.design === d.id}
-                        onChange={handleChange}
-                        className="sr-only"
-                      />
-                      <div className="w-10 h-7 rounded-md flex items-center justify-center text-[10px] font-semibold bg-gradient-to-br from-slate-700 to-black">
-                        {d.label}
-                      </div>
-                      <span className="text-slate-300">{d.label}</span>
-                    </label>
-                  ))}
-                </div>
-              </div>
-
-              {/* TOS + buttons */}
               <div className="pt-1 space-y-3">
                 <div className="flex items-center gap-2">
                   <input
@@ -452,11 +1365,7 @@ export default function VirtualCardApplication() {
                     className="h-4 w-4 rounded border-slate-700 text-indigo-500 bg-slate-900"
                   />
                   <label htmlFor="tos" className="text-xs text-slate-400">
-                    I agree to the{' '}
-                    <span className="text-indigo-400 underline">
-                      terms and conditions
-                    </span>
-                    .
+                    I agree to the <span className="text-indigo-400 underline">terms and conditions</span>.
                   </label>
                 </div>
 
@@ -466,9 +1375,7 @@ export default function VirtualCardApplication() {
                     disabled={submitting}
                     className="px-4 py-2.5 bg-indigo-600 hover:bg-indigo-500 rounded-md font-semibold text-sm disabled:opacity-60"
                   >
-                    {submitting
-                      ? 'Submitting...'
-                      : `Submit cardholder profile`}
+ {submitting ? 'Submitting...' : 'Submit cardholder profile'}
                   </button>
 
                   <button
@@ -496,9 +1403,7 @@ export default function VirtualCardApplication() {
                 {success && (
                   <div
                     className={`mt-2 p-3 rounded-md text-xs ${
-                      success.ok
-                        ? 'bg-emerald-900/40 border border-emerald-600'
-                        : 'bg-red-900/40 border border-red-600'
+                      success.ok ? 'bg-emerald-900/40 border border-emerald-600' : 'bg-red-900/40 border border-red-600'
                     }`}
                   >
                     <p>{success.message}</p>
@@ -508,21 +1413,15 @@ export default function VirtualCardApplication() {
             </form>
           </div>
 
-          {/* Right - Live preview & summary */}
+          {/* Right - Preview */}
           <div className="flex flex-col gap-5">
-            <div className="rounded-2xl p-5 bg-gradient-to-br from-slate-900/60 to-black/60 border border-slate-800 shadow-lg">
+            <div className="vc-dark-surface rounded-2xl p-5 bg-gradient-to-br from-slate-900/60 to-black/60 border border-slate-800 shadow-lg">
               <div className="flex items-center justify-between mb-3">
                 <h3 className="text-base font-medium">Card Preview</h3>
-                <span className="text-[11px] text-slate-400">
-                  {cardType === 'virtual' ? 'Virtual' : 'Physical'}
-                </span>
+                <span className="text-[11px] text-slate-400">{cardType === 'virtual' ? 'Virtual' : 'Physical'}</span>
               </div>
 
-              <motion.div
-                initial={{ opacity: 0, y: 8 }}
-                animate={{ opacity: 1, y: 0 }}
-                className="w-full max-w-md mx-auto"
-              >
+              <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="w-full max-w-md mx-auto">
                 <div
                   className={`relative rounded-xl p-6 min-h-[160px] ${
                     formData.design === 'midnight'
@@ -533,209 +1432,120 @@ export default function VirtualCardApplication() {
                   } text-white`}
                 >
                   <div className="flex justify-between items-start text-xs">
-                    <div className="font-semibold opacity-90">
-                      BitBridge Global
-                    </div>
+                    <div className="font-semibold opacity-90">BitBridge Global</div>
                     <div className="opacity-80">USD</div>
                   </div>
 
-                  <div className="mt-6 text-2xl tracking-wide font-mono">
-                    **** **** **** {String(formData.limit).slice(-4)}
-                  </div>
+                  <div className="mt-6 text-2xl tracking-wide font-mono">**** **** **** {String(formData.limit).slice(-4)}</div>
                   <div className="mt-4 flex justify-between items-center text-xs">
                     <div>
                       <div className="text-slate-200/80">Cardholder</div>
                       <div className="font-medium text-sm">
-                        {formData.first_name || formData.last_name
-                          ? `${formData.first_name} ${formData.last_name}`
-                          : 'Full Name'}
+ {formData.first_name || formData.last_name ? `${formData.first_name} ${formData.last_name}` : 'Full Name'}
                       </div>
                     </div>
 
                     <div className="text-right">
                       <div className="text-slate-200/80">Type</div>
-                      <div className="font-medium text-sm">
-                        {cardType === 'virtual' ? 'Virtual' : 'Physical'}
-                      </div>
+ <div className="font-medium text-sm">{cardType === 'virtual' ? 'Virtual' : 'Physical'}</div>
                     </div>
                   </div>
 
-                  <div className="absolute right-4 bottom-4 text-[10px] opacity-80">
-                    {formData.design.toUpperCase()}
-                  </div>
+                  <div className="absolute right-4 bottom-4 text-[10px] opacity-80">{formData.design.toUpperCase()}</div>
                 </div>
               </motion.div>
 
-              <div className="mt-3 text-xs text-slate-400">
-                Preview updates live as you fill your details.
-              </div>
+              <div className="mt-3 text-xs text-slate-400">Preview updates live as you fill your details.</div>
             </div>
 
-            <div className="rounded-2xl p-4 bg-slate-900/60 border border-slate-800 text-xs">
+            <div className="vc-surface rounded-2xl p-4 bg-slate-900/60 border border-slate-800 text-xs">
               <h4 className="font-medium mb-2">Quick summary</h4>
               <ul className="space-y-1 text-slate-300">
                 <li>
-                  <strong>Type:</strong> {cardType === 'virtual' ? 'Virtual' : 'Physical'}
+ <strong>Type:</strong> {cardType === 'virtual' ? 'Virtual' : 'Physical'}
                 </li>
                 <li>
-                  <strong>Holder:</strong>{' '}
-                  {formData.first_name || formData.last_name
-                    ? `${formData.first_name} ${formData.last_name}`
-                    : '—'}
+ <strong>Holder:</strong> {formData.first_name || formData.last_name ? `${formData.first_name} ${formData.last_name}` : 'N/A'}
                 </li>
                 <li>
-                  <strong>Email:</strong> {formData.email_address || '—'}
+                  <strong>Email:</strong> {formData.email_address || 'N/A'}
                 </li>
                 <li>
-                  <strong>Limit:</strong> USD {formData.limit.toLocaleString()}
+                  <strong>Tunnel balance:</strong>{' '}
+                  <ShadowValue placeholder="***">USD {tunnelUsdBalance.toFixed(2)}</ShadowValue>
                 </li>
               </ul>
             </div>
-
-            <div className="rounded-2xl p-4 bg-slate-900/60 border border-slate-800 text-xs">
-              <h4 className="font-medium mb-2">Notes</h4>
-              <p className="text-slate-400">
-                Virtual cards are instant and usable online. Physical cards (when
-                enabled) may take 5–10 business days to deliver after KYC
-                approval.
-              </p>
-            </div>
           </div>
-        </section>
+          </section>
+        )}
 
-        {/* SECTION 2: Create / fund card */}
-        <section className="grid grid-cols-1 lg:grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)] gap-8">
-          {/* Left: Create card form */}
-          <div className="bg-slate-900 rounded-2xl p-6 md:p-7 border border-slate-800 shadow-lg">
-            <h2 className="text-xl font-semibold mb-2">Create / Fund Card</h2>
+        {showCreateForm && (
+          /* SECTION 2 */
+          <section className="grid grid-cols-1 lg:grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)] gap-8">
+          <div className="vc-surface bg-slate-900 rounded-2xl p-6 md:p-7 border border-slate-800 shadow-lg">
+            <h2 className="text-xl font-semibold mb-2">{fundingTitle}</h2>
             <p className="text-xs text-slate-400 mb-4">
-              Once your cardholder profile is approved, you can create and fund a
-              virtual card.
+              Funding is done from your Tunnel wallet (USD). Activate Tunnel first.
             </p>
 
+            {!tunnelWallet?.id && (
+              <div className="mb-4 rounded-xl border border-orange-700/40 bg-orange-900/20 p-3 text-xs text-orange-200">
+                Tunnel wallet is not active. Open <b>Wallet > Tunnel</b> and tap "Activate Tunnel".
+              </div>
+            )}
+
             <form onSubmit={handleSubmitCreateCard} className="space-y-4">
-              {/* Card type */}
-              <div>
-                <label className="block text-xs mb-1 text-slate-300">
-                  Card Type
-                </label>
-                <select
-                  disabled
-                  name="card_type"
-                  value={formData.card_type}
-                  onChange={handleChange}
-                  className="w-full bg-slate-800 border border-slate-700 rounded-md p-2.5 text-sm"
-                >
-                  <option value="Virtual">Virtual</option>
-                  <option value="Physical">Physical</option>
-                </select>
-              </div>
-
-              {/* Brand + Currency */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-xs mb-1 text-slate-300">
-                    Brand
-                  </label>
-                  <input
-                    disabled
-                    type="text"
-                    name="card_brand"
-                    value={formData.card_brand}
-                    className="w-full bg-slate-800 border border-slate-700 rounded-md p-2.5 text-sm"
-                  />
+                  <label className="block text-xs mb-1 text-slate-300">Currency</label>
+                  <input disabled type="text" value="USD" className="w-full bg-slate-800 border border-slate-700 rounded-md p-2.5 text-sm" />
                 </div>
+
                 <div>
-                  <label className="block text-xs mb-1 text-slate-300">
-                    Currency
-                  </label>
-                  <input
-                    disabled
-                    type="text"
-                    name="card_currency"
-                    value={formData.card_currency}
-                    onChange={handleChange}
-                    className="w-full bg-slate-800 border border-slate-700 rounded-md p-2.5 text-sm"
-                  />
+                  <label className="block text-xs mb-1 text-slate-300">Funding wallet</label>
+                  <input disabled type="text" value="Tunnel (USD)" className="w-full bg-slate-800 border border-slate-700 rounded-md p-2.5 text-sm" />
                 </div>
               </div>
 
-              {/* Limit & Funding */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs mb-1 text-slate-300">
-                    Card Limit
-                  </label>
-                  <input
-                    disabled
-                    type="number"
-                    name="card_limit"
-                    value={formData.card_limit}
-                    onChange={handleChange}
-                    className="w-full bg-slate-800 border border-slate-700 rounded-md p-2.5 text-sm"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs mb-1 text-slate-300">
-                    Funding Amount
-                  </label>
-                  <input
-                    type="number"
-                    name="amount"
-                    value={formData.amount}
-                    onChange={handleChange}
-                    className="w-full bg-slate-800 border border-slate-700 rounded-md p-2.5 text-sm"
-                  />
-                </div>
-              </div>
-
-              {/* PIN */}
               <div>
-                <label className="block text-xs mb-1 text-slate-300">
-                  PIN (4 digits)
-                </label>
+                <label className="block text-xs mb-1 text-slate-300">Funding Amount (USD)</label>
                 <input
-                  type="password"
-                  name="pin"
-                  value={formData.pin}
-                  maxLength={4}
+                  type="number"
+                  name="amount"
+                  value={formData.amount}
                   onChange={handleChange}
-                  placeholder="Enter PIN (encrypted in backend)"
                   className="w-full bg-slate-800 border border-slate-700 rounded-md p-2.5 text-sm"
+                  placeholder="e.g. 10"
+                  min="1"
+                />
+                <p className="mt-1 text-[11px] text-slate-500">
+                  Available: <ShadowValue placeholder="***">USD {tunnelUsdBalance.toFixed(2)}</ShadowValue>
+                </p>
+              </div>
+
+              <div>
+                <label className="block text-xs mb-1 text-slate-300">Transaction PIN ({PIN_LENGTH} digits)</label>
+                <TransactionPinInput
+                  value={formData.transaction_pin}
+                  onChange={setPin}
+                  length={PIN_LENGTH}
+                  disabled={submitting}
                 />
               </div>
 
-              {/* Buttons */}
-              <div className="flex gap-3">
-                <button
-                  type="submit"
-                  disabled={submitting}
-                  className="px-4 py-2.5 bg-indigo-600 hover:bg-indigo-500 rounded-md font-semibold text-sm disabled:opacity-60"
-                >
-                  {submitting ? 'Creating...' : 'Create Card'}
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() =>
-                    setFormData((prev) => ({
-                      ...prev,
-                      amount: '',
-                      pin: '',
-                    }))
-                  }
-                  className="px-4 py-2.5 bg-slate-800 rounded-md text-xs"
-                >
-                  Reset
-                </button>
-              </div>
+              <button
+                type="submit"
+                disabled={submitting || !canCreate || !tunnelWallet?.id}
+                className="w-full px-4 py-2.5 bg-indigo-600 hover:bg-indigo-500 rounded-md font-semibold text-sm disabled:opacity-60"
+              >
+                {submitting ? 'Processing...' : fundingCta}
+              </button>
 
               {successCreate && (
                 <div
                   className={`mt-3 p-3 rounded-md text-xs ${
-                    successCreate.ok
-                      ? 'bg-emerald-900/40 border border-emerald-600'
-                      : 'bg-red-900/40 border border-red-600'
+ successCreate.ok ? 'bg-emerald-900/40 border border-emerald-600' : 'bg-red-900/40 border border-red-600'
                   }`}
                 >
                   <p>{successCreate.message}</p>
@@ -744,8 +1554,7 @@ export default function VirtualCardApplication() {
             </form>
           </div>
 
-          {/* Right: Create card preview */}
-          <div className="bg-slate-900 rounded-2xl p-6 border border-slate-800 shadow-lg">
+          <div className="vc-surface bg-slate-900 rounded-2xl p-6 border border-slate-800 shadow-lg">
             <h3 className="text-base font-medium mb-3">Card Preview</h3>
 
             <motion.div
@@ -755,34 +1564,28 @@ export default function VirtualCardApplication() {
             >
               <div className="flex justify-between items-start text-xs">
                 <div className="font-semibold opacity-90">BitBridge Global</div>
-                <div className="opacity-80">{formData.card_currency}</div>
+                <div className="opacity-80">USD</div>
               </div>
 
-              <div className="mt-6 text-2xl tracking-wide font-mono">
-                **** **** **** 5000
-              </div>
+              <div className="mt-6 text-2xl tracking-wide font-mono">**** **** **** 5000</div>
               <div className="mt-4 flex justify-between items-center text-xs">
                 <div>
                   <div className="text-slate-200/80">Cardholder ID</div>
-                  <div className="font-medium text-sm">
-                    {card?.cardholder_id || '—'}
-                  </div>
+                  <div className="font-medium text-sm">{card?.cardholder_id || 'N/A'}</div>
                 </div>
                 <div className="text-right">
-                  <div className="text-slate-200/80">Type</div>
-                  <div className="font-medium text-sm">
-                    {formData.card_type}
-                  </div>
+                  <div className="text-slate-200/80">Funding</div>
+                  <div className="font-medium text-sm">USD {Number(formData.amount || 0).toFixed(2)}</div>
                 </div>
               </div>
             </motion.div>
 
-            <div className="mt-3 text-xs text-slate-400">
-              The preview updates as you fill in your funding details.
-            </div>
+            <div className="mt-3 text-xs text-slate-400">This reflects the create/fund form inputs.</div>
           </div>
-        </section>
+          </section>
+        )}
       </div>
-    </div>
+      </div>
+    </>
   )
 }

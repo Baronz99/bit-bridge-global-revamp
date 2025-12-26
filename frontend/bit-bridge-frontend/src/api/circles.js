@@ -22,9 +22,9 @@ export const getCircleAuditSummary = (id) =>
 export const exportCircleCsv = (id) =>
   client.get(`/circles/${id}/export_csv`, { responseType: 'blob' })
 
-// POST /circles/:id/invite_member
+// POST /circles/:id/memberships
 export const inviteCircleMember = (id, payload) =>
-  client.post(`/circles/${id}/invite_member`, payload)
+  client.post(`/circles/${id}/memberships`, { membership: payload })
 
 // GET /circles/:id/activities
 export const listCircleActivities = (id) =>

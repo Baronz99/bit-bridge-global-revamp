@@ -121,6 +121,19 @@ export const getBankList = createAsyncThunk(
   }
 )
 
+export const getBeneficiaries = createAsyncThunk(
+  'account/get-beneficiaries',
+  async (_, { rejectWithValue }) => {
+    try {
+      const response = await client.get('/accounts/beneficiaries')
+      return response.data
+    } catch (error) {
+      const message = getErrorMessage(error)
+      return rejectWithValue({ message })
+    }
+  }
+)
+
 export const verifyAccountUser = createAsyncThunk(
   'account/verify-account-user',
   async (data, { rejectWithValue }) => {

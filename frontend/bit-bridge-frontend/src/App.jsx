@@ -1,4 +1,4 @@
-import { Route, Routes } from 'react-router-dom'
+import { Route, Routes, Navigate } from 'react-router-dom'
 import './App.css'
 import Home from './pages/HomePage'
 import HomeDashboard from './pages/dashboard'
@@ -94,6 +94,7 @@ import ConfirmPayment from './pages/checkout/ConfirmPayment'
 import DashboardPurchaseDetails from './pages/dashboard/PurchaseDetails'
 import DashboardComfirmPurchase from './pages/dashboard/ConfirmPurchase'
 import VirtualCardApplication from './components/cardView/CardView'
+import VirtualAccounts from './pages/dashboard/VirtualAccounts'
 import CheckEmail from './pages/auth/CheckEmail'
 
 // ✅ NEW: Idle logout hook
@@ -114,7 +115,7 @@ function App() {
   ScrollToTop()
 
   // ✅ NEW: web idle -> logout
-  useIdleLogout({ idleMs: 15 * 60 * 1000, enabled: true })
+  useIdleLogout({ idleMs: 10 * 60 * 1000, enabled: true })
 
   return (
     <div className="bg-gray-100 ">
@@ -278,7 +279,9 @@ function App() {
             <Route index element={<HomeDashboard />} />
 
             <Route path="profile-account" element={<ProfileAccountPage />} />
-            <Route path="virtual-account" element={<VirtualCardApplication />} />
+            <Route path="virtual-account" element={<Navigate to="/dashboard/virtual-cards" replace />} />
+            <Route path="virtual-cards" element={<VirtualCardApplication />} />
+            <Route path="virtual-accounts" element={<VirtualAccounts />} />
 
             <Route path="kyc" element={<KycCenter />} />
 

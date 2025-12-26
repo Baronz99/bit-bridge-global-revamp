@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[7.1].define(version: 2025_12_19_070606) do
+ActiveRecord::Schema[7.1].define(version: 2026_01_05_120000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pgcrypto"
   enable_extension "plpgsql"
@@ -79,6 +79,20 @@ ActiveRecord::Schema[7.1].define(version: 2025_12_19_070606) do
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
     t.index ["account_id"], name: "index_bank_transactions_on_account_id"
+  end
+
+  create_table "beneficiaries", id: :uuid, default: -> { "gen_random_uuid()" }, force: :cascade do |t|
+    t.uuid "user_id", null: false
+    t.string "vendor", default: "anchor", null: false
+    t.string "bank_code", null: false
+    t.string "bank_name"
+    t.string "account_number", null: false
+    t.string "account_name"
+    t.string "counter_party_id", null: false
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["counter_party_id"], name: "index_beneficiaries_on_counter_party_id"
+    t.index ["user_id", "vendor", "bank_code", "account_number"], name: "index_beneficiaries_on_user_vendor_bank_account", unique: true
   end
 
   create_table "bill_orders", id: :uuid, default: -> { "gen_random_uuid()" }, force: :cascade do |t|
@@ -485,9 +499,11 @@ ActiveRecord::Schema[7.1].define(version: 2025_12_19_070606) do
     t.datetime "transaction_pin_set_at"
     t.integer "transaction_pin_attempts", default: 0, null: false
     t.datetime "transaction_pin_locked_until"
+    t.string "refresh_token_digest"
     t.index ["confirmation_token"], name: "index_users_on_confirmation_token", unique: true
     t.index ["email"], name: "index_users_on_email", unique: true
     t.index ["jti"], name: "index_users_on_jti", unique: true
+    t.index ["refresh_token_digest"], name: "index_users_on_refresh_token_digest", unique: true
     t.index ["reset_password_token"], name: "index_users_on_reset_password_token", unique: true
     t.index ["transaction_pin_locked_until"], name: "index_users_on_transaction_pin_locked_until"
   end
@@ -506,6 +522,10 @@ ActiveRecord::Schema[7.1].define(version: 2025_12_19_070606) do
     t.datetime "updated_at", null: false
     t.integer "wallet_type", default: 0
     t.decimal "commission"
+    t.string "currency", default: "NGN", null: false
+    t.integer "balance_cents", default: 0, null: false
+    t.index ["user_id", "currency"], name: "index_wallets_on_user_id_and_currency"
+    t.index ["user_id", "wallet_type"], name: "index_wallets_on_user_id_and_wallet_type", unique: true
     t.index ["user_id"], name: "index_wallets_on_user_id"
   end
 
@@ -513,6 +533,7 @@ ActiveRecord::Schema[7.1].define(version: 2025_12_19_070606) do
   add_foreign_key "active_storage_attachments", "active_storage_blobs", column: "blob_id"
   add_foreign_key "active_storage_variant_records", "active_storage_blobs", column: "blob_id"
   add_foreign_key "bank_transactions", "accounts"
+  add_foreign_key "beneficiaries", "users"
   add_foreign_key "bill_orders", "order_details"
   add_foreign_key "bill_orders", "users", on_delete: :nullify
   add_foreign_key "card_tokens", "order_items"

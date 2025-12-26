@@ -4,6 +4,7 @@ module Api
   module V1
     class ProductsController < ApplicationController
       before_action :set_product, only: %i[show update destroy]
+      before_action :require_admin!, only: %i[create update destroy]
       skip_before_action :authenticate_user!, only: %i[index]
 
       # GET /products
@@ -60,6 +61,12 @@ module Api
       def product_params
         params.require(:product).permit(:image, :featured, :extra_info, :provider, :provision, :category, :header_info,
                                         :description, :info, :rate, :attention, :notice_info, :min_value, :max_value, :currency)
+      end
+
+      def require_admin!
+        return if current_user&.admin?
+
+        render json: { message: 'Admin access required' }, status: :forbidden
       end
     end
   end

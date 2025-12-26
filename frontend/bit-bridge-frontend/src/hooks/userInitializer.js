@@ -1,14 +1,29 @@
 import { useEffect } from 'react'
 import { useDispatch } from 'react-redux'
-import { userProfile } from '../redux/actions/auth'
-import { getToken } from '../api/client'
+import { refreshAccessToken, userProfile } from '../redux/actions/auth'
+import { resetUser } from '../redux/auth'
+import { cookieAuthEnabled, getAccessToken } from '../auth/tokenStore'
 
 export const useInitializeData = () => {
   const dispatch = useDispatch()
 
   useEffect(() => {
-    // Only fetch profile if a token exists
-    if (getToken()) dispatch(userProfile())
+    const token = getAccessToken()
+    if (token) {
+      dispatch(userProfile())
+      return
+    }
+
+    if (cookieAuthEnabled()) {
+      dispatch(refreshAccessToken()).then((res) => {
+        if (refreshAccessToken.fulfilled.match(res)) {
+          dispatch(userProfile())
+        }
+      })
+      return
+    }
+
+    dispatch(resetUser())
   }, [dispatch])
 }
 

@@ -5,6 +5,7 @@ import { useSelector } from 'react-redux'
 import { useNavigate, useParams } from 'react-router-dom'
 import ClassicBtn from '../../components/button/ClassicButton'
 import DisputeModal from '../../components/DisputeModal'
+import { getAccessToken } from '../../auth/tokenStore'
 
 import {
   getCircle,
@@ -703,7 +704,7 @@ const CirclesDetailPage = () => {
   const [pendingAction, setPendingAction] = useState(null) // 'fund' | 'withdraw'
   const [pendingPayload, setPendingPayload] = useState(null)
 
-  const hasToken = () => Boolean(localStorage.getItem('bitglobal'))
+  const hasToken = () => Boolean(getAccessToken())
 
   const scrollToTransfer = () => {
     try {
@@ -874,12 +875,19 @@ const CirclesDetailPage = () => {
       setPendingAction(null)
       setPendingPayload(null)
     } catch (e) {
-      const msg =
-        e?.response?.data?.errors?.join(', ') ||
-        e?.response?.data?.error ||
-        e?.message ||
-        'Unable to verify PIN right now.'
-      setPinError(msg)
+      const status = e?.response?.status
+      const data = e?.response?.data || {}
+      const errors = Array.isArray(data.errors) ? data.errors.join(', ') : ''
+      const baseMsg = data.message || errors || data.error || e?.message || 'Unable to verify PIN right now.'
+
+      if (status === 429 && data.retry_after_seconds) {
+        const minutes = Math.max(1, Math.ceil(data.retry_after_seconds / 60))
+        setPinError(data.message || `Too many failed attempts. Try again in ${minutes} minute(s).`)
+      } else if (status === 422 && typeof data.attempts_remaining === 'number') {
+        setPinError(`${baseMsg} (${data.attempts_remaining} attempt${data.attempts_remaining === 1 ? '' : 's'} left)`)
+      } else {
+        setPinError(baseMsg)
+      }
     } finally {
       setPinBusy(false)
 
@@ -933,12 +941,16 @@ const CirclesDetailPage = () => {
   const backendCanWithdraw = Boolean(group?.can_withdraw)
   const uiCanWithdraw = (isOwner || isAdmin) && backendCanWithdraw
   const uiCanCreateActivity = isOwner || isAdmin
+  const uiCanInviteMembers = isOwner || isAdmin
 
   const withdrawalLockedReason = !backendCanWithdraw
     ? 'Withdrawals are not available for your account in this group.'
     : !(isOwner || isAdmin)
     ? 'Only the group owner/admin can withdraw.'
     : ''
+
+  const memberCount = Array.isArray(members) ? members.length : 0
+  const membersMasked = Array.isArray(members) ? members.some((m) => m?.masked) : false
 
   const orderedActivity = useMemo(() => (Array.isArray(activity) ? activity : []), [activity])
 
@@ -1062,6 +1074,10 @@ const CirclesDetailPage = () => {
   const handleInvite = async (e) => {
     e.preventDefault()
     if (!group) return
+    if (!uiCanInviteMembers) {
+      setInviteError('Only group owners and admins can invite members.')
+      return
+    }
     const email = inviteEmail.trim()
     if (!email) return setInviteError('Enter an email to add.')
 
@@ -1078,7 +1094,9 @@ const CirclesDetailPage = () => {
       const res = await inviteCircleMember(group.id, { email, role: 'member' })
       const newMembership = res?.data
 
-      setMembers((prev) => [...(prev || []), newMembership])
+      if (newMembership) {
+        setMembers((prev) => [...(prev || []), newMembership])
+      }
       setInviteEmail('')
       setInviteSuccess(`Added ${email} to this group.`)
     } catch (err) {
@@ -1326,6 +1344,71 @@ const CirclesDetailPage = () => {
             depositPreset={depositPreset}
             clearDepositPreset={() => setDepositPreset(null)}
           />
+
+          <section className="rounded-2xl border border-slate-800 bg-slate-950/80 p-4 min-w-0">
+            <div className="flex items-center justify-between gap-3 mb-2">
+              <div>
+                <h2 className="text-sm font-semibold">Members</h2>
+                <p className="text-[11px] text-slate-500">
+                  {memberCount} member{memberCount === 1 ? '' : 's'}
+                </p>
+              </div>
+              <span className="text-[10px] uppercase tracking-[0.2em] text-slate-500">
+                {currentRole || 'member'}
+              </span>
+            </div>
+
+            {membersMasked && (
+              <p className="text-[11px] text-slate-500 mb-3">
+                Some details are hidden for members. Admins can view full info.
+              </p>
+            )}
+
+            {memberCount ? (
+              <ul className="space-y-2">
+                {(members || []).map((member) => {
+                  const roleLabel = member?.role || 'member'
+                  const memberUser = member?.user || {}
+                  const displayName = memberUser.display_name || memberUser.email || 'Member'
+                  const email = memberUser.email || ''
+                  const phone = memberUser.phone_number || ''
+                  const invitedBy = member?.invited_by?.email || member?.invited_by?.id
+                  const avatarKey = email || displayName
+
+                  return (
+                    <li
+                      key={member?.id || `${roleLabel}-${email}`}
+                      className="flex items-center gap-3 rounded-xl border border-slate-800 bg-slate-900/60 px-3 py-2"
+                    >
+                      <div
+                        className={`h-9 w-9 rounded-full bg-gradient-to-br ${colorFromEmail(
+                          avatarKey
+                        )} flex items-center justify-center text-[12px] font-semibold border border-slate-900 shadow shrink-0`}
+                        title={email || displayName}
+                      >
+                        {initialsFromEmail(avatarKey)}
+                      </div>
+
+                      <div className="min-w-0">
+                        <p className="text-sm font-semibold text-slate-100 truncate">{displayName}</p>
+                        <p className="text-[11px] text-slate-400 truncate">
+                          {email || 'Email hidden'}
+                          {phone ? ` • ${phone}` : ''}
+                          {invitedBy ? ` • Invited by ${invitedBy}` : ''}
+                        </p>
+                      </div>
+
+                      <span className="ml-auto text-[10px] uppercase tracking-[0.18em] text-slate-400">
+                        {roleLabel}
+                      </span>
+                    </li>
+                  )
+                })}
+              </ul>
+            ) : (
+              <p className="text-[11px] text-slate-500">No members found yet.</p>
+            )}
+          </section>
 
           <section className="rounded-2xl border border-slate-800 bg-slate-950/80 p-4 min-w-0 lg:sticky lg:top-6">
             <div className="flex items-center justify-between gap-3 mb-2">
@@ -1653,18 +1736,24 @@ const CirclesDetailPage = () => {
               type="email"
               value={inviteEmail}
               onChange={(e) => setInviteEmail(e.target.value)}
-              placeholder="friend@example.com"
+              placeholder={uiCanInviteMembers ? 'friend@example.com' : 'Only owners/admins can add people'}
               className="w-full md:flex-1 h-11 rounded-lg border border-slate-700 bg-slate-950/70 px-3 text-sm text-slate-100 outline-none min-w-0"
+              disabled={!uiCanInviteMembers}
             />
             <ClassicBtn
               htmlType="submit"
               className="h-11 px-4 text-xs whitespace-nowrap flex items-center justify-center leading-none"
-              disabled={inviting}
+              disabled={inviting || !uiCanInviteMembers}
             >
               <span className="leading-none">{inviting ? 'Adding…' : 'Add person'}</span>
             </ClassicBtn>
           </form>
 
+          {!uiCanInviteMembers && (
+            <p className="mt-2 text-[11px] text-slate-500">
+              Only group owners and admins can invite members.
+            </p>
+          )}
           {inviteError && <p className="mt-2 text-[11px] text-red-400">{inviteError}</p>}
           {inviteSuccess && <p className="mt-2 text-[11px] text-emerald-400">{inviteSuccess}</p>}
         </section>

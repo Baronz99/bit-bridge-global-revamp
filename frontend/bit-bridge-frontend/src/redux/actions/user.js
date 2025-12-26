@@ -36,3 +36,16 @@ export const userUpdate = createAsyncThunk(
     }
   }
 )
+
+export const clearUserPinLockout = createAsyncThunk(
+  'USER/CLEAR_PIN_LOCKOUT',
+  async (id, { rejectWithValue }) => {
+    try {
+      const response = await client.patch(`/users/${id}/clear_pin_lockout`)
+      return response.data
+    } catch (error) {
+      const message = getErrorMessage(error)
+      return rejectWithValue({ message })
+    }
+  }
+)

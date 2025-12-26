@@ -1,117 +1,233 @@
-import React, { useState } from 'react'
+import React, { useEffect, useMemo, useState } from 'react'
 import { useDispatch, useSelector } from 'react-redux'
-import { initiateTransfer, verifyAccountUser } from '../../redux/actions/account'
+import {
+  getBeneficiaries,
+  initiateTransfer,
+  verifyAccountUser,
+} from '../../redux/actions/account'
 import AppButton from '../button/Button'
 import { nairaFormat } from '../../utils/nairaFormat'
 import { toast } from 'react-toastify'
 import { getWallet } from '../../redux/actions/wallet'
 
-// ✅ Use your reusable masked PIN input
-import TransactionPinInput from '../pin/TransactionPinInput' // <-- adjust path if yours differs
+// ✅ Masked PIN input
+import TransactionPinInput from '../pin/TransactionPinInput' // adjust path if needed
 
-const PIN_LENGTH = 6 // ✅ set to 4 if your backend still expects 4
+const PIN_LENGTH = 4
+
+const pickErrorMessage = (err) => {
+  // handles axios + RTK errors in many shapes
+  return (
+    err?.response?.data?.message ||
+    err?.response?.data?.error ||
+    (Array.isArray(err?.response?.data?.errors) ? err.response.data.errors.join(', ') : null) ||
+    err?.data?.message ||
+    err?.message ||
+    'Request failed'
+  )
+}
 
 export default function MoneyTransferFlow({ setIsfundTransferOpen }) {
   const [loading, setLoading] = useState(false)
   const dispatch = useDispatch()
-  const { banks, loading: accountLoading } = useSelector((state) => state.account)
+  const { banks, beneficiaries, loading: accountLoading } = useSelector(
+    (state) => state.account
+  )
 
   const [step, setStep] = useState(1)
+  const [isVerified, setIsVerified] = useState(false)
+
   const [formData, setFormData] = useState({
     account_number: '',
     bank_code: '',
     bank: '',
     account_name: '',
-    pin: '',
-    amount: null,
+    counter_party_id: '',
+    amount: '',
     inter_bank: false,
     description: '',
+
+    // keep in state for UI, but we will map to account.pin for backend
+    transaction_pin: '',
   })
+
+  const canVerify = useMemo(() => {
+    return String(formData.account_number || '').trim().length === 10 && !!formData.bank_code
+  }, [formData.account_number, formData.bank_code])
+
+  useEffect(() => {
+    dispatch(getBeneficiaries())
+  }, [dispatch])
 
   const handleChange = (e) => {
     const { name, value } = e.target
-    setFormData((prev) => ({ ...prev, [name]: value }))
+    setFormData((prev) => {
+      const next = { ...prev, [name]: value }
+      if (name === 'account_number' || name === 'bank_code') {
+        next.account_name = ''
+        next.bank = ''
+        next.counter_party_id = ''
+      }
+      return next
+    })
+
+    if (name === 'account_number' || name === 'bank_code') {
+      setIsVerified(false)
+    }
   }
 
   const setPin = (nextPin) => {
-    // ensure digits-only + enforce length here too
     const clean = String(nextPin || '').replace(/\D/g, '').slice(0, PIN_LENGTH)
-    setFormData((prev) => ({ ...prev, pin: clean }))
+    setFormData((prev) => ({ ...prev, transaction_pin: clean }))
   }
 
-  const fetchAccountName = () => {
-    if (formData?.account_number?.length < 10 || !formData?.bank_code) return
-    setLoading(true)
+  const fetchAccountName = async () => {
+    if (!canVerify) return
 
-    dispatch(verifyAccountUser({ account: formData }))
-      .unwrap()
-      .then((res) => {
-        setFormData((prev) => ({
-          ...prev,
-          counter_party_id: res?.data?.id,
-          bank: res?.data?.attributes?.bank?.name,
-          account_name: res?.data?.attributes?.accountName,
-        }))
-      })
-      .catch((err) => {
-        toast(err?.message || 'Failed to verify account', { type: 'error' })
-      })
-      .finally(() => setLoading(false))
+    setLoading(true)
+    try {
+      // IMPORTANT: verification should NOT include any pin fields
+      const payload = {
+        account_number: String(formData.account_number || '').trim(),
+        bank_code: formData.bank_code,
+        inter_bank: !!formData.inter_bank,
+      }
+
+      const res = await dispatch(verifyAccountUser({ account: payload })).unwrap()
+
+      setFormData((prev) => ({
+        ...prev,
+        counter_party_id: res?.data?.id,
+        bank: res?.data?.attributes?.bank?.name,
+        account_name: res?.data?.attributes?.accountName,
+      }))
+      setIsVerified(true)
+    } catch (err) {
+      toast(pickErrorMessage(err), { type: 'error' })
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const selectBeneficiary = (item) => {
+    if (!item) return
+    setFormData((prev) => ({
+      ...prev,
+      account_number: item.account_number || '',
+      bank_code: item.bank_code || '',
+      bank: item.bank_name || '',
+      account_name: item.account_name || '',
+      counter_party_id: item.counter_party_id || '',
+    }))
+    setIsVerified(true)
   }
 
   const handleSend = () => {
-    if (formData?.account_name) setStep(2)
+    const amt = Number(formData?.amount)
+    if (!canVerify) return toast('Enter a valid account number and bank', { type: 'error' })
+    if (!isVerified || !formData?.account_name)
+      return toast('Please verify the account details', { type: 'error' })
+    if (!amt || amt <= 0) return toast('Enter a valid amount', { type: 'error' })
+    setStep(2)
   }
 
-  const handleConfirm = () => {
+  const handleConfirm = async () => {
+    if (!canVerify) return toast('Enter a valid account number and bank', { type: 'error' })
+    if (!isVerified || !formData?.account_name)
+      return toast('Please verify the account details', { type: 'error' })
+    if ((formData.transaction_pin || '').length !== PIN_LENGTH) {
+      return toast(`Enter your ${PIN_LENGTH}-digit transaction PIN`, { type: 'error' })
+    }
+
+    if (!formData.counter_party_id) {
+      return toast('Please verify the account details before transferring.', { type: 'error' })
+    }
+
     setLoading(true)
+    try {
+      // ✅ Backend AccountsController currently reads: params.dig(:account, :pin)
+      // So we send pin explicitly.
+      const transferPayload = {
+        account_number: String(formData.account_number || '').trim(),
+        bank_code: formData.bank_code,
+        bank: formData.bank,
+        account_name: formData.account_name,
+        counter_party_id: formData.counter_party_id,
+        amount: formData.amount,
+        inter_bank: !!formData.inter_bank,
+        description: formData.description,
 
-    dispatch(initiateTransfer({ account: { ...formData } }))
-      .unwrap()
-      .then(() => {
-        setStep(1)
-        setIsfundTransferOpen(false)
-        dispatch(getWallet())
+        wallet_type: 'ngn', // ✅ enforce bridge wallet
+        pin: formData.transaction_pin, // ✅ THIS is the key your backend expects
+      }
 
-        toast('Transfer Successful', { type: 'success' })
+      const result = await dispatch(initiateTransfer({ account: transferPayload })).unwrap()
 
-        // ✅ reset safely (don’t set null; null can crash render)
-        setFormData({
-          account_number: '',
-          bank_code: '',
-          bank: '',
-          account_name: '',
-          pin: '',
-          amount: null,
-          inter_bank: false,
-          description: '',
-        })
+      const transferId = result?.meta?.transfer_id
+      const successMessage = transferId
+        ? `Transfer Successful (ID: ${transferId})`
+        : 'Transfer Successful'
+      toast(successMessage, { type: 'success' })
+      dispatch(getWallet())
+
+      setStep(1)
+      setIsfundTransferOpen(false)
+
+      setFormData({
+        account_number: '',
+        bank_code: '',
+        bank: '',
+        account_name: '',
+        counter_party_id: '',
+        amount: '',
+        inter_bank: false,
+        description: '',
+        transaction_pin: '',
       })
-      .catch((err) => {
-        toast(err?.message || 'Transfer failed', { type: 'error' })
-      })
-      .finally(() => setLoading(false))
+      setIsVerified(false)
+    } catch (err) {
+      toast(pickErrorMessage(err), { type: 'error' })
+    } finally {
+      setLoading(false)
+    }
   }
 
   return (
     <div className="flex flex-col items-center justify-center bg-gray-950 text-gray-100 p-6">
       <div className="w-full max-w-md bg-gray-900 rounded-2xl shadow-xl border border-gray-800 p-6 space-y-6">
         <h2 className="text-2xl font-semibold text-center text-gray-100">
-          {step === 1 ? 'Transfer Funds' : 'Confirm Transfer'}
+          {step === 1 ? 'Transfer Funds (NGN)' : 'Confirm Transfer'}
         </h2>
 
-        {/* STEP 1 */}
         {step === 1 && (
           <div className="space-y-4">
+            {beneficiaries?.length ? (
+              <div className="space-y-2">
+                <p className="text-xs text-gray-400">Recent beneficiaries</p>
+                <div className="flex flex-wrap gap-2">
+                  {beneficiaries.slice(0, 6).map((item) => (
+                    <button
+                      key={item.id}
+                      type="button"
+                      onClick={() => selectBeneficiary(item)}
+                      className="px-3 py-1.5 text-xs rounded-full bg-gray-800 border border-gray-700 text-gray-200 hover:border-blue-500/60 transition-colors"
+                    >
+                      {item.account_name || 'Unknown'} • ••••
+                      {String(item.account_number || '').slice(-4)}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+
             <div>
               <label className="block text-sm font-medium text-gray-400">Account Number</label>
               <input
                 type="text"
                 name="account_number"
-                value={formData?.account_number || ''}
+                value={formData.account_number}
                 onChange={handleChange}
-                onBlur={fetchAccountName}
-                maxLength="10"
+                maxLength={10}
                 className="w-full bg-gray-800 border border-gray-700 rounded-lg p-2 mt-1 text-gray-100 focus:ring-2 focus:ring-blue-500 focus:outline-none"
                 placeholder="Enter 10-digit account number"
               />
@@ -121,9 +237,8 @@ export default function MoneyTransferFlow({ setIsfundTransferOpen }) {
               <label className="block text-sm font-medium text-gray-400">Bank</label>
               <select
                 name="bank_code"
-                value={formData?.bank_code || ''}
+                value={formData.bank_code}
                 onChange={handleChange}
-                onBlur={fetchAccountName}
                 className="w-full bg-gray-800 border border-gray-700 rounded-lg p-2 mt-1 text-gray-100 focus:ring-2 focus:ring-blue-500 focus:outline-none"
               >
                 <option value="">Select Bank</option>
@@ -135,12 +250,21 @@ export default function MoneyTransferFlow({ setIsfundTransferOpen }) {
               </select>
             </div>
 
+            <AppButton
+              loading={loading || accountLoading}
+              onClick={fetchAccountName}
+              disabled={!canVerify || loading}
+              className="w-full py-2 rounded-lg font-semibold transition-colors bg-gray-800 border border-gray-700 text-gray-200 hover:border-blue-500/70"
+            >
+              Verify account
+            </AppButton>
+
             <div>
-              <label className="block text-sm font-medium text-gray-400">Amount</label>
+              <label className="block text-sm font-medium text-gray-400">Amount (NGN)</label>
               <input
                 type="number"
                 name="amount"
-                value={formData?.amount ?? ''}
+                value={formData.amount}
                 onChange={handleChange}
                 className="w-full bg-gray-800 border border-gray-700 rounded-lg p-2 mt-1 text-gray-100 focus:ring-2 focus:ring-blue-500 focus:outline-none"
                 placeholder="Enter Amount"
@@ -152,7 +276,7 @@ export default function MoneyTransferFlow({ setIsfundTransferOpen }) {
               <input
                 type="text"
                 name="description"
-                value={formData?.description || ''}
+                value={formData.description}
                 onChange={handleChange}
                 className="w-full bg-gray-800 border border-gray-700 rounded-lg p-2 mt-1 text-gray-100 focus:ring-2 focus:ring-blue-500 focus:outline-none"
                 placeholder="Narrative"
@@ -165,18 +289,18 @@ export default function MoneyTransferFlow({ setIsfundTransferOpen }) {
               </div>
             )}
 
-            {formData?.account_name && (
+            {formData.account_name && (
               <div className="bg-green-900/30 border border-green-600 p-3 rounded-lg text-center text-green-300">
-                Account Name: <span className="font-semibold">{formData?.account_name}</span>
+                Account Name: <span className="font-semibold">{formData.account_name}</span>
               </div>
             )}
 
             <AppButton
               loading={loading || accountLoading}
               onClick={handleSend}
-              disabled={!formData?.account_name || loading}
+              disabled={!formData.account_name || loading}
               className={`w-full py-2 rounded-lg font-semibold transition-colors ${
-                formData?.account_name ? '!bg-green-600 hover:bg-blue-500 ' : 'bg-gray-700 !text-gray-400 '
+                formData.account_name ? '!bg-green-600 hover:bg-blue-500 ' : 'bg-gray-700 !text-gray-400 '
               }`}
             >
               Send
@@ -184,45 +308,41 @@ export default function MoneyTransferFlow({ setIsfundTransferOpen }) {
           </div>
         )}
 
-        {/* STEP 2 */}
         {step === 2 && (
           <div className="space-y-4">
             <div className="bg-gray-800 border border-gray-700 p-4 rounded-lg space-y-2">
               <p className="text-gray-300">
-                <span className="font-medium text-gray-400">Bank:</span> {formData?.bank}
+                <span className="font-medium text-gray-400">Bank:</span> {formData.bank}
               </p>
               <p className="text-gray-300">
-                <span className="font-medium text-gray-400">Account Number:</span> {formData?.account_number}
+                <span className="font-medium text-gray-400">Account Number:</span> {formData.account_number}
               </p>
               <p className="text-gray-300">
-                <span className="font-medium text-gray-400">Account Name:</span> {formData?.account_name}
+                <span className="font-medium text-gray-400">Account Name:</span> {formData.account_name}
               </p>
               <p className="text-gray-300">
-                <span className="font-medium text-gray-400">Amount:</span> {nairaFormat(formData?.amount)}
+                <span className="font-medium text-gray-400">Amount:</span> {nairaFormat(formData.amount, 'ngn')}
               </p>
             </div>
 
             <div>
               <label className="block text-sm font-medium text-gray-400">
-                Enter {PIN_LENGTH}-digit PIN
+                Enter {PIN_LENGTH}-digit transaction PIN
               </label>
-
-              {/* ✅ Standardized masked PIN input */}
               <TransactionPinInput
-                value={formData?.pin || ''}
+                value={formData.transaction_pin}
                 onChange={setPin}
                 length={PIN_LENGTH}
                 disabled={loading}
-                className="w-full bg-gray-800 border border-gray-700 rounded-lg p-2 mt-1 text-center tracking-widest text-gray-100 focus:ring-2 focus:ring-blue-500 focus:outline-none"
               />
             </div>
 
             <AppButton
               loading={loading}
               onClick={handleConfirm}
-              disabled={(formData?.pin || '').length !== PIN_LENGTH || loading}
+              disabled={(formData.transaction_pin || '').length !== PIN_LENGTH || loading}
               className={`w-full py-2 rounded-lg font-semibold transition-colors ${
-                (formData?.pin || '').length === PIN_LENGTH
+                (formData.transaction_pin || '').length === PIN_LENGTH
                   ? '!bg-green-600 hover:bg-blue-500 '
                   : 'bg-gray-700 !text-gray-400 '
               }`}

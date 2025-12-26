@@ -2,9 +2,20 @@
 
 import { createAsyncThunk } from '@reduxjs/toolkit'
 import { toast } from 'react-toastify'
-import client, { TOKEN_KEY, clearToken } from '../../api/client'
+import client, { clearToken } from '../../api/client'
 import { API_BASE_URL } from '../../api/config'
-import { signup as apiSignup, apiLoginV1 as apiLogin, REFRESH_TOKEN_KEY } from '../../api/auth'
+import { signup as apiSignup, login as apiLogin } from '../../api/auth'
+import {
+  TOKEN_KEY,
+  REFRESH_TOKEN_KEY,
+  cookieAuthEnabled,
+  getAccessToken,
+  getRefreshToken,
+  setAccessToken,
+  setRefreshToken,
+  clearAuthStorage,
+  legacyStorageEnabled,
+} from '../../auth/tokenStore'
 
 import UserService from '../../service/user-service'
 
@@ -30,13 +41,13 @@ const cleanToken = (token) => {
 const saveAccessToken = (token) => {
   const clean = cleanToken(token)
   if (!clean) return
-  localStorage.setItem(ACCESS_TOKEN_KEY, clean) // ✅ plain string
+  setAccessToken(clean)
 }
 
 const saveRefreshToken = (token) => {
   const clean = cleanToken(token)
   if (!clean) return
-  localStorage.setItem(REFRESH_TOKEN_KEY, clean) // ✅ plain string
+  setRefreshToken(clean)
 }
 
 const getRecentEmails = () => {
@@ -59,10 +70,15 @@ const saveEmailToRecents = (email) => {
   localStorage.setItem(RECENT_EMAILS_KEY, JSON.stringify(next))
 }
 
-const clearAuthStorage = () => {
-  localStorage.removeItem(ACCESS_TOKEN_KEY)
-  localStorage.removeItem(REFRESH_TOKEN_KEY)
-  localStorage.removeItem(LAST_EMAIL_KEY)
+const clearAuthStorageLegacy = () => {
+  clearAuthStorage()
+  if (legacyStorageEnabled()) {
+    try {
+      localStorage.removeItem(LAST_EMAIL_KEY)
+    } catch {
+      // no-op
+    }
+  }
   // keep recent_emails
 }
 
@@ -132,11 +148,11 @@ export const userLogin = createAsyncThunk(
   'login/user-login',
   async (data, { rejectWithValue }) => {
     try {
-      // 1) login (your /api/v1/login)
+      // 1) login (/login - Devise root)
       const response = await apiLogin(data)
       const result = response.data
 
-      const accessToken = result?.token
+      const accessToken = result?.token || result?.access_token
       const refreshToken = response?.headers?.['bit-refresh-token']
 
       if (accessToken) saveAccessToken(accessToken)
@@ -211,16 +227,18 @@ export const refreshAccessToken = createAsyncThunk(
   'auth/refresh-token',
   async (_, { rejectWithValue }) => {
     try {
-      const refreshToken = localStorage.getItem(REFRESH_TOKEN_KEY)
-      if (!refreshToken) return rejectWithValue({ message: 'No refresh token stored' })
+      const refreshToken = getRefreshToken()
+      if (!refreshToken && !cookieAuthEnabled())
+        return rejectWithValue({ message: 'No refresh token stored' })
 
       const res = await fetch(`${AUTH_BASE}/refresh`, {
         method: 'POST',
         headers: {
           Accept: 'application/json',
           'Content-Type': 'application/json',
-          'Bit-Refresh-Token': refreshToken,
+          ...(refreshToken ? { 'Bit-Refresh-Token': refreshToken } : {}),
         },
+        credentials: cookieAuthEnabled() ? 'include' : 'same-origin',
       })
 
       if (!res.ok) {
@@ -239,8 +257,7 @@ export const refreshAccessToken = createAsyncThunk(
       return data
     } catch (error) {
       clearToken()
-      localStorage.removeItem(REFRESH_TOKEN_KEY)
-      localStorage.removeItem(LAST_EMAIL_KEY)
+      clearAuthStorageLegacy()
 
       const message = getErrorMessage(error, 'Session expired. Please log in again.')
       toast(message, { type: 'error' })
@@ -407,18 +424,17 @@ export const userLogout = createAsyncThunk('logout/user-logout', async (_, { rej
       headers: {
         Accept: 'application/json',
         'Content-Type': 'application/json',
-        ...(localStorage.getItem(ACCESS_TOKEN_KEY)
-          ? { Authorization: `Bearer ${localStorage.getItem(ACCESS_TOKEN_KEY)}` }
-          : {}),
+        ...(getAccessToken() ? { Authorization: `Bearer ${getAccessToken()}` } : {}),
       },
+      credentials: cookieAuthEnabled() ? 'include' : 'same-origin',
     }).catch(() => {})
 
-    clearAuthStorage()
+    clearAuthStorageLegacy()
     clearToken()
     toast('Logged out', { type: 'success' })
     return { success: true }
   } catch (error) {
-    clearAuthStorage()
+    clearAuthStorageLegacy()
     clearToken()
     const message = getErrorMessage(error, 'Logged out')
     return rejectWithValue({ message })

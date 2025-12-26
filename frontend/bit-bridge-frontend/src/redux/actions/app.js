@@ -1,7 +1,7 @@
 import { createAsyncThunk } from '@reduxjs/toolkit'
 import { toast } from 'react-toastify'
 import { signup } from '../../api/auth'
-import { TOKEN_KEY } from '../../api/client'
+import { setAccessToken } from '../../auth/tokenStore'
 
 export const userSignUp = createAsyncThunk(
   'sign-up/user-signUp',
@@ -31,8 +31,7 @@ export const userSignUp = createAsyncThunk(
       }
 
       if (accessToken) {
-        // Store raw token (not JSON.stringify) so client interceptor can use it directly
-        localStorage.setItem(TOKEN_KEY, accessToken)
+        setAccessToken(accessToken)
       } else {
         console.warn('Access token not found in response header/body')
       }

@@ -4,6 +4,7 @@ module Api
   module V1
     class ProvisionsController < ApplicationController
       before_action :set_provision, only: %i[show update destroy]
+      before_action :require_admin!, only: %i[create update destroy]
       skip_before_action :authenticate_user!, only: %i[index show]
       # GET /provisions
       def index
@@ -55,6 +56,12 @@ module Api
       def provision_params
         params.require(:provision).permit(:name, :value, :description, :currency, :min_value, :max_value,
                                           :provision_value_type, :product_id, :service_type, :info, :notice, value_range: [])
+      end
+
+      def require_admin!
+        return if current_user&.admin?
+
+        render json: { message: 'Admin access required' }, status: :forbidden
       end
     end
   end

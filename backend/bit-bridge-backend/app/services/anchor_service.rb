@@ -208,7 +208,10 @@ class AnchorService
     body = body.to_json
 
     begin
-      fetch('post', 'counterparties', nil, body)
+      response = fetch('post', 'counterparties', nil, body)
+      anchor_id = response.dig(:data, 'id')
+      Rails.logger.info("Anchor counterparty created id=#{anchor_id}") if anchor_id
+      response
     rescue StandardError => e
       { message: e.message.to_s || 'bad request', status: :bad_request }
     end
@@ -347,8 +350,17 @@ class AnchorService
         amount: amount
       )
 
+      Rails.logger.info(
+        "Anchor transfer created transfer_id=#{transfer_id} counter_party_id=#{counter_party_id} " \
+        "transaction_id=#{transaction.id} reference=#{reference}"
+      )
+
       { data: transaction, status: :ok }
     rescue StandardError => e
+      Rails.logger.error(
+        "Anchor transfer failed counter_party_id=#{counter_party_id} reference=#{reference} " \
+        "error=#{e.message}"
+      )
       { message: e.message.presence || 'Bad request', status: :bad_request }
     end
   end

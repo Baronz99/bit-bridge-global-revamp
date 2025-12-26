@@ -3,6 +3,7 @@ import { useDispatch, useSelector } from 'react-redux'
 import { SET_LOADING } from '../../redux/app'
 import { useEffect, useRef } from 'react'
 import { API_BASE_URL } from '../../api/config'
+import { cookieAuthEnabled, setAccessToken, setRefreshToken } from '../../auth/tokenStore'
 
 const ConfirmEmail = () => {
   const dispatch = useDispatch()
@@ -30,6 +31,7 @@ const ConfirmEmail = () => {
       headers: {
         Accept: 'application/json',
       },
+      credentials: cookieAuthEnabled() ? 'include' : 'same-origin',
     })
       .then(async (res) => {
         if (res.ok) {
@@ -42,12 +44,8 @@ const ConfirmEmail = () => {
           const refreshToken = refreshTokenFromBody || refreshTokenFromHeader
 
           // Store tokens using your app’s real keys
-          if (accessToken) {
-            localStorage.setItem('bitglobal', accessToken)
-          }
-          if (refreshToken) {
-            localStorage.setItem('refresh-token', refreshToken)
-          }
+          if (accessToken) setAccessToken(accessToken)
+          if (refreshToken) setRefreshToken(refreshToken)
 
           dispatch(SET_LOADING(false))
           navigate('/confirmation-success')

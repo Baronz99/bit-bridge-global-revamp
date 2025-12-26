@@ -3,7 +3,7 @@
 module Api
   module V1
     class UsersController < ApplicationController
-      before_action :set_user, only: %i[show update destroy]
+      before_action :set_user, only: %i[show update destroy clear_pin_lockout]
       skip_before_action :authenticate_user!,
                          only: %i[update_password password_reset activate_user resend_confirmation_token]
 
@@ -315,6 +315,26 @@ end
         else
           render json: { message: user.errors.full_messages.to_sentence }, status: :unprocessable_entity
         end
+      end
+
+      # ========= ADMIN: CLEAR TRANSACTION PIN LOCKOUT =========
+
+      def clear_pin_lockout
+        unless current_user&.admin?
+          return render json: { message: 'Not authorized' }, status: :forbidden
+        end
+
+        return render json: { message: 'User not found' }, status: :not_found unless @user
+
+        @user.update_columns(
+          transaction_pin_attempts: 0,
+          transaction_pin_locked_until: nil
+        )
+
+        render json: {
+          message: 'Transaction PIN lockout cleared',
+          data: UserSerializer.new(@user)
+        }, status: :ok
       end
 
       # ========= HELPERS =========

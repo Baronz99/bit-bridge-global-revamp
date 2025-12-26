@@ -53,20 +53,30 @@ Rails.application.routes.draw do
 
       # ✅ Transaction PIN (single canonical routing)
       resource :transaction_pin, only: [] do
-        post  :set            # POST  /api/v1/transaction_pin/set
-        post  :verify         # POST  /api/v1/transaction_pin/verify
-        patch :change         # PATCH /api/v1/transaction_pin/change
+  get   :status         # GET   /api/v1/transaction_pin/status
+  post  :set            # POST  /api/v1/transaction_pin/set
+  post  :verify         # POST  /api/v1/transaction_pin/verify
+  patch :change         # PATCH /api/v1/transaction_pin/change
 
-        post 'reset/request',  to: 'transaction_pins#reset_request'  # POST /api/v1/transaction_pin/reset/request
-        post 'reset/confirm',  to: 'transaction_pins#reset_confirm'  # POST /api/v1/transaction_pin/reset/confirm
-      end
+  post 'reset/request', to: 'transaction_pins#reset_request'
+  post 'reset/confirm', to: 'transaction_pins#reset_confirm'
+end
+
 
       resources :cards do
         collection do
           post :fund_wallet
           post :register_cardholder
+          get  :get_all_states
           get  :user_card
           post :create_card
+        end
+        member do
+          get :details
+          get :balance
+          get :reveal
+          patch :freeze
+          patch :unfreeze
         end
       end
 
@@ -78,6 +88,7 @@ Rails.application.routes.draw do
           get  :get_user_account_detail
           get  :get_account_details
           get  :get_banks
+          get  :beneficiaries
 
           get  :verify_transfer
           post :initiate_fund_transfer
@@ -131,8 +142,17 @@ Rails.application.routes.draw do
       end
 
       resources :wallets do
-        collection { get :user }
-      end
+  collection do
+    get :user
+    post 'tunnel/activate', to: 'wallets#activate_tunnel'
+    post 'tunnel/convert', to: 'wallets#convert_ngn_to_usd'
+    post 'tunnel/quote',   to: 'wallets#quote_ngn_to_usd'
+    post 'tunnel/convert-back', to: 'wallets#convert_usd_to_ngn'
+    post 'tunnel/quote-back',   to: 'wallets#quote_usd_to_ngn'
+
+  end
+end
+
 
       resources :order_items
 
@@ -183,6 +203,9 @@ Rails.application.routes.draw do
           patch :basic_profile
           patch :use_case
           patch :update_kyc_level
+        end
+        member do
+          patch :clear_pin_lockout
         end
       end
 

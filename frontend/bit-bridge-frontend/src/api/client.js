@@ -2,17 +2,58 @@
 
 import axios from 'axios'
 import { API_BASE_URL } from './config'
+import {
+  TOKEN_KEY,
+  REFRESH_TOKEN_KEY,
+  getAccessToken,
+  clearAccessToken,
+  clearAuthStorage as clearAuthStorageStore,
+  getRefreshToken,
+  setAccessToken,
+  setRefreshToken,
+  cookieAuthEnabled,
+} from '../auth/tokenStore'
 
 /**
  * Normalize base URL to avoid double slashes
  */
 const normalizeBaseUrl = (url) => (url ? url.replace(/\/+$/, '') : '')
+const stripApiV1Suffix = (url) => normalizeBaseUrl(url).replace(/\/api\/v1$/i, '')
+
+const ROOT_BASE_URL = stripApiV1Suffix(API_BASE_URL)
+
+let refreshPromise = null
+
+const refreshAccessToken = async () => {
+  const refreshToken = getRefreshToken()
+  if (!refreshToken && !cookieAuthEnabled()) {
+    throw new Error('No refresh token stored')
+  }
+
+  const response = await fetch(`${ROOT_BASE_URL}/refresh`, {
+    method: 'POST',
+    headers: {
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+      ...(refreshToken ? { 'Bit-Refresh-Token': refreshToken } : {}),
+    },
+    credentials: cookieAuthEnabled() ? 'include' : 'same-origin',
+  })
+
+  if (!response.ok) {
+    throw new Error(`Refresh failed (${response.status})`)
+  }
+
+  const result = await response.json()
+  if (result?.access_token) setAccessToken(result.access_token)
+  if (result?.refresh_token) setRefreshToken(result.refresh_token)
+  return result
+}
 
 /**
  * Keep token key consistent everywhere
  */
-export const TOKEN_KEY = 'bitglobal'
-export const REFRESH_TOKEN_KEY = 'refresh-token'
+export { TOKEN_KEY, REFRESH_TOKEN_KEY }
 
 /**
  * Read token safely:
@@ -20,47 +61,14 @@ export const REFRESH_TOKEN_KEY = 'refresh-token'
  * - supports JSON stored token: {"token":"..."} / {"access_token":"..."}
  * - strips accidental quotes and "Bearer "
  */
-export const getToken = () => {
-  try {
-    const raw = localStorage.getItem(TOKEN_KEY)
-    if (!raw) return null
-
-    // common case: token string already
-    if (/^Bearer\s+/i.test(raw)) return raw.replace(/^Bearer\s+/i, '').trim()
-    if (raw.startsWith('ey')) return raw.trim()
-
-    // sometimes stored as JSON
-    try {
-      const obj = JSON.parse(raw)
-      const t = obj?.token || obj?.access_token || obj?.jwt
-      if (t) return String(t).replace(/^Bearer\s+/i, '').trim()
-    } catch {
-      // ignore
-    }
-
-    // fallback
-    return String(raw).replace(/^"+|"+$/g, '').replace(/^Bearer\s+/i, '').trim()
-  } catch {
-    return null
-  }
-}
+export const getToken = () => getAccessToken()
 
 export const clearToken = () => {
-  try {
-    localStorage.removeItem(TOKEN_KEY)
-  } catch {
-    // no-op
-  }
+  clearAccessToken()
 }
 
 export const clearAuthStorage = () => {
-  try {
-    localStorage.removeItem(TOKEN_KEY)
-    localStorage.removeItem(REFRESH_TOKEN_KEY)
-    localStorage.removeItem('email')
-  } catch {
-    // no-op
-  }
+  clearAuthStorageStore()
 }
 
 /**
@@ -110,12 +118,28 @@ const isAuthPage = () => {
 
 client.interceptors.response.use(
   (res) => res,
-  (error) => {
+  async (error) => {
     const status = error?.response?.status
 
     if (status === 401) {
       // Only force-login redirect if the user had a token (session expired / invalid token)
       const hadToken = !!getToken()
+      const originalRequest = error?.config
+
+      if (hadToken && originalRequest && !originalRequest._retry) {
+        originalRequest._retry = true
+        try {
+          if (!refreshPromise) {
+            refreshPromise = refreshAccessToken().finally(() => {
+              refreshPromise = null
+            })
+          }
+          await refreshPromise
+          return client.request(originalRequest)
+        } catch {
+          // fall through to logout handling
+        }
+      }
 
       clearAuthStorage()
 

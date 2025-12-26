@@ -103,6 +103,25 @@ module Api
         end
       end
 
+      def beneficiaries
+        items = current_user.beneficiaries.order(created_at: :desc)
+
+        data = items.map do |item|
+          {
+            id: item.id,
+            vendor: item.vendor,
+            bank_code: item.bank_code,
+            bank_name: item.bank_name,
+            account_number: item.account_number,
+            account_name: item.account_name,
+            counter_party_id: item.counter_party_id,
+            created_at: item.created_at
+          }
+        end
+
+        render json: { data: data }, status: :ok
+      end
+
       def verify_account
         service = AccountService.new
         service_response = service.verify_account
@@ -135,12 +154,60 @@ module Api
       end
 
       def create_counter_party
+        bank_code = account_params[:bank_code]
+        account_number = account_params[:account_number]
+
+        if bank_code.blank? || account_number.blank?
+          return render json: { message: 'bank_code and account_number are required' },
+                        status: :unprocessable_entity
+        end
+
+        unless account_number.to_s.strip.match?(/\A\d{10}\z/)
+          return render json: { message: 'account_number must be 10 digits' },
+                        status: :unprocessable_entity
+        end
+
+        existing = current_user.beneficiaries.find_by(
+          vendor: 'anchor',
+          bank_code: bank_code,
+          account_number: account_number
+        )
+
+        if existing&.counter_party_id.present?
+          return render json: {
+            data:     existing.counter_party_payload,
+            messsage: 'Counter Party fetched'
+          }, status: :ok
+        end
+
         service = AnchorService.new
         service_response = service.create_counter_party(account_params)
 
         if service_response[:status] == :ok
+          data = service_response[:data] || {}
+          counter_party_id = data['id']
+
+          if counter_party_id.present?
+            beneficiary = current_user.beneficiaries.find_or_initialize_by(
+              vendor: 'anchor',
+              bank_code: bank_code,
+              account_number: account_number
+            )
+            beneficiary.assign_attributes(
+              counter_party_id: counter_party_id,
+              account_name: data.dig('attributes', 'accountName') || account_params[:account_name],
+              bank_name: data.dig('attributes', 'bank', 'name')
+            )
+
+            begin
+              beneficiary.save!
+            rescue StandardError => e
+              Rails.logger.error("Failed to save beneficiary: #{e.message}")
+            end
+          end
+
           render json: {
-            data:     service_response[:data],
+            data:     data,
             messsage: 'Counter Party created'
           }, status: :ok
         else
@@ -157,8 +224,13 @@ module Api
           return render json: { message: 'No Anchor account present' }, status: :not_found
         end
 
+        return unless validate_transfer_params!
+
         pin = params.dig(:account, :pin).to_s.strip
-        return unless require_transaction_pin!(pin)
+return unless require_transaction_pin!(pin, error_key: :message)
+
+
+
 
         transfer_params = account_params.to_h.symbolize_keys.merge(
           source_id:             anchor_account.useable_id,
@@ -172,9 +244,13 @@ module Api
         service_response = service.initiate_transfer(transfer_params)
 
         if service_response[:status] == :ok
+          transfer_id = service_response[:data]&.transfer_id
           render json: {
             data:    service_response[:data],
-            message: 'Fund has been sent'
+            message: 'Fund has been sent',
+            meta: {
+              transfer_id: transfer_id
+            }
           }, status: :ok
         else
           render json: { message: service_response[:message] }, status: :unprocessable_entity
@@ -344,69 +420,33 @@ module Api
       # ✅ Transaction PIN enforcement with lockouts + attempt tracking (safe if columns don't exist)
       #
       # Returns true to continue, otherwise renders JSON + returns false.
-      def require_transaction_pin!(pin)
-        # 1) Require PIN set (support both transaction_pin_set? and "transaction_pin" presence styles)
-        pin_is_set =
-          if current_user.respond_to?(:transaction_pin_set?)
-            current_user.transaction_pin_set?
-          elsif current_user.respond_to?(:transaction_pin_digest)
-            current_user.transaction_pin_digest.present?
-          elsif current_user.respond_to?(:transaction_pin)
-            current_user.transaction_pin.present?
-          else
-            false
-          end
+      def validate_transfer_params!
+        account_number = account_params[:account_number].to_s.strip
+        bank_code = account_params[:bank_code].to_s.strip
+        counter_party_id = account_params[:counter_party_id].to_s.strip
+        amount = account_params[:amount]
+        inter_bank = ActiveModel::Type::Boolean.new.cast(account_params[:inter_bank])
 
-        unless pin_is_set
-          render json: { message: 'Please set a transaction PIN before making transfers.' }, status: :forbidden
+        unless account_number.match?(/\A\d{10}\z/)
+          render json: { message: 'account_number must be 10 digits' }, status: :unprocessable_entity
           return false
         end
 
-        # 2) Check lock
-        if current_user.respond_to?(:transaction_pin_locked_until) &&
-           current_user.transaction_pin_locked_until.present? &&
-           current_user.transaction_pin_locked_until > Time.current
-          render json: { message: 'PIN locked. Please try again later.' }, status: :too_many_requests
+        if bank_code.blank?
+          render json: { message: 'bank_code is required' }, status: :unprocessable_entity
           return false
         end
 
-        # 3) Validate provided PIN
-        provided = pin.to_s.strip
-        if provided.blank?
-          render json: { message: 'Transaction PIN is required' }, status: :unprocessable_entity
+        if !inter_bank && counter_party_id.blank?
+          render json: { message: 'counter_party_id is required for NIP transfers' },
+                 status: :unprocessable_entity
           return false
         end
 
-        # Prefer a validation method if you have one on User model
-        valid =
-          if current_user.respond_to?(:valid_transaction_pin?)
-            current_user.valid_transaction_pin?(provided)
-          elsif current_user.respond_to?(:authenticate_transaction_pin)
-            current_user.authenticate_transaction_pin(provided)
-          else
-            false
-          end
-
-        unless valid
-          # increment attempts + lock after 5 (only if columns exist)
-          if current_user.respond_to?(:transaction_pin_attempts) &&
-             current_user.respond_to?(:transaction_pin_attempts=) &&
-             current_user.respond_to?(:transaction_pin_locked_until=)
-
-            attempts = current_user.transaction_pin_attempts.to_i + 1
-            attrs = { transaction_pin_attempts: attempts }
-            attrs[:transaction_pin_locked_until] = 15.minutes.from_now if attempts >= 5
-            current_user.update!(attrs)
-          end
-
-          render json: { message: 'Invalid transaction PIN' }, status: :unprocessable_entity
+        numeric_amount = amount.to_d rescue nil
+        if numeric_amount.nil? || numeric_amount <= 0
+          render json: { message: 'amount must be greater than 0' }, status: :unprocessable_entity
           return false
-        end
-
-        # 4) Reset attempts after success (only if columns exist)
-        if current_user.respond_to?(:transaction_pin_attempts=) &&
-           current_user.respond_to?(:transaction_pin_locked_until=)
-          current_user.update!(transaction_pin_attempts: 0, transaction_pin_locked_until: nil)
         end
 
         true

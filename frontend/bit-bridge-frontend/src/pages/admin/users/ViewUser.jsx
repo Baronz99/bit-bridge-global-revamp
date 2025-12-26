@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useDispatch, useSelector } from 'react-redux'
 import { NavLink, useNavigate, useParams } from 'react-router-dom'
 import { nairaFormat } from '../../../utils/nairaFormat'
@@ -6,7 +6,7 @@ import { nairaFormat } from '../../../utils/nairaFormat'
 import './styles.scss'
 
 import { FaArrowLeft } from 'react-icons/fa'
-import { getUser, userUpdate } from '../../../redux/actions/user'
+import { clearUserPinLockout, getUser, userUpdate } from '../../../redux/actions/user'
 import dateFormater from '../../../utils/dateFormat'
 import statusStyle from '../../../utils/statusStyle'
 import Loading from '../../../components/loader/Loading'
@@ -102,6 +102,18 @@ const ViewUser = () => {
     })
   }
 
+  const handleClearPinLockout = () => {
+    dispatch(clearUserPinLockout(id))
+      .unwrap()
+      .then((result) => {
+        toast(result.message ?? 'Transaction PIN lockout cleared', { type: 'success' })
+        dispatch(getUser(id))
+      })
+      .catch((error) => {
+        toast(error.message ?? 'Unable to clear PIN lockout', { type: 'error' })
+      })
+  }
+
   const no_items = 10
   const pages = Math.ceil((user?.transactions?.length ?? 1) / no_items)
   const [activePage, setActivePage] = useState(0)
@@ -153,157 +165,305 @@ const ViewUser = () => {
   const idTypeLabel = user?.id_type ? user.id_type.toUpperCase() : 'Not provided'
 
   const isStudentUseCase = user?.primary_use_case === 'student_life'
+  const pinSetLabel = user?.transaction_pin_set ? 'Set' : 'Not set'
+  const pinLocked = user?.transaction_pin_locked
+  const pinRemainingSeconds = Number(user?.transaction_pin_lock_remaining_seconds || 0)
+  const pinRemainingMinutes =
+    pinLocked && pinRemainingSeconds > 0 ? Math.ceil(pinRemainingSeconds / 60) : 0
+
+  const formatUsd = (value) => {
+    if (value === null || value === undefined || Number.isNaN(Number(value))) {
+      return 'Not available'
+    }
+    return new Intl.NumberFormat('en-US', {
+      style: 'currency',
+      currency: 'USD',
+      minimumFractionDigits: 2,
+    }).format(Number(value))
+  }
+
+  const maskCardId = (value) => {
+    const raw = String(value || '')
+    if (!raw) return 'Not available'
+    return `•••• ${raw.slice(-4)}`
+  }
+
+  const wallets = Array.isArray(user?.wallets) ? user.wallets : []
+  const ngnWallet = wallets.find((wallet) => wallet.wallet_type === 'ngn') || user?.wallet
+  const usdWallet = wallets.find((wallet) => wallet.wallet_type === 'usd')
+
+  const walletData = useMemo(
+    () => [
+      {
+        label: 'NGN Balance',
+        value: nairaFormat(ngnWallet?.balance),
+      },
+      {
+        label: 'NGN Total Deposit',
+        value: nairaFormat(ngnWallet?.total_deposit),
+      },
+      {
+        label: 'NGN Total Withdrawal',
+        value: nairaFormat(ngnWallet?.withdrawn),
+      },
+      {
+        label: 'NGN Total Bills',
+        value: nairaFormat(ngnWallet?.total_bills),
+      },
+      {
+        label: 'Tunnel (USD) Balance',
+        value: formatUsd(usdWallet?.balance),
+      },
+    ],
+    [ngnWallet, usdWallet]
+  )
+
+  const cards = Array.isArray(user?.cards) ? user.cards : []
 
   return (
     <>
-      <div className="pt-5">
-        <span
-          className="mb-5 bg-gray-50 shadow w-max p-3 rounded block cursor-pointer"
-          onClick={() => navigate(-1)}
-        >
-          <FaArrowLeft />
-        </span>
+      <div className="admin-user-page">
+        <div className="admin-user-shell">
+          <div className="admin-user-header">
+            <button
+              type="button"
+              className="admin-user-back"
+              onClick={() => navigate(-1)}
+            >
+              <FaArrowLeft />
+              <span>Back</span>
+            </button>
 
-        <div className="bg-white p-4 rounded-lg shadow ">
-          {/* Top summary: existing info + extended profile/KYC block */}
-          <div className="flex flex-col md:flex-row justify-between">
-            <div>
-              <p className="text-gray-500 font-semibold my-2">
-                <span className="text-gray-800 font-semibold">Email</span> : {user?.email ?? '—'}
-              </p>
-              <p className="text-gray-500 font-semibold my-2">
-                <span className="text-gray-800 font-semibold">Balance</span> :{' '}
-                <span>{nairaFormat(user?.wallet?.balance)}</span>
-              </p>
-              <p className="my-2">
-                <span className="text-gray-800 font-semibold capitalize">Status</span> :{' '}
-                <span className="capitalize">{user?.status ?? 'Active'}</span>
-              </p>
+            <div className="admin-user-title">
+              <p className="admin-user-eyebrow">Admin user</p>
+              <h1>Profile overview</h1>
+              <p className="admin-user-email">{user?.email ?? 'Not available'}</p>
             </div>
 
-            <div>
-              <p className="text-gray-600 font-semibold my-2">
-                <span>USER ID </span>: {id}
-              </p>
-              <p className="my-2">
-                <span className="text-gray-800 font-semibold capitalize">Type:</span>{' '}
-                <span className="text-gray-800 font-semibold capitalize">
-                  {user?.role || 'user'}
-                </span>
-              </p>
-              <p className="my-2">
-                <span className="text-gray-800 font-semibold capitalize">Wallet:</span>{' '}
-                <span>NGN</span>
-              </p>
+            <div className="admin-user-badges">
+              <span className={`admin-badge ${user?.active ? 'is-active' : 'is-inactive'}`}>
+                {user?.active ? 'Active' : 'Inactive'}
+              </span>
+              <span className="admin-badge is-role">{user?.role || 'user'}</span>
+              <span className="admin-badge is-kyc">{kycLevelLabel}</span>
             </div>
           </div>
 
-          {/* Profile & KYC / onboarding summary */}
-          <div className="mt-6 border-t pt-4 grid gap-4 md:grid-cols-2 lg:grid-cols-3 text-sm">
-            <div>
-              <p className="text-gray-500 uppercase text-xs font-semibold mb-1">Full name</p>
-              <p className="text-gray-900 font-medium">{fullName}</p>
+          <div className="admin-user-card admin-user-summary">
+              <div className="admin-card-header">
+              <div>
+                <p className="admin-card-eyebrow">Account snapshot</p>
+                <h2>Core details</h2>
+              </div>
+              <div className="admin-card-aside">
+                <span className="admin-card-label">Wallets</span>
+                <span className="admin-card-value">NGN + USD</span>
+              </div>
             </div>
 
-            <div>
-              <p className="text-gray-500 uppercase text-xs font-semibold mb-1">Phone</p>
-              <p className="text-gray-900">{phoneNumber}</p>
+            <div className="admin-user-grid">
+              <div className="admin-kv">
+                <span>Email</span>
+                <strong>{user?.email ?? 'Not available'}</strong>
+              </div>
+              <div className="admin-kv">
+                <span>User ID</span>
+                <strong>{id}</strong>
+              </div>
+              <div className="admin-kv">
+                <span>Balance</span>
+                <strong>{nairaFormat(ngnWallet?.balance)}</strong>
+              </div>
+              <div className="admin-kv">
+                <span>Status</span>
+                <strong>{user?.status ?? (user?.active ? 'Active' : 'Inactive')}</strong>
+              </div>
+              <div className="admin-kv">
+                <span>Role</span>
+                <strong className="capitalize">{user?.role || 'user'}</strong>
+              </div>
+              <div className="admin-kv">
+                <span>Wallet ID</span>
+                <strong>{ngnWallet?.id || 'Not available'}</strong>
+              </div>
             </div>
+          </div>
 
-            <div>
-              <p className="text-gray-500 uppercase text-xs font-semibold mb-1">
-                Primary use case
-              </p>
-              <p className="text-gray-900 font-medium">
-                {primaryUseCaseLabel}
-                {isStudentUseCase && (
-                  <span className="ml-2 inline-flex items-center rounded-full bg-blue-50 px-2 py-0.5 text-[10px] font-semibold text-blue-700 border border-blue-100">
-                    Student
-                  </span>
-                )}
-              </p>
+          <div className="admin-user-card admin-user-wallets">
+            <div className="admin-card-header">
+              <div>
+                <p className="admin-card-eyebrow">Balances</p>
+                <h2>Wallet overview</h2>
+              </div>
+              <div className="admin-card-aside">
+                <span className="admin-card-label">Primary</span>
+                <span className="admin-card-value">NGN</span>
+              </div>
             </div>
-
-            <div>
-              <p className="text-gray-500 uppercase text-xs font-semibold mb-1">
-                Onboarding stage
-              </p>
-              <p className="text-gray-900 capitalize">{onboardingStageLabel}</p>
-            </div>
-
-            <div>
-              <p className="text-gray-500 uppercase text-xs font-semibold mb-1">KYC level</p>
-              <p className="text-gray-900 font-medium">{kycLevelLabel}</p>
-            </div>
-
-            <div>
-              <p className="text-gray-500 uppercase text-xs font-semibold mb-1">ID type</p>
-              <p className="text-gray-900">{idTypeLabel}</p>
-            </div>
-
-            <div className="md:col-span-2 lg:col-span-3">
-              <p className="text-gray-500 uppercase text-xs font-semibold mb-1">Address</p>
-              <p className="text-gray-900">{addressDisplay}</p>
-            </div>
-
-            {/* NEW: KYC documents */}
-            <div className="md:col-span-2 lg:col-span-3">
-              <p className="text-gray-500 uppercase text-xs font-semibold mb-1">
-                KYC documents
-              </p>
-
-              {idDocumentUrl || proofOfAddressUrl ? (
-                <div className="flex flex-wrap gap-3">
-                  {idDocumentUrl && (
-                    <a
-                      href={idDocumentUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="inline-flex items-center px-3 py-1 text-xs font-semibold rounded-full bg-blue-50 text-blue-700 border border-blue-100"
-                    >
-                      View ID document
-                    </a>
-                  )}
-
-                  {proofOfAddressUrl && (
-                    <a
-                      href={proofOfAddressUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="inline-flex items-center px-3 py-1 text-xs font-semibold rounded-full bg-green-50 text-green-700 border border-green-100"
-                    >
-                      View proof of address
-                    </a>
-                  )}
+            <div className="admin-user-grid admin-user-grid--wide">
+              {walletData.map((item) => (
+                <div className="admin-kv" key={item.label}>
+                  <span>{item.label}</span>
+                  <strong>{item.value}</strong>
                 </div>
-              ) : (
-                <p className="text-gray-900">No documents uploaded</p>
-              )}
+              ))}
             </div>
           </div>
 
-          {/* Wallet summary row */}
-          <div
-            className={`mt-6 px-4 py-10 border-t border-b flex justify-between items-center ${
-              !user?.active && 'bg-red-700'
-            }`}
-          >
-            <div>
-              <p className="font-medium">Wallet ID</p>
-              <p>{user?.wallet?.id}</p>
+          <div className="admin-user-card admin-user-profile">
+            <div className="admin-card-header">
+              <div>
+                <p className="admin-card-eyebrow">Profile and compliance</p>
+                <h2>Identity and KYC</h2>
+              </div>
+              <div className="admin-card-aside">
+                <span className="admin-card-label">Onboarding</span>
+                <span className="admin-card-value capitalize">{onboardingStageLabel}</span>
+              </div>
             </div>
 
-            <ClickButton onClick={() => setOpenActivate(true)}>
-              {user?.active ? 'Deactivate Account' : 'Activate Account'}
-            </ClickButton>
-            <ClickButton onClick={() => setOpenAccountModal(true)}>Fund Account</ClickButton>
+            <div className="admin-user-grid admin-user-grid--wide">
+              <div className="admin-kv">
+                <span>Full name</span>
+                <strong>{fullName}</strong>
+              </div>
+              <div className="admin-kv">
+                <span>Phone</span>
+                <strong>{phoneNumber}</strong>
+              </div>
+              <div className="admin-kv">
+                <span>Primary use case</span>
+                <strong>
+                  {primaryUseCaseLabel}
+                  {isStudentUseCase && <span className="admin-chip">Student</span>}
+                </strong>
+              </div>
+              <div className="admin-kv">
+                <span>KYC level</span>
+                <strong>{kycLevelLabel}</strong>
+              </div>
+              <div className="admin-kv">
+                <span>ID type</span>
+                <strong>{idTypeLabel}</strong>
+              </div>
+              <div className="admin-kv">
+                <span>Transaction PIN</span>
+                <strong>{pinSetLabel}</strong>
+              </div>
+              <div className="admin-kv">
+                <span>PIN lockout</span>
+                <strong>{pinLocked ? `Locked (${pinRemainingMinutes} min)` : 'Not locked'}</strong>
+              </div>
+              <div className="admin-kv admin-kv--wide">
+                <span>Address</span>
+                <strong>{addressDisplay}</strong>
+              </div>
+              <div className="admin-kv admin-kv--wide">
+                <span>KYC documents</span>
+                {idDocumentUrl || proofOfAddressUrl ? (
+                  <div className="admin-doc-links">
+                    {idDocumentUrl && (
+                      <a href={idDocumentUrl} target="_blank" rel="noopener noreferrer">
+                        View ID document
+                      </a>
+                    )}
+                    {proofOfAddressUrl && (
+                      <a href={proofOfAddressUrl} target="_blank" rel="noopener noreferrer">
+                        View proof of address
+                      </a>
+                    )}
+                  </div>
+                ) : (
+                  <strong>No documents uploaded</strong>
+                )}
+              </div>
+            </div>
+          </div>
+
+          <div className="admin-user-card admin-user-cards">
+            <div className="admin-card-header">
+              <div>
+                <p className="admin-card-eyebrow">Bridge cards</p>
+                <h2>Card status</h2>
+              </div>
+              <div className="admin-card-aside">
+                <span className="admin-card-label">Count</span>
+                <span className="admin-card-value">{cards.length}</span>
+              </div>
+            </div>
+            {cards.length === 0 ? (
+              <p className="admin-empty">No cards found for this user.</p>
+            ) : (
+              <div className="admin-card-grid">
+                {cards.map((card) => (
+                  <div className="admin-card-item" key={card.id}>
+                    <div className="admin-card-item__top">
+                      <div>
+                        <p className="admin-card-item__brand">
+                          {card.card_brand || 'Card'}
+                        </p>
+                        <p className="admin-card-item__id">{maskCardId(card.card_id)}</p>
+                      </div>
+                      <span
+                        className={`admin-badge ${
+                          card.status === 'active' ? 'is-active' : 'is-warning'
+                        }`}
+                      >
+                        {card.status || 'pending'}
+                      </span>
+                    </div>
+                    <div className="admin-card-item__meta">
+                      <div>
+                        <span>Currency</span>
+                        <strong>{card.card_currency || 'Not available'}</strong>
+                      </div>
+                      <div>
+                        <span>Limit</span>
+                        <strong>{formatUsd(card.card_limit)}</strong>
+                      </div>
+                      <div>
+                        <span>Funding</span>
+                        <strong>{formatUsd(card.funding_amount)}</strong>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className={`admin-user-card admin-user-actions ${!user?.active ? 'is-disabled' : ''}`}>
+            <div className="admin-card-header">
+              <div>
+                <p className="admin-card-eyebrow">Admin actions</p>
+                <h2>Wallet controls</h2>
+              </div>
+              <div className="admin-card-aside">
+                <span className="admin-card-label">Wallet</span>
+                <span className="admin-card-value">{user?.wallet?.id || 'N/A'}</span>
+              </div>
+            </div>
+
+            <div className="admin-action-row">
+              <ClickButton onClick={() => setOpenActivate(true)}>
+                {user?.active ? 'Deactivate Account' : 'Activate Account'}
+              </ClickButton>
+              <ClickButton onClick={() => setOpenAccountModal(true)}>Fund Account</ClickButton>
+              <ClickButton onClick={handleClearPinLockout}>Clear PIN Lockout</ClickButton>
+            </div>
           </div>
 
           {/* Transactions table */}
-          <div className="overflow-x-auto">
-            <div className="">
+          <div className="admin-user-card admin-user-table">
+            <div className="admin-card-header">
+              <div>
+                <p className="admin-card-eyebrow">Ledger</p>
+                <h2>Transactions</h2>
+              </div>
+            </div>
+            <div className="overflow-x-auto">
               <div className="mt-4 flow-root">
-                <div className="">
+                <div>
                   <div className="inline-block min-w-full py-2 align-middle">
                     <table className="min-w-full  border border-gray-200 rounded-md border-separate border-spacing-0 table-auto overflow-hidden">
                       <thead className="top-0 sticky bg-gray-300 w-full left-0 uppercase">
@@ -453,11 +613,16 @@ const ViewUser = () => {
           </div>
 
           {/* User purchases table */}
-          <div className="overflow-x-auto">
-            <div className="">
-              <h3 className="text-xl font-semibold text-gray-700">User Purchases</h3>
+          <div className="admin-user-card admin-user-table">
+            <div className="admin-card-header">
+              <div>
+                <p className="admin-card-eyebrow">Commerce</p>
+                <h2>User purchases</h2>
+              </div>
+            </div>
+            <div className="overflow-x-auto">
               <div className="mt-4 flow-root">
-                <div className="">
+                <div>
                   <div className="inline-block min-w-full py-2 align-middle">
                     <table className="min-w-full  border border-gray-200 rounded-md border-separate border-spacing-0 table-auto overflow-hidden">
                       <thead className="bg-gray-200">

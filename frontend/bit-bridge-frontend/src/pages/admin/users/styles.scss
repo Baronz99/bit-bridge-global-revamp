@@ -18,3 +18,338 @@
     }
   }
 }
+
+.admin-user-page {
+  --au-bg: #f7f4ed;
+  --au-ink: #121212;
+  --au-muted: #4a5568;
+  --au-card: #ffffff;
+  --au-border: #e2e8f0;
+  --au-accent: #0f766e;
+  --au-accent-soft: #e6fffb;
+  --au-warning: #f97316;
+  --au-danger: #ef4444;
+  font-family: 'Sora', 'Rubik', 'Helvetica Neue', sans-serif;
+  background:
+    radial-gradient(1200px 500px at 10% -20%, #fde68a 0%, transparent 55%),
+    radial-gradient(900px 450px at 90% -10%, #a7f3d0 0%, transparent 60%),
+    linear-gradient(180deg, #f8f5f0 0%, #eef2f7 45%, #f8fafc 100%);
+  color: var(--au-ink);
+  padding: 28px 22px 64px;
+  min-height: 100vh;
+}
+
+.admin-user-shell {
+  max-width: 1180px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 26px;
+}
+
+.admin-user-header {
+  display: flex;
+  gap: 18px;
+  align-items: flex-start;
+  justify-content: space-between;
+  flex-wrap: wrap;
+}
+
+.admin-user-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid var(--au-border);
+  background: var(--au-card);
+  border-radius: 999px;
+  padding: 8px 14px;
+  font-weight: 600;
+  color: var(--au-muted);
+  box-shadow: 0 6px 18px rgba(15, 23, 42, 0.08);
+  cursor: pointer;
+}
+
+.admin-user-title {
+  flex: 1;
+  min-width: 220px;
+}
+
+.admin-user-title h1 {
+  font-size: 28px;
+  font-weight: 700;
+  margin: 4px 0 6px;
+}
+
+.admin-user-eyebrow {
+  text-transform: uppercase;
+  letter-spacing: 0.25em;
+  font-size: 10px;
+  color: var(--au-muted);
+  font-weight: 700;
+}
+
+.admin-user-email {
+  font-size: 14px;
+  color: var(--au-muted);
+}
+
+.admin-user-badges {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.admin-badge {
+  border-radius: 999px;
+  padding: 6px 12px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  border: 1px solid var(--au-border);
+  background: var(--au-card);
+  color: var(--au-muted);
+}
+
+.admin-badge.is-active {
+  background: #ecfdf3;
+  border-color: #bbf7d0;
+  color: #15803d;
+}
+
+.admin-badge.is-inactive {
+  background: #fef2f2;
+  border-color: #fecaca;
+  color: #b91c1c;
+}
+
+.admin-badge.is-role {
+  background: #f0f9ff;
+  border-color: #bae6fd;
+  color: #0369a1;
+}
+
+.admin-badge.is-kyc {
+  background: #fef3c7;
+  border-color: #fde68a;
+  color: #b45309;
+}
+
+.admin-badge.is-warning {
+  background: #fff7ed;
+  border-color: #fed7aa;
+  color: #c2410c;
+}
+
+.admin-user-card {
+  background: var(--au-card);
+  border: 1px solid var(--au-border);
+  border-radius: 20px;
+  padding: 22px 24px;
+  box-shadow: 0 18px 35px rgba(15, 23, 42, 0.08);
+}
+
+.admin-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-bottom: 18px;
+}
+
+.admin-card-header h2 {
+  font-size: 18px;
+  font-weight: 700;
+  margin: 4px 0 0;
+}
+
+.admin-card-eyebrow {
+  text-transform: uppercase;
+  letter-spacing: 0.22em;
+  font-size: 10px;
+  color: var(--au-muted);
+  font-weight: 700;
+}
+
+.admin-card-aside {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+}
+
+.admin-card-label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.2em;
+  color: var(--au-muted);
+  font-weight: 700;
+}
+
+.admin-card-value {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--au-accent);
+}
+
+.admin-user-grid {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+}
+
+.admin-user-grid--wide {
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+}
+
+.admin-kv {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.admin-kv span {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+  color: var(--au-muted);
+  font-weight: 700;
+}
+
+.admin-kv strong {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--au-ink);
+}
+
+.admin-kv--wide {
+  grid-column: 1 / -1;
+}
+
+.admin-doc-links {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.admin-doc-links a {
+  padding: 6px 12px;
+  border-radius: 999px;
+  border: 1px solid #c7d2fe;
+  background: #eef2ff;
+  color: #4338ca;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.admin-chip {
+  margin-left: 8px;
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: #ecfeff;
+  color: #0f766e;
+  border: 1px solid #99f6e4;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+}
+
+.admin-user-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.admin-action-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.admin-user-actions.is-disabled {
+  border-color: #fecaca;
+  background: #fef2f2;
+}
+
+.admin-user-table table {
+  background: #ffffff;
+  border-radius: 16px;
+  overflow: hidden;
+}
+
+.admin-empty {
+  margin: 0;
+  color: var(--au-muted);
+  font-weight: 600;
+}
+
+.admin-card-grid {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+}
+
+.admin-card-item {
+  border: 1px solid var(--au-border);
+  border-radius: 16px;
+  padding: 16px;
+  background: #f8fafc;
+  display: grid;
+  gap: 16px;
+}
+
+.admin-card-item__top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.admin-card-item__brand {
+  font-size: 15px;
+  font-weight: 700;
+  margin: 0 0 4px;
+}
+
+.admin-card-item__id {
+  font-size: 12px;
+  color: var(--au-muted);
+  margin: 0;
+}
+
+.admin-card-item__meta {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+}
+
+.admin-card-item__meta span {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+  color: var(--au-muted);
+  font-weight: 700;
+}
+
+.admin-card-item__meta strong {
+  display: block;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--au-ink);
+  margin-top: 4px;
+}
+
+@media (max-width: 768px) {
+  .admin-user-header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .admin-card-aside {
+    align-items: flex-start;
+  }
+}

@@ -3,8 +3,8 @@ default: &default
   encoding: unicode
   host: 127.0.0.1
   port: 5432
-  username: postgres
-  password: Aftersix
+  username: <%= ENV.fetch("DB_USERNAME", "postgres") %>
+  password: <%= ENV["DB_PASSWORD"] || Rails.application.credentials.dig(:db, :password) %>
   pool: <%= ENV.fetch("RAILS_MAX_THREADS", 5) %>
 
 development:

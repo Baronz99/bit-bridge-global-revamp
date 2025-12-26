@@ -1,5 +1,6 @@
 import { useEffect } from 'react'
 import { useDispatch, useSelector } from 'react-redux'
+import { useOutletContext } from 'react-router-dom'
 import { getUserBillOrders } from '../../../redux/actions/order'
 import { nairaFormat } from '../../../utils/nairaFormat'
 import dateFormater from '../../../utils/dateFormat'
@@ -10,6 +11,10 @@ const Orders = () => {
   const dispatch = useDispatch()
   const { billOrders, loading } = useSelector((state) => state.order)
 
+  // from parent <Outlet context={{ wallet_type }} />
+  const ctx = useOutletContext()
+  const wallet_type = (ctx?.wallet_type || 'ngn').toLowerCase()
+
   useEffect(() => {
     dispatch(getUserBillOrders())
   }, [dispatch])
@@ -19,12 +24,16 @@ const Orders = () => {
       {/* Page header */}
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-2 mb-4">
         <div>
-          <h1 className="text-2xl md:text-3xl font-semibold">
-            Recent Orders
-          </h1>
+          <h1 className="text-2xl md:text-3xl font-semibold">Recent Orders</h1>
           <p className="mt-1 text-sm text-slate-400 max-w-xl">
             All your electricity, TV, airtime and other bill payments in one place.
           </p>
+
+          {wallet_type === 'usd' && (
+            <div className="mt-3 text-xs text-orange-200 bg-orange-900/20 border border-orange-700/30 rounded-xl px-3 py-2 inline-block">
+              Orders are currently NGN (Bridge) only.
+            </div>
+          )}
         </div>
       </div>
 
@@ -74,9 +83,7 @@ const Orders = () => {
                   <th
                     scope="col"
                     className="sticky top-0 z-10 border-b border-slate-700 bg-opacity-75 px-3 py-3.5 text-center text-[11px] font-semibold text-slate-300 uppercase backdrop-blur backdrop-filter lg:table-cell"
-                  >
-                    {/* actions */}
-                  </th>
+                  />
                 </tr>
               </thead>
 
@@ -87,7 +94,7 @@ const Orders = () => {
                       <Loading />
                     </td>
                   </tr>
-                ) : billOrders.length > 0 ? (
+                ) : billOrders?.length > 0 ? (
                   billOrders.map((item) => (
                     <tr key={item?.id} className="bg-black">
                       <td className="whitespace-nowrap border-b border-slate-800 py-2 pl-2 pr-3 text-sm">
@@ -116,9 +123,7 @@ const Orders = () => {
 
                       <td className="whitespace-nowrap border-b border-slate-800 px-3 py-3 text-sm">
                         <span
-                          className={`${statusStyleCard(
-                            item?.status
-                          )} py-1 w-full max-w-[200px] block text-center px-3 border rounded-3xl`}
+                          className={`${statusStyleCard(item?.status)} py-1 w-full max-w-[200px] block text-center px-3 border rounded-3xl`}
                         >
                           {item?.status}
                         </span>
@@ -136,8 +141,7 @@ const Orders = () => {
                 ) : (
                   <tr>
                     <td className="py-10 text-center text-sm text-slate-400" colSpan={7}>
-                      No orders yet. Once you pay for electricity, TV or airtime,
-                      they’ll show up here.
+                      No orders yet. Once you pay for electricity, TV or airtime, they’ll show up here.
                     </td>
                   </tr>
                 )}

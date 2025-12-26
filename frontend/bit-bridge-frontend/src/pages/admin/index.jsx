@@ -8,6 +8,7 @@ import statusStyle from '../../utils/statusStyle'
 import dateFormater from '../../utils/dateFormat'
 import { PiHandDepositBold, PiHandWithdrawFill } from 'react-icons/pi'
 import { getStatistics } from '../../redux/actions/statistics'
+import { dashboardServices } from '../../data/dashboardServices'
 
 const AdminHome = () => {
   const dispatch = useDispatch()
@@ -18,6 +19,10 @@ const AdminHome = () => {
     dispatch(getTransactions())
     dispatch(getStatistics())
   }, [dispatch])
+
+  const adminServiceActions = dashboardServices.filter(
+    (item) => item.adminAction
+  )
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 p-6 overflow-y-auto">
@@ -161,6 +166,15 @@ const AdminHome = () => {
           <div className="rounded-2xl bg-slate-900 border border-slate-800 p-5 shadow-sm">
             <h2 className="text-lg font-semibold mb-3">Quick Actions</h2>
             <div className="flex flex-col space-y-3 text-sm">
+              {adminServiceActions.map((item) => (
+                <NavLink
+                  key={item.key}
+                  to={item.adminAction.to}
+                  className="w-full text-center py-2.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-100 transition-colors"
+                >
+                  {item.adminAction.label}
+                </NavLink>
+              ))}
               <NavLink
                 to="/admin/add-product"
                 className="w-full text-center py-2.5 rounded-lg bg-sky-600 hover:bg-sky-500 text-white transition-colors"
