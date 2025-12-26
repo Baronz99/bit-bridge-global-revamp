@@ -4,6 +4,7 @@ import {
   HomeOutlined,
   LoginOutlined,
   MenuUnfoldOutlined,
+  UserOutlined,
   WalletOutlined,
   CreditCardOutlined,
   IdcardOutlined, // ✅ NEW
@@ -231,6 +232,15 @@ const DashboardLayout = () => {
                     >
                       <IdcardOutlined className="text-xl" />
                       <span>Verification</span>
+                    </NavLink>
+                  </li>
+                  <li onClick={() => setOpen(false)}>
+                    <NavLink
+                      to="/dashboard/profile-account"
+                      className={({ isActive }) => (isActive ? active : normal)}
+                    >
+                      <UserOutlined className="text-xl" />
+                      <span>Profile</span>
                     </NavLink>
                   </li>
                   <li onClick={() => setOpen(false)}>
