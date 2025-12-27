@@ -246,7 +246,7 @@ end
           # Update user fields (id_type + kyc_level)
           current_user.id_type = id_type if id_type.present?
 
-          current_user.kyc_level = Kyc::LevelCalculator.resolve_level(current_user)
+          current_user.kyc_level = ::Kyc::LevelCalculator.resolve_level(current_user)
 
           unless current_user.save
             error_message = current_user.errors.full_messages.to_sentence
