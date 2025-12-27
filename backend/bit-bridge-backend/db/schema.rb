@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[7.1].define(version: 2026_01_06_100000) do
+ActiveRecord::Schema[7.1].define(version: 2026_01_07_090300) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pgcrypto"
   enable_extension "plpgsql"
@@ -288,6 +288,49 @@ ActiveRecord::Schema[7.1].define(version: 2026_01_06_100000) do
     t.datetime "updated_at", null: false
   end
 
+  create_table "kyc_attempts", id: :uuid, default: -> { "gen_random_uuid()" }, force: :cascade do |t|
+    t.uuid "user_id"
+    t.string "kyc_type", null: false
+    t.string "ip_address", null: false
+    t.boolean "success", default: false, null: false
+    t.string "result_status"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["created_at"], name: "index_kyc_attempts_on_created_at"
+    t.index ["ip_address"], name: "index_kyc_attempts_on_ip_address"
+    t.index ["user_id"], name: "index_kyc_attempts_on_user_id"
+  end
+
+  create_table "kyc_audit_logs", id: :uuid, default: -> { "gen_random_uuid()" }, force: :cascade do |t|
+    t.uuid "user_id"
+    t.uuid "admin_id"
+    t.string "action", null: false
+    t.string "status"
+    t.string "ip_address"
+    t.jsonb "metadata", default: {}
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["action"], name: "index_kyc_audit_logs_on_action"
+    t.index ["admin_id"], name: "index_kyc_audit_logs_on_admin_id"
+    t.index ["user_id"], name: "index_kyc_audit_logs_on_user_id"
+  end
+
+  create_table "kyc_reviews", id: :uuid, default: -> { "gen_random_uuid()" }, force: :cascade do |t|
+    t.uuid "user_id", null: false
+    t.string "kyc_type", null: false
+    t.string "status", default: "pending", null: false
+    t.string "reason"
+    t.text "notes"
+    t.uuid "assigned_to_admin_id"
+    t.uuid "decided_by_admin_id"
+    t.datetime "decided_at"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["kyc_type"], name: "index_kyc_reviews_on_kyc_type"
+    t.index ["status"], name: "index_kyc_reviews_on_status"
+    t.index ["user_id"], name: "index_kyc_reviews_on_user_id"
+  end
+
   create_table "monify_tokens", id: :uuid, default: -> { "gen_random_uuid()" }, force: :cascade do |t|
     t.string "token"
     t.datetime "expires_in"
@@ -450,6 +493,31 @@ ActiveRecord::Schema[7.1].define(version: 2026_01_06_100000) do
     t.index ["account_id"], name: "index_transactions_on_account_id"
     t.index ["transfer_id"], name: "index_transactions_on_transfer_id", unique: true
     t.index ["wallet_id"], name: "index_transactions_on_wallet_id"
+  end
+
+  create_table "user_kycs", id: :uuid, default: -> { "gen_random_uuid()" }, force: :cascade do |t|
+    t.uuid "user_id", null: false
+    t.string "bvn_status", default: "unverified", null: false
+    t.string "bvn_last4"
+    t.string "bvn_provider", default: "prembly", null: false
+    t.string "bvn_provider_reference"
+    t.datetime "bvn_verified_at"
+    t.boolean "bvn_name_match"
+    t.boolean "bvn_dob_match"
+    t.boolean "bvn_first_name_match"
+    t.boolean "bvn_last_name_match"
+    t.decimal "bvn_match_score", precision: 4, scale: 3
+    t.boolean "watchlisted"
+    t.integer "bvn_attempts_count", default: 0, null: false
+    t.integer "bvn_failed_attempts_count", default: 0, null: false
+    t.datetime "bvn_locked_until"
+    t.datetime "bvn_last_attempt_at"
+    t.string "bvn_fingerprint"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["bvn_fingerprint"], name: "index_user_kycs_on_bvn_fingerprint"
+    t.index ["bvn_status"], name: "index_user_kycs_on_bvn_status"
+    t.index ["user_id"], name: "index_user_kycs_on_user_id", unique: true
   end
 
   create_table "user_profiles", id: :uuid, default: -> { "gen_random_uuid()" }, force: :cascade do |t|

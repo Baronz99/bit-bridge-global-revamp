@@ -35,7 +35,7 @@ module Api
           end
 
           last4 = bvn[-4, 4]
-          fingerprint = Kyc::BvnFingerprint.generate(bvn)
+          fingerprint = ::Kyc::BvnFingerprint.generate(bvn)
 
           user_kyc.assign_attributes(
             bvn_last4: last4,
@@ -56,7 +56,7 @@ module Api
                           status: :ok
           end
 
-          result = Kyc::PremblyBvnVerification.new(bvn).call
+          result = ::Kyc::PremblyBvnVerification.new(bvn).call
           unless result[:ok]
             handle_failed_attempt!(user, user_kyc, ip_address, 'failed', result[:error])
             return render json: { status: 'error', message: 'BVN verification is unavailable. Try again later.' },
@@ -220,7 +220,7 @@ module Api
         end
 
         def refresh_tier!(user)
-          user.update!(kyc_level: Kyc::LevelCalculator.resolve_level(user))
+          user.update!(kyc_level: ::Kyc::LevelCalculator.resolve_level(user))
         end
 
         def create_review(user, reason, status)

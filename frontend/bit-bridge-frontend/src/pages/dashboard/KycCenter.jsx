@@ -251,7 +251,7 @@ const KycCenter = () => {
     normalizedTierKey === 'tier_0'
       ? { label: 'Open profile', action: goProfile }
       : normalizedTierKey === 'tier_1'
-        ? { label: 'Verify BVN', action: goBvnSection }
+        ? { label: null, action: null }
         : { label: 'Go to virtual accounts', action: goVirtualAccounts }
 
   const handleVerifyBvn = async () => {
@@ -449,13 +449,9 @@ const KycCenter = () => {
                   <p className="text-xs text-slate-400 mt-1">
                     Confirm your BVN with our verification partner. We never store your BVN in plain text.
                   </p>
-                  <button
-                    type="button"
-                    onClick={goBvnSection}
-                    className="mt-2 inline-flex items-center px-3 py-1.5 rounded-lg border border-alt text-alt text-xs font-semibold hover:bg-alt/10 transition"
-                  >
-                    Verify BVN
-                  </button>
+                  <p className="mt-2 text-xs text-slate-400">
+                    Current status: <span className={bvnStatusClass}>{bvnStatusLabel}</span>
+                  </p>
                 </div>
               </li>
 
@@ -524,7 +520,7 @@ const KycCenter = () => {
               Enter BVN
             </label>
             <input
-              type="password"
+              type="text"
               inputMode="numeric"
               maxLength={11}
               value={bvnInput}
