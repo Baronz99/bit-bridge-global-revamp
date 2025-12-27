@@ -623,7 +623,7 @@ const tunnelWallet = data?.tunnel
                   : 'border-slate-700 bg-slate-950 text-slate-200'
               }`}
             >
-              NGN -> USD
+              NGN to USD
             </button>
             <button
               type="button"
@@ -634,7 +634,7 @@ const tunnelWallet = data?.tunnel
                   : 'border-slate-700 bg-slate-950 text-slate-200'
               }`}
             >
-              USD -> NGN
+              USD to NGN
             </button>
           </div>
 

@@ -113,31 +113,6 @@ const ViewUser = () => {
         toast(error.message ?? 'Unable to clear PIN lockout', { type: 'error' })
       })
   }
-    let rejectionReason = null
-    if (nextStatus === 'rejected') {
-      rejectionReason = window.prompt('Rejection reason (optional):', '') || ''
-    }
-
-    dispatch(
-      userUpdate({
-        id,
-        data: {
-          user_profile_attributes: {
-            id: profile?.id,
-            bvn_status: nextStatus,
-            bvn_rejection_reason: nextStatus === 'rejected' ? rejectionReason : null,
-          },
-        },
-      })
-    ).then((result) => {
-      if (userUpdate.fulfilled.match(result)) {
-        toast(result.message || 'BVN status updated', { type: 'success' })
-        dispatch(getUser(id))
-      } else {
-        toast(result.message || 'Unable to update BVN status', { type: 'error' })
-      }
-    })
-  }
 
   const no_items = 10
   const pages = Math.ceil((user?.transactions?.length ?? 1) / no_items)
@@ -245,7 +220,7 @@ const ViewUser = () => {
   const maskCardId = (value) => {
     const raw = String(value || '')
     if (!raw) return 'Not available'
-    return `•••• ${raw.slice(-4)}`
+    return `**** ${raw.slice(-4)}`
   }
 
   const wallets = Array.isArray(user?.wallets) ? user.wallets : []
