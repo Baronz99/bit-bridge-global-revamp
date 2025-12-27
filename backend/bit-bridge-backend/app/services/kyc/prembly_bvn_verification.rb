@@ -14,12 +14,13 @@ module Kyc
 
     def call
       response = self.class.post(
-        '/v1/verify',
+        '/verification/bvn_validation',
         headers: {
           'x-api-key' => ENV['PREMBLY_API_KEY'].to_s,
+          'app-id' => ENV['PREMBLY_APP_ID'].to_s,
           'Content-Type' => 'application/json'
         },
-        body: { type: 'bvn', number: @bvn }.to_json,
+        body: { number: @bvn }.to_json,
         timeout: 15
       )
 
