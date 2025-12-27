@@ -153,13 +153,14 @@ export const userLogin = createAsyncThunk(
       const result = response.data
 
       const accessToken = result?.token || result?.access_token
-      const refreshToken = response?.headers?.['bit-refresh-token']
+      const refreshToken =
+        response?.headers?.['bit-refresh-token'] || result?.refresh_token
 
       if (accessToken) saveAccessToken(accessToken)
       else console.warn('No access token in login response body')
 
       if (refreshToken) saveRefreshToken(refreshToken)
-      else console.warn('No Bit-Refresh-Token header found on login response')
+      else console.warn('No refresh token found on login response')
 
       const email = data?.user?.email
       if (email) saveEmailToRecents(email)

@@ -96,4 +96,16 @@ class ApplicationController < ActionController::API
 
     true
   end
+
+  # Tier 1+ guard for restricted features (shared groups, tunnel, cards, transfers)
+  def ensure_tier1!(message: nil)
+    allowed_levels = %w[tier_1 tier_2]
+    user_level = current_user&.kyc_level.to_s
+
+    return if allowed_levels.include?(user_level)
+
+    render json: {
+      message: message || 'Complete Tier 1 verification to use this feature.'
+    }, status: :forbidden
+  end
 end

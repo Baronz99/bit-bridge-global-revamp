@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import { useDispatch, useSelector } from 'react-redux'
+import { useNavigate } from 'react-router-dom'
 import {
   getBeneficiaries,
   initiateTransfer,
@@ -30,6 +31,8 @@ const pickErrorMessage = (err) => {
 export default function MoneyTransferFlow({ setIsfundTransferOpen }) {
   const [loading, setLoading] = useState(false)
   const dispatch = useDispatch()
+  const navigate = useNavigate()
+  const { user } = useSelector((state) => state.auth)
   const { banks, beneficiaries, loading: accountLoading } = useSelector(
     (state) => state.account
   )
@@ -56,8 +59,24 @@ export default function MoneyTransferFlow({ setIsfundTransferOpen }) {
   }, [formData.account_number, formData.bank_code])
 
   useEffect(() => {
+    const userKyc = (user?.kyc_level || 'nil').toString().toLowerCase()
+    const needsTier1 = ['nil', '', 'tier_0'].includes(userKyc)
+    if (!needsTier1) return
+    toast.info('Complete Tier 1 verification to make transfers.', {
+      position: 'top-right',
+      autoClose: 4000,
+      pauseOnHover: true,
+    })
+    setIsfundTransferOpen(false)
+    navigate('/dashboard/kyc')
+  }, [navigate, setIsfundTransferOpen, user])
+
+  useEffect(() => {
+    const userKyc = (user?.kyc_level || 'nil').toString().toLowerCase()
+    const needsTier1 = ['nil', '', 'tier_0'].includes(userKyc)
+    if (needsTier1) return
     dispatch(getBeneficiaries())
-  }, [dispatch])
+  }, [dispatch, user])
 
   const handleChange = (e) => {
     const { name, value } = e.target

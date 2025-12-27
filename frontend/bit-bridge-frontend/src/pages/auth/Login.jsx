@@ -32,6 +32,7 @@ const LoginPage = () => {
 
   const { token } = theme.useToken()
   const navigate = useNavigate()
+  const [reasonShown, setReasonShown] = useState(false)
 
   // ✅ Keep EXACT same autofill behavior as your original file
   const savedEmail =
@@ -59,6 +60,19 @@ const LoginPage = () => {
       })
     }
   }, [logged, navigate, location.state, returnTo])
+
+  useEffect(() => {
+    if (reasonShown) return
+    const qs = new URLSearchParams(location.search)
+    const reason = qs.get('reason')
+    if (reason === 'idle') {
+      message.info('Session expired due to inactivity. Please log in again.')
+      setReasonShown(true)
+    } else if (reason === 'session_expired') {
+      message.info('Your session has expired. Please log in again.')
+      setReasonShown(true)
+    }
+  }, [location.search, reasonShown])
 
   if (!logged) {
     return (

@@ -14,6 +14,9 @@ module Api
                       verify_kyc
                       create_counter_party
                     ]
+      before_action :ensure_tier1!,
+                    only: %i[initiate_fund_transfer],
+                    message: 'Complete Tier 1 verification to make transfers.'
 
       def index
         @accounts = Account.all

@@ -5,6 +5,23 @@ module Api
     class CardsController < ApplicationController
       before_action :authenticate_user!
       before_action :set_card, only: %i[show update destroy]
+      before_action :ensure_tier1!,
+                    only: %i[
+                      index
+                      user_card
+                      register_cardholder
+                      create_card
+                      fund_wallet
+                      details
+                      balance
+                      reveal
+                      freeze
+                      unfreeze
+                      show
+                      update
+                      destroy
+                    ],
+                    message: 'Complete Tier 1 verification to use cards.'
 
       # GET /api/v1/cards
       def index

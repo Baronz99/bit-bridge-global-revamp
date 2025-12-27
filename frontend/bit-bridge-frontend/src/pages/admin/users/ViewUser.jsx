@@ -114,6 +114,38 @@ const ViewUser = () => {
       })
   }
 
+  const handleBvnStatusUpdate = (nextStatus) => {
+    if (!bvn) {
+      toast('No BVN on file for this user.', { type: 'error' })
+      return
+    }
+
+    let rejectionReason = null
+    if (nextStatus === 'rejected') {
+      rejectionReason = window.prompt('Rejection reason (optional):', '') || ''
+    }
+
+    dispatch(
+      userUpdate({
+        id,
+        data: {
+          user_profile_attributes: {
+            id: profile?.id,
+            bvn_status: nextStatus,
+            bvn_rejection_reason: nextStatus === 'rejected' ? rejectionReason : null,
+          },
+        },
+      })
+    ).then((result) => {
+      if (userUpdate.fulfilled.match(result)) {
+        toast(result.message || 'BVN status updated', { type: 'success' })
+        dispatch(getUser(id))
+      } else {
+        toast(result.message || 'Unable to update BVN status', { type: 'error' })
+      }
+    })
+  }
+
   const no_items = 10
   const pages = Math.ceil((user?.transactions?.length ?? 1) / no_items)
   const [activePage, setActivePage] = useState(0)
@@ -129,6 +161,16 @@ const ViewUser = () => {
     [profile.first_name, profile.last_name].filter(Boolean).join(' ') || 'Not provided'
 
   const phoneNumber = profile.phone_number || 'Not provided'
+  const bvn = profile.bvn || ''
+  const bvnStatusRaw = profile.bvn_status || (bvn ? 'pending' : 'not_submitted')
+  const bvnStatusLabel =
+    bvnStatusRaw === 'verified'
+      ? 'Verified'
+      : bvnStatusRaw === 'rejected'
+      ? 'Rejected'
+      : bvnStatusRaw === 'pending'
+      ? 'Pending'
+      : 'Not submitted'
 
   const addressParts = [
     profile.address_line1,
@@ -347,6 +389,14 @@ const ViewUser = () => {
                 <strong>{idTypeLabel}</strong>
               </div>
               <div className="admin-kv">
+                <span>BVN</span>
+                <strong>{bvn || 'Not provided'}</strong>
+              </div>
+              <div className="admin-kv">
+                <span>BVN status</span>
+                <strong>{bvnStatusLabel}</strong>
+              </div>
+              <div className="admin-kv">
                 <span>Transaction PIN</span>
                 <strong>{pinSetLabel}</strong>
               </div>
@@ -378,6 +428,15 @@ const ViewUser = () => {
                 )}
               </div>
             </div>
+          </div>
+
+          <div className="admin-action-row">
+            <ClickButton onClick={() => handleBvnStatusUpdate('verified')} disabled={!bvn}>
+              Approve BVN
+            </ClickButton>
+            <ClickButton onClick={() => handleBvnStatusUpdate('rejected')} disabled={!bvn}>
+              Reject BVN
+            </ClickButton>
           </div>
 
           <div className="admin-user-card admin-user-cards">
@@ -837,3 +896,8 @@ const ViewUser = () => {
 }
 
 export default ViewUser
+
+
+
+
+

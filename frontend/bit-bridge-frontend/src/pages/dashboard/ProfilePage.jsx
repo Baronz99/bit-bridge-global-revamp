@@ -22,10 +22,10 @@ import { updateKycProfile } from '../../api/onboarding'
 // ID type options
 const idTypeOptions = [
   { value: '', label: 'Select ID type' },
-  { value: 'bvn', label: 'BVN' },
   { value: 'nin', label: 'NIN' },
   { value: 'drivers_license', label: "Driver's licence" },
   { value: 'intl_passport', label: 'International passport' },
+  { value: 'voters_card', label: "Voter's card" },
 ]
 
 // Simple country options (extend later)
@@ -161,10 +161,13 @@ const ProfileAccountPage = () => {
         country: up.country || '',
         postal_code: up.postal_code || '',
         proof_of_address_type: up.proof_of_address_type || '',
+        bvn_status: up.bvn_status || '',
+        bvn_rejection_reason: up.bvn_rejection_reason || '',
+        bvn_verified_at: up.bvn_verified_at || '',
       },
     })
 
-    setBvn('')
+    setBvn(up.bvn || '')
     setNin('')
     setIdDocumentFile(null)
     setProofOfAddressFile(null)
@@ -182,11 +185,18 @@ const ProfileAccountPage = () => {
 
   const handleUserUpdate = async () => {
     try {
+      if (active === 'kyc') {
+        if (!bvn || String(bvn).length !== 11) {
+          toast('BVN is required for Tier 1 verification.', { type: 'error' })
+          return
+        }
+      }
       dispatch(SET_LOADING(true))
 
       const formData = new FormData()
 
       formData.append('user[id_type]', userInfo.id_type || '')
+      formData.append('user[user_profile_attributes][bvn]', bvn || '')
 
       formData.append('user[user_profile_attributes][first_name]', userInfo.user_profile.first_name || '')
       formData.append('user[user_profile_attributes][last_name]', userInfo.user_profile.last_name || '')
@@ -231,9 +241,13 @@ const ProfileAccountPage = () => {
           country: up2.country || '',
           postal_code: up2.postal_code || '',
           proof_of_address_type: up2.proof_of_address_type || '',
+          bvn_status: up2.bvn_status || '',
+          bvn_rejection_reason: up2.bvn_rejection_reason || '',
+          bvn_verified_at: up2.bvn_verified_at || '',
         },
       }))
 
+      setBvn(up2.bvn || '')
       toast('Profile updated', { type: 'success' })
     } catch (error) {
       console.error('Error updating profile/basic KYC:', error)
@@ -386,6 +400,7 @@ const ProfileAccountPage = () => {
                     proofOfAddressFile={proofOfAddressFile}
                     setProofOfAddressFile={setProofOfAddressFile}
                     idTypeOptions={idTypeOptions}
+                    kycLevel={user?.kyc_level}
                     stateOptions={stateOptions}
                     countryOptions={countryOptions}
                     proofOfAddressOptions={proofOfAddressOptions}
@@ -452,3 +467,4 @@ const ProfileAccountPage = () => {
 }
 
 export default ProfileAccountPage
+

@@ -13,7 +13,7 @@ import PropTypes from 'prop-types'
 import statusStyleCard from '../../utils/statusCard'
 import MoneyTransferFlow from '../../components/fundTransfer/FundTransfer'
 import { getBankList } from '../../redux/actions/account'
-import { NavLink, useSearchParams } from 'react-router-dom'
+import { NavLink, useNavigate, useSearchParams } from 'react-router-dom'
 import ShadowValue from '../../components/ShadowValue'
 import { toast } from 'react-toastify'
 
@@ -40,6 +40,7 @@ const usdFormat = (n) => {
 const Account = () => {
   const formRef = useRef(null)
   const dispatch = useDispatch()
+  const navigate = useNavigate()
 
   const { user } = useSelector((state) => state.auth)
   const { data } = useSelector((state) => state.wallet)
@@ -72,17 +73,44 @@ const tunnelWallet = data?.tunnel
   const address = 'Card Transfer'
   const coinType = 'bank'
 
+  const userKyc = (user?.kyc_level || 'nil').toString().toLowerCase()
+  const needsTier1 = ['nil', '', 'tier_0'].includes(userKyc)
+
   const isTunnel = mode === MODES.TUNNEL
 
   // Keep mode synced with URL
   useEffect(() => {
     const normalized = urlMode === MODES.TUNNEL ? MODES.TUNNEL : MODES.BRIDGE
+    if (normalized === MODES.TUNNEL && needsTier1) {
+      toast.info('Complete Tier 1 verification to use the Tunnel wallet.', {
+        position: 'top-right',
+        autoClose: 4000,
+        pauseOnHover: true,
+      })
+      navigate('/dashboard/kyc')
+      setMode(MODES.BRIDGE)
+      setSearchParams((prev) => {
+        const p = new URLSearchParams(prev)
+        p.delete('mode')
+        return p
+      })
+      return
+    }
     setMode(normalized)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [urlMode])
+  }, [urlMode, needsTier1, navigate, setSearchParams])
 
   const setModeAndUrl = (nextMode) => {
     const normalized = nextMode === MODES.TUNNEL ? MODES.TUNNEL : MODES.BRIDGE
+    if (normalized === MODES.TUNNEL && needsTier1) {
+      toast.info('Complete Tier 1 verification to use the Tunnel wallet.', {
+        position: 'top-right',
+        autoClose: 4000,
+        pauseOnHover: true,
+      })
+      navigate('/dashboard/kyc')
+      return
+    }
     setMode(normalized)
     setSearchParams((prev) => {
       const p = new URLSearchParams(prev)
@@ -100,6 +128,7 @@ const tunnelWallet = data?.tunnel
   useEffect(() => {
     const run = async () => {
       if (!isTunnel) return
+      if (needsTier1) return
       setTunnelLoading(true)
       try {
         // activate returns wallet
@@ -120,7 +149,7 @@ const tunnelWallet = data?.tunnel
       }
     }
     run()
-  }, [isTunnel])
+  }, [isTunnel, needsTier1])
 
   // Bridge funding (Monnify) unchanged
   const handleSubmit = (values) => {
@@ -174,6 +203,15 @@ const tunnelWallet = data?.tunnel
 
   // Tunnel convert
   const openConvert = () => {
+    if (needsTier1) {
+      toast.info('Complete Tier 1 verification to use the Tunnel wallet.', {
+        position: 'top-right',
+        autoClose: 4000,
+        pauseOnHover: true,
+      })
+      navigate('/dashboard/kyc')
+      return
+    }
     setConvertDirection(isTunnel ? 'usd_to_ngn' : 'ngn_to_usd')
     setIsConvertOpen(true)
   }

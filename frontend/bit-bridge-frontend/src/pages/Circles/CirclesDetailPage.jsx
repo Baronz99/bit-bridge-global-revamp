@@ -6,6 +6,7 @@ import { useNavigate, useParams } from 'react-router-dom'
 import ClassicBtn from '../../components/button/ClassicButton'
 import DisputeModal from '../../components/DisputeModal'
 import { getAccessToken } from '../../auth/tokenStore'
+import { toast } from 'react-toastify'
 
 import {
   getCircle,
@@ -654,6 +655,8 @@ const CirclesDetailPage = () => {
   const [error, setError] = useState(null)
 
   const currentUser = useSelector((state) => state.auth.user)
+  const userKyc = (currentUser?.kyc_level || 'nil').toString().toLowerCase()
+  const needsTier1 = ['nil', '', 'tier_0'].includes(userKyc)
 
   const [depositing, setDepositing] = useState(false)
   const [depositError, setDepositError] = useState(null)
@@ -703,6 +706,16 @@ const CirclesDetailPage = () => {
   const [pinTitle, setPinTitle] = useState('Enter Transaction PIN')
   const [pendingAction, setPendingAction] = useState(null) // 'fund' | 'withdraw'
   const [pendingPayload, setPendingPayload] = useState(null)
+
+  useEffect(() => {
+    if (!needsTier1) return
+    toast.info('Complete Tier 1 verification to use shared groups.', {
+      position: 'top-right',
+      autoClose: 4000,
+      pauseOnHover: true,
+    })
+    navigate('/dashboard/kyc')
+  }, [navigate, needsTier1])
 
   const hasToken = () => Boolean(getAccessToken())
 

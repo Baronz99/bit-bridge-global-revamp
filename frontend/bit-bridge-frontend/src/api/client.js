@@ -98,6 +98,11 @@ client.interceptors.request.use(
     const token = getToken()
     if (token) config.headers.Authorization = `Bearer ${token}`
     config.headers.Accept = 'application/json'
+    try {
+      window.dispatchEvent(new Event('bitbridge:activity'))
+    } catch {
+      // no-op
+    }
     return config
   },
   (error) => Promise.reject(error)
@@ -150,8 +155,12 @@ client.interceptors.response.use(
       }
 
       if (hadToken && !isAuthPage()) {
-        const returnTo = encodeURIComponent(window.location.pathname + window.location.search)
-        window.location.assign(`/login?returnTo=${returnTo}`)
+        const returnTo = window.location.pathname + window.location.search
+        const params = new URLSearchParams({
+          reason: 'session_expired',
+          returnTo,
+        })
+        window.location.assign(`/login?${params.toString()}`)
       }
     }
 

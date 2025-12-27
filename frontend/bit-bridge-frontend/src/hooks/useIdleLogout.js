@@ -79,7 +79,7 @@ export default function useIdleLogout({
       if (!enabled || !logged) return
       const now = Date.now()
       const idleFor = now - lastActivityRef.current
-      if (idleFor >= idleMs) logoutNow('idle')
+      if (idleFor >= idleMs) logoutNow('idle', { emitEvent: false })
     }, 1000)
   }
 
@@ -107,7 +107,7 @@ export default function useIdleLogout({
         // If they left the tab hidden too long, force logout
         const effectiveHiddenGraceMs = hiddenGraceMs ?? idleMs
         if (hiddenFor >= effectiveHiddenGraceMs) {
-          logoutNow('idle')
+          logoutNow('idle', { emitEvent: false })
           return
         }
         bump()
@@ -116,13 +116,22 @@ export default function useIdleLogout({
 
     const onStorage = (e) => {
       if (e.key === 'bb_logout_event' && e.newValue) {
-        // Another tab logged out → mirror it, but DO NOT re-emit (prevents loops)
+        // Another tab logged out; honor explicit logouts, ignore idle timeouts.
+        try {
+          const payload = JSON.parse(e.newValue)
+          if (payload?.reason === 'idle') return
+        } catch {
+          // ignore parse errors and continue
+        }
         logoutNow('synced', { emitEvent: false })
       }
     }
 
+    const onActivity = () => bump()
+
     document.addEventListener('visibilitychange', onVisibilityChange)
     window.addEventListener('storage', onStorage)
+    window.addEventListener('bitbridge:activity', onActivity)
 
     bump()
     scheduleCheck()
@@ -131,6 +140,7 @@ export default function useIdleLogout({
       events.forEach((evt) => window.removeEventListener(evt, bump))
       document.removeEventListener('visibilitychange', onVisibilityChange)
       window.removeEventListener('storage', onStorage)
+      window.removeEventListener('bitbridge:activity', onActivity)
       stopTimer()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps

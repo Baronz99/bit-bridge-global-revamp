@@ -1,9 +1,11 @@
 // src/pages/Circles/CirclesPage.jsx
 
 import { useEffect, useMemo, useState } from 'react'
+import { useSelector } from 'react-redux'
 import { useNavigate } from 'react-router-dom'
 import ClassicBtn from '../../components/button/ClassicButton'
 import client from '../../api/client'
+import { toast } from 'react-toastify'
 
 // Rough categorisation for the filter pills (purely UI)
 const detectCategory = (group) => {
@@ -17,6 +19,10 @@ const detectCategory = (group) => {
 
 const CirclesPage = () => {
   const navigate = useNavigate()
+  const { user } = useSelector((state) => state.auth)
+
+  const userKyc = (user?.kyc_level || 'nil').toString().toLowerCase()
+  const needsTier1 = ['nil', '', 'tier_0'].includes(userKyc)
 
   const [groups, setGroups] = useState([])
   const [loading, setLoading] = useState(true)
@@ -45,6 +51,16 @@ const CirclesPage = () => {
 
   // ---------- load groups from backend ----------
   useEffect(() => {
+    if (needsTier1) {
+      toast.info('Complete Tier 1 verification to use shared groups.', {
+        position: 'top-right',
+        autoClose: 4000,
+        pauseOnHover: true,
+      })
+      navigate('/dashboard/kyc')
+      return
+    }
+
     const loadGroups = async () => {
       try {
         setLoading(true)
@@ -82,7 +98,7 @@ const CirclesPage = () => {
     }
 
     loadGroups()
-  }, [])
+  }, [navigate, needsTier1])
 
   // ---------- create group ----------
   const handleCreate = async (e) => {

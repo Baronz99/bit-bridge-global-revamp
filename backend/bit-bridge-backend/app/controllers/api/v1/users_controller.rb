@@ -35,6 +35,13 @@ end
       end
 
       def update
+        if params.dig(:user, :user_profile_attributes, :bvn_status).present? ||
+           params.dig(:user, :user_profile_attributes, :bvn_rejection_reason).present?
+          unless current_user&.admin?
+            return render json: { message: 'Not authorized' }, status: :forbidden
+          end
+        end
+
         if @user.update(user_params)
           render json: { data: UserSerializer.new(@user), message: 'User updated' }, status: :ok
         else
@@ -205,10 +212,26 @@ end
         profile_attrs = (permitted[:user_profile_attributes] || {}).to_h
         id_type       = permitted[:id_type]
 
+        bvn_value = profile_attrs["bvn"].presence
+        kyc_fields_present =
+          id_type.present? ||
+          profile_attrs["proof_of_address_type"].present? ||
+          profile_attrs["address_line1"].present? ||
+          profile_attrs["city"].present? ||
+          profile_attrs["country"].present? ||
+          params.dig(:user, :id_document).present? ||
+          params.dig(:user, :proof_of_address).present?
+
         error_message = nil
 
         ActiveRecord::Base.transaction do
           profile = current_user.user_profile || current_user.build_user_profile
+          bvn_value ||= profile.bvn
+
+          if kyc_fields_present && bvn_value.blank?
+            error_message = 'BVN is required for Tier 1 verification.'
+            raise ActiveRecord::Rollback
+          end
 
           # ✅ Handle DOB safely (do not wipe existing if blank)
           dob_raw = profile_attrs["date_of_birth"].presence
@@ -243,10 +266,11 @@ end
           has_names   = profile.first_name.present? && profile.last_name.present?
           has_phone   = profile.phone_number.present?
           has_id_type = current_user.id_type.present?
+          has_bvn     = profile.bvn.present?
           has_address = profile.address_line1.present? && profile.city.present? && profile.country.present?
           has_proof   = profile.proof_of_address_type.present?
 
-          if has_names && has_phone && has_id_type && has_address && has_proof
+          if has_names && has_phone && has_id_type && has_bvn && has_address && has_proof
             if current_user.kyc_level.blank? || current_user.kyc_level == 'tier_0'
               current_user.kyc_level = 'tier_1'
             end
@@ -370,6 +394,10 @@ end
             country
             postal_code
             proof_of_address_type
+            bvn
+            bvn_status
+            bvn_verified_at
+            bvn_rejection_reason
           ]
         )
       end
@@ -413,6 +441,7 @@ end
             country
             postal_code
             proof_of_address_type
+            bvn
           ]
         )
       end
@@ -434,3 +463,5 @@ end
     end
   end
 end
+
+

@@ -6,6 +6,8 @@ class BridgeCardService
   base_uri 'https://issuecards.api.bridgecard.co/v1'
 
   DEFAULT_CARD_LIMIT = '500000'
+  CARD_CREATION_FEE_USD = 4
+  CARD_ACTIVATION_MIN_USD = 5
 
   def initialize
     # ✅ Use ENV in real deployments
@@ -145,19 +147,68 @@ class BridgeCardService
     end
   transaction_reference = params[:transaction_reference].presence || SecureRandom.uuid
 
-    amount_usd = BigDecimal(params[:amount].to_s) rescue 0.to_d
-    amount_cents = (amount_usd * 100).to_i
-    pin = params[:pin].to_s
+  amount_usd = BigDecimal(params[:amount].to_s) rescue 0.to_d
+  amount_cents = (amount_usd * 100).to_i
+  pin = params[:pin].to_s
 
   if wallet_type == 'usd'
     usd_wallet = user.usd_wallet
     raise StandardError, 'USD wallet not found. Activate tunnel first.' if usd_wallet.blank?
 
-    return { message: 'Funding amount must be greater than 0', status: :unprocessable_entity } if amount_usd <= 0
+    return { message: 'Funding amount must be 0 or more', status: :unprocessable_entity } if amount_usd.negative?
+
+    fee_cents = (CARD_CREATION_FEE_USD * 100).to_i
+    min_funding_cents = (CARD_ACTIVATION_MIN_USD * 100).to_i
+    meta = card.meta_data.is_a?(Hash) ? card.meta_data.dup : {}
+    fee_charged = meta['creation_fee_charged'] == true
+    requires_funding = amount_cents >= min_funding_cents
+
+    required_cents = 0
+    required_cents += fee_cents unless fee_charged
+    required_cents += amount_cents if requires_funding
+
+    if required_cents.positive? && wallet_balance_cents(usd_wallet) < required_cents
+      return {
+        message: 'Insufficient Tunnel balance to cover the card creation fee and funding.',
+        status: :unprocessable_entity
+      }
+    end
 
     cents = usd_wallet.money_to_cents(amount_usd)
 
     ActiveRecord::Base.transaction do
+      unless fee_charged
+        fee_reference = "card-fee-#{SecureRandom.uuid}"
+
+        usd_wallet.transactions.create!(
+          transaction_type: 'withdrawal',
+          status: 'approved',
+          amount: CARD_CREATION_FEE_USD,
+          coin_type: 'bank',
+          address: 'Virtual Card Creation Fee',
+          unique_transaction_id: fee_reference
+        )
+
+        usd_wallet.debit_cents!(fee_cents)
+
+        meta['creation_fee_charged'] = true
+        meta['creation_fee_cents'] = fee_cents
+        meta['creation_fee_reference'] = fee_reference
+        meta['creation_fee_charged_at'] = Time.current
+      end
+
+      unless requires_funding
+        card.update!(
+          meta_data: meta,
+          status: 'pending_funding'
+        )
+        return {
+          data: card,
+          message: "Card created. Fund at least USD #{CARD_ACTIVATION_MIN_USD} to activate.",
+          status: :ok
+        }
+      end
+
       # 1) record wallet transaction (for timeline/history) before debit
       usd_wallet.transactions.create!(
         transaction_type: 'withdrawal',
@@ -196,7 +247,9 @@ class BridgeCardService
         transaction_reference: transaction_reference,
         amount: amount_usd,
         pin: pin,
-        card_id: response.dig('data', 'card_id') || card.card_id
+        card_id: response.dig('data', 'card_id') || card.card_id,
+        status: 'active',
+        meta_data: meta
       )
 
       return { data: card, message: response['message'], status: :ok }

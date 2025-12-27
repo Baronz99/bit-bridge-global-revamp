@@ -15,8 +15,12 @@ class UserProfileSerializer < ActiveModel::Serializer
              :country,
              :postal_code,
              :proof_of_address_type,
-             :phone_verified_at,      # ✅ added (safe)
-             :phone_verified,         # ✅ added (safe boolean helper)
+             :bvn,
+             :bvn_status,
+             :bvn_verified_at,
+             :bvn_rejection_reason,
+             :phone_verified_at,      # ?. added (safe)
+             :phone_verified,         # ?. added (safe boolean helper)
              :id_document_url,        # read-only URL for ID doc
              :proof_of_address_url    # read-only URL for proof of address
 
@@ -78,3 +82,6 @@ class UserProfileSerializer < ActiveModel::Serializer
     Rails.env.production? || Rails.env.staging? ? 'https' : 'http'
   end
 end
+
+
+

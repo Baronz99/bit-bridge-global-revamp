@@ -2,18 +2,23 @@ import React, { useEffect, useMemo, useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import states from '../../data/states.json'
 import { useDispatch, useSelector } from 'react-redux'
+import { useNavigate } from 'react-router-dom'
 import { createCard, getUserCard, registerCardHolder } from '../../redux/actions/account'
 import { getWallet } from '../../redux/actions/wallet'
 import ShadowValue from '../../components/ShadowValue'
 import client from '../../api/client'
+import { toast } from 'react-toastify'
 
 //  Use your reusable masked PIN input (4 digits)
 import TransactionPinInput from '../../components/pin/TransactionPinInput' // adjust if needed
 
 const PIN_LENGTH = 4
+const CARD_CREATION_FEE_USD = 4
+const CARD_MIN_FUNDING_USD = 5
 
 export default function VirtualCardApplication() {
   const dispatch = useDispatch()
+  const navigate = useNavigate()
 
   const { user } = useSelector((state) => state.auth)
   const { card } = useSelector((state) => state.account)
@@ -104,10 +109,32 @@ export default function VirtualCardApplication() {
   const hasInsights =
     hasLastFunding || todaysSpend > 0 || failedAttempts > 0 || hasLastMerchant || hasTrend
 
+  const creationFeeCharged = Boolean(card?.meta_data?.creation_fee_charged)
+  const fundingAmount = Number(formData.amount || 0)
+  const feeAmount = CARD_CREATION_FEE_USD
+  const feeDue = creationFeeCharged ? 0 : feeAmount
+  const minFunding = CARD_MIN_FUNDING_USD
+  const totalDebit = feeDue + (fundingAmount > 0 ? fundingAmount : 0)
+  const fundingBelowMin = fundingAmount > 0 && fundingAmount < minFunding
+  const requiredBalance = feeDue + (fundingAmount >= minFunding ? fundingAmount : 0)
+
+  const userKyc = (user?.kyc_level || 'nil').toString().toLowerCase()
+  const needsTier1 = ['nil', '', 'tier_0'].includes(userKyc)
+
   useEffect(() => {
     dispatch(getUserCard())
     dispatch(getWallet()) //  ensure we have tunnel wallet status/balance
   }, [dispatch])
+
+  useEffect(() => {
+    if (!needsTier1) return
+    toast.info('Complete Tier 1 verification to use cards.', {
+      position: 'top-right',
+      autoClose: 4000,
+      pauseOnHover: true,
+    })
+    navigate('/dashboard/kyc')
+  }, [navigate, needsTier1])
 
   useEffect(() => {
     const start = animatedUsdBalance
@@ -306,11 +333,28 @@ export default function VirtualCardApplication() {
       })
     }
 
-    //  Require amount and PIN
-    const amt = Number(formData.amount)
-    if (!amt || amt <= 0) {
+    const amt = Number(formData.amount || 0)
+    if (Number.isNaN(amt) || amt < 0) {
       setSubmitting(false)
       return setSuccessCreate({ ok: false, message: 'Enter a valid funding amount.' })
+    }
+
+    if (amt > 0 && amt < minFunding) {
+      setSubmitting(false)
+      return setSuccessCreate({
+        ok: false,
+        message: `Minimum funding to activate is USD ${minFunding}. Leave it at 0 to activate later.`,
+      })
+    }
+
+    if (tunnelUsdBalance < requiredBalance) {
+      setSubmitting(false)
+      return setSuccessCreate({
+        ok: false,
+        message: creationFeeCharged
+          ? 'Insufficient Tunnel balance to cover the funding amount.'
+          : `Insufficient Tunnel balance to cover the USD ${feeAmount} card creation fee and funding.`,
+      })
     }
 
     if ((formData.transaction_pin || '').length !== PIN_LENGTH) {
@@ -328,8 +372,11 @@ export default function VirtualCardApplication() {
       })
     )
       .unwrap()
-      .then(() => {
-        setSuccessCreate({ ok: true, message: 'Card created/funded successfully.' })
+      .then((result) => {
+        setSuccessCreate({
+          ok: true,
+          message: result?.message || 'Card request submitted successfully.',
+        })
         dispatch(getWallet())
       })
       .catch((err) => {
@@ -341,7 +388,11 @@ export default function VirtualCardApplication() {
       .finally(() => setSubmitting(false))
   }
 
-  const canCreate = !!tunnelWallet?.id && (formData.transaction_pin || '').length === PIN_LENGTH
+  const canCreate =
+    !!tunnelWallet?.id &&
+    (formData.transaction_pin || '').length === PIN_LENGTH &&
+    !fundingBelowMin &&
+    tunnelUsdBalance >= requiredBalance
 
   const onCardMove = (event) => {
     const rect = event.currentTarget.getBoundingClientRect()
@@ -417,19 +468,25 @@ export default function VirtualCardApplication() {
     return String(cardReveal.cvv)
   }, [cardReveal])
 
-  const isCardActive =
-    typeof cardDetails?.is_active === 'boolean'
+  const statusFromApi =
+    card?.status || cardDetails?.status || cardDetails?.card_status || ''
+  const normalizedStatus = statusFromApi.toString().toLowerCase()
+  const isPendingFunding = normalizedStatus === 'pending_funding'
+
+  const isCardActive = normalizedStatus
+    ? normalizedStatus === 'active'
+    : typeof cardDetails?.is_active === 'boolean'
       ? cardDetails.is_active
-      : cardDetails?.status
-      ? cardDetails.status === 'active'
-      : cardDetails?.card_status
-      ? cardDetails.card_status === 'active'
       : true
 
-  const cardStatusLabel = isCardActive ? 'Active' : 'Frozen'
+  const cardStatusLabel = isPendingFunding
+    ? 'Pending funding'
+    : isCardActive
+      ? 'Active'
+      : 'Frozen'
 
   const detailItems = [
-    { label: 'Status', value: isCardActive ? 'Active' : 'Frozen' },
+    { label: 'Status', value: cardStatusLabel },
     { label: 'Brand', value: cardDetails?.card_brand || cardDetails?.brand },
     { label: 'Type', value: cardDetails?.card_type },
     { label: 'Currency', value: cardDetails?.card_currency || cardDetails?.currency },
@@ -727,8 +784,16 @@ export default function VirtualCardApplication() {
             </div>
           ) : (
             <p className="mt-4 text-xs text-slate-400">
-              No cards yet. Create a card below to get started.
+              {isPendingFunding
+                ? `Card created. Fund at least USD ${minFunding} to activate it.`
+                : 'No cards yet. Create a card below to get started.'}
             </p>
+          )}
+
+          {isPendingFunding && (
+            <div className="mt-4 rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-xs text-amber-100">
+              Your card is pending activation. Fund at least USD {minFunding} to activate it.
+            </div>
           )}
         </section>
 
@@ -850,13 +915,15 @@ export default function VirtualCardApplication() {
                 </div>
 
                 <div className="mt-6 flex flex-wrap gap-3 text-xs">
-                  <button
-                    type="button"
-                    onClick={() => setShowInlineFund((prev) => !prev)}
-                    className="vc-button-primary px-4 py-2 rounded-xl font-semibold"
-                  >
-                    {showInlineFund ? 'Hide funding' : 'Fund Card'}
-                  </button>
+                  {isPendingFunding && (
+                    <button
+                      type="button"
+                      onClick={() => setShowInlineFund((prev) => !prev)}
+                      className="vc-button-primary px-4 py-2 rounded-xl font-semibold"
+                    >
+                      {showInlineFund ? 'Hide funding' : 'Activate card'}
+                    </button>
+                  )}
                   <button
                     type="button"
                     onClick={async () => {
@@ -903,11 +970,26 @@ export default function VirtualCardApplication() {
                             onChange={handleChange}
                             className="w-full bg-slate-800 border border-slate-700 rounded-md p-2.5 text-sm"
                             placeholder="e.g. 10"
-                            min="1"
+                            min="0"
                           />
                           <p className="mt-1 text-[11px] text-slate-500">
-                            Available: <ShadowValue placeholder="***">USD {tunnelUsdBalance.toFixed(2)}</ShadowValue>
+                            Minimum to activate: USD {minFunding}. Available:{' '}
+                            <ShadowValue placeholder="***">USD {tunnelUsdBalance.toFixed(2)}</ShadowValue>
                           </p>
+                        </div>
+                        <div className="rounded-lg border border-slate-700 bg-slate-900/70 px-3 py-2 text-[11px] text-slate-300">
+                          <div className="flex items-center justify-between">
+                            <span>Card creation fee (one-time)</span>
+                            <span>{feeDue === 0 ? 'Paid' : `USD ${feeAmount.toFixed(2)}`}</span>
+                          </div>
+                          <div className="mt-1 flex items-center justify-between">
+                            <span>Funding amount</span>
+                            <span>USD {Number(formData.amount || 0).toFixed(2)}</span>
+                          </div>
+                          <div className="mt-2 flex items-center justify-between text-slate-100 font-semibold">
+                            <span>Total debit now</span>
+                            <span>USD {totalDebit.toFixed(2)}</span>
+                          </div>
                         </div>
                         <div>
                           <label className="block text-xs mb-1 text-slate-300">
@@ -925,7 +1007,7 @@ export default function VirtualCardApplication() {
                           disabled={submitting || !canCreate || !tunnelWallet?.id}
                           className="w-full px-4 py-2.5 bg-indigo-600 hover:bg-indigo-500 rounded-md font-semibold text-sm disabled:opacity-60"
                         >
-                          {submitting ? 'Processing...' : 'Fund card'}
+                          {submitting ? 'Processing...' : 'Activate card'}
                         </button>
                         {successCreate && (
                           <div
@@ -1521,7 +1603,7 @@ export default function VirtualCardApplication() {
           <div className="vc-surface bg-slate-900 rounded-2xl p-6 md:p-7 border border-slate-800 shadow-lg">
             <h2 className="text-xl font-semibold mb-2">{fundingTitle}</h2>
             <p className="text-xs text-slate-400 mb-4">
-              Funding is done from your Tunnel wallet (USD). Activate Tunnel first.
+              Card creation has a one-time fee. Funding activates the card (minimum USD {minFunding}).
             </p>
 
             {!tunnelWallet?.id && (
@@ -1551,12 +1633,28 @@ export default function VirtualCardApplication() {
                   value={formData.amount}
                   onChange={handleChange}
                   className="w-full bg-slate-800 border border-slate-700 rounded-md p-2.5 text-sm"
-                  placeholder="e.g. 10"
-                  min="1"
+                  placeholder="0 (activate later) or 5+"
+                  min="0"
                 />
                 <p className="mt-1 text-[11px] text-slate-500">
-                  Available: <ShadowValue placeholder="***">USD {tunnelUsdBalance.toFixed(2)}</ShadowValue>
+                  Minimum to activate: USD {minFunding}. Available:{' '}
+                  <ShadowValue placeholder="***">USD {tunnelUsdBalance.toFixed(2)}</ShadowValue>
                 </p>
+              </div>
+
+              <div className="rounded-lg border border-slate-700 bg-slate-900/70 px-3 py-2 text-[11px] text-slate-300">
+                <div className="flex items-center justify-between">
+                  <span>Card creation fee (one-time)</span>
+                  <span>{feeDue === 0 ? 'Paid' : `USD ${feeAmount.toFixed(2)}`}</span>
+                </div>
+                <div className="mt-1 flex items-center justify-between">
+                  <span>Funding amount</span>
+                  <span>USD {Number(formData.amount || 0).toFixed(2)}</span>
+                </div>
+                <div className="mt-2 flex items-center justify-between text-slate-100 font-semibold">
+                  <span>Total debit now</span>
+                  <span>USD {totalDebit.toFixed(2)}</span>
+                </div>
               </div>
 
               <div>
