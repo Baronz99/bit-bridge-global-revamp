@@ -31,6 +31,7 @@ import FormInput from '../../components/formInput/FormInput'
 import CableTvComponent from './components/cable-tv-compoent'
 import { FaRegEye, FaRegEyeSlash } from 'react-icons/fa'
 import ShadowValue from '../../components/ShadowValue'
+import { withTier2MissingDetails } from '../../utils/kycGate'
 
 // ✅ Toasts
 import { toast } from 'react-toastify'
@@ -156,10 +157,10 @@ const HomeDashboard = () => {
       return
     }
 
-    // i !== 0 => Anchor – require at least Tier 1
-    if (['nil', '', 'tier_0'].includes(userKyc)) {
+    // i !== 0 => Anchor – require at least Tier 2
+    if (['nil', '', 'tier_0', 'tier_1'].includes(userKyc)) {
       // 🔔 Explain *why* then redirect to KYC center
-      toast.info('Complete Tier 1 verification to generate an Anchor account.', {
+      toast.info(withTier2MissingDetails(user, 'Complete Tier 2 verification to generate an Anchor account.'), {
         position: 'top-right',
         autoClose: 4000,
         pauseOnHover: true,
@@ -478,7 +479,10 @@ const HomeDashboard = () => {
           </div>
 
           {/* Accounts snapshot (Anchor / Moniepoint) */}
-          <div id="accounts" className="bg-slate-900 rounded-2xl border border-slate-800 p-5 lg:p-6">
+          <div
+            id="accounts"
+            className="accounts-panel bg-slate-900 rounded-2xl border border-slate-800 p-5 lg:p-6"
+          >
             <div className="flex items-center justify-between mb-3">
               <div>
                 <h5 className="text-lg font-semibold">Your accounts</h5>

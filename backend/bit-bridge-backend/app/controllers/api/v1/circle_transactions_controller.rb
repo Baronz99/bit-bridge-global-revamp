@@ -2,7 +2,7 @@ module Api
   module V1
     class CircleTransactionsController < ApplicationController
       before_action :authenticate_user!
-      before_action :ensure_tier1!, message: 'Complete Tier 1 verification to use shared groups.'
+      before_action :ensure_tier2!, message: 'Complete Tier 2 verification to use shared groups.'
 
       def react
         tx = CircleTransaction.find(params[:id])

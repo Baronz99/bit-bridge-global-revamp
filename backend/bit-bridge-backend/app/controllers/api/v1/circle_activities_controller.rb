@@ -4,7 +4,7 @@ module Api
   module V1
     class CircleActivitiesController < ApplicationController
       before_action :authenticate_user!
-      before_action :ensure_tier1!, message: 'Complete Tier 1 verification to use shared groups.'
+      before_action :ensure_tier2!, message: 'Complete Tier 2 verification to use shared groups.'
       before_action :set_circle
       before_action :authorize_create!, only: [:create]
 

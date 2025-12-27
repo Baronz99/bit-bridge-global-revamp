@@ -4,7 +4,7 @@ module Api
   module V1
     class WalletsController < ApplicationController
       before_action :set_wallet, only: %i[show update destroy]
-      before_action :ensure_tier1!,
+      before_action :ensure_tier2!,
                     only: %i[
                       activate_tunnel
                       convert_ngn_to_usd
@@ -12,7 +12,7 @@ module Api
                       convert_usd_to_ngn
                       quote_usd_to_ngn
                     ],
-                    message: 'Complete Tier 1 verification to use the Tunnel wallet.'
+                    message: 'Complete Tier 2 verification to use the Tunnel wallet.'
 
       def index
         wallets =

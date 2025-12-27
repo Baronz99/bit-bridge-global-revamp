@@ -51,6 +51,11 @@ Rails.application.routes.draw do
       post 'phone_verification/verify',  to: 'phone_verifications#verify_code'
       get  'phone_verification/status',  to: 'phone_verifications#status'
 
+      # ✅ BVN verification (Prembly)
+      namespace :kyc do
+        post 'bvn/verify', to: 'bvn#verify'
+      end
+
       # ✅ Transaction PIN (single canonical routing)
       resource :transaction_pin, only: [] do
   get   :status         # GET   /api/v1/transaction_pin/status
@@ -237,6 +242,10 @@ end
 
       resources :disputes, only: [:create]
       resources :statistics
+
+      namespace :admin do
+        resources :kyc_reviews, only: %i[index update]
+      end
     end
   end
 end

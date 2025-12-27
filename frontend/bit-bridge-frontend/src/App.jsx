@@ -42,6 +42,7 @@ import LoaderPage from './components/loader/LoaderPage'
 import CryptoSell from './pages/dashboard/crypto-exchange/CryptoSell'
 import AdminTransactions from './pages/admin/transactions/deposits'
 import Users from './pages/admin/users/Users'
+import KycReviews from './pages/admin/KycReviews'
 import Deposits from './pages/dashboard/transactions/Deposits'
 import ConfirmOrder from './pages/ConfirmOrder'
 import ViewProduct from './pages/admin/products/View'
@@ -95,6 +96,7 @@ import DashboardPurchaseDetails from './pages/dashboard/PurchaseDetails'
 import DashboardComfirmPurchase from './pages/dashboard/ConfirmPurchase'
 import VirtualCardApplication from './components/cardView/CardView'
 import VirtualAccounts from './pages/dashboard/VirtualAccounts'
+import Rewards from './pages/dashboard/Rewards'
 import CheckEmail from './pages/auth/CheckEmail'
 
 // ✅ NEW: Idle logout hook
@@ -282,6 +284,7 @@ function App() {
             <Route path="virtual-account" element={<Navigate to="/dashboard/virtual-cards" replace />} />
             <Route path="virtual-cards" element={<VirtualCardApplication />} />
             <Route path="virtual-accounts" element={<VirtualAccounts />} />
+            <Route path="rewards" element={<Rewards />} />
 
             <Route path="kyc" element={<KycCenter />} />
 
@@ -369,6 +372,7 @@ function App() {
             <Route path="transactions/:id" element={<ViewTransaction />} />
             <Route path="users" element={<Users />} />
             <Route path="users/:id" element={<ViewUser />} />
+            <Route path="kyc-reviews" element={<KycReviews />} />
           </Route>
         </Routes>
 

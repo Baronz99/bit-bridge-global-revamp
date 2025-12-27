@@ -1,6 +1,6 @@
 // src/pages/dashboard/KycCenter.jsx
 import React from 'react'
-import { useSelector } from 'react-redux'
+import { useDispatch, useSelector } from 'react-redux'
 import PhoneVerifyModal from '../../components/PhoneVerifyModal'
 
 import {
@@ -12,6 +12,8 @@ import {
   LockOutlined,
 } from '@ant-design/icons'
 import { NavLink, useNavigate } from 'react-router-dom'
+import client from '../../api/client'
+import { userProfile } from '../../redux/actions/auth'
 
 // Primary use-case → copy
 const useCaseConfig = {
@@ -87,16 +89,16 @@ const kycLevelConfig = {
     description: 'You can pay bills, but transfers and virtual accounts are limited.',
   },
   tier_0: {
-    label: 'Tier 0 – Basic',
+    label: 'Tier 0 - Basic',
     description: 'Email confirmed. Best for light bill payments and trying things out.',
   },
   tier_1: {
-    label: 'Tier 1 – Personal',
-    description: 'ID + BVN/NIN verified. Unlocks transfers and virtual accounts.',
+    label: 'Tier 1 - Essentials',
+    description: 'Phone verified + basic profile. Unlocks core wallet usage and onboarding.',
   },
   tier_2: {
-    label: 'Tier 2 – Business / Pro',
-    description: 'For salary/vendor payouts and higher limits with extra checks.',
+    label: 'Tier 2 - Full access',
+    description: 'BVN verified + ID upload + address. Unlocks cards, tunnel, transfers and virtual accounts.',
   },
 }
 
@@ -105,7 +107,7 @@ const tierOrder = ['tier_0', 'tier_1', 'tier_2']
 
 const normalizeTierKey = (raw) => {
   const k = (raw ?? 'nil').toString()
-  if (k === 'nil' || k === '') return 'tier_0' // treat “not started” as Tier 0 for UI consistency
+  if (k === 'nil' || k === '') return 'tier_0' // treat not started as Tier 0 for UI consistency
   if (!tierOrder.includes(k)) return 'tier_0'
   return k
 }
@@ -129,13 +131,13 @@ const tierCardCopy = {
   },
   tier_1: {
     title: 'Tier 1',
-    body: 'Personal ID + BVN / NIN. Unlock local transfers & virtual accounts.',
-    hint: 'Unlock transfers',
+    body: 'Phone verified and profile complete. Preps your account for BVN checks.',
+    hint: 'Complete basics',
   },
   tier_2: {
     title: 'Tier 2',
-    body: 'Business / pro. For salary & vendor payouts and higher flows.',
-    hint: 'Higher limits',
+    body: 'BVN verified + ID upload + address. Unlock all services.',
+    hint: 'Full access',
   },
 }
 
@@ -199,6 +201,7 @@ const TierCard = ({ state, title, body, hint, onPrimary, primaryLabel }) => {
 }
 
 const KycCenter = () => {
+  const dispatch = useDispatch()
   const { user } = useSelector((state) => state.auth) || {}
   const navigate = useNavigate()
 
@@ -213,26 +216,96 @@ const KycCenter = () => {
   // ✅ Phone verification modal
   const [showPhoneModal, setShowPhoneModal] = React.useState(false)
 
+  const [bvnInput, setBvnInput] = React.useState('')
+  const [bvnSubmitting, setBvnSubmitting] = React.useState(false)
+  const [bvnResponse, setBvnResponse] = React.useState(null)
+  const [bvnError, setBvnError] = React.useState('')
+
   // Supports either top-level fields (recommended) or nested profile
   const phoneVerified =
     user?.phone_verified === true ||
     !!user?.phone_verified_at ||
     !!user?.user_profile?.phone_verified_at
 
-  const hasTier1OrMore = ['tier_1', 'tier_2'].includes(normalizedTierKey)
+  const userKyc = user?.user_kyc || {}
+  const bvnStatus = userKyc?.bvn_status || 'unverified'
+  const bvnLast4 = userKyc?.bvn_last4 || ''
+  const isBvnVerified = bvnStatus === 'verified'
+
+  const hasTier2 = normalizedTierKey === 'tier_2'
 
   // “next action” routing helpers
   const goProfile = () => navigate('/dashboard/profile-account')
   const goVirtualAccounts = () => navigate('/dashboard/virtual-accounts')
   const goWallet = () => navigate('/dashboard/wallet') // if you don’t have this route, change to /dashboard/home
+  const goBvnSection = () => {
+    try {
+      document.getElementById('bvn-verify')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    } catch (_) {
+      // no-op
+    }
+  }
 
   // Decide what button to show inside the CURRENT tier card
   const currentTierPrimary =
     normalizedTierKey === 'tier_0'
       ? { label: 'Open profile', action: goProfile }
       : normalizedTierKey === 'tier_1'
-        ? { label: 'Go to virtual accounts', action: goVirtualAccounts }
-        : { label: 'Review profile', action: goProfile }
+        ? { label: 'Verify BVN', action: goBvnSection }
+        : { label: 'Go to virtual accounts', action: goVirtualAccounts }
+
+  const handleVerifyBvn = async () => {
+    const normalized = bvnInput.replace(/\D/g, '')
+    if (normalized.length !== 11) {
+      setBvnError('BVN must be 11 digits.')
+      return
+    }
+
+    setBvnSubmitting(true)
+    setBvnError('')
+    setBvnResponse(null)
+
+    try {
+      const res = await client.post('/kyc/bvn/verify', { bvn: normalized })
+      setBvnResponse(res?.data || null)
+      setBvnInput('')
+      await dispatch(userProfile())
+    } catch (error) {
+      const message =
+        error?.response?.data?.message ||
+        error?.response?.data?.error ||
+        'Unable to verify BVN right now.'
+      setBvnError(message)
+    } finally {
+      setBvnSubmitting(false)
+    }
+  }
+
+  const effectiveBvnStatus = bvnResponse?.status || bvnStatus
+  const effectiveLast4 = bvnResponse?.bvn_last4 || bvnLast4
+  const bvnStatusLabel =
+    effectiveBvnStatus === 'verified'
+      ? 'Verified'
+      : effectiveBvnStatus === 'pending_review'
+      ? 'Pending review'
+      : effectiveBvnStatus === 'mismatch'
+      ? 'Mismatch'
+      : effectiveBvnStatus === 'locked'
+      ? 'Locked'
+      : effectiveBvnStatus === 'failed'
+      ? 'Failed'
+      : 'Not submitted'
+
+  const bvnStatusClass =
+    effectiveBvnStatus === 'verified'
+      ? 'text-emerald-300'
+      : effectiveBvnStatus === 'pending_review'
+      ? 'text-amber-300'
+      : effectiveBvnStatus === 'mismatch'
+      ? 'text-rose-300'
+      : effectiveBvnStatus === 'locked'
+      ? 'text-rose-300'
+      : 'text-slate-400'
 
   return (
     <div className="min-h-screen p-4 md:p-8 bg-slate-950 text-slate-100">
@@ -257,7 +330,7 @@ const KycCenter = () => {
             <p className="font-semibold text-slate-100">Current KYC level</p>
             <p className="text-slate-300">{kycInfo.label}</p>
             <p className="text-[11px] text-slate-500">
-              Tier 1+ unlocks virtual accounts via Anchor / Moniepoint.
+              Tier 2 unlocks virtual accounts via Anchor / Moniepoint.
             </p>
           </div>
         </div>
@@ -322,8 +395,8 @@ const KycCenter = () => {
               Next steps to unlock everything
             </h3>
             <p className="text-xs text-slate-400 mb-4">
-              You only need <span className="font-semibold text-slate-200">two</span> quick
-              steps to reach Tier 1.
+              You only need <span className="font-semibold text-slate-200">three</span> quick
+              steps to reach Tier 2.
             </p>
 
             <ol className="space-y-3 text-sm">
@@ -372,11 +445,17 @@ const KycCenter = () => {
                   2
                 </div>
                 <div>
-                  <p className="font-semibold text-slate-100">Add your ID details</p>
+                  <p className="font-semibold text-slate-100">Verify your BVN</p>
                   <p className="text-xs text-slate-400 mt-1">
-                    Choose an ID type (BVN / NIN / passport etc.) in your profile. As file
-                    upload goes live, you’ll be able to upload the document and selfie.
+                    Confirm your BVN with our verification partner. We never store your BVN in plain text.
                   </p>
+                  <button
+                    type="button"
+                    onClick={goBvnSection}
+                    className="mt-2 inline-flex items-center px-3 py-1.5 rounded-lg border border-alt text-alt text-xs font-semibold hover:bg-alt/10 transition"
+                  >
+                    Verify BVN
+                  </button>
                 </div>
               </li>
 
@@ -385,28 +464,17 @@ const KycCenter = () => {
                   3
                 </div>
                 <div>
-                  <p className="font-semibold text-slate-100">
-                    Generate a virtual account
-                  </p>
+                  <p className="font-semibold text-slate-100">Upload ID and proof of address</p>
                   <p className="text-xs text-slate-400 mt-1">
-                    Once you are Tier 1, you can create a virtual bank account number so
-                    incoming transfers go straight into your BitBridge wallet.
+                    Add your ID document and proof of address to complete Tier 2.
                   </p>
-
-                  {hasTier1OrMore ? (
-                    <button
-                      type="button"
-                      onClick={goVirtualAccounts}
-                      className="mt-2 inline-flex items-center px-3 py-1.5 rounded-lg border border-alt text-alt text-xs font-semibold hover:bg-alt/10 transition"
-                    >
-                      Go to virtual accounts
-                    </button>
-                  ) : (
-                    <p className="mt-2 text-[11px] text-amber-300">
-                      Complete steps 1 &amp; 2 to reach Tier 1, then come back to generate
-                      an Anchor / Moniepoint account.
-                    </p>
-                  )}
+                  <button
+                    type="button"
+                    onClick={goProfile}
+                    className="mt-2 inline-flex items-center px-3 py-1.5 rounded-lg border border-alt text-alt text-xs font-semibold hover:bg-alt/10 transition"
+                  >
+                    Open KYC documents
+                  </button>
                 </div>
               </li>
             </ol>
@@ -423,19 +491,95 @@ const KycCenter = () => {
             {/* context-aware “skip” */}
             <button
               type="button"
-              onClick={hasTier1OrMore ? goVirtualAccounts : goWallet}
+              onClick={hasTier2 ? goVirtualAccounts : goWallet}
               className="inline-flex items-center justify-center px-4 py-2.5 rounded-xl bg-alt text-black text-xs md:text-sm font-semibold hover:brightness-110 transition"
               title={
-                hasTier1OrMore
+                hasTier2
                   ? 'Go to virtual accounts'
-                  : 'Use wallet for now (virtual accounts unlock at Tier 1)'
+                  : 'Use wallet for now (virtual accounts unlock at Tier 2)'
               }
             >
-              {hasTier1OrMore ? 'Go to virtual accounts' : 'Skip for now – use wallet'}
+              {hasTier2 ? 'Go to virtual accounts' : 'Skip for now - use wallet'}
             </button>
           </div>
         </div>
       </div>
+
+      <section id="bvn-verify" className="mt-6 rounded-2xl border border-slate-800 bg-slate-900/80 p-5 md:p-6">
+        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+          <div>
+            <h2 className="text-lg md:text-xl font-semibold">Verify BVN</h2>
+            <p className="text-sm text-slate-400 mt-1 max-w-2xl">
+              BVN verification powers Tier 2. Your BVN is never stored in plain text.
+            </p>
+          </div>
+          <div className="text-xs text-slate-400">
+            Status: <span className={['font-semibold', bvnStatusClass].join(' ')}>{bvnStatusLabel}</span>
+          </div>
+        </div>
+
+        <div className="mt-4 grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_minmax(0,0.6fr)] gap-4">
+          <div className="space-y-3">
+            <label className="block text-xs uppercase tracking-[0.2em] text-slate-500">
+              Enter BVN
+            </label>
+            <input
+              type="password"
+              inputMode="numeric"
+              maxLength={11}
+              value={bvnInput}
+              onChange={(e) => setBvnInput(e.target.value.replace(/\D/g, '').slice(0, 11))}
+              className="w-full rounded-xl border border-slate-700 bg-slate-950/60 px-3 py-2 text-sm text-slate-100 outline-none focus:border-alt"
+              placeholder="11-digit BVN"
+              autoComplete="off"
+            />
+            {bvnError && <p className="text-xs text-rose-300">{bvnError}</p>}
+
+            <button
+              type="button"
+              onClick={handleVerifyBvn}
+              disabled={bvnSubmitting || isBvnVerified}
+              className="inline-flex items-center px-4 py-2 rounded-xl bg-alt text-black text-xs font-semibold hover:brightness-110 transition disabled:opacity-60"
+            >
+              {isBvnVerified ? 'BVN Verified' : bvnSubmitting ? 'Verifying...' : 'Confirm BVN'}
+            </button>
+          </div>
+
+          <div className="rounded-xl border border-slate-800 bg-slate-950/50 p-4 text-xs text-slate-300">
+            <p className="text-[11px] uppercase tracking-[0.2em] text-slate-500 mb-2">
+              Verification result
+            </p>
+            {effectiveBvnStatus === 'verified' && (
+              <p className="text-emerald-300 font-semibold">
+                BVN verified (****{effectiveLast4}). Tier 2 activated.
+              </p>
+            )}
+            {effectiveBvnStatus === 'pending_review' && (
+              <p className="text-amber-200">
+                Submitted for review. We will notify you once verification is complete.
+              </p>
+            )}
+            {effectiveBvnStatus === 'mismatch' && (
+              <p className="text-rose-300">
+                BVN details do not match your profile. Check your name and date of birth, then retry.
+              </p>
+            )}
+            {effectiveBvnStatus === 'locked' && (
+              <p className="text-rose-300">
+                Verification locked. Try again later or contact support.
+              </p>
+            )}
+            {effectiveBvnStatus === 'failed' && (
+              <p className="text-rose-300">
+                Provider unavailable. Please retry in a few minutes.
+              </p>
+            )}
+            {effectiveBvnStatus === 'unverified' && (
+              <p>Enter your BVN to begin verification.</p>
+            )}
+          </div>
+        </div>
+      </section>
 
       {/* ✅ Phone verification modal mount (keeps existing flows intact) */}
       <PhoneVerifyModal

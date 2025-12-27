@@ -5,7 +5,7 @@ module Api
     class AccountsController < ApplicationController
       before_action :set_account, only: %i[show update destroy]
 
-      # 🔒 Require Tier 1+ for *state-changing* Anchor flows only
+      # 🔒 Require Tier 2+ for *state-changing* Anchor flows only
       before_action :ensure_anchor_kyc!,
                     only: %i[
                       create
@@ -14,9 +14,9 @@ module Api
                       verify_kyc
                       create_counter_party
                     ]
-      before_action :ensure_tier1!,
+      before_action :ensure_tier2!,
                     only: %i[initiate_fund_transfer],
-                    message: 'Complete Tier 1 verification to make transfers.'
+                    message: 'Complete Tier 2 verification to make transfers.'
 
       def index
         @accounts = Account.all
@@ -469,7 +469,7 @@ return unless require_transaction_pin!(pin, error_key: :message)
         return if allowed_levels.include?(user_level)
 
         render json: {
-          message: 'Please complete Tier 1 verification before generating or using an Anchor virtual account.'
+          message: 'Please complete Tier 2 verification before generating or using an Anchor virtual account.'
         }, status: :forbidden
       end
     end

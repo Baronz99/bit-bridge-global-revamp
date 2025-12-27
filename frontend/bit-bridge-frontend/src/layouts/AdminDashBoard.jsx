@@ -1,4 +1,10 @@
-import { BellOutlined, InboxOutlined, MenuOutlined, UsergroupAddOutlined } from '@ant-design/icons'
+import {
+  BellOutlined,
+  InboxOutlined,
+  MenuOutlined,
+  UsergroupAddOutlined,
+  SafetyCertificateOutlined,
+} from '@ant-design/icons'
 import { NavLink, Outlet, useNavigate } from 'react-router-dom'
 import { useDispatch, useSelector } from 'react-redux'
 import { useEffect, useState } from 'react'
@@ -128,6 +134,16 @@ const AdminDashboardLayout = () => {
             >
               <UsergroupAddOutlined className="text-2xl" />
               <span>Users</span>
+            </NavLink>{' '}
+          </li>
+          <li className="my-2 py-2 px-3 bg-blue-80 text-sm">
+            {' '}
+            <NavLink
+              to={'/admin/kyc-reviews'}
+              className={`flex ${toggleNav ? 'flex-row' : 'flex-col'} gap-3 `}
+            >
+              <SafetyCertificateOutlined className="text-2xl" />
+              <span>KYC Reviews</span>
             </NavLink>{' '}
           </li>
           <li className="my-2 py-2 px-3 bg-blue-80 text-sm">

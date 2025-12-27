@@ -6,6 +6,7 @@ import { useNavigate } from 'react-router-dom'
 import ClassicBtn from '../../components/button/ClassicButton'
 import client from '../../api/client'
 import { toast } from 'react-toastify'
+import { withTier2MissingDetails } from '../../utils/kycGate'
 
 // Rough categorisation for the filter pills (purely UI)
 const detectCategory = (group) => {
@@ -22,7 +23,7 @@ const CirclesPage = () => {
   const { user } = useSelector((state) => state.auth)
 
   const userKyc = (user?.kyc_level || 'nil').toString().toLowerCase()
-  const needsTier1 = ['nil', '', 'tier_0'].includes(userKyc)
+  const needsTier2 = ['nil', '', 'tier_0', 'tier_1'].includes(userKyc)
 
   const [groups, setGroups] = useState([])
   const [loading, setLoading] = useState(true)
@@ -51,8 +52,8 @@ const CirclesPage = () => {
 
   // ---------- load groups from backend ----------
   useEffect(() => {
-    if (needsTier1) {
-      toast.info('Complete Tier 1 verification to use shared groups.', {
+    if (needsTier2) {
+      toast.info(withTier2MissingDetails(user, 'Complete Tier 2 verification to use shared groups.'), {
         position: 'top-right',
         autoClose: 4000,
         pauseOnHover: true,
@@ -98,7 +99,7 @@ const CirclesPage = () => {
     }
 
     loadGroups()
-  }, [navigate, needsTier1])
+  }, [navigate, needsTier2])
 
   // ---------- create group ----------
   const handleCreate = async (e) => {

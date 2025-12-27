@@ -4,6 +4,7 @@ export default function ProfileInfoPanel({
   userInfo,
   setUserInfo,
   phoneVerified,
+  countryOptions,
   onOpenPhoneVerify,
 }) {
   const handlePhoneChange = (e) => {
@@ -97,6 +98,7 @@ export default function ProfileInfoPanel({
                   type="button"
                   onClick={onOpenPhoneVerify}
                   className={[
+                    'phone-verified-chip',
                     'inline-flex items-center px-3 py-1.5 rounded-xl',
                     'border border-amber-500/40 bg-amber-500/10 text-amber-200',
                     'text-sm font-semibold hover:bg-amber-500/15 transition',
@@ -121,7 +123,7 @@ export default function ProfileInfoPanel({
           </div>
 
           {phoneVerified ? (
-            <p className="mt-2 text-xs text-slate-300/70">
+            <p className="mt-2 text-xs text-slate-300/70 phone-verified-help">
               To change a verified phone number, use{' '}
               <span className="text-white font-semibold">Change phone</span>.
             </p>
@@ -160,6 +162,31 @@ export default function ProfileInfoPanel({
               'px-3 py-2 text-slate-300/70 outline-none',
             ].join(' ')}
           />
+        </div>
+
+        {/* Nationality */}
+        <div className="md:col-span-2">
+          <label className="block text-sm font-medium text-slate-200">Nationality</label>
+          <select
+            value={userInfo.user_profile.country || ''}
+            onChange={(e) =>
+              setUserInfo({
+                ...userInfo,
+                user_profile: { ...userInfo.user_profile, country: e.target.value },
+              })
+            }
+            className={[
+              'mt-1 w-full rounded-xl border border-white/10 bg-white/10',
+              'px-3 py-2 text-white',
+              'outline-none focus:ring-2 focus:ring-blue-500/60 focus:border-blue-500/40',
+            ].join(' ')}
+          >
+            {(countryOptions || []).map((opt) => (
+              <option key={opt.value || opt.label} value={opt.value}>
+                {opt.label}
+              </option>
+            ))}
+          </select>
         </div>
       </div>
 

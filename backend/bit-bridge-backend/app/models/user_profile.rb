@@ -9,36 +9,8 @@ class UserProfile < ApplicationRecord
   has_one_attached :proof_of_address
 
   before_save :sync_phone_verification_state_if_phone_changed
-  before_save :sync_bvn_state
 
   private
-
-  def sync_bvn_state
-    if will_save_change_to_bvn?
-      if bvn.present?
-        self.bvn_status = 'pending'
-        self.bvn_verified_at = nil
-        self.bvn_rejection_reason = nil
-      else
-        self.bvn_status = nil
-        self.bvn_verified_at = nil
-        self.bvn_rejection_reason = nil
-      end
-    end
-
-    return unless will_save_change_to_bvn_status?
-
-    case bvn_status
-    when 'verified'
-      self.bvn_verified_at = Time.current if bvn_verified_at.blank?
-      self.bvn_rejection_reason = nil
-    when 'rejected'
-      self.bvn_verified_at = nil
-    when 'pending'
-      self.bvn_verified_at = nil
-      self.bvn_rejection_reason = nil
-    end
-  end
 
   def sync_phone_verification_state_if_phone_changed
     return unless will_save_change_to_phone_number?
@@ -106,4 +78,5 @@ end
       self.phone_e164 = nil if respond_to?(:phone_e164=) && new_e164.blank?
     end
   end
+
 end

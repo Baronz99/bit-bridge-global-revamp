@@ -1,0 +1,292 @@
+/* User dashboard theme overrides (dark/light/shadow) */
+.bb-user-theme {
+  --bb-bg: #0b1120;
+  --bb-panel-bg: rgba(255, 255, 255, 0.05);
+  --bb-panel-border: rgba(255, 255, 255, 0.1);
+  --bb-topbar-bg: linear-gradient(90deg, #000000 0%, #0b1120 50%, #000000 100%);
+  --bb-text: #e2e8f0;
+  --bb-muted: rgba(226, 232, 240, 0.7);
+  --bb-muted-strong: rgba(226, 232, 240, 0.82);
+  --bb-card-surface: rgba(15, 23, 42, 0.85);
+  --bb-card-text: #e2e8f0;
+  --bb-card-muted: rgba(226, 232, 240, 0.7);
+  background-color: var(--bb-bg);
+  color: var(--bb-text);
+}
+
+.bb-user-theme .bb-topbar {
+  background: var(--bb-topbar-bg) !important;
+  border-color: var(--bb-panel-border) !important;
+}
+
+.bb-user-theme .bb-profile-shell {
+  background-color: var(--bb-bg);
+  color: var(--bb-text);
+}
+
+.bb-user-theme .bb-panel {
+  background-color: var(--bb-panel-bg) !important;
+  border-color: var(--bb-panel-border) !important;
+}
+
+.bb-user-theme[data-theme='light'] {
+  --bb-bg: #f6efe6;
+  --bb-panel-bg: #fffaf2;
+  --bb-panel-border: rgba(120, 92, 70, 0.18);
+  --bb-topbar-bg: linear-gradient(90deg, #fff6ea 0%, #f4eadb 50%, #fff6ea 100%);
+  --bb-text: #2f261c;
+  --bb-muted: rgba(47, 38, 28, 0.6);
+  --bb-muted-strong: rgba(47, 38, 28, 0.78);
+  --bb-card-surface: #f1e7da;
+  --bb-card-text: #2f261c;
+  --bb-card-muted: rgba(47, 38, 28, 0.62);
+}
+
+.bb-user-theme[data-theme='light'] .accounts-panel .text-slate-400,
+.bb-user-theme[data-theme='light'] .accounts-panel .text-slate-500 {
+  color: var(--bb-muted-strong) !important;
+}
+
+.bb-user-theme[data-theme='light'] .quick-actions .text-purple-300 {
+  color: var(--bb-text) !important;
+}
+
+.bb-user-theme[data-theme='light'] .quick-actions .bg-purple-900\/40,
+.bb-user-theme[data-theme='light'] .quick-actions .border-purple-600\/60 {
+  background-color: #f2e8db !important;
+  border-color: rgba(120, 92, 70, 0.28) !important;
+}
+
+.bb-user-theme[data-theme='light'] .quick-actions .text-purple-300 svg,
+.bb-user-theme[data-theme='light'] .quick-actions .text-purple-300 .anticon {
+  color: #6b3f22 !important;
+}
+
+.bb-user-theme[data-theme='light'] .phone-verified-chip {
+  border-color: rgba(120, 92, 70, 0.4) !important;
+  background-color: rgba(242, 205, 120, 0.35) !important;
+  color: #5a3a18 !important;
+}
+
+.bb-user-theme[data-theme='light'] .phone-verified-help {
+  color: var(--bb-muted-strong) !important;
+}
+
+.bb-user-theme[data-theme='light'] .text-white {
+  color: var(--bb-text) !important;
+}
+
+.bb-user-theme[data-theme='light'] .text-slate-100,
+.bb-user-theme[data-theme='light'] .text-slate-200 {
+  color: var(--bb-text) !important;
+}
+
+.bb-user-theme[data-theme='light'] .text-slate-300,
+.bb-user-theme[data-theme='light'] .text-slate-400,
+.bb-user-theme[data-theme='light'] .text-slate-500,
+.bb-user-theme[data-theme='light'] .text-slate-300\/70,
+.bb-user-theme[data-theme='light'] .text-slate-300\/80,
+.bb-user-theme[data-theme='light'] .text-slate-200\/70,
+.bb-user-theme[data-theme='light'] .text-slate-200\/80,
+.bb-user-theme[data-theme='light'] .text-slate-200\/90,
+.bb-user-theme[data-theme='light'] .text-slate-300\/60,
+.bb-user-theme[data-theme='light'] .text-slate-400\/70,
+.bb-user-theme[data-theme='light'] .text-slate-500\/70,
+.bb-user-theme[data-theme='light'] .text-white\/60,
+.bb-user-theme[data-theme='light'] .text-white\/70,
+.bb-user-theme[data-theme='light'] .text-white\/80,
+.bb-user-theme[data-theme='light'] .text-white\/90,
+.bb-user-theme[data-theme='light'] .text-gray-300,
+.bb-user-theme[data-theme='light'] .text-gray-200 {
+  color: var(--bb-muted) !important;
+}
+
+.bb-user-theme[data-theme='light'] .bg-slate-950,
+.bb-user-theme[data-theme='light'] .bg-black {
+  background-color: var(--bb-bg) !important;
+}
+
+.bb-user-theme[data-theme='light'] .bg-slate-900,
+.bb-user-theme[data-theme='light'] .bg-slate-800 {
+  background-color: var(--bb-panel-bg) !important;
+}
+
+.bb-user-theme[data-theme='light'] .bg-slate-900\/70,
+.bb-user-theme[data-theme='light'] .bg-slate-900\/80,
+.bb-user-theme[data-theme='light'] .bg-slate-900\/90,
+.bb-user-theme[data-theme='light'] .bg-slate-900\/95,
+.bb-user-theme[data-theme='light'] .bg-slate-900\/60,
+.bb-user-theme[data-theme='light'] .bg-slate-950\/60,
+.bb-user-theme[data-theme='light'] .bg-slate-950\/80,
+.bb-user-theme[data-theme='light'] .bg-slate-950\/90,
+.bb-user-theme[data-theme='light'] .bg-slate-950\/95,
+.bb-user-theme[data-theme='light'] .bg-black\/70,
+.bb-user-theme[data-theme='light'] .bg-black\/60 {
+  background-color: var(--bb-panel-bg) !important;
+}
+
+.bb-user-theme[data-theme='light'] .border-slate-800,
+.bb-user-theme[data-theme='light'] .border-slate-700,
+.bb-user-theme[data-theme='light'] .border-slate-600 {
+  border-color: var(--bb-panel-border) !important;
+}
+
+.bb-user-theme[data-theme='light'] .border-slate-800\/70,
+.bb-user-theme[data-theme='light'] .border-slate-700\/70,
+.bb-user-theme[data-theme='light'] .border-slate-700\/80 {
+  border-color: var(--bb-panel-border) !important;
+}
+
+.bb-user-theme[data-theme='light'] .border-white\/10,
+.bb-user-theme[data-theme='light'] .border-white\/15 {
+  border-color: rgba(120, 92, 70, 0.14) !important;
+}
+
+.bb-user-theme[data-theme='light'] .bg-white\/5,
+.bb-user-theme[data-theme='light'] .bg-white\/10 {
+  background-color: var(--bb-panel-bg) !important;
+}
+
+.bb-user-theme[data-theme='light'] .text-alt {
+  color: #935f3f !important;
+}
+
+.bb-user-theme[data-theme='light'] .bg-gradient-to-r,
+.bb-user-theme[data-theme='light'] .bg-gradient-to-br {
+  background-image: none !important;
+  background-color: var(--bb-panel-bg) !important;
+}
+
+/* Home dashboard */
+.bb-user-theme[data-theme='light'] .homeDashboard {
+  background-color: var(--bb-bg) !important;
+  color: var(--bb-text) !important;
+}
+
+/* Cards page specific (virtual-card-page) */
+.bb-user-theme[data-theme='light'] .virtual-card-page {
+  background: var(--bb-bg) !important;
+  color: var(--bb-text) !important;
+}
+
+.bb-user-theme[data-theme='light'] .virtual-card-page::before {
+  opacity: 0.08 !important;
+}
+
+.bb-user-theme[data-theme='light'] .virtual-card-page .vc-surface,
+.bb-user-theme[data-theme='light'] .virtual-card-page .vc-inset,
+.bb-user-theme[data-theme='light'] .virtual-card-page .vc-chip,
+.bb-user-theme[data-theme='light'] .virtual-card-page .vc-card-glass,
+.bb-user-theme[data-theme='light'] .virtual-card-page .vc-dark-surface {
+  background: var(--bb-panel-bg) !important;
+  border-color: var(--bb-panel-border) !important;
+  color: var(--bb-text) !important;
+  box-shadow: none !important;
+}
+
+.bb-user-theme[data-theme='light'] .virtual-card-page .vc-card-glass,
+.bb-user-theme[data-theme='light'] .virtual-card-page .vc-neon-edge,
+.bb-user-theme[data-theme='light'] .virtual-card-page .vc-glow-ring {
+  box-shadow: 0 12px 40px -30px rgba(60, 40, 20, 0.35) !important;
+}
+
+.bb-user-theme[data-theme='light'] .virtual-card-page .vc-card-glass {
+  background: linear-gradient(135deg, #fff5e6, #f6e7d6) !important;
+}
+
+.bb-user-theme[data-theme='light'] .virtual-card-page header h1,
+.bb-user-theme[data-theme='light'] .virtual-card-page header h2,
+.bb-user-theme[data-theme='light'] .virtual-card-page header p,
+.bb-user-theme[data-theme='light'] .virtual-card-page .vc-caption,
+.bb-user-theme[data-theme='light'] .virtual-card-page .vc-meta,
+.bb-user-theme[data-theme='light'] .virtual-card-page .vc-chip,
+.bb-user-theme[data-theme='light'] .virtual-card-page .vc-chip span,
+.bb-user-theme[data-theme='light'] .virtual-card-page .vc-chip svg,
+.bb-user-theme[data-theme='light'] .virtual-card-page .text-red-400,
+.bb-user-theme[data-theme='light'] .virtual-card-page .text-slate-500 {
+  color: var(--bb-text) !important;
+}
+
+.bb-user-theme[data-theme='light'] .virtual-card-page .text-slate-300,
+.bb-user-theme[data-theme='light'] .virtual-card-page .text-slate-400,
+.bb-user-theme[data-theme='light'] .virtual-card-page .text-slate-300\/70,
+.bb-user-theme[data-theme='light'] .virtual-card-page .text-slate-300\/80,
+.bb-user-theme[data-theme='light'] .virtual-card-page .text-slate-400\/70 {
+  color: var(--bb-muted) !important;
+}
+
+.bb-user-theme[data-theme='light'] .virtual-card-page .vc-card-glass h3,
+.bb-user-theme[data-theme='light'] .virtual-card-page .vc-card-glass p,
+.bb-user-theme[data-theme='light'] .virtual-card-page .vc-card-glass span {
+  color: #fdf5ea !important;
+}
+
+.bb-user-theme[data-theme='light'] .virtual-card-page .vc-button-primary {
+  background: linear-gradient(135deg, #b46a3c, #d98c5d) !important;
+  color: #fffaf2 !important;
+}
+
+.bb-user-theme[data-theme='light'] .virtual-card-page .vc-button-secondary {
+  background: #f1e4d5 !important;
+  border-color: rgba(120, 92, 70, 0.22) !important;
+  color: #3b2b1f !important;
+}
+
+.bb-user-theme[data-theme='light'] .virtual-card-page .vc-input {
+  background: #fff7ec !important;
+  border-color: rgba(120, 92, 70, 0.2) !important;
+  color: #2f261c !important;
+}
+
+.bb-user-theme[data-theme='light'] .virtual-card-page .vc-input::placeholder {
+  color: rgba(47, 38, 28, 0.45) !important;
+}
+
+.bb-user-theme[data-theme='light'] .virtual-card-page .vc-chart-bar {
+  background: linear-gradient(180deg, rgba(180, 106, 60, 0.6), rgba(180, 106, 60, 0.08)) !important;
+}
+
+/* Topbar profile dropdown */
+.bb-user-theme[data-theme='light'] .ant-dropdown-button .ant-btn,
+.bb-user-theme[data-theme='light'] .ant-dropdown-button .ant-btn-default {
+  background: #fff7ec !important;
+  border-color: rgba(120, 92, 70, 0.25) !important;
+  color: #2f261c !important;
+}
+
+.bb-user-theme[data-theme='light'] .ant-dropdown-button .ant-btn .anticon,
+.bb-user-theme[data-theme='light'] .ant-dropdown-button .ant-btn svg {
+  color: #2f261c !important;
+  fill: #2f261c !important;
+}
+
+.bb-user-theme[data-theme='light'] .ant-dropdown-menu {
+  background-color: #fffaf2 !important;
+  border: 1px solid rgba(120, 92, 70, 0.2) !important;
+}
+
+.bb-user-theme[data-theme='light'] .ant-dropdown-menu-item,
+.bb-user-theme[data-theme='light'] .ant-dropdown-menu-title-content {
+  color: #2f261c !important;
+}
+
+.bb-user-theme[data-theme='light'] .ant-dropdown-menu-item:hover {
+  background-color: rgba(120, 92, 70, 0.08) !important;
+}
+
+/* Wallet/utility common panels */
+.bb-user-theme[data-theme='light'] .bg-slate-900\/80,
+.bb-user-theme[data-theme='light'] .bg-slate-900\/70,
+.bb-user-theme[data-theme='light'] .bg-slate-900\/60,
+.bb-user-theme[data-theme='light'] .bg-slate-950\/80,
+.bb-user-theme[data-theme='light'] .bg-slate-950\/70,
+.bb-user-theme[data-theme='light'] .bg-slate-950\/60 {
+  background-color: var(--bb-panel-bg) !important;
+}
+
+.bb-user-theme[data-theme='shadow'] {
+  --bb-bg: #090f1f;
+  --bb-panel-bg: rgba(15, 23, 42, 0.65);
+  --bb-panel-border: rgba(148, 163, 184, 0.18);
+  --bb-topbar-bg: linear-gradient(90deg, #05070f 0%, #0b1120 50%, #05070f 100%);
+}

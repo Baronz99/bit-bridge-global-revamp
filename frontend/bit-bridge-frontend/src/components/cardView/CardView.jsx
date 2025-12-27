@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import states from '../../data/states.json'
 import { useDispatch, useSelector } from 'react-redux'
@@ -8,6 +8,7 @@ import { getWallet } from '../../redux/actions/wallet'
 import ShadowValue from '../../components/ShadowValue'
 import client from '../../api/client'
 import { toast } from 'react-toastify'
+import { withTier2MissingDetails } from '../../utils/kycGate'
 
 //  Use your reusable masked PIN input (4 digits)
 import TransactionPinInput from '../../components/pin/TransactionPinInput' // adjust if needed
@@ -53,6 +54,7 @@ export default function VirtualCardApplication() {
   const [freezeLoading, setFreezeLoading] = useState(false)
   const [freezeError, setFreezeError] = useState(null)
   const [showInlineFund, setShowInlineFund] = useState(false)
+  const gateToastShownRef = useRef(false)
 
   const [formData, setFormData] = useState({
     // cardholder fields
@@ -119,7 +121,7 @@ export default function VirtualCardApplication() {
   const requiredBalance = feeDue + (fundingAmount >= minFunding ? fundingAmount : 0)
 
   const userKyc = (user?.kyc_level || 'nil').toString().toLowerCase()
-  const needsTier1 = ['nil', '', 'tier_0'].includes(userKyc)
+  const needsTier2 = ['nil', '', 'tier_0', 'tier_1'].includes(userKyc)
 
   useEffect(() => {
     dispatch(getUserCard())
@@ -127,14 +129,34 @@ export default function VirtualCardApplication() {
   }, [dispatch])
 
   useEffect(() => {
-    if (!needsTier1) return
-    toast.info('Complete Tier 1 verification to use cards.', {
-      position: 'top-right',
-      autoClose: 4000,
-      pauseOnHover: true,
-    })
+    if (!needsTier2) return
+    if (gateToastShownRef.current) {
+      navigate('/dashboard/kyc')
+      return
+    }
+
+    let shouldToast = true
+    try {
+      const key = 'bb_tier1_gate_cards'
+      if (sessionStorage.getItem(key)) {
+        shouldToast = false
+      } else {
+        sessionStorage.setItem(key, '1')
+      }
+    } catch (_) {
+      // no-op
+    }
+
+    gateToastShownRef.current = true
+    if (shouldToast) {
+      toast.info(withTier2MissingDetails(user, 'Complete Tier 2 verification to use cards.'), {
+        position: 'top-right',
+        autoClose: 4000,
+        pauseOnHover: true,
+      })
+    }
     navigate('/dashboard/kyc')
-  }, [navigate, needsTier1])
+  }, [navigate, needsTier2])
 
   useEffect(() => {
     const start = animatedUsdBalance
@@ -552,6 +574,60 @@ export default function VirtualCardApplication() {
           letter-spacing: -0.01em;
         }
 
+        .bb-user-theme[data-theme='light'] .virtual-card-page {
+          background: var(--bb-bg) !important;
+          background-image: none !important;
+          color: var(--bb-text) !important;
+        }
+
+        .bb-user-theme[data-theme='light'] .virtual-card-page::before {
+          opacity: 0 !important;
+          background-image: none !important;
+        }
+
+        .bb-user-theme[data-theme='light'] .virtual-card-page h1,
+        .bb-user-theme[data-theme='light'] .virtual-card-page h2,
+        .bb-user-theme[data-theme='light'] .virtual-card-page h3,
+        .bb-user-theme[data-theme='light'] .virtual-card-page header p {
+          color: var(--bb-text) !important;
+        }
+
+        .bb-user-theme[data-theme='light'] .virtual-card-page .vc-hero {
+          background: var(--bb-panel-bg) !important;
+          border: 1px solid var(--bb-panel-border) !important;
+          border-radius: 18px;
+          box-shadow: none !important;
+        }
+
+        .bb-user-theme[data-theme='light'] .virtual-card-page .vc-card-glass {
+          background: var(--bb-card-surface) !important;
+          color: var(--bb-card-text) !important;
+          border-color: var(--bb-panel-border) !important;
+          box-shadow: 0 18px 35px -28px rgba(60, 40, 20, 0.3) !important;
+        }
+
+        .bb-user-theme[data-theme='light'] .virtual-card-page .vc-card-glass .text-slate-200\/70,
+        .bb-user-theme[data-theme='light'] .virtual-card-page .vc-card-glass .text-slate-200\/80,
+        .bb-user-theme[data-theme='light'] .virtual-card-page .vc-card-glass .text-slate-200\/90,
+        .bb-user-theme[data-theme='light'] .virtual-card-page .vc-card-glass .text-white {
+          color: var(--bb-card-text) !important;
+        }
+
+        .bb-user-theme[data-theme='light'] .virtual-card-page .vc-card-glass .text-slate-300,
+        .bb-user-theme[data-theme='light'] .virtual-card-page .vc-card-glass .text-slate-400,
+        .bb-user-theme[data-theme='light'] .virtual-card-page .vc-card-glass .text-slate-300\/70 {
+          color: var(--bb-card-muted) !important;
+        }
+
+        .bb-user-theme[data-theme='light'] .virtual-card-page .text-slate-300,
+        .bb-user-theme[data-theme='light'] .virtual-card-page .text-slate-400,
+        .bb-user-theme[data-theme='light'] .virtual-card-page .text-slate-500,
+        .bb-user-theme[data-theme='light'] .virtual-card-page .text-slate-300\/70,
+        .bb-user-theme[data-theme='light'] .virtual-card-page .text-slate-300\/80,
+        .bb-user-theme[data-theme='light'] .virtual-card-page .text-slate-400\/70 {
+          color: var(--bb-muted) !important;
+        }
+
         .virtual-card-page .vc-nav {
           background: rgba(15, 23, 42, 0.55);
           border: 1px solid rgba(148, 163, 184, 0.2);
@@ -722,10 +798,11 @@ export default function VirtualCardApplication() {
           70% { box-shadow: 0 0 0 12px rgba(56, 189, 248, 0); }
           100% { box-shadow: 0 0 0 0 rgba(56, 189, 248, 0); }
         }
+
       `}</style>
       <div className="virtual-card-page min-h-screen px-4 py-8">
         <div className="max-w-6xl mx-auto space-y-8">
-        <header className="px-2 md:px-4 flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+        <header className="vc-hero px-2 md:px-4 flex flex-col md:flex-row md:items-center md:justify-between gap-4">
           <div>
             <h1 className="text-2xl md:text-3xl font-semibold tracking-tight">Virtual Cards</h1>
             <p className="mt-1 text-sm text-slate-400 max-w-xl">

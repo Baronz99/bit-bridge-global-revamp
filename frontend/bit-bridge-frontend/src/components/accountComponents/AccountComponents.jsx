@@ -28,9 +28,9 @@ const AccountNumbers = ({ accounts, generate, onView, showView = true }) => {
   console.log(accounts)
 
   return (
-    <div className="max-w-2x flex justify-between w-full bg-black my-4 rounded-2xl shadow-lg p-8">
-      <h2 className="text-2xl font-bold text-gray-800 mb-6 text-center">
-        <div className="grid grid-cols-2 sm:grid-cols-2 gap-6 mb-8">
+    <div className="flex justify-between w-full my-4 rounded-2xl border border-slate-800 bg-slate-900/80 shadow-lg p-6">
+      <div className="w-full">
+        <div className="grid grid-cols-2 sm:grid-cols-2 gap-6">
           {/* Savings Account */}
           {Array.from({ length: accountVendors.length }).map((_, i) => {
             const useraccountExists =
@@ -49,9 +49,9 @@ const AccountNumbers = ({ accounts, generate, onView, showView = true }) => {
               return (
                 <div
                   key={i}
-                  className="border border-gray-200 bg-gradient-to-b from-gray-900 to-transparent text-center rounded-xl py-2 shadow-sm hover:shadow-md transition-all"
+                  className="border border-slate-800 bg-slate-950/70 text-center rounded-xl py-3 shadow-sm hover:shadow-md transition-all"
                 >
-                  <h3 className="text-gray-300   font-medium text-lg mb-2">
+                  <h3 className="text-slate-100 font-medium text-lg mb-2">
                     {/* {i === 0 ? 'MoniePoint' : 'Anchor'} */}
                     {getAccountName(accounts[i]?.vendor)}
                   </h3>
@@ -61,14 +61,14 @@ const AccountNumbers = ({ accounts, generate, onView, showView = true }) => {
                       <p className="text-xs font-bold text-alt tracking-wider">
                         {accounts[i].account_name}
                       </p>
-                      <p className="text-sm text-gray-500 mt-1">
+                      <p className="text-sm text-slate-400 mt-1">
                         Bank: {accounts[0]?.account_number}
                       </p>
 
                       {showView && onView ? (
                         <button
                           onClick={() => onView(i, accounts[i])}
-                          className="text-sm text-gray-100 mt-1  hover:text-alt"
+                          className="text-sm text-slate-100 mt-1 hover:text-alt"
                         >
                           View
                         </button>
@@ -77,7 +77,7 @@ const AccountNumbers = ({ accounts, generate, onView, showView = true }) => {
                   ) : (
                     <button
                       onClick={() => generate(accountIndex, accounts[i])}
-                      className="text-gray-400 text-base font-normal hover:text-alt italic"
+                      className="text-slate-400 text-base font-normal hover:text-alt italic"
                     >
                       + Continue
                     </button>
@@ -88,15 +88,15 @@ const AccountNumbers = ({ accounts, generate, onView, showView = true }) => {
               return (
                 <div
                   key={i}
-                  className="border border-gray-200 bg-gradient-to-b from-gray-900 to-transparent text-center rounded-xl p-5 shadow-sm hover:shadow-md transition-all"
+                  className="border border-slate-800 bg-slate-950/70 text-center rounded-xl p-5 shadow-sm hover:shadow-md transition-all"
                 >
-                  <h3 className="text-gray-500 font-medium text-lg mb-2">
+                  <h3 className="text-slate-300 font-medium text-lg mb-2">
                     {/* {i === 0 ? 'MoniePoint' : 'Anchor'} */}
                     {getAccountName(accountNonexisting[i - accountexisting.length])}
                   </h3>
                   <button
                     onClick={() => generate(indexTogen)}
-                    className="text-gray-400 text-base font-normal hover:text-alt italic"
+                    className="text-slate-400 text-base font-normal hover:text-alt italic"
                   >
                     + generate
                   </button>
@@ -105,7 +105,7 @@ const AccountNumbers = ({ accounts, generate, onView, showView = true }) => {
             }
           })}
         </div>
-      </h2>
+      </div>
     </div>
   )
 }

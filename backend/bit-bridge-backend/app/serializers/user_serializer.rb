@@ -22,6 +22,7 @@ class UserSerializer < ActiveModel::Serializer
   has_many :wallets, if: :admin_scope?
   has_many :bill_orders
   has_one  :user_profile
+  has_one  :user_kyc
   has_many :transactions
   has_many :accounts
   has_many :cards, if: :admin_scope?

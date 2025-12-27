@@ -16,6 +16,7 @@ import { getBankList } from '../../redux/actions/account'
 import { NavLink, useNavigate, useSearchParams } from 'react-router-dom'
 import ShadowValue from '../../components/ShadowValue'
 import { toast } from 'react-toastify'
+import { withTier2MissingDetails } from '../../utils/kycGate'
 
 // NEW
 import {
@@ -74,15 +75,15 @@ const tunnelWallet = data?.tunnel
   const coinType = 'bank'
 
   const userKyc = (user?.kyc_level || 'nil').toString().toLowerCase()
-  const needsTier1 = ['nil', '', 'tier_0'].includes(userKyc)
+  const needsTier2 = ['nil', '', 'tier_0', 'tier_1'].includes(userKyc)
 
   const isTunnel = mode === MODES.TUNNEL
 
   // Keep mode synced with URL
   useEffect(() => {
     const normalized = urlMode === MODES.TUNNEL ? MODES.TUNNEL : MODES.BRIDGE
-    if (normalized === MODES.TUNNEL && needsTier1) {
-      toast.info('Complete Tier 1 verification to use the Tunnel wallet.', {
+    if (normalized === MODES.TUNNEL && needsTier2) {
+      toast.info(withTier2MissingDetails(user, 'Complete Tier 2 verification to use the Tunnel wallet.'), {
         position: 'top-right',
         autoClose: 4000,
         pauseOnHover: true,
@@ -98,12 +99,12 @@ const tunnelWallet = data?.tunnel
     }
     setMode(normalized)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [urlMode, needsTier1, navigate, setSearchParams])
+  }, [urlMode, needsTier2, navigate, setSearchParams])
 
   const setModeAndUrl = (nextMode) => {
     const normalized = nextMode === MODES.TUNNEL ? MODES.TUNNEL : MODES.BRIDGE
-    if (normalized === MODES.TUNNEL && needsTier1) {
-      toast.info('Complete Tier 1 verification to use the Tunnel wallet.', {
+    if (normalized === MODES.TUNNEL && needsTier2) {
+      toast.info(withTier2MissingDetails(user, 'Complete Tier 2 verification to use the Tunnel wallet.'), {
         position: 'top-right',
         autoClose: 4000,
         pauseOnHover: true,
@@ -128,7 +129,7 @@ const tunnelWallet = data?.tunnel
   useEffect(() => {
     const run = async () => {
       if (!isTunnel) return
-      if (needsTier1) return
+      if (needsTier2) return
       setTunnelLoading(true)
       try {
         // activate returns wallet
@@ -149,7 +150,7 @@ const tunnelWallet = data?.tunnel
       }
     }
     run()
-  }, [isTunnel, needsTier1])
+  }, [isTunnel, needsTier2])
 
   // Bridge funding (Monnify) unchanged
   const handleSubmit = (values) => {
@@ -203,8 +204,8 @@ const tunnelWallet = data?.tunnel
 
   // Tunnel convert
   const openConvert = () => {
-    if (needsTier1) {
-      toast.info('Complete Tier 1 verification to use the Tunnel wallet.', {
+    if (needsTier2) {
+      toast.info(withTier2MissingDetails(user, 'Complete Tier 2 verification to use the Tunnel wallet.'), {
         position: 'top-right',
         autoClose: 4000,
         pauseOnHover: true,
@@ -709,7 +710,7 @@ const TransactionComp = ({
   const isTunnel = mode === MODES.TUNNEL
 
   return (
-    <div className="text-white flex justify-between gap-6 bg-transparent px-3">
+    <div className="quick-actions text-white flex justify-between gap-6 bg-transparent px-3">
       {!isTunnel ? (
         <>
           <button

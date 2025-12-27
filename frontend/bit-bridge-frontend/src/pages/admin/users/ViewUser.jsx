@@ -113,13 +113,6 @@ const ViewUser = () => {
         toast(error.message ?? 'Unable to clear PIN lockout', { type: 'error' })
       })
   }
-
-  const handleBvnStatusUpdate = (nextStatus) => {
-    if (!bvn) {
-      toast('No BVN on file for this user.', { type: 'error' })
-      return
-    }
-
     let rejectionReason = null
     if (nextStatus === 'rejected') {
       rejectionReason = window.prompt('Rejection reason (optional):', '') || ''
@@ -156,21 +149,46 @@ const ViewUser = () => {
   // 🔎 Derived profile & KYC info
   // ---------------------------
   const profile = user?.user_profile || {}
+  const userKyc = user?.user_kyc || {}
+
+  const bvnStatusRaw = userKyc?.bvn_status || 'unverified'
+  const bvnStatusLabel =
+    bvnStatusRaw === 'verified'
+      ? 'Verified'
+      : bvnStatusRaw === 'pending_review'
+      ? 'Pending review'
+      : bvnStatusRaw === 'mismatch'
+      ? 'Mismatch'
+      : bvnStatusRaw === 'locked'
+      ? 'Locked'
+      : bvnStatusRaw === 'failed'
+      ? 'Failed'
+      : 'Not submitted'
+  const bvnLast4 = userKyc?.bvn_last4 ? `****${userKyc.bvn_last4}` : 'Not provided'
+  const bvnReference = userKyc?.bvn_provider_reference || 'Not available'
+  const bvnVerifiedAt = userKyc?.bvn_verified_at
+    ? dateFormater(userKyc.bvn_verified_at)
+    : 'Not verified'
+  const bvnMatchFlags = [
+    { label: 'DOB match', value: userKyc?.bvn_dob_match },
+    { label: 'First name match', value: userKyc?.bvn_first_name_match },
+    { label: 'Last name match', value: userKyc?.bvn_last_name_match },
+  ]
+  const bvnWatchlisted =
+    userKyc?.watchlisted === true
+      ? 'Watchlisted'
+      : userKyc?.watchlisted === false
+      ? 'Not watchlisted'
+      : 'Unknown'
+  const bvnAttempts = userKyc?.bvn_attempts_count ?? 0
+  const bvnLockedUntil = userKyc?.bvn_locked_until
+    ? dateFormater(userKyc.bvn_locked_until)
+    : 'Not locked'
 
   const fullName =
     [profile.first_name, profile.last_name].filter(Boolean).join(' ') || 'Not provided'
 
   const phoneNumber = profile.phone_number || 'Not provided'
-  const bvn = profile.bvn || ''
-  const bvnStatusRaw = profile.bvn_status || (bvn ? 'pending' : 'not_submitted')
-  const bvnStatusLabel =
-    bvnStatusRaw === 'verified'
-      ? 'Verified'
-      : bvnStatusRaw === 'rejected'
-      ? 'Rejected'
-      : bvnStatusRaw === 'pending'
-      ? 'Pending'
-      : 'Not submitted'
 
   const addressParts = [
     profile.address_line1,
@@ -389,12 +407,32 @@ const ViewUser = () => {
                 <strong>{idTypeLabel}</strong>
               </div>
               <div className="admin-kv">
-                <span>BVN</span>
-                <strong>{bvn || 'Not provided'}</strong>
+                <span>BVN last 4</span>
+                <strong>{bvnLast4}</strong>
               </div>
               <div className="admin-kv">
                 <span>BVN status</span>
                 <strong>{bvnStatusLabel}</strong>
+              </div>
+              <div className="admin-kv">
+                <span>BVN reference</span>
+                <strong>{bvnReference}</strong>
+              </div>
+              <div className="admin-kv">
+                <span>BVN verified at</span>
+                <strong>{bvnVerifiedAt}</strong>
+              </div>
+              <div className="admin-kv">
+                <span>BVN watchlist</span>
+                <strong>{bvnWatchlisted}</strong>
+              </div>
+              <div className="admin-kv">
+                <span>BVN attempts</span>
+                <strong>{bvnAttempts}</strong>
+              </div>
+              <div className="admin-kv">
+                <span>BVN lockout</span>
+                <strong>{bvnLockedUntil}</strong>
               </div>
               <div className="admin-kv">
                 <span>Transaction PIN</span>
@@ -427,16 +465,17 @@ const ViewUser = () => {
                   <strong>No documents uploaded</strong>
                 )}
               </div>
+              <div className="admin-kv admin-kv--wide">
+                <span>BVN match flags</span>
+                <div className="admin-doc-links">
+                  {bvnMatchFlags.map((flag) => (
+                    <span key={flag.label} className="admin-chip">
+                      {flag.label}: {flag.value === true ? 'Yes' : flag.value === false ? 'No' : 'Unknown'}
+                    </span>
+                  ))}
+                </div>
+              </div>
             </div>
-          </div>
-
-          <div className="admin-action-row">
-            <ClickButton onClick={() => handleBvnStatusUpdate('verified')} disabled={!bvn}>
-              Approve BVN
-            </ClickButton>
-            <ClickButton onClick={() => handleBvnStatusUpdate('rejected')} disabled={!bvn}>
-              Reject BVN
-            </ClickButton>
           </div>
 
           <div className="admin-user-card admin-user-cards">

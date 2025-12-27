@@ -10,6 +10,7 @@ import FormInput from '../../components/formInput/FormInput'
 import { createAccount, getAccounts, getUserAccount } from '../../redux/actions/account'
 import { userProfile } from '../../redux/actions/auth'
 import { SET_LOADING } from '../../redux/app'
+import { withTier2MissingDetails } from '../../utils/kycGate'
 
 const VirtualAccounts = () => {
   const dispatch = useDispatch()
@@ -52,8 +53,8 @@ const VirtualAccounts = () => {
       return
     }
 
-    if (['nil', '', 'tier_0'].includes(userKyc)) {
-      toast.info('Complete Tier 1 verification to generate an Anchor account.', {
+    if (['nil', '', 'tier_0', 'tier_1'].includes(userKyc)) {
+      toast.info(withTier2MissingDetails(user, 'Complete Tier 2 verification to generate an Anchor account.'), {
         position: 'top-right',
         autoClose: 4000,
         pauseOnHover: true,

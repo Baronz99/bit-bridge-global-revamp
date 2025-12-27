@@ -25,6 +25,8 @@ class User < ApplicationRecord
   has_many :accounts
   has_many :cards
   has_many :beneficiaries, dependent: :destroy
+  has_one :user_kyc, dependent: :destroy
+  has_many :kyc_reviews, dependent: :destroy
 
   has_many :circle_memberships, dependent: :destroy
   has_many :circles, through: :circle_memberships

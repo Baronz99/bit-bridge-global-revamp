@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useDispatch, useSelector } from 'react-redux'
 import { userDelete, userPasswordUpdate, userProfile } from '../../redux/actions/auth'
 import { useNavigate } from 'react-router-dom'
-import { SET_LOADING } from '../../redux/app'
+import { SET_LOADING, setThemeMode } from '../../redux/app'
 import AppModal from '../../components/modal/Modal'
 import { toast } from 'react-toastify'
 
@@ -28,10 +28,204 @@ const idTypeOptions = [
   { value: 'voters_card', label: "Voter's card" },
 ]
 
-// Simple country options (extend later)
+// Country options (global list for nationality selection)
 const countryOptions = [
   { value: '', label: 'Select country' },
+  { value: 'Afghanistan', label: 'Afghanistan' },
+  { value: 'Albania', label: 'Albania' },
+  { value: 'Algeria', label: 'Algeria' },
+  { value: 'Andorra', label: 'Andorra' },
+  { value: 'Angola', label: 'Angola' },
+  { value: 'Antigua and Barbuda', label: 'Antigua and Barbuda' },
+  { value: 'Argentina', label: 'Argentina' },
+  { value: 'Armenia', label: 'Armenia' },
+  { value: 'Australia', label: 'Australia' },
+  { value: 'Austria', label: 'Austria' },
+  { value: 'Azerbaijan', label: 'Azerbaijan' },
+  { value: 'Bahamas', label: 'Bahamas' },
+  { value: 'Bahrain', label: 'Bahrain' },
+  { value: 'Bangladesh', label: 'Bangladesh' },
+  { value: 'Barbados', label: 'Barbados' },
+  { value: 'Belarus', label: 'Belarus' },
+  { value: 'Belgium', label: 'Belgium' },
+  { value: 'Belize', label: 'Belize' },
+  { value: 'Benin', label: 'Benin' },
+  { value: 'Bhutan', label: 'Bhutan' },
+  { value: 'Bolivia', label: 'Bolivia' },
+  { value: 'Bosnia and Herzegovina', label: 'Bosnia and Herzegovina' },
+  { value: 'Botswana', label: 'Botswana' },
+  { value: 'Brazil', label: 'Brazil' },
+  { value: 'Brunei', label: 'Brunei' },
+  { value: 'Bulgaria', label: 'Bulgaria' },
+  { value: 'Burkina Faso', label: 'Burkina Faso' },
+  { value: 'Burundi', label: 'Burundi' },
+  { value: 'Cabo Verde', label: 'Cabo Verde' },
+  { value: 'Cambodia', label: 'Cambodia' },
+  { value: 'Cameroon', label: 'Cameroon' },
+  { value: 'Canada', label: 'Canada' },
+  { value: 'Central African Republic', label: 'Central African Republic' },
+  { value: 'Chad', label: 'Chad' },
+  { value: 'Chile', label: 'Chile' },
+  { value: 'China', label: 'China' },
+  { value: 'Colombia', label: 'Colombia' },
+  { value: 'Comoros', label: 'Comoros' },
+  { value: 'Congo (Brazzaville)', label: 'Congo (Brazzaville)' },
+  { value: 'Congo (Kinshasa)', label: 'Congo (Kinshasa)' },
+  { value: 'Costa Rica', label: 'Costa Rica' },
+  { value: "Cote d'Ivoire", label: "Cote d'Ivoire" },
+  { value: 'Croatia', label: 'Croatia' },
+  { value: 'Cuba', label: 'Cuba' },
+  { value: 'Cyprus', label: 'Cyprus' },
+  { value: 'Czechia', label: 'Czechia' },
+  { value: 'Denmark', label: 'Denmark' },
+  { value: 'Djibouti', label: 'Djibouti' },
+  { value: 'Dominica', label: 'Dominica' },
+  { value: 'Dominican Republic', label: 'Dominican Republic' },
+  { value: 'Ecuador', label: 'Ecuador' },
+  { value: 'Egypt', label: 'Egypt' },
+  { value: 'El Salvador', label: 'El Salvador' },
+  { value: 'Equatorial Guinea', label: 'Equatorial Guinea' },
+  { value: 'Eritrea', label: 'Eritrea' },
+  { value: 'Estonia', label: 'Estonia' },
+  { value: 'Eswatini', label: 'Eswatini' },
+  { value: 'Ethiopia', label: 'Ethiopia' },
+  { value: 'Fiji', label: 'Fiji' },
+  { value: 'Finland', label: 'Finland' },
+  { value: 'France', label: 'France' },
+  { value: 'Gabon', label: 'Gabon' },
+  { value: 'Gambia', label: 'Gambia' },
+  { value: 'Georgia', label: 'Georgia' },
+  { value: 'Germany', label: 'Germany' },
+  { value: 'Ghana', label: 'Ghana' },
+  { value: 'Greece', label: 'Greece' },
+  { value: 'Grenada', label: 'Grenada' },
+  { value: 'Guatemala', label: 'Guatemala' },
+  { value: 'Guinea', label: 'Guinea' },
+  { value: 'Guinea-Bissau', label: 'Guinea-Bissau' },
+  { value: 'Guyana', label: 'Guyana' },
+  { value: 'Haiti', label: 'Haiti' },
+  { value: 'Honduras', label: 'Honduras' },
+  { value: 'Hungary', label: 'Hungary' },
+  { value: 'Iceland', label: 'Iceland' },
+  { value: 'India', label: 'India' },
+  { value: 'Indonesia', label: 'Indonesia' },
+  { value: 'Iran', label: 'Iran' },
+  { value: 'Iraq', label: 'Iraq' },
+  { value: 'Ireland', label: 'Ireland' },
+  { value: 'Israel', label: 'Israel' },
+  { value: 'Italy', label: 'Italy' },
+  { value: 'Jamaica', label: 'Jamaica' },
+  { value: 'Japan', label: 'Japan' },
+  { value: 'Jordan', label: 'Jordan' },
+  { value: 'Kazakhstan', label: 'Kazakhstan' },
+  { value: 'Kenya', label: 'Kenya' },
+  { value: 'Kiribati', label: 'Kiribati' },
+  { value: 'Kuwait', label: 'Kuwait' },
+  { value: 'Kyrgyzstan', label: 'Kyrgyzstan' },
+  { value: 'Laos', label: 'Laos' },
+  { value: 'Latvia', label: 'Latvia' },
+  { value: 'Lebanon', label: 'Lebanon' },
+  { value: 'Lesotho', label: 'Lesotho' },
+  { value: 'Liberia', label: 'Liberia' },
+  { value: 'Libya', label: 'Libya' },
+  { value: 'Liechtenstein', label: 'Liechtenstein' },
+  { value: 'Lithuania', label: 'Lithuania' },
+  { value: 'Luxembourg', label: 'Luxembourg' },
+  { value: 'Madagascar', label: 'Madagascar' },
+  { value: 'Malawi', label: 'Malawi' },
+  { value: 'Malaysia', label: 'Malaysia' },
+  { value: 'Maldives', label: 'Maldives' },
+  { value: 'Mali', label: 'Mali' },
+  { value: 'Malta', label: 'Malta' },
+  { value: 'Marshall Islands', label: 'Marshall Islands' },
+  { value: 'Mauritania', label: 'Mauritania' },
+  { value: 'Mauritius', label: 'Mauritius' },
+  { value: 'Mexico', label: 'Mexico' },
+  { value: 'Micronesia', label: 'Micronesia' },
+  { value: 'Moldova', label: 'Moldova' },
+  { value: 'Monaco', label: 'Monaco' },
+  { value: 'Mongolia', label: 'Mongolia' },
+  { value: 'Montenegro', label: 'Montenegro' },
+  { value: 'Morocco', label: 'Morocco' },
+  { value: 'Mozambique', label: 'Mozambique' },
+  { value: 'Myanmar', label: 'Myanmar' },
+  { value: 'Namibia', label: 'Namibia' },
+  { value: 'Nauru', label: 'Nauru' },
+  { value: 'Nepal', label: 'Nepal' },
+  { value: 'Netherlands', label: 'Netherlands' },
+  { value: 'New Zealand', label: 'New Zealand' },
+  { value: 'Nicaragua', label: 'Nicaragua' },
+  { value: 'Niger', label: 'Niger' },
   { value: 'Nigeria', label: 'Nigeria' },
+  { value: 'North Korea', label: 'North Korea' },
+  { value: 'North Macedonia', label: 'North Macedonia' },
+  { value: 'Norway', label: 'Norway' },
+  { value: 'Oman', label: 'Oman' },
+  { value: 'Pakistan', label: 'Pakistan' },
+  { value: 'Palau', label: 'Palau' },
+  { value: 'Panama', label: 'Panama' },
+  { value: 'Papua New Guinea', label: 'Papua New Guinea' },
+  { value: 'Paraguay', label: 'Paraguay' },
+  { value: 'Peru', label: 'Peru' },
+  { value: 'Philippines', label: 'Philippines' },
+  { value: 'Poland', label: 'Poland' },
+  { value: 'Portugal', label: 'Portugal' },
+  { value: 'Qatar', label: 'Qatar' },
+  { value: 'Romania', label: 'Romania' },
+  { value: 'Russia', label: 'Russia' },
+  { value: 'Rwanda', label: 'Rwanda' },
+  { value: 'Saint Kitts and Nevis', label: 'Saint Kitts and Nevis' },
+  { value: 'Saint Lucia', label: 'Saint Lucia' },
+  { value: 'Saint Vincent and the Grenadines', label: 'Saint Vincent and the Grenadines' },
+  { value: 'Samoa', label: 'Samoa' },
+  { value: 'San Marino', label: 'San Marino' },
+  { value: 'Sao Tome and Principe', label: 'Sao Tome and Principe' },
+  { value: 'Saudi Arabia', label: 'Saudi Arabia' },
+  { value: 'Senegal', label: 'Senegal' },
+  { value: 'Serbia', label: 'Serbia' },
+  { value: 'Seychelles', label: 'Seychelles' },
+  { value: 'Sierra Leone', label: 'Sierra Leone' },
+  { value: 'Singapore', label: 'Singapore' },
+  { value: 'Slovakia', label: 'Slovakia' },
+  { value: 'Slovenia', label: 'Slovenia' },
+  { value: 'Solomon Islands', label: 'Solomon Islands' },
+  { value: 'Somalia', label: 'Somalia' },
+  { value: 'South Africa', label: 'South Africa' },
+  { value: 'South Korea', label: 'South Korea' },
+  { value: 'South Sudan', label: 'South Sudan' },
+  { value: 'Spain', label: 'Spain' },
+  { value: 'Sri Lanka', label: 'Sri Lanka' },
+  { value: 'Sudan', label: 'Sudan' },
+  { value: 'Suriname', label: 'Suriname' },
+  { value: 'Sweden', label: 'Sweden' },
+  { value: 'Switzerland', label: 'Switzerland' },
+  { value: 'Syria', label: 'Syria' },
+  { value: 'Taiwan', label: 'Taiwan' },
+  { value: 'Tajikistan', label: 'Tajikistan' },
+  { value: 'Tanzania', label: 'Tanzania' },
+  { value: 'Thailand', label: 'Thailand' },
+  { value: 'Timor-Leste', label: 'Timor-Leste' },
+  { value: 'Togo', label: 'Togo' },
+  { value: 'Tonga', label: 'Tonga' },
+  { value: 'Trinidad and Tobago', label: 'Trinidad and Tobago' },
+  { value: 'Tunisia', label: 'Tunisia' },
+  { value: 'Turkey', label: 'Turkey' },
+  { value: 'Turkmenistan', label: 'Turkmenistan' },
+  { value: 'Tuvalu', label: 'Tuvalu' },
+  { value: 'Uganda', label: 'Uganda' },
+  { value: 'Ukraine', label: 'Ukraine' },
+  { value: 'United Arab Emirates', label: 'United Arab Emirates' },
+  { value: 'United Kingdom', label: 'United Kingdom' },
+  { value: 'United States', label: 'United States' },
+  { value: 'Uruguay', label: 'Uruguay' },
+  { value: 'Uzbekistan', label: 'Uzbekistan' },
+  { value: 'Vanuatu', label: 'Vanuatu' },
+  { value: 'Vatican City', label: 'Vatican City' },
+  { value: 'Venezuela', label: 'Venezuela' },
+  { value: 'Vietnam', label: 'Vietnam' },
+  { value: 'Yemen', label: 'Yemen' },
+  { value: 'Zambia', label: 'Zambia' },
+  { value: 'Zimbabwe', label: 'Zimbabwe' },
 ]
 
 // ✅ Nigeria states (36) + FCT + Other
@@ -90,6 +284,7 @@ const ProfileAccountPage = () => {
   const dispatch = useDispatch()
   const navigate = useNavigate()
   const { user } = useSelector((state) => state.auth)
+  const { themeMode } = useSelector((state) => state.app || {})
 
   // Sidebar active section
   const [active, setActive] = useState('profile') // profile | kyc | security | danger
@@ -124,8 +319,6 @@ const ProfileAccountPage = () => {
       proof_of_address_type: '',
     },
   })
-
-  const [bvn, setBvn] = useState('')
   const [nin, setNin] = useState('')
 
   const [idDocumentFile, setIdDocumentFile] = useState(null)
@@ -161,13 +354,9 @@ const ProfileAccountPage = () => {
         country: up.country || '',
         postal_code: up.postal_code || '',
         proof_of_address_type: up.proof_of_address_type || '',
-        bvn_status: up.bvn_status || '',
-        bvn_rejection_reason: up.bvn_rejection_reason || '',
-        bvn_verified_at: up.bvn_verified_at || '',
       },
     })
 
-    setBvn(up.bvn || '')
     setNin('')
     setIdDocumentFile(null)
     setProofOfAddressFile(null)
@@ -183,20 +372,30 @@ const ProfileAccountPage = () => {
     return ''
   }, [active])
 
+  const themeOptions = [
+    { id: 'dark', label: 'Top style' },
+    { id: 'light', label: 'Light' },
+    { id: 'shadow', label: 'Shadow' },
+  ]
+
+  const handleThemeChange = (mode) => {
+    dispatch(setThemeMode(mode))
+  }
+
   const handleUserUpdate = async () => {
     try {
       if (active === 'kyc') {
-        if (!bvn || String(bvn).length !== 11) {
-          toast('BVN is required for Tier 1 verification.', { type: 'error' })
-          return
-        }
       }
       dispatch(SET_LOADING(true))
 
       const formData = new FormData()
 
-      formData.append('user[id_type]', userInfo.id_type || '')
-      formData.append('user[user_profile_attributes][bvn]', bvn || '')
+      const isKycSave = active === 'kyc'
+
+      if (isKycSave || userInfo.id_type) {
+        formData.append('user[id_type]', userInfo.id_type || '')
+      }
+
 
       formData.append('user[user_profile_attributes][first_name]', userInfo.user_profile.first_name || '')
       formData.append('user[user_profile_attributes][last_name]', userInfo.user_profile.last_name || '')
@@ -241,13 +440,9 @@ const ProfileAccountPage = () => {
           country: up2.country || '',
           postal_code: up2.postal_code || '',
           proof_of_address_type: up2.proof_of_address_type || '',
-          bvn_status: up2.bvn_status || '',
-          bvn_rejection_reason: up2.bvn_rejection_reason || '',
-          bvn_verified_at: up2.bvn_verified_at || '',
         },
       }))
 
-      setBvn(up2.bvn || '')
       toast('Profile updated', { type: 'success' })
     } catch (error) {
       console.error('Error updating profile/basic KYC:', error)
@@ -329,7 +524,7 @@ const ProfileAccountPage = () => {
 
   return (
     <>
-      <div className="min-h-screen bg-[#070A12]">
+      <div className="bb-profile-shell min-h-screen bg-[#070A12]">
         <div className="pointer-events-none fixed inset-0">
           <div className="absolute -top-24 -left-24 h-80 w-80 rounded-full bg-blue-500/15 blur-3xl" />
           <div className="absolute top-40 -right-24 h-96 w-96 rounded-full bg-indigo-500/10 blur-3xl" />
@@ -343,23 +538,51 @@ const ProfileAccountPage = () => {
               <p className="text-sm text-slate-300/80 mt-1">{headerSubtitle}</p>
             </div>
 
-            <button
-              type="button"
-              onClick={handleUserUpdate}
-              className={[
-                'inline-flex items-center justify-center px-4 py-2 rounded-xl',
-                'bg-blue-600/90 text-white font-semibold hover:bg-blue-600 transition',
-                'shadow-[0_10px_30px_-12px_rgba(37,99,235,0.6)]',
-              ].join(' ')}
-            >
-              Save changes
-            </button>
+            <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+              <div className="bb-panel rounded-2xl border border-white/10 bg-white/5 backdrop-blur px-4 py-3">
+                <div className="text-[11px] uppercase tracking-[0.2em] text-slate-300/70 mb-2">
+                  Theme
+                </div>
+                <div className="flex items-center gap-2">
+                  {themeOptions.map((option) => {
+                    const isActive = themeMode === option.id
+                    return (
+                      <button
+                        key={option.id}
+                        type="button"
+                        onClick={() => handleThemeChange(option.id)}
+                        className={[
+                          'px-3 py-1.5 rounded-full text-xs font-semibold transition',
+                          isActive
+                            ? 'bg-blue-500/90 text-white shadow'
+                            : 'bg-white/10 text-slate-200 hover:bg-white/20',
+                        ].join(' ')}
+                      >
+                        {option.label}
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={handleUserUpdate}
+                className={[
+                  'inline-flex items-center justify-center px-4 py-2 rounded-xl',
+                  'bg-blue-600/90 text-white font-semibold hover:bg-blue-600 transition',
+                  'shadow-[0_10px_30px_-12px_rgba(37,99,235,0.6)]',
+                ].join(' ')}
+              >
+                Save changes
+              </button>
+            </div>
           </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
             <aside className="lg:col-span-4">
               <div className="sticky top-6 space-y-3">
-                <div className="rounded-2xl border border-white/10 bg-white/5 backdrop-blur p-4">
+                <div className="bb-panel rounded-2xl border border-white/10 bg-white/5 backdrop-blur p-4">
                   <div className="text-sm font-semibold text-white">Settings</div>
                   <div className="text-xs text-slate-300/70 mt-1">
                     Manage your profile, verification, security and account status.
@@ -374,12 +597,13 @@ const ProfileAccountPage = () => {
             </aside>
 
             <main className="lg:col-span-8">
-              <div className="rounded-2xl border border-white/10 bg-white/5 backdrop-blur p-4 md:p-6">
+              <div className="bb-panel rounded-2xl border border-white/10 bg-white/5 backdrop-blur p-4 md:p-6">
                 {active === 'profile' && (
                   <ProfileInfoPanel
                     userInfo={userInfo}
                     setUserInfo={setUserInfo}
                     phoneVerified={phoneVerified}
+                    countryOptions={countryOptions}
                     onOpenPhoneVerify={() => {
                       setPendingPhone(String(userInfo?.user_profile?.phone_number || '').trim())
                       setShowPhoneModal(true)
@@ -391,8 +615,6 @@ const ProfileAccountPage = () => {
                   <KycPanel
                     userInfo={userInfo}
                     setUserInfo={setUserInfo}
-                    bvn={bvn}
-                    setBvn={setBvn}
                     nin={nin}
                     setNin={setNin}
                     idDocumentFile={idDocumentFile}

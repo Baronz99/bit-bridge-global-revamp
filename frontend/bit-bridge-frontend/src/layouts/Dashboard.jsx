@@ -24,12 +24,14 @@ import LoaderPage from '../components/loader/LoaderPage'
 
 // ✅ Use the same logo icon as the public header
 import logoIcon from '../assets/logos/bitbridge-logo-clear.png'
+import '../styles/userTheme.css'
 
 const DashboardLayout = () => {
   const dispatch = useDispatch()
   const sideNavRef = useRef(null)
   const menuRef = useRef(null)
   const { user, loading } = useSelector((state) => state.auth)
+  const { themeMode } = useSelector((state) => state.app || {})
   const [open, setOpen] = useState(false)
   const location = useLocation()
 
@@ -70,10 +72,10 @@ const DashboardLayout = () => {
   const normal = `${baseNavItem} text-gray-300 hover:text-alt`
 
   return (
-    <div className="relative h-screen bg-slate-950">
+    <div className="bb-user-theme relative h-screen" data-theme={themeMode || 'dark'}>
       <div className="max-w-[1500px] m-auto flex flex-col overflow-hidden h-screen">
         {/* TOP BAR */}
-        <header className="flex justify-between items-center gap-4 rounded-2xl bg-gradient-to-r from-black via-slate-950 to-black border border-slate-800/70 md:py-5 py-3 px-5 md:px-7 mt-3 mb-3 shadow-sm">
+        <header className="bb-topbar flex justify-between items-center gap-4 rounded-2xl bg-gradient-to-r from-black via-slate-950 to-black border border-slate-800/70 md:py-5 py-3 px-5 md:px-7 mt-3 mb-3 shadow-sm">
           {/* Mobile menu button */}
           <button
             ref={menuRef}
@@ -131,11 +133,11 @@ const DashboardLayout = () => {
                 </li>
                 <li>
                   <NavLink
-                    to="/dashboard/utilities"
+                    to="/dashboard/rewards"
                     className={({ isActive }) => (isActive ? active : normal)}
                   >
                     <LuUtilityPole className="text-xl" />
-                    <span>Utility</span>
+                    <span>Rewards</span>
                   </NavLink>
                 </li>
                 <li>
@@ -208,13 +210,13 @@ const DashboardLayout = () => {
                   </li>
                   <li onClick={() => setOpen(false)}>
                     <NavLink
-                      to="/dashboard/utilities"
-                      className={({ isActive }) => (isActive ? active : normal)}
-                    >
-                      <LuUtilityPole className="text-xl" />
-                      <span>Utility</span>
-                    </NavLink>
-                  </li>
+                    to="/dashboard/rewards"
+                    className={({ isActive }) => (isActive ? active : normal)}
+                  >
+                    <LuUtilityPole className="text-xl" />
+                    <span>Rewards</span>
+                  </NavLink>
+                </li>
                   <li onClick={() => setOpen(false)}>
                     <NavLink
                       to="/dashboard/virtual-cards"

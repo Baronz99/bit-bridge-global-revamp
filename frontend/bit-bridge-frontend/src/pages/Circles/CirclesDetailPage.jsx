@@ -7,6 +7,7 @@ import ClassicBtn from '../../components/button/ClassicButton'
 import DisputeModal from '../../components/DisputeModal'
 import { getAccessToken } from '../../auth/tokenStore'
 import { toast } from 'react-toastify'
+import { withTier2MissingDetails } from '../../utils/kycGate'
 
 import {
   getCircle,
@@ -656,7 +657,7 @@ const CirclesDetailPage = () => {
 
   const currentUser = useSelector((state) => state.auth.user)
   const userKyc = (currentUser?.kyc_level || 'nil').toString().toLowerCase()
-  const needsTier1 = ['nil', '', 'tier_0'].includes(userKyc)
+  const needsTier2 = ['nil', '', 'tier_0', 'tier_1'].includes(userKyc)
 
   const [depositing, setDepositing] = useState(false)
   const [depositError, setDepositError] = useState(null)
@@ -708,14 +709,14 @@ const CirclesDetailPage = () => {
   const [pendingPayload, setPendingPayload] = useState(null)
 
   useEffect(() => {
-    if (!needsTier1) return
-    toast.info('Complete Tier 1 verification to use shared groups.', {
+    if (!needsTier2) return
+    toast.info(withTier2MissingDetails(currentUser, 'Complete Tier 2 verification to use shared groups.'), {
       position: 'top-right',
       autoClose: 4000,
       pauseOnHover: true,
     })
     navigate('/dashboard/kyc')
-  }, [navigate, needsTier1])
+  }, [navigate, needsTier2])
 
   const hasToken = () => Boolean(getAccessToken())
 

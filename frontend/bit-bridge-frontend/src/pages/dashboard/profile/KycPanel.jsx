@@ -81,8 +81,6 @@ export default function KycPanel({
   userInfo,
   setUserInfo,
 
-  bvn,
-  setBvn,
   nin,
   setNin,
 
@@ -104,74 +102,17 @@ export default function KycPanel({
       userInfo.id_type === 'voters_card'
     )
   }, [userInfo.id_type])
-
-  const bvnStatusRaw =
-    userInfo.user_profile?.bvn_status || (bvn ? 'pending' : 'not_submitted')
-
-  const bvnStatusLabel = useMemo(() => {
-    if (bvnStatusRaw === 'verified') return 'Verified'
-    if (bvnStatusRaw === 'rejected') return 'Rejected'
-    if (bvnStatusRaw === 'pending') return 'Pending review'
-    return 'Not submitted'
-  }, [bvnStatusRaw])
-
-  const bvnStatusClass =
-    bvnStatusRaw === 'verified'
-      ? 'text-emerald-300'
-      : bvnStatusRaw === 'rejected'
-      ? 'text-rose-300'
-      : bvnStatusRaw === 'pending'
-      ? 'text-amber-300'
-      : 'text-gray-400'
-
-  const requiresTierOneBvn =
-    !kycLevel || kycLevel === 'tier_0' || kycLevel === 'tier_1'
-
   return (
     <div className="space-y-6">
       <div>
         <h2 className="text-xl font-semibold text-white">KYC & Documents</h2>
         <p className="text-sm text-gray-400 mt-1">
-          Provide identity and address details for verification.
+          Provide identity and address details for Tier 2 verification.
         </p>
       </div>
 
-      {/* ID Type + BVN/NIN */}
+      {/* ID Type + NIN */}
       <div className="rounded-2xl border border-gray-800 bg-gray-950/40 p-4 space-y-4">
-        <div>
-          <label className="block text-sm font-medium text-gray-300">
-            BVN <span className="text-rose-300">*</span>
-          </label>
-          <div className="mt-1 flex flex-col gap-2 md:flex-row md:items-center md:gap-3">
-            <input
-              type="text"
-              inputMode="numeric"
-              maxLength={11}
-              value={bvn}
-              onChange={(e) => setBvn(e.target.value.replace(/\D/g, '').slice(0, 11))}
-              className="w-full md:w-1/2 rounded-xl border border-gray-800 bg-gray-900/60 px-3 py-2 text-gray-100 outline-none"
-              placeholder="11-digit BVN"
-            />
-            <span className={['text-xs font-semibold', bvnStatusClass].join(' ')}>
-              {bvnStatusLabel}
-            </span>
-          </div>
-
-          <p className="text-xs text-gray-500 mt-1">
-            {bvnStatusRaw === 'rejected'
-              ? 'BVN was rejected. Please update your BVN and resubmit.'
-              : requiresTierOneBvn
-              ? 'BVN is required for Tier 1 verification.'
-              : 'BVN helps keep your account secure.'}
-          </p>
-
-          {userInfo.user_profile?.bvn_rejection_reason ? (
-            <p className="text-xs text-rose-300 mt-1">
-              Reason: {userInfo.user_profile.bvn_rejection_reason}
-            </p>
-          ) : null}
-        </div>
-
         <div>
           <label className="block text-sm font-medium text-gray-300">ID Type</label>
           <select
