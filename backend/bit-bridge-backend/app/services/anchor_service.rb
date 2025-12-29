@@ -3,12 +3,15 @@
 class AnchorService
   include HTTParty
 
-  base_uri ENV['DEV_ANCHOR_BASE_URL'] || 'https://api.sandbox.getanchor.co/'
+  SANDBOX_BASE_URL = 'https://api.sandbox.getanchor.co/'.freeze
+
   def initialize
-    header_api_key = ENV['DEV_ANCHOR_API_KEY'] || '9P6wC.4aed16aee26886c2480fbe21d174d2a1973dddaa3d3cac7d5b8908b4e24999d841b8491ff77c8f6a6d9a278483363a2312aa'
+    base_url = anchor_base_url
+    api_key = anchor_api_key
+    self.class.base_uri(base_url)
 
     @headers = {
-      'x-anchor-key' => header_api_key,
+      'x-anchor-key' => api_key,
       'Content-Type' => 'application/json'
     }
   end
@@ -485,6 +488,26 @@ class AnchorService
 
 
   private
+
+  def anchor_base_url
+    env_value = ENV['DEV_ANCHOR_BASE_URL'].to_s.strip
+    raise_missing_anchor_env! if Rails.env.production? && env_value.empty?
+
+    env_value.empty? ? SANDBOX_BASE_URL : env_value
+  end
+
+  def anchor_api_key
+    env_value = ENV['DEV_ANCHOR_API_KEY'].to_s.strip
+    raise RuntimeError, 'Missing DEV_ANCHOR_API_KEY' if env_value.empty?
+
+    env_value
+  end
+
+  def raise_missing_anchor_env!
+    return unless Rails.env.production?
+
+    raise RuntimeError, 'Missing DEV_ANCHOR_BASE_URL or DEV_ANCHOR_API_KEY in production'
+  end
 
   def store_account_details(account_id, user_data)
     new_account = Account.create(user_id: user_data[:user_id], postal_code: user_data[:postal_code],

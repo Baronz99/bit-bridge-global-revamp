@@ -9,21 +9,16 @@ const AccountNumbers = ({ accounts, generate, onView, showView = true }) => {
   const [loading, setLoading] = useState(false)
 
   const getAccountName = useCallback((account) => {
-    switch (account) {
-      case 'moniepoint':
-        return 'Monie Point'
-      case 'anchor':
-        return 'Anchor'
-      default:
-        return 'Anchor'
-    }
+    if (account === 'anchor') return 'Anchor'
+    return 'Anchor'
   }, [])
 
-  const accountVendors = ['moniepoint', 'anchor']
+  const accountVendors = ['anchor']
   //   const isVenorAnchor = accounts.some((acc) => acc.vendor === 'anchor')
 
-  const accountNonexisting = accountVendors.filter((acc) => !accounts.some((e) => e.vendor == acc))
-  const accountexisting = accountVendors.filter((acc) => accounts.some((e) => e.vendor == acc))
+  const filteredAccounts = (accounts || []).filter((e) => e.vendor === 'anchor')
+  const accountNonexisting = accountVendors.filter((acc) => !filteredAccounts.some((e) => e.vendor == acc))
+  const accountexisting = accountVendors.filter((acc) => filteredAccounts.some((e) => e.vendor == acc))
 
   return (
     <div className="flex justify-between w-full my-4 rounded-2xl border border-slate-800 bg-slate-900/80 shadow-lg p-6">
@@ -32,13 +27,8 @@ const AccountNumbers = ({ accounts, generate, onView, showView = true }) => {
           {/* Savings Account */}
           {Array.from({ length: accountVendors.length }).map((_, i) => {
             const useraccountExists =
-              accounts[i]?.vendor && accountVendors.some((acc) => acc == accounts[i]?.vendor)
-            const notFound = accountVendors.filter((vendor) => vendor !== accounts[i]?.vendor)
-            const accountIndex = accountVendors.indexOf(accounts[i]?.vendor ?? 'nil')
-            const accountExists = accountIndex !== 1
-
-            console.log(accountExists, accountIndex)
-
+              filteredAccounts[i]?.vendor && accountVendors.some((acc) => acc == filteredAccounts[i]?.vendor)
+            const accountIndex = accountVendors.indexOf(filteredAccounts[i]?.vendor ?? 'nil')
             const indexTogen = accountVendors.indexOf(
               accountNonexisting[i - accountexisting.length]
             )
@@ -52,21 +42,21 @@ const AccountNumbers = ({ accounts, generate, onView, showView = true }) => {
                 >
                   <h3 className="text-slate-100 font-medium text-lg mb-2">
                     {/* {i === 0 ? 'MoniePoint' : 'Anchor'} */}
-                    {getAccountName(accounts[i]?.vendor)}
+                    {getAccountName(filteredAccounts[i]?.vendor)}
                   </h3>
 
-                  {accounts[i]?.account_number ? (
+                  {filteredAccounts[i]?.account_number ? (
                     <>
                       <p className="text-xs font-bold text-alt tracking-wider">
-                        {accounts[i].account_name}
+                        {filteredAccounts[i].account_name}
                       </p>
                       <p className="text-sm text-slate-400 mt-1">
-                        Bank: {accounts[0]?.account_number}
+                        Bank: {filteredAccounts[0]?.account_number}
                       </p>
 
                       {showView && onView ? (
                         <button
-                          onClick={() => onView(i, accounts[i])}
+                          onClick={() => onView(i, filteredAccounts[i])}
                           className="text-sm text-slate-100 mt-1 hover:text-alt"
                         >
                           View
