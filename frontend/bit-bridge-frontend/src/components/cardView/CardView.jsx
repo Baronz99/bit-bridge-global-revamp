@@ -16,13 +16,14 @@ import TransactionPinInput from '../../components/pin/TransactionPinInput' // ad
 const PIN_LENGTH = 4
 const CARD_CREATION_FEE_USD = 4
 const CARD_MIN_FUNDING_USD = 5
+const DEBUG_STRIP = false
 
 export default function VirtualCardApplication() {
   const dispatch = useDispatch()
   const navigate = useNavigate()
 
   const { user } = useSelector((state) => state.auth)
-  const { card } = useSelector((state) => state.account)
+  const { card, loading: accountLoading } = useSelector((state) => state.account)
 
   //  NEW: wallet slice shape is state.wallet.data.bridge/tunnel
   const { data: walletData, loading: walletLoading } = useSelector((state) => state.wallet)
@@ -49,11 +50,18 @@ export default function VirtualCardApplication() {
   const [cardReveal, setCardReveal] = useState(null)
   const [cardRevealLoading, setCardRevealLoading] = useState(false)
   const [cardRevealError, setCardRevealError] = useState(null)
+  const [cardHistory, setCardHistory] = useState([])
+  const [cardInsights, setCardInsights] = useState(null)
+  const [cardHistoryLoading, setCardHistoryLoading] = useState(false)
+  const [historyTick, setHistoryTick] = useState(0)
   const [revealCooldownUntil, setRevealCooldownUntil] = useState(0)
   const [copiedPan, setCopiedPan] = useState(false)
   const [freezeLoading, setFreezeLoading] = useState(false)
   const [freezeError, setFreezeError] = useState(null)
   const [showInlineFund, setShowInlineFund] = useState(false)
+  const [showInlineWithdraw, setShowInlineWithdraw] = useState(false)
+  const [withdrawAmount, setWithdrawAmount] = useState('')
+  const [withdrawResult, setWithdrawResult] = useState(null)
   const gateToastShownRef = useRef(false)
 
   const [formData, setFormData] = useState({
@@ -100,7 +108,7 @@ export default function VirtualCardApplication() {
   const hasCardId = Boolean(card?.card_id)
   const showCardholderForm = !hasCardholder
   const showCreateForm = hasCardholder && !hasCardId
-  const lastFunding = Number(card?.amount || 0)
+  const lastFunding = Number(cardInsights?.last_funding_amount || 0)
   const hasLastFunding = lastFunding > 0
   const todaysSpend = 0
   const failedAttempts = 0
@@ -109,16 +117,29 @@ export default function VirtualCardApplication() {
   const spendTrend = [0, 0, 0, 0, 0, 0, 0]
   const hasTrend = spendTrend.some((value) => value > 0)
   const hasInsights =
-    hasLastFunding || todaysSpend > 0 || failedAttempts > 0 || hasLastMerchant || hasTrend
+    hasLastFunding ||
+    todaysSpend > 0 ||
+    failedAttempts > 0 ||
+    hasLastMerchant ||
+    hasTrend ||
+    cardHistory.length > 0
 
+  const statusFromApi =
+    card?.status || cardDetails?.status || cardDetails?.card_status || ''
+  const normalizedStatus = statusFromApi.toString().toLowerCase()
+  const isPendingFunding = normalizedStatus === 'pending_funding'
   const creationFeeCharged = Boolean(card?.meta_data?.creation_fee_charged)
   const fundingAmount = Number(formData.amount || 0)
   const feeAmount = CARD_CREATION_FEE_USD
-  const feeDue = creationFeeCharged ? 0 : feeAmount
+  const isExistingCard = hasCardId && !isPendingFunding
+  const feeDue = isExistingCard ? 0 : creationFeeCharged ? 0 : feeAmount
   const minFunding = CARD_MIN_FUNDING_USD
   const totalDebit = feeDue + (fundingAmount > 0 ? fundingAmount : 0)
   const fundingBelowMin = fundingAmount > 0 && fundingAmount < minFunding
-  const requiredBalance = feeDue + (fundingAmount >= minFunding ? fundingAmount : 0)
+  const withdrawAmountValue = Number(withdrawAmount || 0)
+  const requiredBalance = isExistingCard
+    ? fundingAmount
+    : feeDue + (fundingAmount >= minFunding ? fundingAmount : 0)
 
   const userKyc = (user?.kyc_level || 'nil').toString().toLowerCase()
   const needsTier2 = ['nil', '', 'tier_0', 'tier_1'].includes(userKyc)
@@ -127,6 +148,36 @@ export default function VirtualCardApplication() {
     dispatch(getUserCard())
     dispatch(getWallet()) //  ensure we have tunnel wallet status/balance
   }, [dispatch])
+
+  useEffect(() => {
+    if (!card?.id) return
+    let active = true
+
+    const loadHistory = async () => {
+      setCardHistoryLoading(true)
+      try {
+        const [historyRes, insightsRes] = await Promise.all([
+          client.get(`/cards/${card.id}/history`),
+          client.get(`/cards/${card.id}/insights`),
+        ])
+        if (!active) return
+        setCardHistory(Array.isArray(historyRes?.data) ? historyRes.data : [])
+        setCardInsights(insightsRes?.data?.data || null)
+      } catch (error) {
+        if (!active) return
+        setCardHistory([])
+        setCardInsights(null)
+      } finally {
+        if (!active) return
+        setCardHistoryLoading(false)
+      }
+    }
+
+    loadHistory()
+    return () => {
+      active = false
+    }
+  }, [card?.id, historyTick])
 
   useEffect(() => {
     if (!needsTier2) return
@@ -215,6 +266,10 @@ export default function VirtualCardApplication() {
       isMounted = false
     }
   }, [card?.id, card?.card_id])
+
+  useEffect(() => {
+    if (!DEBUG_STRIP) return
+  }, [])
 
   useEffect(() => {
     let isMounted = true
@@ -361,7 +416,7 @@ export default function VirtualCardApplication() {
       return setSuccessCreate({ ok: false, message: 'Enter a valid funding amount.' })
     }
 
-    if (amt > 0 && amt < minFunding) {
+    if (!isExistingCard && amt > 0 && amt < minFunding) {
       setSubmitting(false)
       return setSuccessCreate({
         ok: false,
@@ -373,7 +428,9 @@ export default function VirtualCardApplication() {
       setSubmitting(false)
       return setSuccessCreate({
         ok: false,
-        message: creationFeeCharged
+        message: isExistingCard
+          ? 'Insufficient Tunnel balance to cover the funding amount.'
+          : creationFeeCharged
           ? 'Insufficient Tunnel balance to cover the funding amount.'
           : `Insufficient Tunnel balance to cover the USD ${feeAmount} card creation fee and funding.`,
       })
@@ -382,6 +439,35 @@ export default function VirtualCardApplication() {
     if ((formData.transaction_pin || '').length !== PIN_LENGTH) {
       setSubmitting(false)
       return setSuccessCreate({ ok: false, message: `Enter your ${PIN_LENGTH}-digit transaction PIN.` })
+    }
+
+    if (isExistingCard) {
+      client
+        .post('/cards/fund_wallet', {
+          card: {
+            card_id: card?.card_id,
+            amount: amt,
+            currency: 'USD',
+            transaction_pin: formData.transaction_pin,
+            wallet_type: 'usd',
+          },
+        })
+        .then((response) => {
+          setSuccessCreate({
+            ok: true,
+            message: response?.data?.message || 'Funding submitted successfully.',
+          })
+          dispatch(getWallet())
+          setHistoryTick((value) => value + 1)
+        })
+        .catch((err) => {
+          setSuccessCreate({
+            ok: false,
+            message: `Card funding failed. ${err.message || ''}`,
+          })
+        })
+        .finally(() => setSubmitting(false))
+      return
     }
 
     dispatch(
@@ -410,11 +496,62 @@ export default function VirtualCardApplication() {
       .finally(() => setSubmitting(false))
   }
 
+  async function handleSubmitUnloadCard(e) {
+    e.preventDefault()
+    setSubmitting(true)
+    setWithdrawResult(null)
+
+    if (!hasCardId || !card?.card_id) {
+      setSubmitting(false)
+      return setWithdrawResult({ ok: false, message: 'Card not available for withdrawal yet.' })
+    }
+
+    const amt = Number(withdrawAmount || 0)
+    if (Number.isNaN(amt) || amt <= 0) {
+      setSubmitting(false)
+      return setWithdrawResult({ ok: false, message: 'Enter a valid withdrawal amount.' })
+    }
+
+    if ((formData.transaction_pin || '').length !== PIN_LENGTH) {
+      setSubmitting(false)
+      return setWithdrawResult({ ok: false, message: `Enter your ${PIN_LENGTH}-digit transaction PIN.` })
+    }
+
+    client
+      .post('/cards/unload_wallet', {
+        card: {
+          card_id: card?.card_id,
+          amount: amt,
+          currency: 'USD',
+          transaction_pin: formData.transaction_pin,
+          wallet_type: 'usd',
+        },
+      })
+      .then((response) => {
+        setWithdrawResult({
+          ok: true,
+          message: response?.data?.message || 'Withdrawal submitted. Pending confirmation.',
+        })
+        setHistoryTick((value) => value + 1)
+      })
+      .catch((err) => {
+        setWithdrawResult({
+          ok: false,
+          message: `Withdrawal failed. ${err.message || ''}`,
+        })
+      })
+      .finally(() => setSubmitting(false))
+  }
+
   const canCreate =
     !!tunnelWallet?.id &&
     (formData.transaction_pin || '').length === PIN_LENGTH &&
-    !fundingBelowMin &&
+    (isExistingCard ? fundingAmount > 0 : !fundingBelowMin) &&
     tunnelUsdBalance >= requiredBalance
+  const canWithdraw =
+    (formData.transaction_pin || '').length === PIN_LENGTH &&
+    withdrawAmountValue > 0 &&
+    hasCardId
 
   const onCardMove = (event) => {
     const rect = event.currentTarget.getBoundingClientRect()
@@ -490,11 +627,6 @@ export default function VirtualCardApplication() {
     return String(cardReveal.cvv)
   }, [cardReveal])
 
-  const statusFromApi =
-    card?.status || cardDetails?.status || cardDetails?.card_status || ''
-  const normalizedStatus = statusFromApi.toString().toLowerCase()
-  const isPendingFunding = normalizedStatus === 'pending_funding'
-
   const isCardActive = normalizedStatus
     ? normalizedStatus === 'active'
     : typeof cardDetails?.is_active === 'boolean'
@@ -515,7 +647,7 @@ export default function VirtualCardApplication() {
   ].filter((item) => item.value)
 
   const fundingTitle = 'Create / Fund Card'
-  const fundingCta = 'Create card'
+  const fundingCta = isExistingCard ? 'Add funds' : isPendingFunding ? 'Activate card' : 'Create card'
 
   const balanceAmountCents =
     cardBalance?.balance ??
@@ -536,30 +668,53 @@ export default function VirtualCardApplication() {
   }, [cardDetails])
 
 
+  if (accountLoading && !card) {
+    return (
+      <div className="virtual-card-page min-h-screen px-4 py-8">
+        <div className="vc-page-shell max-w-6xl mx-auto space-y-8">
+          <section className="vc-surface rounded-2xl p-6 md:p-7 border border-slate-800 shadow-lg">
+            <p className="text-sm text-slate-300">Loading your card details...</p>
+          </section>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <>
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap');
 
         .virtual-card-page {
+          background-color: var(--bb-bg);
+          background-image: none;
+          color: #e2e8f0;
+          font-family: 'Sora', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+          position: relative;
+        }
+
+        .bb-user-theme[data-theme='dark'] .virtual-card-page {
           background:
             radial-gradient(1200px 800px at 10% -10%, rgba(37, 99, 235, 0.25), transparent 60%),
             radial-gradient(900px 700px at 90% -15%, rgba(14, 165, 233, 0.2), transparent 65%),
             radial-gradient(700px 500px at 50% 20%, rgba(15, 23, 42, 0.4), transparent 70%),
             linear-gradient(180deg, #0b1120 0%, #0f172a 45%, #0b1220 100%);
-          color: #e2e8f0;
-          font-family: 'Sora', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-          position: relative;
+          background-image: none;
         }
 
         .virtual-card-page::before {
           content: '';
           position: fixed;
           inset: 0;
-          background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140' viewBox='0 0 140 140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)' opacity='0.06'/%3E%3C/svg%3E");
-          opacity: 0.18;
+          background: transparent;
+          opacity: 0;
           pointer-events: none;
           z-index: 0;
+        }
+
+        .bb-user-theme[data-theme='dark'] .virtual-card-page::before {
+          background: radial-gradient(1200px 800px at 10% -10%, rgba(37, 99, 235, 0.18), transparent 60%);
+          opacity: 1;
         }
 
         .virtual-card-page > * {
@@ -575,7 +730,7 @@ export default function VirtualCardApplication() {
         }
 
         .bb-user-theme[data-theme='light'] .virtual-card-page {
-          background: var(--bb-bg) !important;
+          background: #f5efe6 !important;
           background-image: none !important;
           color: var(--bb-text) !important;
         }
@@ -599,39 +754,137 @@ export default function VirtualCardApplication() {
           box-shadow: none !important;
         }
 
+        .bb-user-theme[data-theme='light'] .virtual-card-page .vc-hero::after {
+          background: transparent !important;
+          backdrop-filter: none !important;
+          opacity: 0 !important;
+          display: none !important;
+        }
+
+        .bb-user-theme[data-theme='light'] .virtual-card-page .vc-surface,
+        .bb-user-theme[data-theme='light'] .virtual-card-page .vc-dark-surface {
+          background: #f6f1e8 !important;
+          border-color: #e6dccd !important;
+          color: #2b2a26 !important;
+          box-shadow: 0 16px 35px -30px rgba(70, 45, 18, 0.25) !important;
+        }
+
+        .bb-user-theme[data-theme='light'] .virtual-card-page .vc-inset,
+        .bb-user-theme[data-theme='light'] .virtual-card-page .vc-chip {
+          background: #fbf7f1 !important;
+          border-color: #e6dccd !important;
+          color: #2b2a26 !important;
+        }
+
+        .bb-user-theme[data-theme='light'] .virtual-card-page input,
+        .bb-user-theme[data-theme='light'] .virtual-card-page select,
+        .bb-user-theme[data-theme='light'] .virtual-card-page textarea {
+          background: #fffaf3 !important;
+          border-color: #e2d7c6 !important;
+          color: #2b2a26 !important;
+        }
+
+        .bb-user-theme[data-theme='light'] .virtual-card-page input::placeholder,
+        .bb-user-theme[data-theme='light'] .virtual-card-page textarea::placeholder {
+          color: #7b7063 !important;
+        }
+
+        .bb-user-theme[data-theme='light'] .virtual-card-page .vc-nav {
+          background: #f7f2ea !important;
+          border-color: #e6dccd !important;
+        }
+
+        .bb-user-theme[data-theme='light'] .virtual-card-page .bg-slate-900,
+        .bb-user-theme[data-theme='light'] .virtual-card-page .bg-slate-800,
+        .bb-user-theme[data-theme='light'] .virtual-card-page .bg-slate-950 {
+          background: #f6f1e8 !important;
+        }
+
+        .bb-user-theme[data-theme='light'] .virtual-card-page .vc-card-preview {
+          background: linear-gradient(145deg, #efe4d5, #f8f3ec) !important;
+          color: #2b2a26 !important;
+          box-shadow: inset 0 0 0 1px rgba(120, 90, 55, 0.08);
+          border: 1px solid rgba(120, 90, 55, 0.12);
+        }
+
+        .bb-user-theme[data-theme='light'] .virtual-card-page .vc-card-preview .text-white,
+        .bb-user-theme[data-theme='light'] .virtual-card-page .vc-card-preview .text-slate-200\/80,
+        .bb-user-theme[data-theme='light'] .virtual-card-page .vc-card-preview .text-slate-200\/90 {
+          color: #2b2a26 !important;
+        }
+
+        .bb-user-theme[data-theme='light'] .virtual-card-page .vc-card-preview .text-slate-200\/80,
+        .bb-user-theme[data-theme='light'] .virtual-card-page .vc-card-preview .text-slate-200\/90,
+        .bb-user-theme[data-theme='light'] .virtual-card-page .vc-card-preview .text-slate-200\/70 {
+          color: #5f5447 !important;
+        }
+
         .bb-user-theme[data-theme='light'] .virtual-card-page .vc-card-glass {
-          background: var(--bb-card-surface) !important;
-          color: var(--bb-card-text) !important;
-          border-color: var(--bb-panel-border) !important;
+          background: linear-gradient(160deg, #efe0ce 0%, #f6efe6 55%, #efe0ce 100%) !important;
+        }
+
+        .bb-user-theme[data-theme='light'] .virtual-card-page .vc-card-glass .text-slate-200\/70,
+        .bb-user-theme[data-theme='light'] .virtual-card-page .vc-card-glass .text-slate-200\/80,
+        .bb-user-theme[data-theme='light'] .virtual-card-page .vc-card-glass .text-slate-200\/90,
+        .bb-user-theme[data-theme='light'] .virtual-card-page .vc-card-glass .text-slate-100,
+        .bb-user-theme[data-theme='light'] .virtual-card-page .vc-card-glass .text-slate-200,
+        .bb-user-theme[data-theme='light'] .virtual-card-page .vc-card-glass .text-white {
+          color: #2b2a26 !important;
+        }
+
+        .bb-user-theme[data-theme='light'] .virtual-card-page .vc-card-glass .text-slate-300,
+        .bb-user-theme[data-theme='light'] .virtual-card-page .vc-card-glass .text-slate-400,
+        .bb-user-theme[data-theme='light'] .virtual-card-page .vc-card-glass .text-slate-300\/70 {
+          color: #5f5447 !important;
+        }
+
+        .bb-user-theme[data-theme='light'] .virtual-card-page .vc-card-glass {
+          background: linear-gradient(145deg, #efe4d5, #f8f3ec) !important;
+          color: #2b2a26 !important;
+          border-color: #e6dccd !important;
           box-shadow: 0 18px 35px -28px rgba(60, 40, 20, 0.3) !important;
         }
 
         .bb-user-theme[data-theme='light'] .virtual-card-page .vc-card-glass .text-slate-200\/70,
         .bb-user-theme[data-theme='light'] .virtual-card-page .vc-card-glass .text-slate-200\/80,
         .bb-user-theme[data-theme='light'] .virtual-card-page .vc-card-glass .text-slate-200\/90,
+        .bb-user-theme[data-theme='light'] .virtual-card-page .vc-card-glass .text-slate-100,
+        .bb-user-theme[data-theme='light'] .virtual-card-page .vc-card-glass .text-slate-200,
         .bb-user-theme[data-theme='light'] .virtual-card-page .vc-card-glass .text-white {
-          color: var(--bb-card-text) !important;
+          color: #2b2a26 !important;
         }
 
         .bb-user-theme[data-theme='light'] .virtual-card-page .vc-card-glass .text-slate-300,
         .bb-user-theme[data-theme='light'] .virtual-card-page .vc-card-glass .text-slate-400,
         .bb-user-theme[data-theme='light'] .virtual-card-page .vc-card-glass .text-slate-300\/70 {
-          color: var(--bb-card-muted) !important;
+          color: #5f5447 !important;
+        }
+
+        .bb-user-theme[data-theme='light'] .virtual-card-page .text-slate-100,
+        .bb-user-theme[data-theme='light'] .virtual-card-page .text-slate-200,
+        .bb-user-theme[data-theme='light'] .virtual-card-page .text-white {
+          color: #2b2a26 !important;
         }
 
         .bb-user-theme[data-theme='light'] .virtual-card-page .text-slate-300,
         .bb-user-theme[data-theme='light'] .virtual-card-page .text-slate-400,
         .bb-user-theme[data-theme='light'] .virtual-card-page .text-slate-500,
-        .bb-user-theme[data-theme='light'] .virtual-card-page .text-slate-300\/70,
-        .bb-user-theme[data-theme='light'] .virtual-card-page .text-slate-300\/80,
-        .bb-user-theme[data-theme='light'] .virtual-card-page .text-slate-400\/70 {
-          color: var(--bb-muted) !important;
+        .bb-user-theme[data-theme='light'] .virtual-card-page .text-slate-300/70,
+        .bb-user-theme[data-theme='light'] .virtual-card-page .text-slate-300/80,
+        .bb-user-theme[data-theme='light'] .virtual-card-page .text-slate-400/70 {
+          color: #5f5447 !important;
         }
 
         .virtual-card-page .vc-nav {
           background: rgba(15, 23, 42, 0.55);
           border: 1px solid rgba(148, 163, 184, 0.2);
           backdrop-filter: blur(18px);
+        }
+
+        .virtual-card-page .vc-hero {
+          background: rgba(15, 23, 42, 0.65);
+          border: 1px solid rgba(148, 163, 184, 0.2);
+          border-radius: 18px;
         }
 
         .virtual-card-page .vc-surface {
@@ -670,6 +923,7 @@ export default function VirtualCardApplication() {
           box-shadow: 0 40px 90px -60px rgba(2, 6, 23, 0.9);
           background-size: 140% 140%;
           animation: cardGlow 8s ease infinite;
+          color: #e2e8f0;
         }
 
         .virtual-card-page .vc-card-frozen {
@@ -781,6 +1035,64 @@ export default function VirtualCardApplication() {
           z-index: 10;
         }
 
+        .virtual-card-page .vc-card-label {
+          color: rgba(226, 232, 240, 0.75);
+        }
+
+        .virtual-card-page .vc-card-value {
+          color: #f8fafc;
+        }
+
+        .bb-user-theme[data-theme='light'] .virtual-card-page .vc-card-glass {
+          background: linear-gradient(160deg, #e5d6c4 0%, #f3ece2 55%, #e7d8c5 100%) !important;
+          border: 1px solid #d6c5b1 !important;
+          box-shadow: 0 18px 45px -30px rgba(93, 66, 30, 0.35) !important;
+          color: #2b2a26 !important;
+        }
+
+        .bb-user-theme[data-theme='light'] .virtual-card-page .vc-card-glass .text-white {
+          color: inherit !important;
+        }
+
+        .bb-user-theme[data-theme='light'] .virtual-card-page .vc-card-glass .text-slate-200\/70,
+        .bb-user-theme[data-theme='light'] .virtual-card-page .vc-card-glass .text-slate-200\/80,
+        .bb-user-theme[data-theme='light'] .virtual-card-page .vc-card-glass .text-slate-200\/90 {
+          color: #5f5447 !important;
+        }
+
+        .bb-user-theme[data-theme='light'] .virtual-card-page .vc-card-label {
+          color: #5f5447 !important;
+        }
+
+        .bb-user-theme[data-theme='light'] .virtual-card-page .vc-card-value {
+          color: #2b2a26 !important;
+        }
+
+        .bb-user-theme[data-theme='light'] .virtual-card-page .vc-button-secondary {
+          background: #fbf4ea !important;
+          border: 1px solid #dccbb7 !important;
+          color: #2f261c !important;
+          box-shadow: 0 12px 24px -20px rgba(74, 49, 20, 0.35);
+        }
+
+        .bb-user-theme[data-theme='light'] .virtual-card-page .vc-page-shell {
+          background: #f7f4ef !important;
+        }
+
+        .bb-user-theme[data-theme='dark'] .virtual-card-page .vc-page-shell {
+          background: #0b1220 !important;
+        }
+
+        .bb-user-theme[data-theme='light'] .virtual-card-page .vc-grid-shell,
+        .bb-user-theme[data-theme='light'] .virtual-card-page .vc-grid-shell .vc-grid-col {
+          background: #f7f4ef !important;
+        }
+
+        .bb-user-theme[data-theme='dark'] .virtual-card-page .vc-grid-shell,
+        .bb-user-theme[data-theme='dark'] .virtual-card-page .vc-grid-shell .vc-grid-col {
+          background: #0b1220 !important;
+        }
+
         @keyframes shimmer {
           0% { transform: translateX(-40%); }
           50% { transform: translateX(40%); }
@@ -806,7 +1118,7 @@ export default function VirtualCardApplication() {
           <div>
             <h1 className="text-2xl md:text-3xl font-semibold tracking-tight">Virtual Cards</h1>
             <p className="mt-1 text-sm text-slate-400 max-w-xl">
-              Create a secure USD virtual card for online payments. Cardholder details are verified once, then you can create and fund cards.
+              Create a secure virtual dollar (USD) card for online payments. Cardholder details are verified once, then you can create and fund cards.
             </p>
           </div>
 
@@ -832,6 +1144,7 @@ export default function VirtualCardApplication() {
             </div>
           </div>
         </header>
+
 
         <section className="vc-surface rounded-2xl p-6 md:p-7 border border-slate-800 shadow-lg">
           <div className="flex items-center justify-between gap-4">
@@ -875,8 +1188,8 @@ export default function VirtualCardApplication() {
         </section>
 
         {hasCardId && (
-          <section className="grid grid-cols-1 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)] gap-8">
-            <div className="flex flex-col gap-6">
+          <section className="vc-grid-shell grid grid-cols-1 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)] gap-8">
+            <div className="vc-grid-col flex flex-col gap-6">
               <div className="vc-surface rounded-2xl p-7 md:p-8 border border-slate-800 shadow-lg">
                 <div className="flex items-center justify-between mb-5">
                   <div>
@@ -992,15 +1305,34 @@ export default function VirtualCardApplication() {
                 </div>
 
                 <div className="mt-6 flex flex-wrap gap-3 text-xs">
-                  {isPendingFunding && (
-                    <button
-                      type="button"
-                      onClick={() => setShowInlineFund((prev) => !prev)}
-                      className="vc-button-primary px-4 py-2 rounded-xl font-semibold"
-                    >
-                      {showInlineFund ? 'Hide funding' : 'Activate card'}
-                    </button>
-                  )}
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setShowInlineFund((prev) => {
+                        if (!prev) setShowInlineWithdraw(false)
+                        return !prev
+                      })
+                    }
+                    className="vc-button-secondary px-4 py-2 rounded-xl font-semibold"
+                  >
+                    {showInlineFund
+                      ? 'Hide funding'
+                      : isPendingFunding
+                      ? 'Activate card'
+                      : 'Add funds'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setShowInlineWithdraw((prev) => {
+                        if (!prev) setShowInlineFund(false)
+                        return !prev
+                      })
+                    }
+                    className="vc-button-secondary px-4 py-2 rounded-xl font-semibold"
+                  >
+                    {showInlineWithdraw ? 'Hide withdrawal' : 'Withdraw to Tunnel'}
+                  </button>
                   <button
                     type="button"
                     onClick={async () => {
@@ -1055,10 +1387,12 @@ export default function VirtualCardApplication() {
                           </p>
                         </div>
                         <div className="rounded-lg border border-slate-700 bg-slate-900/70 px-3 py-2 text-[11px] text-slate-300">
-                          <div className="flex items-center justify-between">
-                            <span>Card creation fee (one-time)</span>
-                            <span>{feeDue === 0 ? 'Paid' : `USD ${feeAmount.toFixed(2)}`}</span>
-                          </div>
+                          {!isExistingCard && (
+                            <div className="flex items-center justify-between">
+                              <span>Card creation fee (one-time)</span>
+                              <span>{feeDue === 0 ? 'Paid' : `USD ${feeAmount.toFixed(2)}`}</span>
+                            </div>
+                          )}
                           <div className="mt-1 flex items-center justify-between">
                             <span>Funding amount</span>
                             <span>USD {Number(formData.amount || 0).toFixed(2)}</span>
@@ -1084,7 +1418,7 @@ export default function VirtualCardApplication() {
                           disabled={submitting || !canCreate || !tunnelWallet?.id}
                           className="w-full px-4 py-2.5 bg-indigo-600 hover:bg-indigo-500 rounded-md font-semibold text-sm disabled:opacity-60"
                         >
-                          {submitting ? 'Processing...' : 'Activate card'}
+                          {submitting ? 'Processing...' : fundingCta}
                         </button>
                         {successCreate && (
                           <div
@@ -1095,6 +1429,65 @@ export default function VirtualCardApplication() {
                             }`}
                           >
                             <p>{successCreate.message}</p>
+                          </div>
+                        )}
+                      </div>
+                    </motion.form>
+                  )}
+                </AnimatePresence>
+                <AnimatePresence initial={false}>
+                  {showInlineWithdraw && (
+                    <motion.form
+                      key="inline-withdraw"
+                      initial={{ opacity: 0, scaleY: 0 }}
+                      animate={{ opacity: 1, scaleY: 1 }}
+                      exit={{ opacity: 0, scaleY: 0 }}
+                      transition={{ duration: 0.14, ease: 'easeOut' }}
+                      className="origin-top overflow-hidden mt-4"
+                      onSubmit={handleSubmitUnloadCard}
+                    >
+                      <div className="vc-inset rounded-xl border border-slate-800 px-4 py-4 space-y-4">
+                        <div>
+                          <label className="block text-xs mb-1 text-slate-300">Withdraw amount (USD)</label>
+                          <input
+                            type="number"
+                            value={withdrawAmount}
+                            onChange={(event) => setWithdrawAmount(event.target.value)}
+                            className="w-full bg-slate-800 border border-slate-700 rounded-md p-2.5 text-sm"
+                            placeholder="e.g. 10"
+                            min="0"
+                          />
+                          <p className="mt-1 text-[11px] text-slate-500">
+                            Funds move from your card balance to your Tunnel wallet after confirmation.
+                          </p>
+                        </div>
+                        <div>
+                          <label className="block text-xs mb-1 text-slate-300">
+                            Transaction PIN ({PIN_LENGTH} digits)
+                          </label>
+                          <TransactionPinInput
+                            value={formData.transaction_pin}
+                            onChange={setPin}
+                            length={PIN_LENGTH}
+                            disabled={submitting}
+                          />
+                        </div>
+                        <button
+                          type="submit"
+                          disabled={submitting || !canWithdraw}
+                          className="w-full px-4 py-2.5 bg-indigo-600 hover:bg-indigo-500 rounded-md font-semibold text-sm disabled:opacity-60"
+                        >
+                          {submitting ? 'Processing...' : 'Withdraw to Tunnel'}
+                        </button>
+                        {withdrawResult && (
+                          <div
+                            className={`mt-2 p-3 rounded-md text-xs ${
+                              withdrawResult.ok
+                                ? 'bg-emerald-900/40 border border-emerald-600'
+                                : 'bg-red-900/40 border border-red-600'
+                            }`}
+                          >
+                            <p>{withdrawResult.message}</p>
                           </div>
                         )}
                       </div>
@@ -1150,11 +1543,37 @@ export default function VirtualCardApplication() {
                       </div>
                     )}
                   </div>
+
+                  <div className="mt-4">
+                    <div className="flex items-center justify-between text-xs text-slate-400 mb-2">
+                      <span>Card activity</span>
+                      {cardHistoryLoading ? <span>Loading...</span> : <span>{cardHistory.length} entries</span>}
+                    </div>
+                    <div className="space-y-2 text-xs">
+                      {cardHistory.slice(0, 8).map((entry) => (
+                        <div key={entry.id} className="vc-inset rounded-xl border border-slate-800 px-3 py-2">
+                          <div className="flex items-center justify-between">
+                            <span className="text-slate-300">{entry.address || 'Card activity'}</span>
+                            <span className="text-slate-200">
+                              {entry.amount ? `USD ${Number(entry.amount).toFixed(2)}` : '--'}
+                            </span>
+                          </div>
+                          <div className="mt-1 flex items-center justify-between text-[11px] text-slate-400">
+                            <span>{entry.status}</span>
+                            <span>{entry.created_at ? new Date(entry.created_at).toLocaleString() : ''}</span>
+                          </div>
+                        </div>
+                      ))}
+                      {!cardHistoryLoading && cardHistory.length === 0 && (
+                        <p className="text-[11px] text-slate-400">No card activity yet.</p>
+                      )}
+                    </div>
+                  </div>
                 </div>
               )}
             </div>
 
-            <div className="flex flex-col gap-6">
+            <div className="vc-grid-col flex flex-col gap-6">
               <div className="vc-surface rounded-2xl p-6 border border-slate-800 shadow-lg">
                 <div className="flex items-center justify-between">
                   <div>
@@ -1172,7 +1591,7 @@ export default function VirtualCardApplication() {
                 <div className="mt-6 min-h-[300px]">
                   <div className="relative mx-auto max-w-md">
                     <div
-                      className={`vc-tilt vc-card-glass vc-neon-edge relative w-full rounded-3xl p-6 text-white overflow-hidden min-h-[220px] ${
+                      className={`vc-tilt vc-card-glass vc-neon-edge relative w-full rounded-3xl p-6 overflow-hidden min-h-[220px] ${
                         isCardActive ? '' : 'vc-card-frozen'
                       }`}
                       onMouseMove={onCardMove}
@@ -1185,22 +1604,22 @@ export default function VirtualCardApplication() {
                         <div className="flex items-center justify-between text-xs">
                           <div className="font-semibold tracking-[0.12em]">BitBridge Global</div>
                           <div className="flex items-center gap-2">
-                            <span className="text-[10px] uppercase text-slate-200/80">Lock</span>
+                            <span className="text-[10px] uppercase vc-card-label">Lock</span>
                           </div>
                         </div>
                         <div className="mt-6 text-2xl tracking-[0.22em] font-mono">{cardPanDisplay}</div>
                         <div className="mt-4 flex items-center justify-between text-xs">
                           <div>
-                            <p className="text-slate-200/70">Cardholder</p>
-                            <p className="text-sm font-medium">
+                            <p className="vc-card-label">Cardholder</p>
+                            <p className="text-sm font-medium vc-card-value">
                               {formData.first_name || formData.last_name
                                 ? `${formData.first_name} ${formData.last_name}`
                                 : 'Full Name'}
                             </p>
                           </div>
                           <div className="text-right">
-                            <p className="text-slate-200/70">Status</p>
-                            <p className="text-sm font-medium">{isCardActive ? 'Active' : 'Frozen'}</p>
+                            <p className="vc-card-label">Status</p>
+                            <p className="text-sm font-medium vc-card-value">{isCardActive ? 'Active' : 'Frozen'}</p>
                           </div>
                         </div>
                       </div>
@@ -1374,9 +1793,9 @@ export default function VirtualCardApplication() {
 
         {showCardholderForm && (
           /* SECTION 1 */
-          <section className="grid grid-cols-1 lg:grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)] gap-8">
+          <section className="vc-grid-shell grid grid-cols-1 lg:grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)] gap-8">
           {/* Left */}
-          <div className="vc-surface bg-slate-900 rounded-2xl p-6 md:p-7 border border-slate-800 shadow-lg">
+          <div className="vc-grid-col vc-surface bg-slate-900 rounded-2xl p-6 md:p-7 border border-slate-800 shadow-lg">
             <div className="flex items-center justify-between mb-4">
               <div>
                 <h2 className="text-xl font-semibold">Cardholder Profile</h2>
@@ -1608,7 +2027,7 @@ export default function VirtualCardApplication() {
           </div>
 
           {/* Right - Preview */}
-          <div className="flex flex-col gap-5">
+          <div className="vc-grid-col flex flex-col gap-5">
             <div className="vc-dark-surface rounded-2xl p-5 bg-gradient-to-br from-slate-900/60 to-black/60 border border-slate-800 shadow-lg">
               <div className="flex items-center justify-between mb-3">
                 <h3 className="text-base font-medium">Card Preview</h3>
@@ -1617,7 +2036,7 @@ export default function VirtualCardApplication() {
 
               <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="w-full max-w-md mx-auto">
                 <div
-                  className={`relative rounded-xl p-6 min-h-[160px] ${
+                  className={`vc-card-preview relative rounded-xl p-6 min-h-[160px] ${
                     formData.design === 'midnight'
                       ? 'bg-gradient-to-br from-indigo-900 to-slate-900'
                       : formData.design === 'aurora'
@@ -1676,8 +2095,8 @@ export default function VirtualCardApplication() {
 
         {showCreateForm && (
           /* SECTION 2 */
-          <section className="grid grid-cols-1 lg:grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)] gap-8">
-          <div className="vc-surface bg-slate-900 rounded-2xl p-6 md:p-7 border border-slate-800 shadow-lg">
+          <section className="vc-grid-shell grid grid-cols-1 lg:grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)] gap-8">
+          <div className="vc-grid-col vc-surface bg-slate-900 rounded-2xl p-6 md:p-7 border border-slate-800 shadow-lg">
             <h2 className="text-xl font-semibold mb-2">{fundingTitle}</h2>
             <p className="text-xs text-slate-400 mb-4">
               Card creation has a one-time fee. Funding activates the card (minimum USD {minFunding}).
@@ -1720,10 +2139,12 @@ export default function VirtualCardApplication() {
               </div>
 
               <div className="rounded-lg border border-slate-700 bg-slate-900/70 px-3 py-2 text-[11px] text-slate-300">
-                <div className="flex items-center justify-between">
-                  <span>Card creation fee (one-time)</span>
-                  <span>{feeDue === 0 ? 'Paid' : `USD ${feeAmount.toFixed(2)}`}</span>
-                </div>
+                {!isExistingCard && (
+                  <div className="flex items-center justify-between">
+                    <span>Card creation fee (one-time)</span>
+                    <span>{feeDue === 0 ? 'Paid' : `USD ${feeAmount.toFixed(2)}`}</span>
+                  </div>
+                )}
                 <div className="mt-1 flex items-center justify-between">
                   <span>Funding amount</span>
                   <span>USD {Number(formData.amount || 0).toFixed(2)}</span>
@@ -1764,13 +2185,13 @@ export default function VirtualCardApplication() {
             </form>
           </div>
 
-          <div className="vc-surface bg-slate-900 rounded-2xl p-6 border border-slate-800 shadow-lg">
+          <div className="vc-grid-col vc-surface bg-slate-900 rounded-2xl p-6 border border-slate-800 shadow-lg">
             <h3 className="text-base font-medium mb-3">Card Preview</h3>
 
             <motion.div
               initial={{ opacity: 0, y: 8 }}
               animate={{ opacity: 1, y: 0 }}
-              className="rounded-xl bg-gradient-to-br from-indigo-900 to-slate-900 text-white p-6 min-h-[160px]"
+              className="vc-card-preview rounded-xl bg-gradient-to-br from-indigo-900 to-slate-900 text-white p-6 min-h-[160px]"
             >
               <div className="flex justify-between items-start text-xs">
                 <div className="font-semibold opacity-90">BitBridge Global</div>

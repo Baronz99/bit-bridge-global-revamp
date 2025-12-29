@@ -4,7 +4,7 @@ import AppModal from '../../components/modal/Modal'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import AddFund from '../../components/addFund/AddFund'
 import { useDispatch, useSelector } from 'react-redux'
-import { createTransaction, initializeMonifyPayment } from '../../redux/actions/transaction'
+import { initializeMonifyPayment } from '../../redux/actions/transaction'
 import { RiUserReceived2Line } from 'react-icons/ri'
 import dateFormater from '../../utils/dateFormat'
 import { getWallet } from '../../redux/actions/wallet'
@@ -56,7 +56,6 @@ const tunnelWallet = data?.tunnel
 
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [isfundTransferOpen, setIsfundTransferOpen] = useState(false)
-  const [isWithdrawModalOpened, setIsWithdrawalModalOpen] = useState(false)
 
   // Tunnel state
   const [usdWallet, setUsdWallet] = useState(null)
@@ -175,27 +174,6 @@ const tunnelWallet = data?.tunnel
     ).then((result) => {
       if (initializeMonifyPayment.fulfilled.match(result)) {
         window.location.href = result.payload.responseBody.checkoutUrl
-      } else {
-        dispatch(SET_LOADING(false))
-      }
-    })
-  }
-
-  // Bridge withdrawal unchanged
-  const handleWithdrawalSubmit = (values) => {
-    dispatch(SET_LOADING(true))
-    dispatch(
-      createTransaction({
-        ...values,
-        transaction_type: 'withdrawal',
-        status: 'pending',
-      })
-    ).then((result) => {
-      if (createTransaction.fulfilled.match(result)) {
-        setIsWithdrawalModalOpen(false)
-        dispatch(SET_LOADING(false))
-        dispatch(getWallet())
-        formRef.current?.resetForm()
       } else {
         dispatch(SET_LOADING(false))
       }
@@ -459,6 +437,24 @@ const tunnelWallet = data?.tunnel
               </div>
             </div>
 
+            {/* Quick actions (mobile) */}
+            <div className="bg-slate-900 rounded-2xl p-5 md:hidden border border-slate-800">
+              <div className="mb-4">
+                <h3 className="text-sm font-semibold mb-1">Quick actions</h3>
+                <p className="text-xs text-slate-400">
+                  {isTunnel
+                    ? 'Tunnel actions: conversion + USD layer.'
+                    : 'Add money or send money to banks and BitBridge users instantly.'}
+                </p>
+              </div>
+              <TransactionComp
+                mode={mode}
+                setIsfundTransferOpen={setIsfundTransferOpen}
+                setIsModalOpen={setIsModalOpen}
+                onOpenConvert={openConvert}
+              />
+            </div>
+
             {/* Transactions */}
             <div className="px-2 lg:px-5 lg:py-6 bg-slate-900 rounded-2xl border border-slate-800 text-white overflow-hidden">
               <div className="flex items-center justify-between mb-4">
@@ -560,7 +556,7 @@ const tunnelWallet = data?.tunnel
                 <p className="text-xs text-slate-400">
                   {isTunnel
                     ? 'Tunnel actions: conversion + USD layer.'
-                    : 'Fund your wallet, withdraw to bank or send money instantly.'}
+                    : 'Add money or send money to banks and BitBridge users instantly.'}
                 </p>
               </div>
 
@@ -568,7 +564,6 @@ const tunnelWallet = data?.tunnel
                 mode={mode}
                 setIsfundTransferOpen={setIsfundTransferOpen}
                 setIsModalOpen={setIsModalOpen}
-                setIsWithdrawalModalOpen={setIsWithdrawalModalOpen}
             onOpenConvert={openConvert}
               />
             </div>
@@ -579,17 +574,6 @@ const tunnelWallet = data?.tunnel
       {/* Bridge modals (unchanged) */}
       <AppModal title={'Fund Wallet'} isModalOpen={isModalOpen} handleCancel={() => setIsModalOpen(false)}>
         <AddFund handleSubmit={handleSubmit} coin_type={coinType} address={address} ref={formRef} />
-      </AppModal>
-
-      <AppModal title={'Withdraw Funds'} isModalOpen={isWithdrawModalOpened} handleCancel={() => setIsWithdrawalModalOpen(false)}>
-        <AddFund
-          handleSubmit={handleWithdrawalSubmit}
-          coin_type={coinType}
-          disableAddress={false}
-          transaction_type="withdrawal"
-          ref={formRef}
-          address={address}
-        />
       </AppModal>
 
       <AppModal handleCancel={() => setIsfundTransferOpen(false)} title={'Send Money'} isModalOpen={isfundTransferOpen}>
@@ -703,7 +687,6 @@ const tunnelWallet = data?.tunnel
 const TransactionComp = ({
   mode,
   setIsModalOpen,
-  setIsWithdrawalModalOpen,
   setIsfundTransferOpen,
   onOpenConvert,
 }) => {
@@ -720,17 +703,7 @@ const TransactionComp = ({
             <span className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-purple-900/40 border border-purple-600/60">
               <WalletOutlined />
             </span>
-            <span className="text-[11px] text-center">Add Funds</span>
-          </button>
-
-          <button
-            onClick={() => setIsWithdrawalModalOpen(true)}
-            className="flex flex-col items-center justify-center gap-1 text-purple-300 hover:text-alt cursor-pointer"
-          >
-            <span className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-purple-900/40 border border-purple-600/60">
-              <RiUserReceived2Line />
-            </span>
-            <span className="text-[11px] text-center">Withdraw</span>
+            <span className="text-[11px] text-center">Add Money</span>
           </button>
 
           <button
@@ -740,7 +713,7 @@ const TransactionComp = ({
             <span className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-purple-900/40 border border-purple-600/60">
               <TransactionOutlined />
             </span>
-            <span className="text-[11px] text-center">Transfer Funds</span>
+            <span className="text-[11px] text-center">Send Money</span>
           </button>
 
           <button
@@ -802,7 +775,6 @@ const TransactionComp = ({
 TransactionComp.propTypes = {
   mode: PropTypes.string,
   setIsModalOpen: PropTypes.func,
-  setIsWithdrawalModalOpen: PropTypes.func,
   setIsfundTransferOpen: PropTypes.func,
   onOpenConvert: PropTypes.func,
 }

@@ -37,7 +37,7 @@ module Api
         if account_params[:vendor] == 'anchor'
           create_anchor_account
         else
-          create_monify_account
+          render json: { message: 'Monnify account creation is disabled.' }, status: :unprocessable_entity
         end
       end
 
@@ -359,6 +359,8 @@ return unless require_transaction_pin!(pin, error_key: :message)
       end
 
       def create_monify_account
+        render json: { message: 'Monnify account creation is disabled.' }, status: :unprocessable_entity and return
+
         service = AccountService.new
 
         account_info = {

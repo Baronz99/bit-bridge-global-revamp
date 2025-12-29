@@ -4,6 +4,93 @@ module Api
   module V1
     class WebhooksController < ApplicationController
       skip_before_action :authenticate_user!
+
+      def bridgecard
+        unless FeatureFlags.bridge_cards?
+          raise StandardError, 'BRIDGE cards are disabled'
+        end
+
+        raw_body = request.raw_post
+        signature = request.headers['x-webhook-signature'] || request.headers['X-Webhook-Signature']
+
+        secrets = [
+          ENV['BRIDGECARD_TEST_WEBHOOK_SECRET'],
+          ENV['BRIDGECARD_LIVE_WEBHOOK_SECRET']
+        ].compact
+
+        verifier = BridgecardWebhookVerifier.new(
+          body: raw_body,
+          signature: signature,
+          secrets: secrets
+        )
+
+        unless verifier.valid?
+          Rails.logger.warn('[BridgecardWebhook] invalid signature')
+          return head :unauthorized
+        end
+
+        payload = JSON.parse(raw_body) rescue {}
+        event = payload['event'].to_s
+        data = payload['data'] || {}
+
+        card_id = data['card_id'].to_s
+        cardholder_id = data['cardholder_id'].to_s
+        transaction_reference = data['transaction_reference'].to_s
+
+        card = card_id.present? ? Card.find_by(card_id: card_id) : nil
+        user_id = card&.user_id
+
+        status =
+          if event.include?('successful')
+            'successful'
+          elsif event.include?('failed')
+            'failed'
+          elsif event.include?('declined')
+            'declined'
+          else
+            'notification'
+          end
+
+        transaction_at =
+          if data['transaction_date'].present?
+            Time.zone.parse(data['transaction_date']) rescue nil
+          elsif data['transaction_timestamp'].present?
+            Time.at(data['transaction_timestamp'].to_i)
+          end
+
+        if transaction_reference.present? &&
+           CardEvent.exists?(transaction_reference: transaction_reference, event: event)
+          return head :ok
+        end
+
+        CardEvent.create!(
+          event: event.presence || 'unknown',
+          status: status,
+          card_id: card_id.presence,
+          cardholder_id: cardholder_id.presence,
+          currency: data['currency'],
+          amount: data['amount'],
+          transaction_reference: transaction_reference.presence,
+          card_transaction_type: data['card_transaction_type'],
+          merchant_category_code: data['merchant_category_code'],
+          description: data['description'] || data['message'],
+          decline_reason: data['decline_reason'] || data['reason'],
+          transaction_at: transaction_at,
+          livemode: data['livemode'],
+          raw_payload: payload,
+          user_id: user_id
+        )
+
+        case event
+        when 'card_unload_event.successful'
+          handle_card_unload_success(data)
+        when 'card_unload_event.failed'
+          handle_card_unload_failed(data)
+        end
+
+        head :ok
+      end
+
       def monnify
         data = JSON.parse(request.raw_post)
         # Rails.logger.info("✅  Monnify webhook json post: #{data}")
@@ -152,6 +239,37 @@ module Api
       def handle_payment_confirmation(transaction_record)
         transaction = transaction_record.exchange
         transaction.update(status: 'approved')
+      end
+
+      def handle_card_unload_success(data)
+        reference = data['transaction_reference'].to_s
+        return if reference.blank?
+
+        txn = Transaction.find_by(unique_transaction_id: reference)
+        return if txn.blank?
+        return if txn.status == 'approved'
+
+        amount_cents = data['amount'].to_i
+        amount_usd =
+          if amount_cents.positive?
+            (amount_cents / 100.0).round(2)
+          else
+            txn.amount.to_f
+          end
+
+        txn.wallet.credit_cents!(amount_cents) if amount_cents.positive?
+        txn.update!(status: 'approved', amount: amount_usd)
+      end
+
+      def handle_card_unload_failed(data)
+        reference = data['transaction_reference'].to_s
+        return if reference.blank?
+
+        txn = Transaction.find_by(unique_transaction_id: reference)
+        return if txn.blank?
+        return if txn.status == 'failed'
+
+        txn.update!(status: 'failed')
       end
     end
   end

@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[7.1].define(version: 2026_01_07_090300) do
+ActiveRecord::Schema[7.1].define(version: 2026_01_09_093000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pgcrypto"
   enable_extension "plpgsql"
@@ -124,6 +124,31 @@ ActiveRecord::Schema[7.1].define(version: 2026_01_07_090300) do
     t.text "reason"
     t.index ["order_detail_id"], name: "index_bill_orders_on_order_detail_id"
     t.index ["user_id"], name: "index_bill_orders_on_user_id"
+  end
+
+  create_table "card_events", id: :uuid, default: -> { "gen_random_uuid()" }, force: :cascade do |t|
+    t.string "event", null: false
+    t.string "status"
+    t.string "card_id"
+    t.string "cardholder_id"
+    t.string "currency"
+    t.decimal "amount", precision: 12, scale: 2
+    t.string "transaction_reference"
+    t.string "card_transaction_type"
+    t.string "merchant_category_code"
+    t.string "description"
+    t.string "decline_reason"
+    t.datetime "transaction_at"
+    t.boolean "livemode"
+    t.jsonb "raw_payload"
+    t.uuid "user_id"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["card_id"], name: "index_card_events_on_card_id"
+    t.index ["event"], name: "index_card_events_on_event"
+    t.index ["transaction_at"], name: "index_card_events_on_transaction_at"
+    t.index ["transaction_reference"], name: "index_card_events_on_transaction_reference"
+    t.index ["user_id"], name: "index_card_events_on_user_id"
   end
 
   create_table "card_tokens", id: :uuid, default: -> { "gen_random_uuid()" }, force: :cascade do |t|
@@ -429,6 +454,24 @@ ActiveRecord::Schema[7.1].define(version: 2026_01_07_090300) do
     t.index ["product_id"], name: "index_provisions_on_product_id"
   end
 
+  create_table "reward_transactions", id: :uuid, default: -> { "gen_random_uuid()" }, force: :cascade do |t|
+    t.uuid "user_id", null: false
+    t.uuid "bill_order_id"
+    t.decimal "amount", precision: 12, scale: 2, null: false
+    t.decimal "source_amount", precision: 12, scale: 2
+    t.decimal "reward_rate", precision: 6, scale: 4, default: "0.01", null: false
+    t.string "currency", default: "NGN", null: false
+    t.string "service_type"
+    t.string "source_label"
+    t.integer "status", default: 1, null: false
+    t.datetime "earned_at"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["bill_order_id"], name: "index_reward_transactions_on_bill_order_id"
+    t.index ["earned_at"], name: "index_reward_transactions_on_earned_at"
+    t.index ["user_id"], name: "index_reward_transactions_on_user_id"
+  end
+
   create_table "transaction_pin_reset_codes", force: :cascade do |t|
     t.uuid "user_id", null: false
     t.string "phone_e164", null: false
@@ -490,7 +533,9 @@ ActiveRecord::Schema[7.1].define(version: 2026_01_07_090300) do
     t.uuid "account_id"
     t.string "unique_transaction_id"
     t.string "transfer_id"
+    t.string "bridge_card_id"
     t.index ["account_id"], name: "index_transactions_on_account_id"
+    t.index ["bridge_card_id"], name: "index_transactions_on_bridge_card_id"
     t.index ["transfer_id"], name: "index_transactions_on_transfer_id", unique: true
     t.index ["wallet_id"], name: "index_transactions_on_wallet_id"
   end
@@ -608,6 +653,7 @@ ActiveRecord::Schema[7.1].define(version: 2026_01_07_090300) do
   add_foreign_key "beneficiaries", "users"
   add_foreign_key "bill_orders", "order_details"
   add_foreign_key "bill_orders", "users", on_delete: :nullify
+  add_foreign_key "card_events", "users"
   add_foreign_key "card_tokens", "order_items"
   add_foreign_key "cards", "users"
   add_foreign_key "circle_activities", "circles"
@@ -629,6 +675,8 @@ ActiveRecord::Schema[7.1].define(version: 2026_01_07_090300) do
   add_foreign_key "order_items", "provisions"
   add_foreign_key "phone_verification_codes", "users"
   add_foreign_key "provisions", "products"
+  add_foreign_key "reward_transactions", "bill_orders"
+  add_foreign_key "reward_transactions", "users"
   add_foreign_key "transaction_pin_reset_codes", "users"
   add_foreign_key "transaction_records", "bill_orders"
   add_foreign_key "transaction_records", "transactions", column: "exchange_id"

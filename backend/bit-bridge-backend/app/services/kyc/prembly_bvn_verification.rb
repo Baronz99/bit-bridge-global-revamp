@@ -13,11 +13,24 @@ module Kyc
     end
 
     def call
+      unless FeatureFlags.prembly?
+        raise StandardError, 'PREMBLY is disabled'
+      end
+
+      api_key = ENV['PREMBLY_API_KEY'].to_s
+      app_id = ENV['PREMBLY_APP_ID'].to_s
+      if api_key.blank?
+        raise StandardError, 'PREMBLY_API_KEY is missing'
+      end
+      if app_id.blank?
+        raise StandardError, 'PREMBLY_APP_ID is missing'
+      end
+
       response = self.class.post(
         '/verification/bvn_validation',
         headers: {
-          'x-api-key' => ENV['PREMBLY_API_KEY'].to_s,
-          'app-id' => ENV['PREMBLY_APP_ID'].to_s,
+          'x-api-key' => api_key,
+          'app-id' => app_id,
           'Content-Type' => 'application/json'
         },
         body: { number: @bvn }.to_json,

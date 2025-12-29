@@ -73,7 +73,7 @@ const DashboardLayout = () => {
 
   return (
     <div className="bb-user-theme relative h-screen" data-theme={themeMode || 'dark'}>
-      <div className="max-w-[1500px] m-auto flex flex-col overflow-hidden h-screen">
+      <div className="bb-dashboard-shell max-w-[1500px] m-auto flex flex-col overflow-hidden h-screen">
         {/* TOP BAR */}
         <header className="bb-topbar flex justify-between items-center gap-4 rounded-2xl bg-gradient-to-r from-black via-slate-950 to-black border border-slate-800/70 md:py-5 py-3 px-5 md:px-7 mt-3 mb-3 shadow-sm">
           {/* Mobile menu button */}
@@ -180,7 +180,7 @@ const DashboardLayout = () => {
         </header>
 
         {/* CONTENT + MOBILE DRAWER */}
-        <div className="flex overflow-hidden mt-0 h-full flex-1 w-full md:px-6">
+        <div className="bb-dashboard-frame flex overflow-hidden mt-0 h-full flex-1 w-full md:px-6">
           <div className="relative">
             <DrawerModal
               open={open}
@@ -283,7 +283,12 @@ const DashboardLayout = () => {
           </div>
 
           {/* Page body */}
-          <div className="md:mt-6 mt-3 w-full flex-1 overflow-y-auto pb-6">
+          <div
+            className="bb-dashboard-body dashboard-body md:mt-6 mt-3 w-full flex-1 overflow-y-auto pb-6"
+            style={{
+              backgroundColor: themeMode === 'light' ? '#f7f4ef' : '#0b1220',
+            }}
+          >
             <Outlet />
           </div>
         </div>

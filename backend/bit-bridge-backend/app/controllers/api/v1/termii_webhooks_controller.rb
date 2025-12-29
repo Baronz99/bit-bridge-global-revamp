@@ -17,6 +17,10 @@ module Api
 
       # POST /api/v1/termii/dlr
       def dlr
+        unless FeatureFlags.termii?
+          raise StandardError, 'TERMII is disabled'
+        end
+
         payload = request.request_parameters.presence || params.to_unsafe_h
 
         # ---- Optional: lightweight shared-secret auth (recommended for production) ----

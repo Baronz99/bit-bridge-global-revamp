@@ -10,6 +10,10 @@ module Api
         IP_DAILY_LIMIT = 10
 
         def verify
+          unless FeatureFlags.prembly?
+            raise StandardError, 'PREMBLY is disabled'
+          end
+
           bvn = params[:bvn].to_s.gsub(/\s+/, '')
           unless bvn.match?(/\A\d{11}\z/)
             return render json: { status: 'error', message: 'BVN must be 11 digits.' }, status: :unprocessable_entity

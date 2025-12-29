@@ -5,6 +5,19 @@ module Api
     class CardsController < ApplicationController
       before_action :authenticate_user!
       before_action :set_card, only: %i[show update destroy]
+      before_action :ensure_bridge_cards_enabled!,
+                    only: %i[
+                      register_cardholder
+                      create_card
+                      get_all_states
+                      fund_wallet
+                      unload_wallet
+                      details
+                      balance
+                      reveal
+                      freeze
+                      unfreeze
+                    ]
       before_action :ensure_tier2!,
                     only: %i[
                       index
@@ -12,6 +25,7 @@ module Api
                       register_cardholder
                       create_card
                       fund_wallet
+                      unload_wallet
                       details
                       balance
                       reveal
@@ -32,13 +46,39 @@ module Api
 
       # POST /api/v1/cards/fund_wallet
       def fund_wallet
+        raw_pin =
+          params.dig(:card, :transaction_pin).presence ||
+          params.dig(:card, :pin).presence ||
+          ''
+
+        return unless require_transaction_pin!(raw_pin)
+
         service = BridgeCardService.new
-        service_response = service.fund_wallet(normalized_card_params)
+        service_response = service.fund_wallet(normalized_card_params, current_user)
 
         if service_response[:status] == :ok
           render json: { data: service_response[:data], message: service_response[:message], status: :ok }
         else
           render json: { message: service_response[:message], status: :unprocessable_entity }
+        end
+      end
+
+      # POST /api/v1/cards/unload_wallet
+      def unload_wallet
+        raw_pin =
+          params.dig(:card, :transaction_pin).presence ||
+          params.dig(:card, :pin).presence ||
+          ''
+
+        return unless require_transaction_pin!(raw_pin)
+
+        service = BridgeCardService.new
+        service_response = service.unload_wallet(normalized_card_params, current_user)
+
+        if service_response[:status] == :ok
+          render json: { data: service_response[:data], message: service_response[:message], status: :ok }
+        else
+          render json: { message: service_response[:message] }, status: :unprocessable_entity
         end
       end
 
@@ -182,6 +222,117 @@ processed[:wallet_type] = 'usd'
         end
       end
 
+      # GET /api/v1/cards/:id/history
+      def history
+        card = current_user.cards.find(params[:id])
+        return render json: { message: 'card_id not available' }, status: :unprocessable_entity if card.card_id.blank?
+
+        txns =
+          Transaction
+          .joins(:wallet)
+          .where(wallets: { user_id: current_user.id })
+          .where(bridge_card_id: card.card_id)
+          .order(created_at: :desc)
+
+        events =
+          CardEvent
+          .where(card_id: card.card_id)
+          .order(transaction_at: :desc)
+
+        txn_payload = txns.map do |txn|
+          {
+            id: "txn-#{txn.id}",
+            address: txn.address,
+            amount: txn.amount,
+            status: txn.status,
+            created_at: txn.created_at,
+            source: 'wallet'
+          }
+        end
+
+        event_payload = events.map do |event|
+          event_time = event.transaction_at || event.created_at
+          label = event.description.presence || event.event.to_s.tr('._', ' ').strip
+          {
+            id: "evt-#{event.id}",
+            address: label,
+            amount: event.amount,
+            status: event.status,
+            created_at: event_time,
+            source: 'bridge'
+          }
+        end
+
+        combined =
+          (txn_payload + event_payload)
+          .sort_by { |entry| entry[:created_at] || Time.at(0) }
+          .reverse
+
+        render json: combined
+      end
+
+      # GET /api/v1/cards/:id/insights
+      def insights
+        card = current_user.cards.find(params[:id])
+        return render json: { message: 'card_id not available' }, status: :unprocessable_entity if card.card_id.blank?
+
+        txns =
+          Transaction
+          .joins(:wallet)
+          .where(wallets: { user_id: current_user.id })
+          .where(bridge_card_id: card.card_id)
+          .order(created_at: :desc)
+
+        card_events =
+          CardEvent
+          .where(card_id: card.card_id)
+
+        last_funding_txn =
+          txns
+          .where(address: 'Virtual Card Funding (USD)')
+          .where(status: Transaction.statuses[:approved])
+          .first
+
+        last_credit_event =
+          card_events
+          .where(card_transaction_type: 'CREDIT')
+          .where(status: 'successful')
+          .order(transaction_at: :desc)
+          .first
+
+        last_funding =
+          if last_credit_event && last_funding_txn
+            (last_credit_event.transaction_at || last_credit_event.created_at) >
+              last_funding_txn.created_at ? last_credit_event : last_funding_txn
+          else
+            last_credit_event || last_funding_txn
+          end
+
+        total_funded_txn =
+          txns
+          .where(address: 'Virtual Card Funding (USD)')
+          .where(status: Transaction.statuses[:approved])
+          .sum(:amount)
+
+        total_funded_events =
+          card_events
+          .where(card_transaction_type: 'CREDIT')
+          .where(status: 'successful')
+          .sum(:amount)
+
+        total_funded = total_funded_txn + total_funded_events
+
+        render json: {
+          data: {
+            last_funding_amount: last_funding&.amount,
+            last_funding_at: last_funding.respond_to?(:transaction_at) ? last_funding&.transaction_at : last_funding&.created_at,
+            total_funded: total_funded,
+            history_count: txns.size + card_events.size
+          },
+          status: :ok
+        }
+      end
+
       # PATCH /api/v1/cards/:id/freeze
       def freeze
         card = current_user.cards.find(params[:id])
@@ -238,6 +389,12 @@ processed[:wallet_type] = 'usd'
 
       private
 
+      def ensure_bridge_cards_enabled!
+        unless FeatureFlags.bridge_cards?
+          raise StandardError, 'BRIDGE cards are disabled'
+        end
+      end
+
       def set_card
         @card = Card.find(params[:id])
       end
@@ -245,7 +402,7 @@ processed[:wallet_type] = 'usd'
       def card_params
         params.require(:card).permit(
           :cardholder_id, :card_id, :transaction_reference, :card_type, :card_brand,
-          :card_currency, :card_limit, :funding_amount, :amount,
+          :card_currency, :card_limit, :funding_amount, :amount, :currency,
           :pin, :transaction_pin,
           :status, :postal_code, :user_id, :address, :city, :state, :postal,
           :house_no, :bvn, :account_source,

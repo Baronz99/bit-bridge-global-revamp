@@ -282,6 +282,66 @@ module Api
         }, status: :ok
       end
 
+      # POST /api/v1/wallets/send_money
+      # Body:
+      # { transfer: { phone_number: "080...", amount: 1500, transaction_pin: "1234", description: "..." } }
+      # OR root params: { phone_number, amount, transaction_pin, description }
+      def send_money
+        amount = extract_transfer_amount
+        raw_pin = extract_transaction_pin
+        phone_raw = extract_transfer_phone
+        description = extract_transfer_description
+
+        return render json: { message: 'amount must be greater than 0' }, status: :unprocessable_entity if amount <= 0
+        return render json: { message: 'phone_number is required' }, status: :unprocessable_entity if phone_raw.blank?
+
+        return unless require_transaction_pin!(raw_pin)
+
+        recipient_profile = find_recipient_profile(phone_raw)
+        return render json: { message: 'Recipient not found' }, status: :not_found if recipient_profile.blank?
+
+        recipient_user = recipient_profile.user
+        if recipient_user.id == current_user.id
+          return render json: { message: 'You cannot send money to yourself' }, status: :unprocessable_entity
+        end
+
+        sender_wallet = current_user.ngn_wallet
+        recipient_wallet = recipient_user.ngn_wallet
+
+        sender_label = current_user.user_profile&.phone_number.presence || current_user.email
+        recipient_label = recipient_profile.phone_number.presence || phone_raw
+        narrative = description.presence || "BitBridge transfer to #{recipient_label}"
+
+        ActiveRecord::Base.transaction do
+          sender_wallet.transactions.create!(
+            transaction_type: 'withdrawal',
+            status: 'approved',
+            amount: amount,
+            coin_type: 'bank',
+            address: narrative
+          )
+
+          recipient_wallet.transactions.create!(
+            transaction_type: 'deposit',
+            status: 'approved',
+            amount: amount,
+            coin_type: 'bank',
+            address: "BitBridge transfer from #{sender_label}"
+          )
+        end
+
+        sender_wallet.reload
+        recipient_wallet.reload
+
+        render json: {
+          message: 'Transfer successful',
+          data: {
+            sender_wallet: WalletSerializer.new(sender_wallet).as_json,
+            recipient_wallet: WalletSerializer.new(recipient_wallet).as_json
+          }
+        }, status: :ok
+      end
+
       def create
         wallet = Wallet.new(wallet_params)
         if wallet.save
@@ -340,6 +400,41 @@ module Api
         params[:transaction_pin].presence ||
           params.dig(:wallet, :transaction_pin).presence ||
           ''
+      end
+
+      def extract_transfer_amount
+        raw =
+          params[:amount].presence ||
+          params.dig(:transfer, :amount).presence ||
+          params.dig(:wallet, :amount).presence
+
+        raw.to_d
+      rescue StandardError
+        0.to_d
+      end
+
+      def extract_transfer_phone
+        params[:phone_number].presence ||
+          params.dig(:transfer, :phone_number).presence ||
+          params.dig(:wallet, :phone_number).presence ||
+          ''
+      end
+
+      def extract_transfer_description
+        params[:description].presence ||
+          params.dig(:transfer, :description).presence ||
+          ''
+      end
+
+      def find_recipient_profile(phone_raw)
+        e164 = PhoneNormalizer.to_e164_ng(phone_raw)
+        variants = [phone_raw.to_s.strip, e164, e164 ? "+#{e164}" : nil].compact.uniq
+
+        UserProfile
+          .where(phone_e164: variants)
+          .or(UserProfile.where(phone_number: variants))
+          .includes(:user)
+          .first
       end
     end
   end

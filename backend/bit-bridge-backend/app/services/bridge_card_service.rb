@@ -10,18 +10,9 @@ class BridgeCardService
   CARD_ACTIVATION_MIN_USD = 5
 
   def initialize
-    # ✅ Use ENV in real deployments
-    @secret_key = ENV['BITBRIDGE_SECRET'].presence || 'BITBRIDGE_SECRET'
-    token = ENV['BRIDGE_CARD_TOKEN'].presence || ENV['BRIDGE_TOKEN'].presence
-
-    # ⚠️ fallback (NOT recommended) — keep it only if you’re still testing locally
-    token ||= 'PASTE_TEST_TOKEN_HERE_IF_YOU_MUST'
-
-    @headers = {
-      'token' => "Bearer #{token}",
-      'Content-Type' => 'application/json'
-    }
+    @headers = nil
   end
+
 
   # -----------------------------
   # CARDHOLDER
@@ -177,10 +168,11 @@ class BridgeCardService
     cents = usd_wallet.money_to_cents(amount_usd)
 
     ActiveRecord::Base.transaction do
-      unless fee_charged
+      fee_txn = nil
+      if !fee_charged
         fee_reference = "card-fee-#{SecureRandom.uuid}"
 
-        usd_wallet.transactions.create!(
+        fee_txn = usd_wallet.transactions.create!(
           transaction_type: 'withdrawal',
           status: 'approved',
           amount: CARD_CREATION_FEE_USD,
@@ -210,7 +202,7 @@ class BridgeCardService
       end
 
       # 1) record wallet transaction (for timeline/history) before debit
-      usd_wallet.transactions.create!(
+      fund_txn = usd_wallet.transactions.create!(
         transaction_type: 'withdrawal',
         status: 'approved',
         amount: amount_usd,
@@ -238,6 +230,8 @@ class BridgeCardService
       response = fetch('post', '/issuing/sandbox/cards/create_card', body)
 
       # 4) persist locally
+      new_card_id = response.dig('data', 'card_id') || card.card_id
+
       card.update!(
         cardholder_id: cardholder_id,
         card_type: card_type,
@@ -247,10 +241,13 @@ class BridgeCardService
         transaction_reference: transaction_reference,
         amount: amount_usd,
         pin: pin,
-        card_id: response.dig('data', 'card_id') || card.card_id,
+        card_id: new_card_id,
         status: 'active',
         meta_data: meta
       )
+
+      fee_txn&.update!(bridge_card_id: new_card_id)
+      fund_txn&.update!(bridge_card_id: new_card_id)
 
       return { data: card, message: response['message'], status: :ok }
     end
@@ -360,7 +357,7 @@ end
              "/issuing/sandbox/cards/get_card_details?card_id=#{card_id}"
            end
 
-    response = self.class.get("#{base}#{path}", headers: @headers)
+    response = self.class.get("#{base}#{path}", headers: headers)
     parsed = response.respond_to?(:parsed_response) ? response.parsed_response : response
     { data: parsed['data'], status: :ok }
   rescue StandardError => e
@@ -407,16 +404,139 @@ end
   # -----------------------------
   # FUND ISSUING WALLET (Bridge side)
   # -----------------------------
-  def fund_wallet(card_params)
+  def fund_wallet(card_params, user)
+    raise ArgumentError, 'user is required' if user.blank?
+
     amount = card_params[:amount] || card_params['amount']
     currency = (card_params[:currency] || card_params['currency'] || 'USD').to_s.upcase
+    wallet_type = (card_params[:wallet_type].presence || 'usd').to_s.downcase
+    card_id = card_params[:card_id].presence
+    card_id ||= user.cards.order(created_at: :desc).limit(1).pluck(:card_id).first
 
-    body = { amount: amount }.to_json
-    url = "/issuing/sandbox/cards/fund_issuing_wallet?currency=#{currency}"
+    unless wallet_type == 'usd'
+      return { message: 'Cards are available only in Tunnel (USD).', status: :unprocessable_entity }
+    end
 
-    response = fetch('patch', url, body)
-    { data: response['data'], message: response['message'], status: :ok }
+    return { message: 'card_id is required to fund a card.', status: :unprocessable_entity } if card_id.blank?
+
+    amount_usd = BigDecimal(amount.to_s) rescue 0.to_d
+    return { message: 'Funding amount must be greater than 0.', status: :unprocessable_entity } unless amount_usd.positive?
+
+    usd_wallet = user.usd_wallet
+    raise StandardError, 'USD wallet not found. Activate tunnel first.' if usd_wallet.blank?
+
+    cents = usd_wallet.money_to_cents(amount_usd)
+    if wallet_balance_cents(usd_wallet) < cents
+      return { message: 'Insufficient Tunnel balance to cover the funding amount.', status: :unprocessable_entity }
+    end
+
+    reference = card_params[:transaction_reference].presence || "card-fund-#{SecureRandom.uuid}"
+
+    ActiveRecord::Base.transaction do
+      usd_wallet.transactions.create!(
+        transaction_type: 'withdrawal',
+        status: 'approved',
+        amount: amount_usd,
+        coin_type: 'bank',
+        address: 'Virtual Card Funding (USD)',
+        unique_transaction_id: reference,
+        bridge_card_id: card_id
+      )
+
+      usd_wallet.debit_cents!(cents)
+
+      body = {
+        card_id: card_id,
+        amount: cents,
+        transaction_reference: reference,
+        currency: currency
+      }.to_json
+      url =
+        if Rails.env.production?
+          "/issuing/cards/fund_card_asynchronously"
+        else
+          "/issuing/sandbox/cards/fund_card_asynchronously"
+        end
+      response = fetch('patch', url, body)
+      return { data: response['data'], message: response['message'], status: :ok }
+    end
   rescue StandardError => e
+    if user&.usd_wallet && amount_usd.to_d.positive?
+      user.usd_wallet.transactions.create!(
+        transaction_type: 'withdrawal',
+        status: 'failed',
+        amount: amount_usd,
+        coin_type: 'bank',
+        address: 'Virtual Card Funding (USD)',
+        unique_transaction_id: reference,
+        bridge_card_id: card_id
+      )
+    end
+    { message: e.message, status: :unprocessable_entity }
+  end
+
+  # -----------------------------
+  # UNLOAD CARD (Card -> Tunnel)
+  # -----------------------------
+  def unload_wallet(card_params, user)
+    raise ArgumentError, 'user is required' if user.blank?
+
+    amount = card_params[:amount] || card_params['amount']
+    currency = (card_params[:currency] || card_params['currency'] || 'USD').to_s.upcase
+    wallet_type = (card_params[:wallet_type].presence || 'usd').to_s.downcase
+    card_id = card_params[:card_id].presence
+    card_id ||= user.cards.order(created_at: :desc).limit(1).pluck(:card_id).first
+
+    unless wallet_type == 'usd'
+      return { message: 'Cards are available only in Tunnel (USD).', status: :unprocessable_entity }
+    end
+
+    return { message: 'card_id is required to withdraw from a card.', status: :unprocessable_entity } if card_id.blank?
+
+    amount_usd = BigDecimal(amount.to_s) rescue 0.to_d
+    return { message: 'Withdrawal amount must be greater than 0.', status: :unprocessable_entity } unless amount_usd.positive?
+
+    usd_wallet = user.usd_wallet
+    raise StandardError, 'USD wallet not found. Activate tunnel first.' if usd_wallet.blank?
+
+    cents = usd_wallet.money_to_cents(amount_usd)
+    reference = card_params[:transaction_reference].presence || "card-unload-#{SecureRandom.uuid}"
+    txn = nil
+
+    ActiveRecord::Base.transaction do
+      txn = usd_wallet.transactions.create!(
+        transaction_type: 'deposit',
+        status: 'pending',
+        amount: amount_usd,
+        coin_type: 'mobile_bank',
+        address: 'Virtual Card Withdrawal (USD)',
+        unique_transaction_id: reference,
+        bridge_card_id: card_id
+      )
+
+      body = {
+        card_id: card_id,
+        amount: cents,
+        transaction_reference: reference,
+        currency: currency
+      }.to_json
+
+      url =
+        if Rails.env.production?
+          '/issuing/cards/unload_card_asynchronously'
+        else
+          '/issuing/sandbox/cards/unload_card_asynchronously'
+        end
+
+      response = fetch('patch', url, body)
+      return {
+        data: response['data'],
+        message: response['message'] || 'Withdrawal submitted. Pending confirmation.',
+        status: :ok
+      }
+    end
+  rescue StandardError => e
+    txn&.update!(status: 'failed') if txn&.persisted?
     { message: e.message, status: :unprocessable_entity }
   end
 
@@ -472,27 +592,40 @@ end
   end
 
   def fetch(method, url, body)
+    unless FeatureFlags.bridge_cards?
+      raise StandardError, 'BRIDGE cards are disabled'
+    end
+
     response =
       case method
       when 'get'
-        self.class.get(url, headers: @headers)
+        self.class.get(url, headers: headers)
       when 'post'
-        self.class.post(url, body: body, headers: @headers)
+        self.class.post(url, body: body, headers: headers)
       when 'patch'
-        self.class.patch(url, body: body, headers: @headers)
+        self.class.patch(url, body: body, headers: headers)
       else
         raise "Unsupported method: #{method}"
       end
 
     return response if response.success?
 
+    parsed = response.respond_to?(:parsed_response) ? response.parsed_response : nil
+
     if defined?(Rails) && Rails.logger
       Rails.logger.warn(
-        "[BridgeCardService] request failed status=#{response.code} body=#{response.parsed_response.inspect}"
+        "[BridgeCardService] request failed status=#{response.code} body=#{parsed.inspect}"
       )
     end
 
-    raise response.dig('detail', 0, 'msg') || response['message'] || 'Bridge request failed'
+    detail_message =
+      if parsed.is_a?(Hash)
+        parsed.dig('detail', 0, 'msg') || parsed['message']
+      else
+        nil
+      end
+
+    raise(detail_message.presence || 'Bridge request failed')
   rescue StandardError => e
     if defined?(Rails) && Rails.logger
       Rails.logger.warn("[BridgeCardService] exception=#{e.class} message=#{e.message}")
@@ -523,6 +656,24 @@ end
       # fallback if you store balance as a decimal column
       money_to_cents(wallet, wallet.balance.to_d)
     end
+  end
+
+  def headers
+    return @headers if @headers.present?
+
+    unless FeatureFlags.bridge_cards?
+      raise StandardError, 'BRIDGE cards are disabled'
+    end
+
+    token = ENV['BRIDGE_CARD_TOKEN'].presence || ENV['BRIDGE_TOKEN'].presence
+    if token.blank?
+      raise StandardError, 'BRIDGE_CARD_TOKEN is missing'
+    end
+
+    @headers = {
+      'token' => "Bearer #{token}",
+      'Content-Type' => 'application/json'
+    }
   end
 
   def debit_wallet_cents!(wallet, cents)

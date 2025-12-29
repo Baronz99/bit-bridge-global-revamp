@@ -33,6 +33,7 @@ module BitBridgeBackend
     config.middleware.use ActionDispatch::Cookies
     config.middleware.use Rack::Attack
     config.autoload_paths << Rails.root.join('app/services')
+    config.autoload_paths << Rails.root.join('app/lib')
 
 
   end

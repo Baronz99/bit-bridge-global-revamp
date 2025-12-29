@@ -7,6 +7,10 @@ module Api
 
       # POST /api/v1/phone_verification/request
       def request_code
+        unless FeatureFlags.termii?
+          raise StandardError, 'TERMII is disabled'
+        end
+
         profile = current_user.user_profile || current_user.build_user_profile
 
         phone_raw = params[:phone_number].presence || profile.phone_number

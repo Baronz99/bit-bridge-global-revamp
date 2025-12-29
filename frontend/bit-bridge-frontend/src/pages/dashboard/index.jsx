@@ -20,14 +20,11 @@ import ClassicBtn from '../../components/button/ClassicButton'
 import pickColorStyle from '../../utils/slect-color'
 import AccountCreationWizard from '../../components/accountCreationWizard/AccountCreationWizard'
 import AccountNumbers from '../../components/accountComponents/AccountComponents'
-import { createAccount, getAccounts, getUserAccount } from '../../redux/actions/account'
-import { userProfile } from '../../redux/actions/auth'
+import { getAccounts, getUserAccount } from '../../redux/actions/account'
 
 // ✅ Onboarding banner
 import OnboardingBanner from '../../components/onboarding/OnboardingBanner'
 
-import { Button, Form } from 'antd'
-import FormInput from '../../components/formInput/FormInput'
 import CableTvComponent from './components/cable-tv-compoent'
 import { FaRegEye, FaRegEyeSlash } from 'react-icons/fa'
 import ShadowValue from '../../components/ShadowValue'
@@ -54,7 +51,6 @@ const HomeDashboard = () => {
   const navigate = useNavigate()
 
   const [open, setIsOpen] = useState(false)
-  const [openMonify, setIsOpenMonify] = useState(false)
   const [isAncorModal, setIsAncorModal] = useState(false)
   const [openAccount, setIsOpenAccount] = useState(false)
   const [selectedBiller, setSelectedBillier] = useState()
@@ -105,21 +101,6 @@ const HomeDashboard = () => {
     dispatch(getAccounts())
   }, [dispatch])
 
-  const handleSubmit = (values) => {
-    dispatch(SET_LOADING(true))
-    dispatch(createAccount({ account: values }))
-      .unwrap()
-      .then(() => {
-        dispatch(userProfile())
-        dispatch(SET_LOADING(false))
-        setIsOpenMonify(false)
-      })
-      .catch((error) => {
-        dispatch(SET_LOADING(false))
-        console.error('Error creating account:', error)
-      })
-  }
-
   const items = [
     {
       label: 'Mobile Top Up',
@@ -151,9 +132,13 @@ const HomeDashboard = () => {
   const handleGenerate = (i, data = {}) => {
     const userKyc = (user?.kyc_level || 'nil').toString().toLowerCase()
 
-    // i === 0 => Moniepoint (leave behaviour as-is)
+    // i === 0 => Moniepoint (disabled)
     if (i === 0) {
-      setIsOpenMonify(true)
+      toast.info('Monnify virtual account creation is currently disabled.', {
+        position: 'top-right',
+        autoClose: 4000,
+        pauseOnHover: true,
+      })
       return
     }
 
@@ -684,43 +669,6 @@ const HomeDashboard = () => {
         />
       </AppModal>
 
-      {/* Monnify / Moniepoint account creation */}
-      <AppModal
-        title={'Create Account Number'}
-        handleCancel={() => setIsOpenMonify(false)}
-        isModalOpen={openMonify}
-      >
-        <Form
-          layout="vertical"
-          initialValues={{
-            bvn: '',
-            currency: 'ngn',
-            vendor: 'moniepoint',
-            account_name: '',
-          }}
-          onFinish={(values) => {
-            handleSubmit({ ...values, currency: 'ngn', vendor: 'moniepoint' })
-          }}
-        >
-          <FormInput
-            required={true}
-            className="add-fund"
-            name="bvn"
-            type="text"
-            label="BVN"
-          />
-
-          <Form.Item label={null}>
-            <Button
-              className="border-alt m-auto block w-full h-12 md:h-14 bg-primary text-white rounded-lg border shadow-md font-medium text-lg"
-              type="primary"
-              htmlType="submit"
-            >
-              Generate Account
-            </Button>
-          </Form.Item>
-        </Form>
-      </AppModal>
     </>
   )
 }

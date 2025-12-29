@@ -14,6 +14,10 @@
   color: var(--bb-text);
 }
 
+.bb-user-theme .bb-dashboard-shell {
+  background-color: var(--bb-bg);
+}
+
 .bb-user-theme .bb-topbar {
   background: var(--bb-topbar-bg) !important;
   border-color: var(--bb-panel-border) !important;
@@ -27,6 +31,22 @@
 .bb-user-theme .bb-panel {
   background-color: var(--bb-panel-bg) !important;
   border-color: var(--bb-panel-border) !important;
+}
+
+.bb-user-theme .bb-dashboard-body {
+  background-color: var(--bb-bg) !important;
+}
+
+.bb-user-theme[data-theme='light'] .dashboard-body {
+  background-color: #f7f4ef !important;
+}
+
+.bb-user-theme[data-theme='dark'] .dashboard-body {
+  background-color: #0b1220 !important;
+}
+
+.bb-user-theme .bb-dashboard-frame {
+  background-color: var(--bb-bg) !important;
 }
 
 .bb-user-theme[data-theme='light'] {
@@ -165,12 +185,20 @@
 
 /* Cards page specific (virtual-card-page) */
 .bb-user-theme[data-theme='light'] .virtual-card-page {
-  background: var(--bb-bg) !important;
+  background: #f7f4ef !important;
+  background-image: none !important;
+  color: var(--bb-text) !important;
+}
+
+.bb-user-theme[data-theme='dark'] .virtual-card-page {
+  background: #0b1220 !important;
+  background-image: none !important;
   color: var(--bb-text) !important;
 }
 
 .bb-user-theme[data-theme='light'] .virtual-card-page::before {
-  opacity: 0.08 !important;
+  opacity: 0 !important;
+  display: none !important;
 }
 
 .bb-user-theme[data-theme='light'] .virtual-card-page .vc-surface,
@@ -218,7 +246,16 @@
 .bb-user-theme[data-theme='light'] .virtual-card-page .vc-card-glass h3,
 .bb-user-theme[data-theme='light'] .virtual-card-page .vc-card-glass p,
 .bb-user-theme[data-theme='light'] .virtual-card-page .vc-card-glass span {
-  color: #fdf5ea !important;
+  color: #2f261c !important;
+}
+
+.bb-user-theme[data-theme='light'] .virtual-card-page p.vc-card-label,
+.bb-user-theme[data-theme='light'] .virtual-card-page p.vc-card-value {
+  color: #2b2a26 !important;
+}
+
+.bb-user-theme[data-theme='light'] .virtual-card-page p.vc-card-label {
+  font-weight: 600;
 }
 
 .bb-user-theme[data-theme='light'] .virtual-card-page .vc-button-primary {
@@ -289,4 +326,198 @@
   --bb-panel-bg: rgba(15, 23, 42, 0.65);
   --bb-panel-border: rgba(148, 163, 184, 0.18);
   --bb-topbar-bg: linear-gradient(90deg, #05070f 0%, #0b1120 50%, #05070f 100%);
+}
+
+/* Rewards page */
+.bb-user-theme .rewards-page {
+  background: radial-gradient(circle at top, rgba(125, 220, 255, 0.18), transparent 45%),
+    linear-gradient(135deg, #e7f7ff 0%, #cfe8f7 45%, #bcd7f0 100%);
+  color: #1b2b3a;
+  background-size: 160% 160%;
+  animation: rewards-drift 16s ease-in-out infinite;
+}
+
+.bb-user-theme[data-theme='dark'] .rewards-page,
+.bb-user-theme[data-theme='shadow'] .rewards-page {
+  background: radial-gradient(circle at top, rgba(100, 200, 255, 0.18), transparent 45%),
+    linear-gradient(135deg, #0b1d2b 0%, #0b1524 100%);
+  color: #e2f0ff;
+  background-size: 160% 160%;
+  animation: rewards-drift 16s ease-in-out infinite;
+}
+
+.bb-user-theme .rewards-banner,
+.bb-user-theme .rewards-card,
+.bb-user-theme .rewards-item,
+.bb-user-theme .rewards-balance {
+  background: rgba(255, 255, 255, 0.6);
+  border-color: rgba(120, 180, 220, 0.35);
+  color: inherit;
+  backdrop-filter: blur(18px);
+}
+
+.bb-user-theme[data-theme='light'] .rewards-banner,
+.bb-user-theme[data-theme='light'] .rewards-balance {
+  color: #1b2b3a;
+}
+
+.bb-user-theme[data-theme='light'] .rewards-banner {
+  background: linear-gradient(135deg, #163248, #1f3c58);
+  border-color: rgba(120, 180, 220, 0.35);
+}
+
+.bb-user-theme[data-theme='light'] .rewards-banner h1,
+.bb-user-theme[data-theme='light'] .rewards-banner h2 {
+  color: #ffffff;
+  text-shadow: 0 2px 10px rgba(0, 0, 0, 0.25);
+}
+
+.bb-user-theme[data-theme='light'] .rewards-banner h1 {
+  font-weight: 700;
+  color: #ffffff !important;
+  opacity: 1 !important;
+}
+
+.bb-user-theme[data-theme='light'] .rewards-banner .rewards-muted,
+.bb-user-theme[data-theme='light'] .rewards-banner .rewards-kicker {
+  color: rgba(255, 255, 255, 0.92);
+}
+
+.bb-user-theme[data-theme='light'] .rewards-banner h1,
+.bb-user-theme[data-theme='light'] .rewards-banner h2,
+.bb-user-theme[data-theme='light'] .rewards-balance p {
+  color: #1b2b3a;
+}
+
+.bb-user-theme[data-theme='light'] .rewards-banner .space-y-2 h1 {
+  color: #142534;
+}
+
+.bb-user-theme[data-theme='dark'] .rewards-banner,
+.bb-user-theme[data-theme='dark'] .rewards-card,
+.bb-user-theme[data-theme='dark'] .rewards-item,
+.bb-user-theme[data-theme='dark'] .rewards-balance,
+.bb-user-theme[data-theme='shadow'] .rewards-banner,
+.bb-user-theme[data-theme='shadow'] .rewards-card,
+.bb-user-theme[data-theme='shadow'] .rewards-item,
+.bb-user-theme[data-theme='shadow'] .rewards-balance {
+  background: rgba(15, 35, 55, 0.65);
+  border-color: rgba(84, 124, 168, 0.4);
+}
+
+.bb-user-theme .rewards-muted,
+.bb-user-theme .rewards-kicker {
+  color: rgba(27, 43, 58, 0.65);
+}
+
+.bb-user-theme[data-theme='light'] .rewards-muted,
+.bb-user-theme[data-theme='light'] .rewards-kicker {
+  color: rgba(27, 43, 58, 0.72);
+}
+
+.bb-user-theme[data-theme='dark'] .rewards-muted,
+.bb-user-theme[data-theme='dark'] .rewards-kicker,
+.bb-user-theme[data-theme='shadow'] .rewards-muted,
+.bb-user-theme[data-theme='shadow'] .rewards-kicker {
+  color: rgba(226, 240, 255, 0.7);
+}
+
+.bb-user-theme .rewards-level {
+  color: #5cd6ff;
+}
+
+.bb-user-theme .rewards-progress-track {
+  background-color: rgba(90, 150, 190, 0.25);
+}
+
+.bb-user-theme .rewards-progress-fill {
+  background: linear-gradient(90deg, #5cd6ff, #7aa7ff);
+}
+
+.bb-user-theme .rewards-pill {
+  color: inherit;
+  border-color: rgba(120, 180, 220, 0.4);
+  background: rgba(255, 255, 255, 0.35);
+}
+
+.bb-user-theme[data-theme='dark'] .rewards-pill,
+.bb-user-theme[data-theme='shadow'] .rewards-pill {
+  background: rgba(15, 35, 55, 0.55);
+}
+
+.bb-user-theme .rewards-icon {
+  background-color: rgba(125, 220, 255, 0.25);
+  color: #2b4c66;
+}
+
+.bb-user-theme[data-theme='dark'] .rewards-icon,
+.bb-user-theme[data-theme='shadow'] .rewards-icon {
+  color: #b6e9ff;
+}
+
+.bb-user-theme .rewards-icon-amber {
+  background-color: rgba(92, 214, 255, 0.25);
+  color: #4aaad1;
+}
+
+.bb-user-theme .rewards-icon-cyan {
+  background-color: rgba(78, 180, 255, 0.25);
+  color: #5cd6ff;
+}
+
+.bb-user-theme .rewards-icon-ember {
+  background-color: rgba(122, 167, 255, 0.25);
+  color: #7aa7ff;
+}
+
+.bb-user-theme .rewards-badges {
+  background: linear-gradient(135deg, rgba(205, 236, 255, 0.85), rgba(235, 248, 255, 0.55));
+}
+
+.bb-user-theme[data-theme='dark'] .rewards-badges,
+.bb-user-theme[data-theme='shadow'] .rewards-badges {
+  background: linear-gradient(135deg, rgba(15, 35, 55, 0.7), rgba(8, 20, 35, 0.7));
+}
+
+.bb-user-theme .rewards-badge {
+  background-color: rgba(255, 255, 255, 0.5);
+  border-color: rgba(120, 180, 220, 0.35);
+}
+
+.bb-user-theme[data-theme='dark'] .rewards-badge,
+.bb-user-theme[data-theme='shadow'] .rewards-badge {
+  background-color: rgba(12, 28, 44, 0.7);
+}
+
+.bb-user-theme .rewards-badge.is-earned {
+  box-shadow: 0 20px 45px -30px rgba(92, 214, 255, 0.55);
+  border-color: rgba(92, 214, 255, 0.45);
+}
+
+.bb-user-theme .rewards-badge.is-locked {
+  opacity: 0.7;
+}
+
+@keyframes rewards-drift {
+  0% {
+    background-position: 0% 0%;
+  }
+  50% {
+    background-position: 100% 40%;
+  }
+  100% {
+    background-position: 0% 0%;
+  }
+}
+
+.bb-user-theme[data-theme='light'] .rewards-progress-track {
+  background-color: rgba(120, 92, 70, 0.2);
+}
+
+.bb-user-theme[data-theme='shadow'] .rewards-banner,
+.bb-user-theme[data-theme='shadow'] .rewards-card,
+.bb-user-theme[data-theme='shadow'] .rewards-item,
+.bb-user-theme[data-theme='shadow'] .rewards-balance {
+  backdrop-filter: blur(12px);
+  box-shadow: 0 16px 40px -30px rgba(0, 0, 0, 0.6);
 }

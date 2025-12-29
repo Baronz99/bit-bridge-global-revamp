@@ -54,3 +54,25 @@ export const convertNgnToUsd = createAsyncThunk(
     }
   }
 )
+
+/**
+ * ƒo. Send money to BitBridge user (NGN)
+ * POST /wallets/send_money
+ * Body: { phone_number, amount, transaction_pin, description }
+ */
+export const sendMoneyToUser = createAsyncThunk(
+  'wallet/send-money-to-user',
+  async ({ phone_number, amount, transaction_pin, description }, { rejectWithValue }) => {
+    try {
+      const res = await api.post('/wallets/send_money', {
+        phone_number,
+        amount,
+        transaction_pin,
+        description,
+      })
+      return res.data
+    } catch (error) {
+      return rejectWithValue({ message: getErrorMessage(error) })
+    }
+  }
+)

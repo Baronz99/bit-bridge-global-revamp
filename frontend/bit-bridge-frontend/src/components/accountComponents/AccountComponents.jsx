@@ -15,7 +15,7 @@ const AccountNumbers = ({ accounts, generate, onView, showView = true }) => {
       case 'anchor':
         return 'Anchor'
       default:
-        'Anchor'
+        return 'Anchor'
     }
   }, [])
 
@@ -24,8 +24,6 @@ const AccountNumbers = ({ accounts, generate, onView, showView = true }) => {
 
   const accountNonexisting = accountVendors.filter((acc) => !accounts.some((e) => e.vendor == acc))
   const accountexisting = accountVendors.filter((acc) => accounts.some((e) => e.vendor == acc))
-
-  console.log(accounts)
 
   return (
     <div className="flex justify-between w-full my-4 rounded-2xl border border-slate-800 bg-slate-900/80 shadow-lg p-6">
@@ -44,6 +42,7 @@ const AccountNumbers = ({ accounts, generate, onView, showView = true }) => {
             const indexTogen = accountVendors.indexOf(
               accountNonexisting[i - accountexisting.length]
             )
+            const canGenerate = accountNonexisting[i - accountexisting.length] === 'anchor'
 
             if (useraccountExists) {
               return (
@@ -74,13 +73,17 @@ const AccountNumbers = ({ accounts, generate, onView, showView = true }) => {
                         </button>
                       ) : null}
                     </>
-                  ) : (
+                  ) : accountVendors[accountIndex] === 'anchor' ? (
                     <button
                       onClick={() => generate(accountIndex, accounts[i])}
                       className="text-slate-400 text-base font-normal hover:text-alt italic"
                     >
                       + Continue
                     </button>
+                  ) : (
+                    <span className="text-slate-500 text-sm italic">
+                      Not available
+                    </span>
                   )}
                 </div>
               )
@@ -94,12 +97,18 @@ const AccountNumbers = ({ accounts, generate, onView, showView = true }) => {
                     {/* {i === 0 ? 'MoniePoint' : 'Anchor'} */}
                     {getAccountName(accountNonexisting[i - accountexisting.length])}
                   </h3>
-                  <button
-                    onClick={() => generate(indexTogen)}
-                    className="text-slate-400 text-base font-normal hover:text-alt italic"
-                  >
-                    + generate
-                  </button>
+                  {canGenerate ? (
+                    <button
+                      onClick={() => generate(indexTogen)}
+                      className="text-slate-400 text-base font-normal hover:text-alt italic"
+                    >
+                      + generate
+                    </button>
+                  ) : (
+                    <span className="text-slate-500 text-sm italic">
+                      Not available
+                    </span>
+                  )}
                 </div>
               )
             }

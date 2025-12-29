@@ -35,6 +35,7 @@ Rails.application.routes.draw do
       # Webhooks
       post 'monnify/webhook', to: 'webhooks#monnify'
       post 'anchor/webhook',  to: 'webhooks#anchor'
+      post 'bridgecard/webhook', to: 'webhooks#bridgecard'
 
        post "/login", to: "sessions#create"
 
@@ -71,6 +72,7 @@ end
       resources :cards do
         collection do
           post :fund_wallet
+          post :unload_wallet
           post :register_cardholder
           get  :get_all_states
           get  :user_card
@@ -80,10 +82,14 @@ end
           get :details
           get :balance
           get :reveal
+          get :history
+          get :insights
           patch :freeze
           patch :unfreeze
         end
       end
+
+      resources :rewards, only: [:index]
 
       resources :accounts do
         collection do
@@ -154,9 +160,10 @@ end
     post 'tunnel/quote',   to: 'wallets#quote_ngn_to_usd'
     post 'tunnel/convert-back', to: 'wallets#convert_usd_to_ngn'
     post 'tunnel/quote-back',   to: 'wallets#quote_usd_to_ngn'
+    post 'send_money', to: 'wallets#send_money'
 
+    end
   end
-end
 
 
       resources :order_items

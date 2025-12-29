@@ -25,6 +25,7 @@ class BillOrder < ApplicationRecord
   before_update :apply_commission, if: :is_commission?
 
   after_update :save_commission, if: :should_apply_commission?
+  after_commit :create_reward_transaction, on: :update
 
 
 
@@ -91,6 +92,12 @@ class BillOrder < ApplicationRecord
     (amount * 0.01).round(2)
   end
 
+  def reward_eligible?
+    saved_change_to_status? &&
+      status == 'completed' &&
+      %w[VTU DATA].include?(service_type)
+  end
+
 
 
   private
@@ -103,6 +110,29 @@ class BillOrder < ApplicationRecord
     commission_percent = amount * 0.01
     wallet.commission = use_commission ? @commission_balance : wallet.commission + commission_percent
     wallet.save
+  end
+
+  def create_reward_transaction
+    return unless reward_eligible?
+    return if user.blank?
+    return if RewardTransaction.exists?(bill_order_id: id)
+
+    reward_rate = 0.01
+    reward_amount = (amount.to_d * reward_rate).round(2)
+    return if reward_amount <= 0
+
+    RewardTransaction.create!(
+      user: user,
+      bill_order: self,
+      amount: reward_amount,
+      source_amount: amount,
+      reward_rate: reward_rate,
+      currency: 'NGN',
+      service_type: service_type,
+      source_label: biller.presence || service_id.presence || service_type,
+      status: :earned,
+      earned_at: Time.current
+    )
   end
 
   def calculate_total

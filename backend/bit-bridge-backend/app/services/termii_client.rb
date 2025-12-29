@@ -6,18 +6,27 @@ require "json"
 class TermiiClient
   ENDPOINT = "https://api.ng.termii.com/api/sms/send"
 
-  def initialize(api_key: ENV["TERMII_API_KEY"])
+  def initialize(api_key: nil)
     @api_key = api_key
   end
 
   def send_otp_sms!(to_e164:, code:)
+    unless FeatureFlags.termii?
+      raise StandardError, 'TERMII is disabled'
+    end
+
+    api_key = @api_key.presence || ENV["TERMII_API_KEY"].to_s
+    if api_key.blank?
+      raise StandardError, 'TERMII_API_KEY is missing'
+    end
+
     payload = {
       to: to_e164,
       from: "N-Alert",
       sms: "Your BitBridge Global verification code is #{code}. Expires in 5 minutes. Do not share this code.",
       type: "plain",
       channel: "dnd",
-      api_key: @api_key
+      api_key: api_key
     }
 
     uri = URI(ENDPOINT)

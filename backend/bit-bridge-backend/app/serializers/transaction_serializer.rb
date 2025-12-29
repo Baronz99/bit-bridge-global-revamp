@@ -13,6 +13,7 @@ class TransactionSerializer < ActiveModel::Serializer
              :email,
              :bank,
              :wallet_id,
+             :bridge_card_id,
              :wallet_type
 
   def wallet_type
