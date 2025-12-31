@@ -5,6 +5,8 @@ class BuyPowerPaymentService
   include HTTParty
 
   base_uri Rails.env.production? ? 'https://api.buypower.ng/v2' : 'https://idev.buypower.ng/v2'
+  PROVIDER_OPEN_TIMEOUT = 5
+  PROVIDER_READ_TIMEOUT = 15
   # base_uri 'https://api.buypower.ng/v2'
   def initialize
     secret_token_dev = ENV['SECRET_TOKEN_DEV']
@@ -119,7 +121,7 @@ class BuyPowerPaymentService
     end
   end
 
-  def confirm_subscription(electric_bill_order, payment_method = 'wallet', use_commission = false)
+  def confirm_subscription(electric_bill_order, payment_method = 'wallet', use_commission = false, request_id: nil)
     body = {
       meter: electric_bill_order['meter_number'],
       amount: electric_bill_order['amount'],
@@ -136,6 +138,9 @@ class BuyPowerPaymentService
 
     user = electric_bill_order.user
     raise 'No user associated with this order' unless user
+
+    request_tag = "request_id=#{request_id || 'unknown'} bill_order_id=#{electric_bill_order&.id || electric_bill_order&.dig('id')}"
+    Rails.logger.info("BuyPower confirm_subscription start #{request_tag} payment_method=#{payment_method}")
 
     user.with_lock do
       response = nil
@@ -157,16 +162,24 @@ class BuyPowerPaymentService
 
         raise 'Insufficient funds' unless has_money
 
-        # Timeout.timeout(180) do
-        response = self.class.post('/vend', headers: @post_headers, body: body)
-        # end
+        call_started_at = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+        Rails.logger.info("BuyPower vend request start #{request_tag}")
+        response = self.class.post('/vend', headers: @post_headers, body: body, timeout: PROVIDER_READ_TIMEOUT, open_timeout: PROVIDER_OPEN_TIMEOUT)
+        call_duration_ms = ((Process.clock_gettime(Process::CLOCK_MONOTONIC) - call_started_at) * 1000).round
+        Rails.logger.info("BuyPower vend request finish #{request_tag} duration_ms=#{call_duration_ms} success=#{response&.success?}")
 
       elsif payment_method == 'card'
-        Timeout.timeout(180) do
-          response = self.class.post('/vend', headers: @post_headers, body: body)
-        end
+        call_started_at = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+        Rails.logger.info("BuyPower vend request start #{request_tag}")
+        response = self.class.post('/vend', headers: @post_headers, body: body, timeout: PROVIDER_READ_TIMEOUT, open_timeout: PROVIDER_OPEN_TIMEOUT)
+        call_duration_ms = ((Process.clock_gettime(Process::CLOCK_MONOTONIC) - call_started_at) * 1000).round
+        Rails.logger.info("BuyPower vend request finish #{request_tag} duration_ms=#{call_duration_ms} success=#{response&.success?}")
       else
         raise 'no payment method selected'
+      end
+
+      unless response.respond_to?(:success?)
+        return { status: 'pending', response: 'Upstream provider returned an invalid response' }
       end
 
       if response.success?
@@ -177,10 +190,10 @@ class BuyPowerPaymentService
         units = response&.dig('data', 'units')
         token = response&.dig('data', 'token')
         transaction_id = response&.dig('data', 'id')
-        message = response['message'] || 'No error message'
-        if response['error']
+        message = response&.dig('message') || 'No error message'
+        if response&.dig('error')
           electric_bill_order.update(status: 'disputed', payment_method: payment_method, reason: message)
-          raise response['message']
+          raise response&.dig('message')
 
         elsif electric_bill_order.update(status: 'completed', payment_method: payment_method, use_commission: use_commission,
                                          units: units, token: token, transaction_id: transaction_id, reason: message)
@@ -192,13 +205,13 @@ class BuyPowerPaymentService
           end
         end
       else
-        response['error']
-        code = response['responseCode']
-        electric_bill_order.update(status: 'declined', payment_method: payment_method, reason: response['message'])
+        response&.dig('error')
+        code = response&.dig('responseCode')
+        electric_bill_order.update(status: 'declined', payment_method: payment_method, reason: response&.dig('message'))
         case code
         when 400, 422, 409, 500, 501, 502, 503, 403
         end
-        raise response['message']
+        raise response&.dig('message') || 'Upstream provider error'
       end
 
       return { response: electric_bill_order, status: 'success' }
@@ -207,7 +220,8 @@ class BuyPowerPaymentService
       return { status: 'error', message: e.record.errors.full_messages.to_sentence }
     rescue Timeout::Error
       electric_bill_order.update(status: 'timedout', payment_method: payment_method)
-      raise ActiveRecord::Rollback, 'Transaction TimedOut'
+      Rails.logger.info("BuyPower vend request timeout #{request_tag}")
+      return { status: 'pending', response: 'Payment pending. Please try again.', code: 503 }
     rescue StandardError => e
       return { response: e.message.to_s, status: 'error' }
     end

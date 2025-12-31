@@ -58,7 +58,7 @@ module Api
         use_commission = bill_order_params[:use_commission]
 
         service = BuyPowerPaymentService.new
-        service_response = service.confirm_subscription(@bill_order, payment_method, use_commission)
+        service_response = service.confirm_subscription(@bill_order, payment_method, use_commission, request_id: request.request_id)
         if service_response[:status] == 'success'
           render json: { success: true, data: service_response[:response], message: 'payment confirmed' }, status: :ok
         else
@@ -129,11 +129,19 @@ module Api
 
       def confirm_payment(payment_method)
         service = BuyPowerPaymentService.new
-        service_response = service.confirm_subscription(@bill_order, payment_method)
-        if service_response[:status] == 'success'
-          render json: { success: true, data: service_response[:response], message: 'payment confirmed' }, status: :ok
+        service_response = service.confirm_subscription(@bill_order, payment_method, false, request_id: request.request_id)
+        status = service_response&.dig(:status)
+
+        case status
+        when 'success'
+          render json: { success: true, data: service_response&.dig(:response), message: 'payment confirmed' }, status: :ok
+        when 'pending'
+          render json: { success: false, status: 'pending', message: service_response&.dig(:response) || 'Payment pending. Please try again.' }, status: :service_unavailable
+        when 'error'
+          message = service_response&.dig(:response) || service_response&.dig(:message) || 'Payment confirmation failed'
+          render json: { success: false, message: message }, status: :unprocessable_entity
         else
-          render json: { success: false, message: service_response[:response] }, status: :unprocessable_entity
+          render json: { success: false, message: 'Upstream provider error' }, status: :bad_gateway
         end
       end
 
