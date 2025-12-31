@@ -7,6 +7,7 @@ class BuyPowerPaymentService
   base_uri Rails.env.production? ? 'https://api.buypower.ng/v2' : 'https://idev.buypower.ng/v2'
   PROVIDER_OPEN_TIMEOUT = 5
   PROVIDER_READ_TIMEOUT = 15
+  default_options.update(timeout: PROVIDER_READ_TIMEOUT, open_timeout: PROVIDER_OPEN_TIMEOUT)
   # base_uri 'https://api.buypower.ng/v2'
   def initialize
     secret_token_dev = ENV['SECRET_TOKEN_DEV']
@@ -179,7 +180,7 @@ class BuyPowerPaymentService
       end
 
       unless response.respond_to?(:success?)
-        return { status: 'pending', response: 'Upstream provider returned an invalid response' }
+        return { status: 'pending', response: 'Payment pending...' }
       end
 
       if response.success?
@@ -218,10 +219,10 @@ class BuyPowerPaymentService
     rescue ActiveRecord::RecordInvalid => e
       Rails.logger.error("Update failed: #{e.record.errors.full_messages.join(', ')}")
       return { status: 'error', message: e.record.errors.full_messages.to_sentence }
-    rescue Timeout::Error
+    rescue Timeout::Error, Net::OpenTimeout, Net::ReadTimeout => e
       electric_bill_order.update(status: 'timedout', payment_method: payment_method)
-      Rails.logger.info("BuyPower vend request timeout #{request_tag}")
-      return { status: 'pending', response: 'Payment pending. Please try again.', code: 503 }
+      Rails.logger.info("BuyPower vend request timeout #{request_tag} error=#{e.class}")
+      return { status: 'pending', response: 'Payment pending...', code: 503 }
     rescue StandardError => e
       return { response: e.message.to_s, status: 'error' }
     end

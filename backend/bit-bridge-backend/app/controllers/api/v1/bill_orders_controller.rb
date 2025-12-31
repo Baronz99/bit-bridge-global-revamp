@@ -29,9 +29,10 @@ module Api
           service_response = service.init_transaction(@bill_order.attributes.symbolize_keys.merge({ type: 'bills',
                                                                                                     payment_method: 'card', redirect_url: redirect_url, use_commission: use_commission }))
 
-          if service_response[:status] == :ok
-            payment_reference = service_response[:response]['responseBody']['paymentReference']
+          status = service_response&.dig(:status)
+          payment_reference = service_response&.dig(:response, 'responseBody', 'paymentReference')
 
+          if status == :ok && payment_reference.present?
             transaction_record = TransactionRecord.new(bill_order_id: @bill_order.id, reference: payment_reference)
 
             if transaction_record.save
@@ -42,8 +43,10 @@ module Api
 
             end
 
+          elsif status.nil? || payment_reference.nil?
+            render json: { success: false, status: 'pending', message: 'Payment pending...' }, status: :service_unavailable
           else
-            render json: { message: service_response[:message] }, status: :unprocessable_entity
+            render json: { message: service_response&.dig(:message) || 'Payment initialization failed' }, status: :unprocessable_entity
 
           end
         else
@@ -132,6 +135,11 @@ module Api
         service_response = service.confirm_subscription(@bill_order, payment_method, false, request_id: request.request_id)
         status = service_response&.dig(:status)
 
+        if status.nil?
+          render json: { success: false, status: 'pending', message: 'Payment pending...' }, status: :service_unavailable
+          return
+        end
+
         case status
         when 'success'
           render json: { success: true, data: service_response&.dig(:response), message: 'payment confirmed' }, status: :ok
@@ -141,7 +149,7 @@ module Api
           message = service_response&.dig(:response) || service_response&.dig(:message) || 'Payment confirmation failed'
           render json: { success: false, message: message }, status: :unprocessable_entity
         else
-          render json: { success: false, message: 'Upstream provider error' }, status: :bad_gateway
+          render json: { success: false, status: 'pending', message: 'Payment pending...' }, status: :service_unavailable
         end
       end
 
