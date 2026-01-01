@@ -39,6 +39,8 @@ Rails.application.routes.draw do
 
        post "/login", to: "sessions#create"
 
+      get 'timeline', to: 'timeline#index'
+
       # ✅ Termii delivery receipts (DLR)
       post 'termii/dlr', to: 'termii_webhooks#dlr'
 

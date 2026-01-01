@@ -489,9 +489,9 @@ ActiveRecord::Schema[7.1].define(version: 2026_01_09_093000) do
     t.datetime "last_status_at"
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
-    t.index ["expires_at"], name: "index_transaction_pin_reset_codes_on_expires_at"
-    t.index ["status"], name: "index_transaction_pin_reset_codes_on_status"
-    t.index ["user_id", "phone_e164"], name: "index_transaction_pin_reset_codes_on_user_id_and_phone_e164"
+    t.index ["expires_at"], name: "idx_pin_reset_codes_expires_at"
+    t.index ["status"], name: "idx_pin_reset_codes_status"
+    t.index ["user_id", "phone_e164"], name: "idx_pin_reset_codes_user_phone"
     t.index ["user_id"], name: "index_transaction_pin_reset_codes_on_user_id"
   end
 
