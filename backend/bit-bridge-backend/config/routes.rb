@@ -228,6 +228,7 @@ end
         member do
           post :fund
           post :withdraw
+          get  :timeline, to: 'circles/timeline#index'
           get  :audit_summary
           get  :export_csv
         end

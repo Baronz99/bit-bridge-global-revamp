@@ -116,9 +116,17 @@ class AnchorService
   def create_account_number(type = :individual, account)
     productType = 'SAVINGS'
 
-    current_user = account[:account]
+    account_record =
+      if account.is_a?(Account)
+        account
+      else
+        Account.find_or_initialize_by(
+          user_id: account[:user_id],
+          vendor: account[:vendor] || 'anchor'
+        )
+      end
 
-    id = account[:account][:account_id]
+    id = account_record.account_id
     account_type = { individual: 'IndividualCustomer', corporate: 'CorporateCustomer' }
     body = {
       "data": {
@@ -153,14 +161,14 @@ class AnchorService
 
       raise response.dig('errors', 0, 'detail') || 'bad request' unless response.success?
 
-      unless current_user.update(account_number: account_number, account_type: type, status: 'completed',
-                                 active: true, bank_name: bank_name, account_name: account_name, useable_id: useable_id)
+      unless account_record.update(account_number: account_number, account_type: type, status: 'completed',
+                                   active: true, bank_name: bank_name, account_name: account_name, useable_id: useable_id)
 
-        current_user.errors.full_messages.to_sentence || 'bad request'
+        account_record.errors.full_messages.to_sentence || 'bad request'
       end
 
       #  return   {response: response["data"], status: :ok}
-      { response: current_user, status: :ok }
+      { response: account_record, status: :ok }
     rescue StandardError => e
       { response: e.message.to_s, message: e.message || 'bad request', status: :bad_request }
     end

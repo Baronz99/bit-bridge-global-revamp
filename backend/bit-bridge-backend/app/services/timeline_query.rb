@@ -4,14 +4,19 @@ class TimelineQuery
   DEFAULT_LIMIT = 30
   MAX_LIMIT = 100
 
-  def initialize(user:, limit: nil, cursor: nil)
+  def initialize(user:, limit: nil, cursor: nil, circle_id: nil, default_limit: DEFAULT_LIMIT, max_limit: MAX_LIMIT, include_card_events: nil)
     @user = user
+    @circle_id = circle_id
+    @default_limit = normalize_limit_value(default_limit, DEFAULT_LIMIT)
+    @max_limit = normalize_limit_value(max_limit, MAX_LIMIT)
+    @include_card_events = include_card_events
     @limit = normalize_limit(limit)
     @cursor = parse_cursor(cursor)
   end
 
   def call
-    merged = circle_items + card_items
+    merged = circle_items
+    merged += card_items if include_card_events?
 
     sorted =
       merged
@@ -76,7 +81,12 @@ class TimelineQuery
     scope =
       CircleTransaction
       .includes(:circle, :user, :reactions, :circle_activity, dispute: :raised_by)
-      .where(circle_id: @user.circles.select(:id))
+
+    if @circle_id
+      scope = scope.where(circle_id: @circle_id)
+    else
+      scope = scope.where(circle_id: @user.circles.select(:id))
+    end
 
     scope = scope.where('occurred_at < ?', @cursor) if @cursor
 
@@ -119,8 +129,14 @@ class TimelineQuery
 
   def normalize_limit(raw)
     value = raw.to_i
-    value = DEFAULT_LIMIT if value <= 0
-    [value, MAX_LIMIT].min
+    value = @default_limit if value <= 0
+    [value, @max_limit].min
+  end
+
+  def normalize_limit_value(raw, fallback)
+    value = raw.to_i
+    value = fallback if value <= 0
+    value
   end
 
   def parse_cursor(raw)
@@ -129,5 +145,11 @@ class TimelineQuery
     Time.iso8601(raw.to_s)
   rescue ArgumentError
     nil
+  end
+
+  def include_card_events?
+    return @include_card_events unless @include_card_events.nil?
+
+    @circle_id.nil?
   end
 end

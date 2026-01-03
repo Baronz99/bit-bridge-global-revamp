@@ -282,7 +282,8 @@ return unless require_transaction_pin!(pin, error_key: :message)
         unless account
           return render json: {
             data:    nil,
-            message: 'No Anchor account yet'
+            message: 'No Anchor account yet',
+            has_anchor_account: false
           }, status: :ok
         end
 
@@ -292,7 +293,8 @@ return unless require_transaction_pin!(pin, error_key: :message)
         if service_response[:status] == :ok
           render json: {
             data:     service_response[:data],
-            messsage: 'Account Numbers fetched'
+            messsage: 'Account Numbers fetched',
+            has_anchor_account: true
           }, status: :ok
         else
           render json: {
@@ -342,10 +344,22 @@ return unless require_transaction_pin!(pin, error_key: :message)
       def create_anchor_account
         service = AnchorService.new
 
-        current_user_info = current_user.attributes.symbolize_keys.merge(account_params.to_h.symbolize_keys)
-        user_data = current_user.user_profile.attributes.symbolize_keys
-        account_info = current_user_info.merge(user_data)
+        account_info = AnchorOnboardingMapper.build_account_info(
+          user: current_user,
+          account_params: account_params
+        )
 
+        missing_fields = anchor_onboarding_missing_fields(account_info)
+        log_anchor_onboarding_fields(account_info, missing_fields)
+        if missing_fields.any?
+          return render json: {
+            message: 'Complete your profile to create an Anchor account.',
+            error_code: 'ANCHOR_ONBOARDING_INCOMPLETE',
+            missing_fields: missing_fields
+          }, status: :unprocessable_entity
+        end
+
+        log_anchor_onboarding_will_call(account_info)
         service_response = service.create_individual_account(account_info)
 
         if service_response[:status] == :ok
@@ -354,6 +368,19 @@ return unless require_transaction_pin!(pin, error_key: :message)
             message: 'User onboarded successfully'
           }, status: :ok
         else
+          duplicate_phone_error = duplicate_anchor_phone_error?(service_response[:message])
+          if duplicate_phone_error
+            log_anchor_onboarding_error(
+              code: 'ANCHOR_PHONE_EXISTS',
+              phone: account_info[:phone_number],
+              debug_message: service_response[:message]
+            )
+            return render json: {
+              message: 'This phone number already exists in Anchor Sandbox. Use a different test phone number or switch credentials.',
+              error_code: 'ANCHOR_PHONE_EXISTS'
+            }, status: :conflict
+          end
+
           render json: { message: service_response[:message] }, status: :unprocessable_entity
         end
       end
@@ -399,27 +426,147 @@ return unless require_transaction_pin!(pin, error_key: :message)
         params.require(:account).permit(
           :vendor,
           :bvn,
+          :bvn_number,
           :currency,
           :account_name,
           :account_type,
           :address,
+          :address_line_1,
+          :addressLine1,
+          :addressLine_1,
+          :street,
+          :street_address,
+          :residential_address,
           :city,
+          :lga_city,
+          :town,
           :counter_party_id,
           :inter_bank,
           :amount,
           :description,
           :state,
+          :state_of_residence,
+          :province,
+          :region,
           :postal_code,
+          :postcode,
+          :zip,
+          :zip_code,
           :country,
           :active,
           :status,
           :gender,
           :dob,
+          :date_of_birth,
+          :birthdate,
           :bank_code,
           :bank,
           :account_number,
-          :pin # ✅ allow pin through params
+          :pin,
+          :phone,
+          :phone_number,
+          :mobile,
+          :msisdn,
+          :first_name,
+          :firstname,
+          :given_name,
+          :last_name,
+          :lastname,
+          :surname,
+          :family_name,
+          :email
         )
+      end
+
+      def anchor_onboarding_missing_fields(account_info)
+        required = {
+          'first_name' => account_info[:first_name],
+          'last_name' => account_info[:last_name],
+          'email' => account_info[:email],
+          'phone' => account_info[:phone_number],
+          'address.addressLine_1' => account_info[:address],
+          'address.city' => account_info[:city],
+          'address.state' => account_info[:state],
+          'address.postalCode' => account_info[:postal_code],
+          'bvn' => account_info[:bvn],
+          'dob' => account_info[:dob]
+        }
+
+        required.select { |_key, value| value.blank? }.keys
+      end
+
+      def log_anchor_onboarding_fields(account_info, missing_fields)
+        return if Rails.env.production?
+
+        masked = {
+          first_name: account_info[:first_name].presence,
+          last_name: account_info[:last_name].presence,
+          email: account_info[:email].presence,
+          phone: mask_phone(account_info[:phone_number]),
+          address: account_info[:address].presence,
+          city: account_info[:city].presence,
+          state: account_info[:state].presence,
+          postal_code: account_info[:postal_code].presence,
+          bvn: mask_bvn(account_info[:bvn]),
+          dob: account_info[:dob].presence
+        }
+
+        Rails.logger.info(
+          "[Anchor Onboarding] missing_fields=#{missing_fields} values=#{masked}"
+        )
+      end
+
+      def log_anchor_onboarding_will_call(account_info)
+        return if Rails.env.production?
+
+        masked = {
+          first_name: account_info[:first_name].presence,
+          last_name: account_info[:last_name].presence,
+          email: account_info[:email].presence,
+          phone: mask_phone(account_info[:phone_number]),
+          address: account_info[:address].presence,
+          city: account_info[:city].presence,
+          state: account_info[:state].presence,
+          postal_code: account_info[:postal_code].presence,
+          bvn: mask_bvn(account_info[:bvn]),
+          dob: account_info[:dob].presence
+        }
+
+        Rails.logger.info(
+          "[Anchor Onboarding] will_call_anchor=true values=#{masked}"
+        )
+      end
+
+      def log_anchor_onboarding_error(code:, phone:, debug_message: nil)
+        return if Rails.env.production?
+
+        Rails.logger.info(
+          "[Anchor Onboarding] error_code=#{code} phone=#{mask_phone(phone)} debug_message=#{debug_message}"
+        )
+      end
+
+      def mask_phone(phone)
+        return nil if phone.blank?
+
+        digits = phone.to_s.gsub(/\D/, '')
+        return '*' * digits.length if digits.length <= 4
+
+        masked = digits.gsub(/\d(?=\d{4})/, '*')
+        masked
+      end
+
+      def mask_bvn(bvn)
+        return nil if bvn.blank?
+
+        digits = bvn.to_s.gsub(/\D/, '')
+        return '*' * digits.length if digits.length <= 3
+
+        masked = digits.gsub(/\d(?=\d{3})/, '*')
+        masked
+      end
+
+      def duplicate_anchor_phone_error?(message)
+        message.to_s.downcase.include?('phonenumber already exist in this organization')
       end
 
       # ✅ Transaction PIN enforcement with lockouts + attempt tracking (safe if columns don't exist)
