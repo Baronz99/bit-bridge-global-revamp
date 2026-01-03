@@ -29,11 +29,6 @@ module Api
       end
 
       def create
-        unless current_user.user_profile.present?
-          return render json: { message: 'User profile not found: please update your account' },
-                        status: :unprocessable_entity
-        end
-
         if account_params[:vendor] == 'anchor'
           create_anchor_account
         else
@@ -376,12 +371,12 @@ return unless require_transaction_pin!(pin, error_key: :message)
               debug_message: service_response[:message]
             )
             return render json: {
-              message: 'This phone number already exists in Anchor Sandbox. Use a different test phone number or switch credentials.',
+              message: 'This phone number already exists in Anchor Sandbox.',
               error_code: 'ANCHOR_PHONE_EXISTS'
             }, status: :conflict
           end
 
-          render json: { message: service_response[:message] }, status: :unprocessable_entity
+          render json: { message: 'Unable to create Anchor account.' }, status: :unprocessable_entity
         end
       end
 
