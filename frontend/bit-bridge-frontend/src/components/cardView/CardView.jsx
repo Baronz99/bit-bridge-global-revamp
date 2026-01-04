@@ -646,6 +646,19 @@ export default function VirtualCardApplication() {
     { label: 'Currency', value: cardDetails?.card_currency || cardDetails?.currency },
   ].filter((item) => item.value)
 
+  const normalizeUsdLimit = (value) => {
+    if (value === null || value === undefined || value === '') return null
+    const amount = Number(value)
+    if (Number.isNaN(amount)) return null
+    return amount > 100000 ? amount / 100 : amount
+  }
+
+  const displayCardLimit =
+    card?.card_limit_usd ??
+    cardDetails?.card_limit_usd ??
+    normalizeUsdLimit(card?.card_limit || cardDetails?.card_limit) ??
+    formData.card_limit
+
   const fundingTitle = 'Create / Fund Card'
   const fundingCta = isExistingCard ? 'Add funds' : isPendingFunding ? 'Activate card' : 'Create card'
 
@@ -1289,7 +1302,7 @@ export default function VirtualCardApplication() {
                   <div>
                     <label className="block text-[11px] uppercase tracking-[0.2em] text-slate-400 mb-2">Monthly limit (USD)</label>
                     <input
-                      value={formData.card_limit}
+                      value={displayCardLimit}
                       readOnly
                       className="vc-input w-full rounded-xl px-3 py-2 text-sm"
                     />

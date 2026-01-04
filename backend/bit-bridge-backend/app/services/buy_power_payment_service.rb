@@ -324,7 +324,10 @@ class BuyPowerPaymentService
   end
 
   def get_list(service_type, provider)
-    response = self.class.get("/tariff/?vertical=#{service_type}&provider=#{provider}", headers: @get_headers)
+    return { response: 'provider and service_type are required', status: 'error' } if service_type.blank? || provider.blank?
+
+    query = URI.encode_www_form(vertical: service_type.to_s, provider: provider.to_s)
+    response = self.class.get("/tariff/?#{query}", headers: @get_headers)
     raise response['message'] unless response.success?
 
     { response: response['data'], status: 'success' }

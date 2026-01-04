@@ -156,6 +156,9 @@ module Api
         provider = params[:provider]
         service_type = params[:service_type]
 
+        if provider.blank? || service_type.blank?
+          return render json: { message: 'provider and service_type are required' }, status: :unprocessable_entity
+        end
 
         service = BuyPowerPaymentService.new
         service_response = service.get_list(service_type, provider)

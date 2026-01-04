@@ -29,6 +29,8 @@ RSpec.describe 'Accounts', type: :request do
       expect(anchor_service).not_to have_received(:create_individual_account)
       expect(response).to have_http_status(:unprocessable_entity)
       body = JSON.parse(response.body)
+      expect(body.keys).to contain_exactly('message', 'error_code', 'missing_fields')
+      expect(body.fetch('message')).to eq('Complete your profile to create an Anchor account.')
       expect(body.fetch('error_code')).to eq('ANCHOR_ONBOARDING_INCOMPLETE')
       expect(body.fetch('missing_fields')).to include('address.addressLine_1')
     end
@@ -61,6 +63,7 @@ RSpec.describe 'Accounts', type: :request do
 
       expect(response).to have_http_status(:conflict)
       body = JSON.parse(response.body)
+      expect(body.fetch('message')).to eq('This phone number already exists in Anchor Sandbox.')
       expect(body.fetch('error_code')).to eq('ANCHOR_PHONE_EXISTS')
     end
 
