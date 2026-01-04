@@ -9,7 +9,7 @@ ALLOWED_ORIGINS = ENV.fetch("FRONTEND_URL", "")
 
 # Local development frontends
 DEV_ORIGINS = [
-  "http://localhost:3000", # Rails / React dev
+  "http://localhost:3000", # Rails / / React dev
   "http://localhost:5173"  # Vite dev
 ].freeze
 
