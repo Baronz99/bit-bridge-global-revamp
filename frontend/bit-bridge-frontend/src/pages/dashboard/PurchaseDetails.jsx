@@ -32,7 +32,7 @@ const DashboardPurchaseDetails = () => {
     onSuccess: () => {
       handleConfirmation('card')
     },
-    // onClose: () => alert('Are you sure'),
+    // // onClose: () => alert('Are you sure'),
   }
 
   const queryId = searchParams.get('transaction_id')
