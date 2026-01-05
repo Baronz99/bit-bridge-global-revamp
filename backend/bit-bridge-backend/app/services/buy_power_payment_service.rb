@@ -10,19 +10,21 @@ class BuyPowerPaymentService
   default_options.update(timeout: PROVIDER_READ_TIMEOUT, open_timeout: PROVIDER_OPEN_TIMEOUT)
   base_uri 'https://idev.buypower.ng/v2'
   def initialize
-    secret_token_dev = ENV['SECRET_TOKEN_DEV']
-    secret_token_prod = ENV['SECRET_TOKEN_PROD']
-    token = "7883e2ec127225f478279f0cb848e3551eaaa99d484ec39cf0b77a9ccf1d9d0d"
+  base_url = ENV['BUYPOWER_BASE_URL'].presence ||
+             (Rails.env.production? ? 'https://api.buypower.ng/v2' : 'https://idev.buypower.ng/v2')
 
-    @get_headers = {
-      'Authorization' => "Bearer #{token}"
+  self.class.base_uri(base_url)
 
-    }
+  token = ENV['BUYPOWER_TOKEN'].presence ||
+          ENV['SECRET_TOKEN_PROD'].presence ||  # optional fallback
+          ENV['SECRET_TOKEN_DEV'].presence      # optional fallback
 
-    @post_headers = {
-      'Authorization' => "Bearer #{token}"
-    }
-  end
+  raise 'BuyPower token missing. Set BUYPOWER_TOKEN.' if token.blank?
+
+  @get_headers  = { 'Authorization' => "Bearer #{token}" }
+  @post_headers = { 'Authorization' => "Bearer #{token}" }
+end
+
 
   def process_payment(current_user, payment_processor_params)
     res = nil
