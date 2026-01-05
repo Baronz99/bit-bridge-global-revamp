@@ -4,15 +4,15 @@ require 'uri'
 class BuyPowerPaymentService
   include HTTParty
 
-  base_uri Rails.env.production? ? 'https://api.buypower.ng/v2' : 'https://idev.buypower.ng/v2'
+  # base_uri Rails.env.production? ? 'https://api.buypower.ng/v2' : 'https://idev.buypower.ng/v2'
   PROVIDER_OPEN_TIMEOUT = 5
   PROVIDER_READ_TIMEOUT = 15
   default_options.update(timeout: PROVIDER_READ_TIMEOUT, open_timeout: PROVIDER_OPEN_TIMEOUT)
-  # base_uri 'https://api.buypower.ng/v2'
+  base_uri 'https://idev.buypower.ng/v2'
   def initialize
     secret_token_dev = ENV['SECRET_TOKEN_DEV']
     secret_token_prod = ENV['SECRET_TOKEN_PROD']
-    token = Rails.env.production? ? secret_token_prod : secret_token_dev
+    token = "7883e2ec127225f478279f0cb848e3551eaaa99d484ec39cf0b77a9ccf1d9d0d"
 
     @get_headers = {
       'Authorization' => "Bearer #{token}"
