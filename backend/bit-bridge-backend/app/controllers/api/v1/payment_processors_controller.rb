@@ -123,28 +123,26 @@ module Api
       end
 
       # GET /api/v1/payment_processors/get_price_list?provider=mtn&service_type=DATA
-      # Returns:
-      # - 200 with { data: [...] } when successful
-      # - 503 with { message: "...", error: "...", code: 503 } when provider is slow/down (prevents Heroku H12)
-      # - 422 when request params are missing
       def get_price_list
-        provider = params[:provider].to_s.strip
-        service_type = params[:service_type].to_s.strip
+        raw_provider = params[:provider].to_s
+        service_type  = params[:service_type].to_s.strip
 
-        if provider.blank? || service_type.blank?
+        if raw_provider.blank? || service_type.blank?
           return render json: { message: 'provider and service_type are required' }, status: :unprocessable_entity
         end
+
+        provider = normalize_provider(raw_provider)
 
         service = BuyPowerPaymentService.new
         service_response = service.get_list(service_type, provider)
 
         if service_response[:status] == 'success'
-          return render json: { data: service_response[:response] }, status: :ok
+          return render json: { data: service_response[:response], provider: provider }, status: :ok
         end
 
-        # If service provided an HTTP-ish code (e.g., 503), use it; otherwise default to 422.
         status_code = service_response[:code].presence || :unprocessable_entity
-        render json: { message: service_response[:response], code: service_response[:code] }, status: status_code
+        render json: { message: service_response[:response], code: service_response[:code], provider: provider },
+               status: status_code
       rescue StandardError => e
         Rails.logger.error("[get_price_list] #{e.class}: #{e.message}")
         Rails.logger.error(e.backtrace.take(20).join("\n"))
@@ -170,8 +168,9 @@ module Api
         )
       end
 
+      # ✅ FIXED: permit the fields verify_meter actually uses
       def verify_processor_params
-        params.permit(:billersCode, :serviceID, :type)
+        params.permit(:billersCode, :biller, :meter_type, :service_type, :serviceID, :type)
       end
 
       def set_bill_order
@@ -179,6 +178,25 @@ module Api
         return if @bill_order.present?
 
         render json: { message: 'Not found' }, status: :unprocessable_entity
+      end
+
+      private
+
+      # ✅ Backend canonicalization: makes web + mobile impossible to break provider names
+      def normalize_provider(raw)
+        s = raw.to_s.strip.downcase
+
+        return 'mtn' if s.include?('mtn')
+        return 'airtel' if s.include?('airtel')
+        return 'glo' if s.include?('glo')
+
+        # 9mobile family
+        if s.include?('9mobile') || s.include?('9-mobile') || s.include?('9 mobile') || s.include?('etisalat') || s.include?('emts')
+          return '9mobile'
+        end
+
+        # fallback: strip spaces/hyphens
+        s.gsub(/[\s\-]/, '')
       end
     end
   end
