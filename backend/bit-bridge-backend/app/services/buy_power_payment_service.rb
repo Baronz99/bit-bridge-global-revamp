@@ -324,16 +324,34 @@ class BuyPowerPaymentService
   end
 
   def get_list(service_type, provider)
-    return { response: 'provider and service_type are required', status: 'error' } if service_type.blank? || provider.blank?
+  return { response: 'provider and service_type are required', status: 'error' } if service_type.blank? || provider.blank?
 
-    query = URI.encode_www_form(vertical: service_type.to_s, provider: provider.to_s)
-    response = self.class.get("/tariff/?#{query}", headers: @get_headers)
-    raise response['message'] unless response.success?
+  query = URI.encode_www_form(vertical: service_type.to_s, provider: provider.to_s)
 
-    { response: response['data'], status: 'success' }
-  rescue StandardError => e
-    { response: e.message.to_s, status: 'error' }
-  end
+  call_started_at = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+  Rails.logger.info("BuyPower tariff request start vertical=#{service_type} provider=#{provider}")
+
+  response = self.class.get(
+    "/tariff/?#{query}",
+    headers: @get_headers,
+    timeout: PROVIDER_READ_TIMEOUT,
+    open_timeout: PROVIDER_OPEN_TIMEOUT
+  )
+
+  call_duration_ms = ((Process.clock_gettime(Process::CLOCK_MONOTONIC) - call_started_at) * 1000).round
+  Rails.logger.info("BuyPower tariff request finish duration_ms=#{call_duration_ms} success=#{response&.success?}")
+
+  raise response['message'] unless response.success?
+
+  { response: response['data'], status: 'success' }
+rescue Timeout::Error, Net::OpenTimeout, Net::ReadTimeout => e
+  Rails.logger.error("BuyPower tariff timeout vertical=#{service_type} provider=#{provider} error=#{e.class}")
+  { response: 'Provider timeout. Please try again.', status: 'error', code: 503 }
+rescue StandardError => e
+  Rails.logger.error("BuyPower tariff error vertical=#{service_type} provider=#{provider} error=#{e.class} message=#{e.message}")
+  { response: e.message.to_s, status: 'error' }
+end
+
 
   def re_query(order_id)
     response = self.class.get("/transaction/#{order_id}", headers: @get_headers)
