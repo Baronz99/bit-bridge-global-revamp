@@ -129,31 +129,37 @@ const HomeDashboard = () => {
   }
 
   // 🔐 KYC gate for virtual accounts
-  const handleGenerate = (i, data = {}) => {
-    const userKyc = (user?.kyc_level || 'nil').toString().toLowerCase()
+const handleGenerate = (i, data = {}) => {
+  const vendor = items[i]?.name
+  const userKyc = (user?.kyc_level || 'nil').toString().toLowerCase()
 
-    // i === 0 => Moniepoint (disabled)
-    if (i === 0) {
-      toast.info('Monnify virtual account creation is currently disabled.', {
-        position: 'top-right',
-        autoClose: 4000,
-        pauseOnHover: true,
-      })
-      return
-    }
+  // 🚫 Monnify intentionally disabled
+  if (vendor === 'monnify') {
+    toast.info('Monnify virtual account creation is currently disabled.', {
+      position: 'top-right',
+      autoClose: 4000,
+      pauseOnHover: true,
+    })
+    return
+  }
 
-    // i !== 0 => Anchor – require at least Tier 2
+  // 🏦 Anchor
+  if (vendor === 'anchor') {
+    // Require Tier 2
     if (['nil', '', 'tier_0', 'tier_1'].includes(userKyc)) {
-      // 🔔 Explain *why* then redirect to KYC center
-      toast.info(withTier2MissingDetails(user, 'Complete Tier 2 verification to generate an Anchor account.'), {
+      toast.info(withTier2MissingDetails(user, 'Complete Tier 2 verification'), {
         position: 'top-right',
         autoClose: 4000,
         pauseOnHover: true,
       })
-
-      navigate('/dashboard/kyc')
       return
     }
+
+    // ✅ Correct behavior — open Anchor wizard
+    navigate('/dashboard/virtual-accounts')
+    return
+  }
+
 
     // Passed KYC gate → open Anchor wizard
     setFormData(data)
