@@ -1,15 +1,25 @@
 import { useDispatch, useSelector } from 'react-redux'
-import { useEffect } from 'react'
+import { useEffect, useMemo } from 'react'
 import { getProvisions } from '../../../redux/actions/provision'
 import ProductCard from '../../../components/product-card/ProductCard'
 
 const CableTvComponent = () => {
   const dispatch = useDispatch()
   const { utilities } = useSelector((state) => state.provision)
-  const cableProviders = utilities.filter((item) => item.service_type === 'CABLE')
+
   useEffect(() => {
     dispatch(getProvisions())
-  }, [])
+  }, [dispatch])
+
+  // ✅ BuyPower vertical is "TV"
+  // ✅ Keep legacy support for old "CABLE" records so nothing breaks
+  const cableProviders = useMemo(() => {
+    const list = Array.isArray(utilities) ? utilities : []
+    return list.filter(
+      (item) => item?.service_type === 'TV' || item?.service_type === 'CABLE'
+    )
+  }, [utilities])
+
   return (
     <div>
       <section className="py-10 px-4 my-10 bg-black">
