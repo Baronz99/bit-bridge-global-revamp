@@ -123,64 +123,69 @@ module Api
       end
 
       # GET /api/v1/payment_processors/get_price_list?provider=mtn&service_type=DATA
-      #
-      # Notes:
-      # - BuyPower expects "vertical" values like DATA, VTU, TV (not CABLE/CABLETV)
-      # - We normalize common aliases from frontend to what upstream expects.
-      def get_price_list
-        provider = params[:provider].to_s.strip.downcase
-        service_type = params[:service_type].to_s.strip.upcase
+#
+# Notes:
+# - BuyPower accepts verticals like DATA, TV, ELECTRICITY (NOT VTU, AIRTIME, CABLE)
+# - Airtime (VTU) does NOT need a tariff list (user enters amount)
+# - We normalize common aliases from frontend to what upstream expects.
+def get_price_list
+  provider = params[:provider].to_s.strip.downcase
+  service_type = params[:service_type].to_s.strip.upcase
 
-        if provider.blank? || service_type.blank?
-          return render json: { message: 'provider and service_type are required' }, status: :unprocessable_entity
-        end
+  if provider.blank? || service_type.blank?
+    return render json: { message: 'provider and service_type are required' }, status: :unprocessable_entity
+  end
 
-        # ✅ Normalize service types (verticals) to upstream accepted values
-        service_type =
-          case service_type
-          when 'CABLE', 'CABLETV', 'CABLE_TV'
-            'TV'
-          when 'AIRTIME'
-            'VTU'
-          else
-            service_type
-          end
+  # ✅ Normalize service types (verticals) to upstream accepted values
+  normalized_service_type =
+    case service_type
+    when 'CABLE', 'CABLETV', 'CABLE_TV'
+      'TV'
+    when 'AIRTIME', 'VTU'
+      'VTU' # we keep this internally so we can short-circuit below
+    else
+      service_type
+    end
 
-        # ✅ Normalize provider values (helps avoid "invalid disco/provider")
-        provider =
-          case provider
-          when '9-mobile', '9mobile', '9_mobil', 'etisalat', 'emts'
-            '9mobile'
-          when 'glo'
-            'glo'
-          when 'mtn'
-            'mtn'
-          when 'airtel'
-            'airtel'
-          when 'dstv'
-            'dstv'
-          when 'gotv'
-            'gotv'
-          when 'startimes', 'star-times', 'star_times'
-            'startimes'
-          else
-            provider
-          end
+  # ✅ Normalize provider values
+  normalized_provider =
+    case provider
+    when '9-mobile', '9mobile', '9_mobil', 'etisalat', 'emts'
+      '9mobile'
+    when 'startimes', 'star-times', 'star_times'
+      'startimes'
+    else
+      provider
+    end
 
-        service = BuyPowerPaymentService.new
-        service_response = service.get_list(service_type, provider)
+  # ------------------------------------------------------------
+  # 🚫 IMPORTANT: BuyPower does NOT support VTU/AIRTIME tariffs
+  # Airtime is a "user enters amount" flow, so return empty list.
+  # ------------------------------------------------------------
+  if normalized_service_type == 'VTU'
+    return render json: { data: [] }, status: :ok
+  end
 
-        if service_response[:status] == 'success'
-          return render json: { data: service_response[:response] }, status: :ok
-        end
+  service = BuyPowerPaymentService.new
+  service_response = service.get_list(normalized_service_type, normalized_provider)
 
-        status_code = service_response[:code].presence || :unprocessable_entity
-        render json: { message: service_response[:response], code: service_response[:code], provider: provider, service_type: service_type }, status: status_code
-      rescue StandardError => e
-        Rails.logger.error("[get_price_list] #{e.class}: #{e.message}")
-        Rails.logger.error(e.backtrace.take(20).join("\n"))
-        render json: { message: 'Price list unavailable', error: e.message, code: 503 }, status: :service_unavailable
-      end
+  if service_response[:status] == 'success'
+    return render json: { data: service_response[:response] }, status: :ok
+  end
+
+  status_code = service_response[:code].presence || :unprocessable_entity
+  render json: {
+    message: service_response[:response],
+    code: service_response[:code],
+    provider: normalized_provider,
+    service_type: normalized_service_type
+  }, status: status_code
+rescue StandardError => e
+  Rails.logger.error("[get_price_list] #{e.class}: #{e.message}")
+  Rails.logger.error(e.backtrace.take(20).join("\n"))
+  render json: { message: 'Price list unavailable', error: e.message, code: 503 }, status: :service_unavailable
+end
+
 
       def query_transaction
         service = BuyPowerPaymentService.new
