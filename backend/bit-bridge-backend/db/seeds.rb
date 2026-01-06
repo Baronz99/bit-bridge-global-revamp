@@ -5,7 +5,9 @@
 
 puts 'seeding data....'
 
-# Create a default user (skip in staging)
+# ------------------------------------------------------------
+# Admin user (skip in staging)
+# ------------------------------------------------------------
 unless Rails.env.staging?
   User.find_or_create_by!(email: 'emmiemenz@gmail.com') do |user|
     user.password = 'chemistry101'
@@ -13,7 +15,13 @@ unless Rails.env.staging?
   end
 end
 
-# Seed product
+# ------------------------------------------------------------
+# Seed products (base / legacy)
+# Notes:
+# - Use provider + category when category exists to avoid collisions.
+# - For legacy entries missing category, fall back to provider-only.
+# ------------------------------------------------------------
+
 products = [
   {
     featured: false,
@@ -24,7 +32,7 @@ products = [
     min_value: 5.0,
     max_value: 50_000.0,
     header_info: "Secure your online activities with NordVPN's fast and reliable VPN service.",
-    description: 'NordVPN is a premium VPN service that provides top-notch security, privacy, and anonymity for your online activities. With NordVPN, you can protect up to 6 devices with one subscription, enjoy unlimited bandwidth, and access restricted content from anywhere in the world. Whether you are streaming, gaming, or browsing, NordVPN offers lightning-fast servers in 59 countries. Use NordVPN to unblock geo-restricted websites and services, ensuring a secure and private browsing experience. This gift card allows you to purchase NordVPN subscriptions or renew your existing plan. Start your journey to online security today by redeeming this gift card on the NordVPN website. For instructions on how to redeem, visit nordvpn.com/redeem.',
+    description: "NordVPN is a premium VPN service that provides top-notch security, privacy, and anonymity for your online activities. With NordVPN, you can protect up to 6 devices with one subscription, enjoy unlimited bandwidth, and access restricted content from anywhere in the world. Whether you are streaming, gaming, or browsing, NordVPN offers lightning-fast servers in 59 countries. Use NordVPN to unblock geo-restricted websites and services, ensuring a secure and private browsing experience. This gift card allows you to purchase NordVPN subscriptions or renew your existing plan. Start your journey to online security today by redeeming this gift card on the NordVPN website. For instructions on how to redeem, visit nordvpn.com/redeem.",
     rate: 4.7,
     category: 1, # "gift card"
     currency: 0, # "NGN"
@@ -368,19 +376,29 @@ products = [
   }
 ]
 
-# Seed base products (idempotent)
 products.each do |product_data|
-  Product.find_or_create_by!(provider: product_data[:provider]) do |product|
-    product.assign_attributes(product_data)
-  end
+  finder =
+    if product_data.key?(:category) && product_data[:category].present?
+      { provider: product_data[:provider], category: product_data[:category] }
+    else
+      { provider: product_data[:provider] }
+    end
+
+  product = Product.find_or_create_by!(finder)
+  product.assign_attributes(product_data)
+  product.save! if product.changed?
 end
 
+# ------------------------------------------------------------
 # Ensure core mobile providers have VTU/DATA provisions
+# IMPORTANT: BuyPower expects provider "9mobile" (NOT "9-mobile")
+# ------------------------------------------------------------
+
 mobile_providers = [
   { provider: 'mtn', label: 'MTN' },
   { provider: 'glo', label: 'Glo' },
   { provider: 'airtel', label: 'Airtel' },
-  { provider: '9-mobile', label: '9mobile' }
+  { provider: '9mobile', label: '9mobile' }
 ]
 
 mobile_providers.each do |entry|
@@ -428,13 +446,11 @@ cable_providers.each do |entry|
     record.max_value = 200_000
   end
 
-  # ✅ Migrate any older wrong provision (CABLE) to TV, so UI stops sending "CABLE"
+  # Migrate any older wrong provision (CABLE) to TV
   old = Provision.find_by(product: product, name: 'Cable Subscription', service_type: 'CABLE')
-  if old.present?
-    old.update!(service_type: 'TV')
-  end
+  old.update!(service_type: 'TV') if old.present?
 
-  # ✅ Ensure correct provision exists
+  # Ensure correct provision exists
   Provision.find_or_create_by!(product: product, name: 'Cable Subscription', service_type: 'TV') do |record|
     record.currency = 0
     record.provision_value_type = 1
