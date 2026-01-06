@@ -233,7 +233,7 @@ products = [
     min_value: 10.0,
     max_value: 500.0,
     header_info: 'Explore gaming deals and software on Kinguin.',
-    description: 'Kinguin gift cards provide credit for one of the best online platforms for discounted games and software. Use them to purchase game keys, software licenses, and in-game content for PC, Xbox, and PlayStation. Kinguin offers competitive prices and a vast selection of titles, making it the perfect destination for gamers. Visit kinguin.net/redeem for redemption details.',
+    description: 'Kinguin gift cards provide credit for one of the best online platforms of discounted games and software. Use them to purchase game keys, software licenses, and in-game content for PC, Xbox, and PlayStation. Kinguin offers competitive prices and a vast selection of titles, making it the perfect destination for gamers. Visit kinguin.net/redeem for redemption details.',
     rate: 4.7,
     category: 1, # "gift card"
     currency: 0, # "EUR"
@@ -258,6 +258,8 @@ products = [
     attention: 'Ensure the store accepts Suregift before purchasing.',
     notice_info: 'Redemption availability depends on participating retailers.'
   },
+
+  # Mobile providers (legacy items)
   {
     provider: 'ntel',
     provision: 'Airtime',
@@ -273,7 +275,7 @@ products = [
     category: 'mobile provider'
   },
   {
-    provider: '9-mobile',
+    provider: '9mobile',
     provision: 'Airtime',
     min_value: 5.0,
     max_value: 50_000.0,
@@ -314,6 +316,8 @@ products = [
     notice_info: 'Airtel airtime is suitable for voice, data, and SMS services.',
     category: 'mobile provider'
   },
+
+  # Services (legacy)
   {
     provider: 'Vortech Engineering',
     provision: 'Solar Installation',
@@ -351,7 +355,6 @@ products = [
     rate: 4.7,
     category: 'service',
     currency: 'NGN'
-
   },
   {
     provider: 'HPVC Consulatancy',
@@ -365,12 +368,12 @@ products = [
   }
 ]
 
+# Seed base products (idempotent)
 products.each do |product_data|
   Product.find_or_create_by!(provider: product_data[:provider]) do |product|
     product.assign_attributes(product_data)
   end
 end
-
 
 # Ensure core mobile providers have VTU/DATA provisions
 mobile_providers = [
@@ -404,8 +407,10 @@ mobile_providers.each do |entry|
   end
 end
 
+# ------------------------------------------------------------
+# Cable providers: BuyPower vertical is "TV" (NOT "CABLE")
+# ------------------------------------------------------------
 
-# Seed cable TV providers as utility services
 cable_providers = [
   { provider: 'dstv', label: 'DSTV' },
   { provider: 'gotv', label: 'GOTV' },
@@ -423,7 +428,14 @@ cable_providers.each do |entry|
     record.max_value = 200_000
   end
 
-  Provision.find_or_create_by!(product: product, name: 'Cable Subscription', service_type: 'CABLE') do |record|
+  # ✅ Migrate any older wrong provision (CABLE) to TV, so UI stops sending "CABLE"
+  old = Provision.find_by(product: product, name: 'Cable Subscription', service_type: 'CABLE')
+  if old.present?
+    old.update!(service_type: 'TV')
+  end
+
+  # ✅ Ensure correct provision exists
+  Provision.find_or_create_by!(product: product, name: 'Cable Subscription', service_type: 'TV') do |record|
     record.currency = 0
     record.provision_value_type = 1
     record.value_range = [100, 200_000]
