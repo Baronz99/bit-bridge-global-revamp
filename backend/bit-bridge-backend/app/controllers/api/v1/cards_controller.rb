@@ -3,8 +3,11 @@
 module Api
   module V1
     class CardsController < ApplicationController
-      before_action :authenticate_user!
+      # NOTE: ApplicationController already has authenticate_user!
+      # Keeping this would be redundant, so we omit it.
+
       before_action :set_card, only: %i[show update destroy]
+
       before_action :ensure_bridge_cards_enabled!,
                     only: %i[
                       register_cardholder
@@ -17,7 +20,10 @@ module Api
                       reveal
                       freeze
                       unfreeze
+                      history
+                      insights
                     ]
+
       before_action :ensure_tier2!,
                     only: %i[
                       index
@@ -34,14 +40,107 @@ module Api
                       show
                       update
                       destroy
+                      history
+                      insights
                     ],
                     message: 'Complete Tier 2 verification to use cards.'
 
+      rescue_from ActiveRecord::RecordNotFound do
+        render json: { message: 'Card not found' }, status: :not_found
+      end
+
+      rescue_from StandardError do |e|
+        # Don’t hide errors in development, but don’t return raw exception messages in prod.
+        Rails.logger.error("[CardsController] #{e.class}: #{e.message}\n#{e.backtrace&.first(10)&.join("\n")}")
+
+        render json: { message: 'Something went wrong while processing your request.' },
+               status: :internal_server_error
+      end
+
       # GET /api/v1/cards
       def index
-        @cards = current_user.cards
+        render json: current_user.cards
+      end
 
-        render json: @cards
+      # GET /api/v1/cards/user_card
+      def user_card
+        card = current_user.cards.order(created_at: :asc).last
+        render json: { data: card, status: :ok }
+      end
+
+      # POST /api/v1/cards/register_cardholder
+      def register_cardholder
+        service = BridgeCardService.new
+
+        profile_hash = current_user.user_profile&.attributes&.symbolize_keys || {}
+
+        processed =
+          current_user.attributes.symbolize_keys
+                      .merge(profile_hash)
+                      .merge(card_params.to_h.symbolize_keys)
+
+        processed[:email] ||= processed[:email_address].presence || current_user.email
+        processed[:phone] ||= processed[:phone_number].presence
+
+        service_response = service.register_cardholder_synchronously(processed)
+
+        if service_response[:status] == :ok
+          render json: { data: service_response[:data], message: service_response[:message] }, status: :ok
+        else
+          render json: { message: service_response[:message] }, status: :unprocessable_entity
+        end
+      end
+
+      # GET /api/v1/cards/get_all_states?country=NG
+      def get_all_states
+        service = BridgeCardService.new
+        request_params = params.permit(:country, :country_code, :country_name).to_h.symbolize_keys
+
+        service_response = service.get_all_states(request_params)
+
+        if service_response[:status] == :ok
+          render json: { data: service_response[:data], status: :ok }
+        else
+          render json: { message: service_response[:message] }, status: :unprocessable_entity
+        end
+      end
+
+      # POST /api/v1/cards/create_card
+      #
+      # Body example:
+      # { card: { amount: 10, transaction_pin: "1234", wallet_type: "usd", ... } }
+      def create_card
+        raw_pin =
+          params.dig(:card, :transaction_pin).presence ||
+          params.dig(:card, :pin).presence ||
+          ''
+
+        return unless require_transaction_pin!(raw_pin)
+
+        service = BridgeCardService.new
+        recent_card = current_user.cards.order(created_at: :asc).last
+
+        processed = normalized_card_params
+
+        # ✅ Tunnel-only: cards are USD feature
+        wt = processed[:wallet_type].to_s.downcase
+        wt = 'usd' if wt == 'usdt'
+
+        unless wt == 'usd'
+          return render json: { message: 'Cards are available only in Tunnel (USD).' }, status: :unprocessable_entity
+        end
+
+        processed[:card_currency] = 'USD'
+        processed[:wallet_type] = 'usd'
+
+        service_response = service.create_card(processed, recent_card)
+
+        if service_response[:status] == :ok
+          render json: { data: service_response[:data], message: service_response[:message] }, status: :ok
+        else
+          Rails.logger.warn("[CardsController] create_card failed message=#{service_response[:message].inspect}")
+          render json: { message: service_response[:message] }, status: :unprocessable_entity
+        end
       end
 
       # POST /api/v1/cards/fund_wallet
@@ -82,96 +181,6 @@ module Api
         end
       end
 
-      # GET /api/v1/cards/user_card
-      def user_card
-        card = current_user.cards.last
-        render json: { data: card, status: :ok }
-      end
-
-      # POST /api/v1/cards/register_cardholder
-      def register_cardholder
-        service = BridgeCardService.new
-
-        profile_hash = current_user.user_profile&.attributes&.symbolize_keys || {}
-
-        processed =
-          current_user.attributes.symbolize_keys
-                      .merge(profile_hash)
-                      .merge(card_params.to_h.symbolize_keys)
-
-        processed[:email] ||= processed[:email_address].presence || current_user.email
-        processed[:phone] ||= processed[:phone_number].presence
-
-        service_response = service.register_cardholder_synchronously(processed)
-
-        if service_response[:status] == :ok
-          render json: { data: service_response[:data], message: service_response[:message] }, status: :ok
-        else
-          render json: { message: service_response[:message] }, status: :unprocessable_entity
-        end
-      end
-
-      # GET /api/v1/cards/get_all_states
-      def get_all_states
-        service = BridgeCardService.new
-        request_params = params.permit(:country, :country_code, :country_name).to_h.symbolize_keys
-        service_response = service.get_all_states(request_params)
-
-        if service_response[:status] == :ok
-          render json: { data: service_response[:data], status: :ok }
-        else
-          render json: { message: service_response[:message] }, status: :unprocessable_entity
-        end
-      end
-
-      # POST /api/v1/cards/create_card
-      #
-      # Body:
-      # { card: { amount: 10, transaction_pin: "1234", card_currency: "USD", wallet_type: "usd", ... } }
-      def create_card
-        raw_pin =
-          params.dig(:card, :transaction_pin).presence ||
-          params.dig(:card, :pin).presence ||
-          ''
-
-        # 🔐 PIN gate (expects require_transaction_pin! in ApplicationController)
-        return unless require_transaction_pin!(raw_pin)
-
-        service = BridgeCardService.new
-        recent_card = current_user.cards.last
-
-        processed = normalized_card_params
-
-        # ✅ Tunnel-only: cards are USD feature
-wt = processed[:wallet_type].to_s.downcase
-wt = 'usd' if wt == 'usdt'
-unless wt == 'usd'
-  return render json: { message: 'Cards are available only in Tunnel (USD).' }, status: :unprocessable_entity
-end
-
-processed[:card_currency] = 'USD'
-processed[:wallet_type] = 'usd'
-
-
-        # ✅ enforce USD if wallet_type is usd
-        if processed[:wallet_type].to_s.downcase == 'usd'
-          processed[:card_currency] = 'USD'
-        end
-
-        service_response = service.create_card(processed, recent_card)
-
-        if service_response[:status] == :ok
-          render json: { data: service_response[:data], message: service_response[:message] }, status: :ok
-        else
-          if defined?(Rails) && Rails.logger
-            Rails.logger.warn(
-              "[CardsController] create_card failed message=#{service_response[:message].inspect}"
-            )
-          end
-          render json: { message: service_response[:message] }, status: :unprocessable_entity
-        end
-      end
-
       # GET /api/v1/cards/:id
       def show
         render json: @card
@@ -208,18 +217,13 @@ processed[:wallet_type] = 'usd'
       end
 
       # GET /api/v1/cards/:id/reveal
+      #
+      # IMPORTANT:
+      # You intentionally disabled this endpoint earlier.
+      # Keep it disabled to avoid leaking PCI data through non-PCI controller.
       def reveal
-        card = current_user.cards.find(params[:id])
-        return render json: { message: 'card_id not available' }, status: :unprocessable_entity if card.card_id.blank?
-
-        service = BridgeCardService.new
-        service_response = service.card_details_reveal(card.card_id)
-
-        if service_response[:status] == :ok
-          render json: { data: service_response[:data], status: :ok }
-        else
-          render json: { message: service_response[:message] }, status: :unprocessable_entity
-        end
+        render json: { message: 'Method not allowed. Use POST /api/v1/pci/cards/:id/reveal' },
+               status: :method_not_allowed
       end
 
       # GET /api/v1/cards/:id/history
@@ -253,6 +257,7 @@ processed[:wallet_type] = 'usd'
         event_payload = events.map do |event|
           event_time = event.transaction_at || event.created_at
           label = event.description.presence || event.event.to_s.tr('._', ' ').strip
+
           {
             id: "evt-#{event.id}",
             address: label,
@@ -283,9 +288,7 @@ processed[:wallet_type] = 'usd'
           .where(bridge_card_id: card.card_id)
           .order(created_at: :desc)
 
-        card_events =
-          CardEvent
-          .where(card_id: card.card_id)
+        card_events = CardEvent.where(card_id: card.card_id)
 
         last_funding_txn =
           txns
@@ -385,25 +388,27 @@ processed[:wallet_type] = 'usd'
       # DELETE /api/v1/cards/:id
       def destroy
         @card.destroy!
+        head :no_content
       end
 
       private
 
       def ensure_bridge_cards_enabled!
-        unless FeatureFlags.bridge_cards?
-          raise StandardError, 'BRIDGE cards are disabled'
-        end
+        return if FeatureFlags.bridge_cards?
+
+        render json: { message: 'BRIDGE cards are disabled' }, status: :forbidden
       end
 
       def set_card
-        @card = Card.find(params[:id])
+        # Avoid letting a user access someone else’s card
+        @card = current_user.cards.find(params[:id])
       end
 
       def card_params
         params.require(:card).permit(
           :cardholder_id, :card_id, :transaction_reference, :card_type, :card_brand,
           :card_currency, :card_limit, :funding_amount, :amount, :currency,
-          :pin, :transaction_pin,
+          :transaction_pin, # ✅ keep ONLY transaction_pin coming from client
           :status, :postal_code, :user_id, :address, :city, :state, :postal,
           :house_no, :bvn, :account_source,
           :wallet_type,
@@ -414,14 +419,7 @@ processed[:wallet_type] = 'usd'
       end
 
       def normalized_card_params
-        h = card_params.to_h.symbolize_keys
-
-        # Map transaction_pin to pin for any legacy service that expects :pin
-        if h[:transaction_pin].present? && h[:pin].blank?
-          h[:pin] = h[:transaction_pin]
-        end
-
-        h
+        card_params.to_h.symbolize_keys
       end
     end
   end

@@ -1,0 +1,582 @@
+﻿{
+  "features": [
+    {
+      "feature": "Transaction PIN management",
+      "backend_endpoints": [
+        "GET /transaction_pin/status",
+        "POST /transaction_pin/set",
+        "POST /transaction_pin/verify",
+        "PATCH /transaction_pin/change",
+        "POST /transaction_pin/reset/request",
+        "POST /transaction_pin/reset/confirm"
+      ],
+      "web_files": [
+        "frontend/bit-bridge-frontend/src/api/transactionPin.js",
+        "frontend/bit-bridge-frontend/src/components/pin/TransactionPinSettings.jsx",
+        "frontend/bit-bridge-frontend/src/components/pin/TransactionPinInput.jsx"
+      ],
+      "mobile_status": "missing",
+      "mobile_build": {
+        "screens": [
+          "Transaction PIN settings",
+          "Set PIN",
+          "Change PIN",
+          "Reset PIN (OTP flow)"
+        ],
+        "api_functions": [
+          "getTransactionPinStatus",
+          "setTransactionPin",
+          "verifyTransactionPin",
+          "changeTransactionPin",
+          "requestTransactionPinReset",
+          "confirmTransactionPinReset"
+        ]
+      }
+    },
+    {
+      "feature": "Virtual cards",
+      "backend_endpoints": [
+        "POST /cards/register_cardholder",
+        "POST /cards/create_card",
+        "GET /cards/user_card",
+        "GET /cards/get_all_states",
+        "GET /cards/:id/details",
+        "GET /cards/:id/balance",
+        "GET /cards/:id/reveal",
+        "GET /cards/:id/history",
+        "GET /cards/:id/insights",
+        "PATCH /cards/:id/freeze",
+        "PATCH /cards/:id/unfreeze",
+        "POST /cards/fund_wallet",
+        "POST /cards/unload_wallet"
+      ],
+      "web_files": [
+        "frontend/bit-bridge-frontend/src/components/cardView/CardView.jsx",
+        "frontend/bit-bridge-frontend/src/redux/actions/account.js"
+      ],
+      "mobile_status": "missing",
+      "mobile_build": {
+        "screens": [
+          "Cards list",
+          "Card details",
+          "Fund/unload card",
+          "Freeze/unfreeze",
+          "Reveal card"
+        ],
+        "api_functions": [
+          "registerCardholder",
+          "createCard",
+          "getUserCard",
+          "getCardStates",
+          "getCardDetails",
+          "getCardBalance",
+          "getCardReveal",
+          "getCardHistory",
+          "getCardInsights",
+          "freezeCard",
+          "unfreezeCard",
+          "fundCard",
+          "unloadCard"
+        ]
+      }
+    },
+    {
+      "feature": "Card tokens",
+      "backend_endpoints": [
+        "POST /card_tokens",
+        "GET /card_tokens",
+        "GET /card_tokens/user",
+        "PATCH /card_tokens/:id"
+      ],
+      "web_files": [
+        "frontend/bit-bridge-frontend/src/redux/actions/orderToken.js"
+      ],
+      "mobile_status": "missing",
+      "mobile_build": {
+        "screens": [
+          "Saved card tokens (optional settings screen)"
+        ],
+        "api_functions": [
+          "createCardToken",
+          "getCardTokens",
+          "getUserCardTokens",
+          "updateCardToken"
+        ]
+      }
+    },
+    {
+      "feature": "Orders (order_details)",
+      "backend_endpoints": [
+        "POST /order_details",
+        "GET /order_details",
+        "GET /order_details/:id",
+        "PATCH /order_details/:id",
+        "GET /order_details/user"
+      ],
+      "web_files": [
+        "frontend/bit-bridge-frontend/src/redux/actions/order.js",
+        "frontend/bit-bridge-frontend/src/pages/ConfirmOrder.jsx"
+      ],
+      "mobile_status": "missing",
+      "mobile_build": {
+        "screens": [
+          "Order confirmation",
+          "Order history",
+          "Order details"
+        ],
+        "api_functions": [
+          "createOrder",
+          "getOrders",
+          "getOrder",
+          "getUserOrders",
+          "updateOrder"
+        ]
+      }
+    },
+    {
+      "feature": "User transaction creation (create_user)",
+      "backend_endpoints": [
+        "POST /transactions/create_user"
+      ],
+      "web_files": [
+        "frontend/bit-bridge-frontend/src/redux/actions/transaction.js"
+      ],
+      "mobile_status": "missing",
+      "mobile_build": {
+        "screens": [
+          "User deposit (if needed outside admin)"
+        ],
+        "api_functions": [
+          "createUserTransaction"
+        ]
+      }
+    },
+    {
+      "feature": "Rewards",
+      "backend_endpoints": [
+        "GET /rewards"
+      ],
+      "web_files": [
+        "frontend/bit-bridge-frontend/src/pages/dashboard/Rewards.jsx"
+      ],
+      "mobile_status": "missing",
+      "mobile_build": {
+        "screens": [
+          "Rewards dashboard"
+        ],
+        "api_functions": [
+          "getRewards"
+        ]
+      }
+    },
+    {
+      "feature": "Statistics",
+      "backend_endpoints": [
+        "GET /statistics"
+      ],
+      "web_files": [
+        "frontend/bit-bridge-frontend/src/redux/actions/statistics.js"
+      ],
+      "mobile_status": "missing",
+      "mobile_build": {
+        "screens": [
+          "Dashboard stats"
+        ],
+        "api_functions": [
+          "getStatistics"
+        ]
+      }
+    },
+    {
+      "feature": "Disputes",
+      "backend_endpoints": [
+        "POST /disputes"
+      ],
+      "web_files": [
+        "frontend/bit-bridge-frontend/src/api/disputes.js",
+        "frontend/bit-bridge-frontend/src/components/DisputeModal.jsx"
+      ],
+      "mobile_status": "missing",
+      "mobile_build": {
+        "screens": [
+          "Dispute form"
+        ],
+        "api_functions": [
+          "raiseDispute"
+        ]
+      }
+    },
+    {
+      "feature": "Onboarding profile and use case",
+      "backend_endpoints": [
+        "PATCH /onboarding/profile",
+        "PATCH /onboarding/use_case",
+        "PATCH /users/onboarding_stage",
+        "PATCH /users/basic_profile"
+      ],
+      "web_files": [
+        "frontend/bit-bridge-frontend/src/api/onboarding.js",
+        "frontend/bit-bridge-frontend/src/components/onboarding/OnboardingLayout.jsx",
+        "frontend/bit-bridge-frontend/src/components/onboarding/BasicDetailsForm.jsx"
+      ],
+      "mobile_status": "missing",
+      "mobile_build": {
+        "screens": [
+          "Onboarding flow (basic profile and use case)"
+        ],
+        "api_functions": [
+          "saveOnboardingStage",
+          "updateBasicProfile",
+          "updateKycProfile",
+          "saveOnboardingUseCase"
+        ]
+      }
+    },
+    {
+      "feature": "Password reset",
+      "backend_endpoints": [
+        "GET /users/password_reset",
+        "PATCH /users/update_password"
+      ],
+      "web_files": [
+        "frontend/bit-bridge-frontend/src/redux/actions/auth.js",
+        "frontend/bit-bridge-frontend/src/pages/auth/ForgotPassword.jsx",
+        "frontend/bit-bridge-frontend/src/pages/auth/PasswordReset.jsx"
+      ],
+      "mobile_status": "missing",
+      "mobile_build": {
+        "screens": [
+          "Forgot password",
+          "Reset password"
+        ],
+        "api_functions": [
+          "requestPasswordReset",
+          "confirmPasswordReset"
+        ]
+      }
+    },
+    {
+      "feature": "Admin KYC reviews",
+      "backend_endpoints": [
+        "GET /admin/kyc_reviews",
+        "PATCH /admin/kyc_reviews/:id"
+      ],
+      "web_files": [
+        "frontend/bit-bridge-frontend/src/pages/admin/KycReviews.jsx"
+      ],
+      "mobile_status": "missing",
+      "mobile_build": {
+        "screens": [
+          "Admin KYC reviews"
+        ],
+        "api_functions": [
+          "getKycReviews",
+          "updateKycReview"
+        ]
+      }
+    },
+    {
+      "feature": "Currency conversion",
+      "backend_endpoints": [
+        "GET /currencies/get_currency"
+      ],
+      "web_files": [
+        "frontend/bit-bridge-frontend/src/redux/actions/currency_caonversion.js"
+      ],
+      "mobile_status": "missing",
+      "mobile_build": {
+        "screens": [
+          "Conversion usage in checkout or exchange screens"
+        ],
+        "api_functions": [
+          "getConversion"
+        ]
+      }
+    },
+    {
+      "feature": "Accounts: user accounts list",
+      "backend_endpoints": [
+        "GET /accounts/user_accounts"
+      ],
+      "web_files": [
+        "frontend/bit-bridge-frontend/src/redux/actions/account.js",
+        "frontend/bit-bridge-frontend/src/pages/dashboard/VirtualAccounts.jsx"
+      ],
+      "mobile_status": "missing",
+      "mobile_build": {
+        "screens": [
+          "Virtual accounts list"
+        ],
+        "api_functions": [
+          "getAccounts"
+        ]
+      }
+    },
+    {
+      "feature": "Accounts: deposit account number",
+      "backend_endpoints": [
+        "GET /accounts/get_account_number"
+      ],
+      "web_files": [
+        "frontend/bit-bridge-frontend/src/redux/actions/account.js",
+        "frontend/bit-bridge-frontend/src/pages/dashboard/VirtualAccounts.jsx"
+      ],
+      "mobile_status": "missing",
+      "mobile_build": {
+        "screens": [
+          "Create deposit account"
+        ],
+        "api_functions": [
+          "createDepositAccount"
+        ]
+      }
+    },
+    {
+      "feature": "Accounts: verify KYC",
+      "backend_endpoints": [
+        "POST /accounts/verify_kyc"
+      ],
+      "web_files": [
+        "frontend/bit-bridge-frontend/src/redux/actions/account.js"
+      ],
+      "mobile_status": "missing",
+      "mobile_build": {
+        "screens": [
+          "Account KYC verification"
+        ],
+        "api_functions": [
+          "verifyKyc"
+        ]
+      }
+    },
+    {
+      "feature": "Wallet: send money to BitBridge user",
+      "backend_endpoints": [
+        "POST /wallets/send_money"
+      ],
+      "web_files": [
+        "frontend/bit-bridge-frontend/src/redux/actions/wallet.js"
+      ],
+      "mobile_status": "missing",
+      "mobile_build": {
+        "screens": [
+          "Send money"
+        ],
+        "api_functions": [
+          "sendMoneyToUser"
+        ]
+      }
+    },
+    {
+      "feature": "Payment processor: query transaction",
+      "backend_endpoints": [
+        "GET /payment_processors/:id/query_transaction"
+      ],
+      "web_files": [
+        "frontend/bit-bridge-frontend/src/redux/actions/purchasePower.js"
+      ],
+      "mobile_status": "missing",
+      "mobile_build": {
+        "screens": [
+          "Transaction status check"
+        ],
+        "api_functions": [
+          "queryTransaction"
+        ]
+      }
+    },
+    {
+      "feature": "Payment processor: ref order lookup",
+      "backend_endpoints": [
+        "GET /payment_processors/:id/get_ref_order"
+      ],
+      "web_files": [
+        "frontend/bit-bridge-frontend/src/redux/actions/purchasePower.js"
+      ],
+      "mobile_status": "missing",
+      "mobile_build": {
+        "screens": [
+          "Reference order lookup"
+        ],
+        "api_functions": [
+          "getRefOrder"
+        ]
+      }
+    },
+    {
+      "feature": "Bill orders: admin list",
+      "backend_endpoints": [
+        "GET /bill_orders",
+        "GET /bill_orders/:id"
+      ],
+      "web_files": [
+        "frontend/bit-bridge-frontend/src/redux/actions/billOrders.js"
+      ],
+      "mobile_status": "missing",
+      "mobile_build": {
+        "screens": [
+          "Admin bill orders list",
+          "Admin bill order detail"
+        ],
+        "api_functions": [
+          "getBillOrders",
+          "getBillOrder"
+        ]
+      }
+    },
+    {
+      "feature": "Transactions: admin list and update",
+      "backend_endpoints": [
+        "GET /transactions",
+        "GET /transactions/:id",
+        "PATCH /transactions/:id"
+      ],
+      "web_files": [
+        "frontend/bit-bridge-frontend/src/redux/actions/transaction.js",
+        "frontend/bit-bridge-frontend/src/pages/admin/transactions/deposits.jsx",
+        "frontend/bit-bridge-frontend/src/pages/admin/transactions/withdrawals.jsx"
+      ],
+      "mobile_status": "missing",
+      "mobile_build": {
+        "screens": [
+          "Admin transactions list",
+          "Admin transaction detail"
+        ],
+        "api_functions": [
+          "getTransactions",
+          "getTransaction",
+          "updateTransaction"
+        ]
+      }
+    },
+    {
+      "feature": "Users: admin management",
+      "backend_endpoints": [
+        "GET /users",
+        "GET /users/:id",
+        "PATCH /users/:id",
+        "PATCH /users/:id/clear_pin_lockout"
+      ],
+      "web_files": [
+        "frontend/bit-bridge-frontend/src/redux/actions/user.js",
+        "frontend/bit-bridge-frontend/src/pages/admin/users/Users.jsx",
+        "frontend/bit-bridge-frontend/src/pages/admin/users/ViewUser.jsx"
+      ],
+      "mobile_status": "missing",
+      "mobile_build": {
+        "screens": [
+          "Admin user list",
+          "Admin user detail"
+        ],
+        "api_functions": [
+          "getUsers",
+          "getUser",
+          "userUpdate",
+          "clearUserPinLockout"
+        ]
+      }
+    },
+    {
+      "feature": "Circles: fund and withdraw",
+      "backend_endpoints": [
+        "POST /circles/:id/fund",
+        "POST /circles/:id/withdraw"
+      ],
+      "web_files": [
+        "frontend/bit-bridge-frontend/src/api/circles.js",
+        "frontend/bit-bridge-frontend/src/pages/Circles/CirclesDetailPage.jsx"
+      ],
+      "mobile_status": "missing",
+      "mobile_build": {
+        "screens": [
+          "Circle fund/withdraw actions"
+        ],
+        "api_functions": [
+          "fundCircle",
+          "withdrawCircle"
+        ]
+      }
+    },
+    {
+      "feature": "Circles: activities",
+      "backend_endpoints": [
+        "GET /circles/:id/activities",
+        "POST /circles/:id/activities"
+      ],
+      "web_files": [
+        "frontend/bit-bridge-frontend/src/api/circles.js",
+        "frontend/bit-bridge-frontend/src/pages/Circles/CirclesDetailPage.jsx"
+      ],
+      "mobile_status": "missing",
+      "mobile_build": {
+        "screens": [
+          "Circle activities"
+        ],
+        "api_functions": [
+          "listCircleActivities",
+          "createCircleActivity"
+        ]
+      }
+    },
+    {
+      "feature": "Circles: audit and export",
+      "backend_endpoints": [
+        "GET /circles/:id/audit_summary",
+        "GET /circles/:id/export_csv"
+      ],
+      "web_files": [
+        "frontend/bit-bridge-frontend/src/api/circles.js",
+        "frontend/bit-bridge-frontend/src/pages/Circles/CirclesDetailPage.jsx"
+      ],
+      "mobile_status": "missing",
+      "mobile_build": {
+        "screens": [
+          "Circle audit summary",
+          "Export flow"
+        ],
+        "api_functions": [
+          "getCircleAuditSummary",
+          "exportCircleCsv"
+        ]
+      }
+    },
+    {
+      "feature": "Circle transaction reactions",
+      "backend_endpoints": [
+        "POST /circle_transactions/:id/react",
+        "DELETE /circle_transactions/:id/unreact"
+      ],
+      "web_files": [
+        "frontend/bit-bridge-frontend/src/api/circles.js"
+      ],
+      "mobile_status": "missing",
+      "mobile_build": {
+        "screens": [
+          "React/unreact on circle transactions"
+        ],
+        "api_functions": [
+          "reactToCircleTx",
+          "unreactToCircleTx"
+        ]
+      }
+    },
+    {
+      "feature": "Circle memberships (invite)",
+      "backend_endpoints": [
+        "POST /circles/:id/memberships"
+      ],
+      "web_files": [
+        "frontend/bit-bridge-frontend/src/api/circles.js"
+      ],
+      "mobile_status": "partial",
+      "mobile_build": {
+        "screens": [
+          "Invite circle members"
+        ],
+        "api_functions": [
+          "inviteCircleMember (use /circles/:id/memberships)"
+        ]
+      }
+    }
+  ]
+}

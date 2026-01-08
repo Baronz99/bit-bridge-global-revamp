@@ -118,51 +118,45 @@ class PaymentService
   end
 
   def init_transaction(record_params)
-    headers = {
-      "Authorization": "Bearer #{get_token}",
-      "Content-Type":  'application/json'
+  headers = {
+    "Authorization": "Bearer #{get_token}",
+    "Content-Type":  'application/json'
+  }
+
+  body_hash = {
+    "amount":             record_params[:total_amount] || record_params[:amount],
+    "customerName":       record_params[:customer_name] || record_params[:name],
+    "customerEmail":      record_params[:email],
+    "paymentReference":   record_params[:type].present? && record_params[:type] == 'bills' ?
+                            "bbg-#{Time.now.to_i}" : "fbg-#{Time.now.to_i}",
+    "paymentDescription": record_params[:description],
+    "currencyCode":       'NGN',
+    "contractCode":       @contract_code,
+    "redirectUrl":        record_params[:redirect_url] || 'https://bitbridgeglobal.com/app-redirect',
+    "paymentMethods":     %w[CARD ACCOUNT_TRANSFER],
+    "metadata": {
+      "name":           record_params[:customer_name] || record_params[:name],
+      "paymentPurpose": record_params[:payment_purpose]
     }
+  }
 
-    body_hash = {
-      "amount":             record_params[:total_amount] || record_params[:amount],
-      "customerName":       record_params[:customer_name] || record_params[:name],
-      "customerEmail":      record_params[:email],
-      "paymentReference":   record_params[:type].present? && record_params[:type] == 'bills' ?
-                              "bbg-#{Time.now.to_i}" : "fbg-#{Time.now.to_i}",
-      "paymentDescription": record_params[:description],
-      "currencyCode":       'NGN',
-      "contractCode":       @contract_code,
-      "redirectUrl":        record_params[:redirect_url] || 'https://bitbridgeglobal.com/app-redirect',
-      "paymentMethods":     %w[CARD ACCOUNT_TRANSFER],
-      "metadata": {
-        "name":           record_params[:customer_name] || record_params[:name],
-        "paymentPurpose": record_params[:payment_purpose]
-      }
-    }
+  body = body_hash.to_json
 
-    body = body_hash.to_json
+  response = self.class.post(
+    '/api/v1/merchant/transactions/init-transaction',
+    headers: headers,
+    body:    body
+  )
 
-    # 🔍 Log what we’re sending to Monnify (for debugging)
-    Rails.logger.info "Monnify init_transaction REQUEST body: #{body}"
-    Rails.logger.info "Monnify init_transaction HEADERS: #{headers.inspect}"
-
-    response = self.class.post(
-      '/api/v1/merchant/transactions/init-transaction',
-      headers: headers,
-      body:    body
-    )
-
-    # 🔍 Log Monnify’s raw response so we can see the real error
-    Rails.logger.error "Monnify init_transaction RESPONSE status=#{response.code} body=#{response.body}"
-
-    unless response.success?
-      # Try to surface Monnify's message if present
-      message = response['responseMessage'] || response['message'] || "Monnify error #{response.code}"
-      raise message
-    end
-
-    { response: response, status: :ok }
-  rescue StandardError => e
-    { message: e.message.to_s, body: body }
+  unless response.success?
+    message = response['responseMessage'] || response['message'] || "Monnify error #{response.code}"
+    # ✅ Never include request body in errors/logs
+    raise message
   end
+
+  { response: response, status: :ok }
+rescue StandardError => e
+  # ✅ Do NOT return request payload (contains customer PII)
+  { message: e.message.to_s }
 end
+

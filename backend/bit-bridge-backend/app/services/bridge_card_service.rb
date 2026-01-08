@@ -232,19 +232,19 @@ class BridgeCardService
       # 4) persist locally
       new_card_id = response.dig('data', 'card_id') || card.card_id
 
-      card.update!(
-        cardholder_id: cardholder_id,
-        card_type: card_type,
-        card_brand: card_brand,
-        card_currency: card_currency,
-        card_limit: card_limit,
-        transaction_reference: transaction_reference,
-        amount: amount_usd,
-        pin: pin,
-        card_id: new_card_id,
-        status: 'active',
-        meta_data: meta
-      )
+     card.update!(
+  cardholder_id: cardholder_id,
+  card_type: card_type,
+  card_brand: card_brand,
+  card_currency: card_currency,
+  card_limit: card_limit,
+  transaction_reference: transaction_reference,
+  amount: amount_usd,
+  card_id: new_card_id,
+  status: 'active',
+  meta_data: meta
+)
+
 
       fee_txn&.update!(bridge_card_id: new_card_id)
       fund_txn&.update!(bridge_card_id: new_card_id)
@@ -269,16 +269,16 @@ class BridgeCardService
   response = fetch('post', '/issuing/sandbox/cards/create_card', body)
 
   card.update!(
-    cardholder_id: cardholder_id,
-    card_type: card_type,
-    card_brand: card_brand,
-    card_currency: card_currency,
-    card_limit: card_limit,
-    transaction_reference: transaction_reference,
-    amount: amount_usd,
-    pin: pin,
-    card_id: response.dig('data', 'card_id') || card.card_id
-  )
+  cardholder_id: cardholder_id,
+  card_type: card_type,
+  card_brand: card_brand,
+  card_currency: card_currency,
+  card_limit: card_limit,
+  transaction_reference: transaction_reference,
+  amount: amount_usd,
+  card_id: response.dig('data', 'card_id') || card.card_id
+)
+
 
   { data: card, message: response['message'], status: :ok }
 rescue StandardError => e
@@ -348,21 +348,59 @@ end
   end
 
   def card_details_reveal(card_id)
-    raise ArgumentError, 'card_id is required' if card_id.blank?
+  raise ArgumentError, 'card_id is required' if card_id.blank?
 
-    base = 'https://issuecards-api-bridgecard-co.relay.evervault.com/v1'
-    path = if Rails.env.production?
-             "/issuing/cards/get_card_details?card_id=#{card_id}"
-           else
-             "/issuing/sandbox/cards/get_card_details?card_id=#{card_id}"
-           end
+  base = 'https://issuecards-api-bridgecard-co.relay.evervault.com/v1'
 
-    response = self.class.get("#{base}#{path}", headers: headers)
-    parsed = response.respond_to?(:parsed_response) ? response.parsed_response : response
-    { data: parsed['data'], status: :ok }
-  rescue StandardError => e
-    { message: e.message, status: :unprocessable_entity }
+  # Prefer explicit config instead of Rails.env so local/dev can use live if needed
+  sandbox =
+    if ENV.key?('BRIDGE_CARDS_SANDBOX')
+      %w[true 1 yes].include?(ENV['BRIDGE_CARDS_SANDBOX'].to_s.downcase)
+    else
+      !Rails.env.production?
+    end
+
+  path =
+    if sandbox
+      "/issuing/sandbox/cards/get_card_details?card_id=#{CGI.escape(card_id.to_s)}"
+    else
+      "/issuing/cards/get_card_details?card_id=#{CGI.escape(card_id.to_s)}"
+    end
+
+  response = self.class.get("#{base}#{path}", headers: headers)
+
+  # HTTP-level failure
+  http_code = response.respond_to?(:code) ? response.code.to_i : nil
+  parsed =
+    if response.respond_to?(:parsed_response)
+      response.parsed_response
+    else
+      response
+    end
+
+  # Normalize parsed into a hash
+  parsed = {} unless parsed.is_a?(Hash)
+
+  # Bridge can fail via status codes OR via body fields
+  body_error =
+    parsed['error'] ||
+    parsed['message'] ||
+    parsed.dig('data', 'error') ||
+    parsed.dig('data', 'message')
+
+  data = parsed['data']
+
+  if (http_code && http_code >= 400) || data.blank?
+    # Return a meaningful message for frontend/debugging without leaking secrets
+    msg = body_error.presence || "Reveal failed (#{http_code || 'unknown'})."
+    return { message: msg, status: :unprocessable_entity, raw: parsed }
   end
+
+  { data: data, status: :ok }
+rescue StandardError => e
+  { message: e.message, status: :unprocessable_entity }
+end
+
 
   def card_balance(card_id)
     raise ArgumentError, 'card_id is required' if card_id.blank?
@@ -591,47 +629,49 @@ end
     fetch('post', '/issuing/sandbox/cards/create_card', body)
   end
 
-  def fetch(method, url, body)
-    unless FeatureFlags.bridge_cards?
-      raise StandardError, 'BRIDGE cards are disabled'
-    end
-
-    response =
-      case method
-      when 'get'
-        self.class.get(url, headers: headers)
-      when 'post'
-        self.class.post(url, body: body, headers: headers)
-      when 'patch'
-        self.class.patch(url, body: body, headers: headers)
-      else
-        raise "Unsupported method: #{method}"
-      end
-
-    return response if response.success?
-
-    parsed = response.respond_to?(:parsed_response) ? response.parsed_response : nil
-
-    if defined?(Rails) && Rails.logger
-      Rails.logger.warn(
-        "[BridgeCardService] request failed status=#{response.code} body=#{parsed.inspect}"
-      )
-    end
-
-    detail_message =
-      if parsed.is_a?(Hash)
-        parsed.dig('detail', 0, 'msg') || parsed['message']
-      else
-        nil
-      end
-
-    raise(detail_message.presence || 'Bridge request failed')
-  rescue StandardError => e
-    if defined?(Rails) && Rails.logger
-      Rails.logger.warn("[BridgeCardService] exception=#{e.class} message=#{e.message}")
-    end
-    raise(e.message.presence || 'Bridge request failed')
+ def fetch(method, url, body)
+  unless FeatureFlags.bridge_cards?
+    raise StandardError, 'BRIDGE cards are disabled'
   end
+
+  response =
+    case method
+    when 'get'
+      self.class.get(url, headers: headers)
+    when 'post'
+      self.class.post(url, body: body, headers: headers)
+    when 'patch'
+      self.class.patch(url, body: body, headers: headers)
+    else
+      raise "Unsupported method: #{method}"
+    end
+
+  return response if response.success?
+
+  parsed = response.respond_to?(:parsed_response) ? response.parsed_response : nil
+
+  # Avoid dumping response bodies (could contain sensitive info depending on endpoint)
+  if defined?(Rails) && Rails.logger
+    Rails.logger.warn(
+      "[BridgeCardService] request failed status=#{response.code} url=#{url}"
+    )
+  end
+
+  detail_message =
+    if parsed.is_a?(Hash)
+      parsed.dig('detail', 0, 'msg') || parsed['message']
+    else
+      nil
+    end
+
+  raise(detail_message.presence || 'Bridge request failed')
+rescue StandardError => e
+  if defined?(Rails) && Rails.logger
+    Rails.logger.warn("[BridgeCardService] exception=#{e.class} message=#{e.message}")
+  end
+  raise(e.message.presence || 'Bridge request failed')
+end
+
 
   # ---------- money helpers ----------
   def to_decimal(v)

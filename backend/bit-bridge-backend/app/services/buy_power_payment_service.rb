@@ -187,7 +187,10 @@ end
 
       if response.success?
 
-        Rails.logger.info("✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅Wallet transaction sucess: #{response}")
+        Rails.logger.info(
+  "BuyPower vend success #{request_tag} provider_txn_id=#{response&.dig('data','id')} units_present=#{!!response&.dig('data','units')} token_present=#{!!response&.dig('data','token')}"
+)
+
 
         payment_method = payment_method
         units = response&.dig('data', 'units')
@@ -242,7 +245,11 @@ end
       amount: electric_bill_order['amount'],
       orderId: electric_bill_order['id'],
       vendType: electric_bill_order['meter_type'],
-      phone: electric_bill_order['service_type'] === 'ELECTRICITY' ? electric_bill_order['phone'] : electric_bill_order['meter_number'],
+      phone: (
+  electric_bill_order['phone'].presence ||
+  (electric_bill_order['service_type'] == 'TV' ? '07064334160' : electric_bill_order['meter_number'])
+),
+
       disco: electric_bill_order['biller'],
       vertical: electric_bill_order['service_type'],
       paymentType: electric_bill_order['payment_type'],

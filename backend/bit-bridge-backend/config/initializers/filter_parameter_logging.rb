@@ -6,5 +6,9 @@
 # Use this to limit dissemination of sensitive information.
 # See the ActiveSupport::ParameterFilter documentation for supported notations and behaviors.
 Rails.application.config.filter_parameters += %i[
-  passw secret token _key crypt salt certificate otp ssn bvn bvn_fingerprint
+  passw password secret token _key crypt salt certificate otp ssn bvn bvn_fingerprint
+  pin transaction_pin cvv cvc pan card_number card_pan expiry expiry_month expiry_year
+  authorization bearer
+  monnify_api_key monnify_secret_key
 ]
+

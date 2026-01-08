@@ -87,7 +87,7 @@ const client = axios.create({
     'Content-Type': 'application/json',
   },
   timeout: 60_000,
-  withCredentials: false,
+  withCredentials: cookieAuthEnabled(),
 })
 
 /**

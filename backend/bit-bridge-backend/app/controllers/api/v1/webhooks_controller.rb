@@ -178,49 +178,43 @@ module Api
       end
 
       def handleTransactionConfirmation(event_data)
-        Rails.logger.info("✅  Monnify webhook raw event data: #{event_data}")
-        user_id = event_data['product']['reference']
-        user = User.find_by(id: user_id)
+  # ✅ Avoid logging full webhook payloads / payment details
+  user_id = event_data.dig('product', 'reference')
+  user = User.find_by(id: user_id)
 
+  unless user
+    Rails.logger.error("❌ Monnify webhook: user not found user_id=#{user_id}")
+    return
+  end
 
+  unless user.wallet
+    Rails.logger.error("❌ Monnify webhook: wallet not found user_id=#{user.id}")
+    return
+  end
 
-        unless user
-          Rails.logger.error("❌ User with ID #{user_id} not found")
-          return
-        end
+  payment_info = event_data.fetch('paymentSourceInformation', []).first || {}
 
-        unless user.wallet
-          Rails.logger.error("❌ Wallet not found for user #{user.id}")
-          return
-        end
+  transaction_params = {
+    wallet_id: user.wallet.id,
+    amount: payment_info['amountPaid'],
+    address: payment_info['accountNumber'],
+    account_name: payment_info['accountName'],
+    bank_code: payment_info['bankCode'],
+    transaction_type: 'deposit',
+    status: 'approved',
+    coin_type: 'bank'
+  }
 
+  transaction = Transaction.new(transaction_params)
 
+  if transaction.save
+    # ✅ Log only minimal identifiers
+    Rails.logger.info("✅ Monnify deposit saved id=#{transaction.id} user_id=#{user.id} amount=#{transaction.amount}")
+  else
+    Rails.logger.error("❌ Monnify deposit failed user_id=#{user.id} errors=#{transaction.errors.full_messages.to_sentence}")
+  end
+end
 
-        payment_info = event_data['paymentSourceInformation'].first
-
-        Rails.logger.info("✅  Monnify webhook raw payment_info data: #{payment_info}")
-
-
-
-        transaction_params = {
-          wallet_id: user.wallet.id,
-          amount: payment_info['amountPaid'],
-          address: payment_info['accountNumber'],
-          account_name: payment_info['accountName'],
-          bank_code: payment_info['bankCode'],
-          transaction_type: 'deposit',
-          status: 'approved',
-          coin_type: 'bank'
-        }
-
-        transaction = Transaction.new(transaction_params)
-
-        if transaction.save
-          Rails.logger.info("✅ Transaction saved: #{transaction.inspect}")
-        else
-          Rails.logger.error("❌ Transaction failed: #{transaction.errors.full_messages.to_sentence}")
-        end
-      end
 
       def handle_bills_confirmation(transaction_record)
         payment_method = 'card'

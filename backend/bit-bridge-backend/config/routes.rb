@@ -83,7 +83,6 @@ end
         member do
           get :details
           get :balance
-          get :reveal
           get :history
           get :insights
           patch :freeze
@@ -92,6 +91,14 @@ end
       end
 
       resources :rewards, only: [:index]
+
+namespace :pci do
+  resources :cards, only: [] do
+    post :reveal, to: 'cards_reveal#create', on: :member
+  end
+end
+
+
 
       resources :accounts do
         collection do

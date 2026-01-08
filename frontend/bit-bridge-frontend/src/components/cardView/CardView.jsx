@@ -63,6 +63,9 @@ export default function VirtualCardApplication() {
   const [withdrawAmount, setWithdrawAmount] = useState('')
   const [withdrawResult, setWithdrawResult] = useState(null)
   const gateToastShownRef = useRef(false)
+    const [showRevealPinModal, setShowRevealPinModal] = useState(false)
+  const [revealPin, setRevealPin] = useState('') // PIN used ONLY for reveal
+
 
   const [formData, setFormData] = useState({
     // cardholder fields
@@ -246,8 +249,7 @@ export default function VirtualCardApplication() {
         if (!isMounted) return
         const detailsData = detailsRes?.data?.data || null
         const balanceData = balanceRes?.data?.data || null
-        console.debug('[VirtualCards] card details response', detailsData)
-        console.debug('[VirtualCards] card balance response', balanceData)
+        
         setCardDetails(detailsData)
         setCardBalance(balanceData)
       } catch (error) {
@@ -358,10 +360,19 @@ export default function VirtualCardApplication() {
     }))
   }
 
-  const setPin = (nextPin) => {
+const setPin = (nextPin) => {
+  const clean = String(nextPin || '').replace(/\D/g, '').slice(0, PIN_LENGTH)
+  setFormData((prev) => ({ ...prev, transaction_pin: clean }))
+  if (clean.length === PIN_LENGTH) setCardRevealError(null)
+}
+
+
+  const setRevealPinValue = (nextPin) => {
     const clean = String(nextPin || '').replace(/\D/g, '').slice(0, PIN_LENGTH)
-    setFormData((prev) => ({ ...prev, transaction_pin: clean }))
+    setRevealPin(clean)
+    if (clean.length === PIN_LENGTH) setCardRevealError(null)
   }
+
 
   function validateCardholder() {
     if (!formData.agreeTos) return 'You must agree to the terms.'
@@ -1669,26 +1680,21 @@ export default function VirtualCardApplication() {
                         </p>
                         <button
                           type="button"
-                          onClick={async () => {
-                            if (showCardDetails) {
-                              setShowCardDetails(false)
-                              return
-                            }
-                            const now = Date.now()
-                            if (now < revealCooldownUntil || cardRevealLoading) return
-                            setCardRevealLoading(true)
-                            setCardRevealError(null)
-                            try {
-                              const response = await client.get(`/cards/${card?.id}/reveal`)
-                              setCardReveal(response?.data?.data || null)
-                              setShowCardDetails(true)
-                              setRevealCooldownUntil(now + 3000)
-                            } catch (error) {
-                              setCardRevealError('Unable to reveal card details right now.')
-                            } finally {
-                              setCardRevealLoading(false)
-                            }
-                          }}
+                          onClick={() => {
+  if (showCardDetails) {
+    setShowCardDetails(false)
+    setCardReveal(null)
+    setRevealPin('')
+    setCardRevealError(null)
+    return
+  }
+
+  // Open PIN modal for reveal (don’t depend on fund/withdraw PIN input)
+  setCardRevealError(null)
+  setRevealPin('')
+  setShowRevealPinModal(true)
+}}
+
                           className="vc-button-secondary px-4 py-2 rounded-xl text-xs font-semibold disabled:opacity-60"
                           disabled={!showCardDetails && (cardRevealLoading || Date.now() < revealCooldownUntil)}
                         >
@@ -2228,6 +2234,121 @@ export default function VirtualCardApplication() {
           </div>
           </section>
         )}
+
+              <AnimatePresence>
+        {showRevealPinModal && (
+          <motion.div
+            key="reveal-pin-modal"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[999] flex items-center justify-center bg-black/60 px-4"
+            onMouseDown={() => {
+              if (cardRevealLoading) return
+              setShowRevealPinModal(false)
+              setRevealPin('')
+            }}
+          >
+            <motion.div
+              initial={{ opacity: 0, y: 14, scale: 0.98 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: 14, scale: 0.98 }}
+              transition={{ duration: 0.15, ease: 'easeOut' }}
+              className="w-full max-w-sm rounded-2xl border border-slate-700 bg-slate-950 p-5 text-slate-100 shadow-2xl"
+              onMouseDown={(e) => e.stopPropagation()}
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <h4 className="text-sm font-semibold">Enter transaction PIN</h4>
+                  <p className="mt-1 text-xs text-slate-400">
+                    We need your {PIN_LENGTH}-digit PIN to reveal full card details securely.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  className="rounded-lg border border-slate-700 bg-slate-900 px-2 py-1 text-xs text-slate-300 hover:text-slate-100"
+                  onClick={() => {
+                    if (cardRevealLoading) return
+                    setShowRevealPinModal(false)
+                    setRevealPin('')
+                  }}
+                >
+                  Close
+                </button>
+              </div>
+
+              <div className="mt-4">
+                <TransactionPinInput
+                  value={revealPin}
+                  onChange={setRevealPinValue}
+                  length={PIN_LENGTH}
+                  disabled={cardRevealLoading}
+                />
+              </div>
+
+              {cardRevealError && (
+                <p className="mt-2 text-xs text-red-400">{cardRevealError}</p>
+              )}
+
+              <div className="mt-4 flex gap-2">
+                <button
+                  type="button"
+                  className="flex-1 rounded-xl bg-slate-900 px-4 py-2 text-xs font-semibold text-slate-200 border border-slate-700 hover:bg-slate-800 disabled:opacity-60"
+                  disabled={cardRevealLoading}
+                  onClick={() => {
+                    if (cardRevealLoading) return
+                    setShowRevealPinModal(false)
+                    setRevealPin('')
+                  }}
+                >
+                  Cancel
+                </button>
+
+                <button
+                  type="button"
+                  className="flex-1 rounded-xl bg-indigo-600 px-4 py-2 text-xs font-semibold text-white hover:bg-indigo-500 disabled:opacity-60"
+                  disabled={cardRevealLoading || revealPin.length !== PIN_LENGTH}
+                  onClick={async () => {
+                    const now = Date.now()
+                    if (now < revealCooldownUntil || cardRevealLoading) return
+
+                    if (revealPin.length !== PIN_LENGTH) {
+                      setCardRevealError(`Enter your ${PIN_LENGTH}-digit transaction PIN.`)
+                      return
+                    }
+
+                    setCardRevealLoading(true)
+                    setCardRevealError(null)
+
+                    try {
+                      // ✅ Most compatible payloads (try the common ones)
+                      // If your backend expects a different shape, we can match it after checking the PCI controller.
+                      const response = await client.post(`/pci/cards/${card?.id}/reveal`, {
+                        transaction_pin: revealPin,
+                      })
+
+                      setCardReveal(response?.data?.data || null)
+                      setShowCardDetails(true)
+                      setShowRevealPinModal(false)
+                      setRevealPin('')
+                      setRevealCooldownUntil(now + 3000)
+                    } catch (error) {
+                      setCardRevealError('Unable to reveal card details right now.')
+                    } finally {
+                      setCardRevealLoading(false)
+                    }
+                  }}
+                >
+                  {cardRevealLoading ? 'Revealing...' : 'Reveal'}
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+
+        
       </div>
       </div>
     </>
