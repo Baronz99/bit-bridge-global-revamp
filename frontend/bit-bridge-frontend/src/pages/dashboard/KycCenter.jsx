@@ -248,11 +248,9 @@ const InlineModal = ({ open, title, children, onClose }) => {
 }
 
 /**
- * LiveSelfieCapture (WEB)
  * - Uses getUserMedia
- * - Renders <video> ONLY when cameraOn=true
- * - Must set cameraOn=true BEFORE reading videoRef.current, then wait for ref mount
- * - Captures a frame to canvas -> returns base64 dataUrl
+ * - Captures a frame to canvas
+ * - Returns base64 dataUrl
  */
 const LiveSelfieCapture = ({ disabled, value, onChange, onError }) => {
   const videoRef = React.useRef(null)
@@ -278,16 +276,6 @@ const LiveSelfieCapture = ({ disabled, value, onChange, onError }) => {
     return () => stopCamera()
   }, [stopCamera])
 
-  const waitForVideoEl = React.useCallback(async () => {
-    // Wait up to ~1s for React to mount the <video> and attach ref
-    for (let i = 0; i < 20; i++) {
-      if (videoRef.current) return videoRef.current
-      // eslint-disable-next-line no-await-in-loop
-      await new Promise((r) => setTimeout(r, 50))
-    }
-    return null
-  }, [])
-
   const startCamera = async () => {
     if (disabled) return
     setStarting(true)
@@ -298,17 +286,15 @@ const LiveSelfieCapture = ({ disabled, value, onChange, onError }) => {
         throw new Error('Camera not supported on this device/browser.')
       }
 
-      // ✅ IMPORTANT: render <video> first so ref is available
-      setCameraOn(true)
-
-      // ✅ Wait for <video> ref to exist
-      const video = await waitForVideoEl()
-      if (!video) {
-        setCameraOn(false)
-        throw new Error('Camera element not ready. Please retry.')
+      // If running on http (not localhost), Safari/Chrome may block camera
+      const isLocalhost =
+        window?.location?.hostname === 'localhost' || window?.location?.hostname === '127.0.0.1'
+      const isSecure = window?.location?.protocol === 'https:' || isLocalhost
+      if (!isSecure) {
+        throw new Error('Camera requires HTTPS. Open this page on https:// or localhost.')
       }
 
-      // ✅ iOS Safari prefers ideal constraints
+      // iOS Safari prefers ideal constraints
       const stream = await navigator.mediaDevices.getUserMedia({
         video: {
           facingMode: { ideal: 'user' },
@@ -320,31 +306,24 @@ const LiveSelfieCapture = ({ disabled, value, onChange, onError }) => {
 
       streamRef.current = stream
 
-      // ✅ iOS / in-app browsers
-      try {
-        video.setAttribute('playsinline', 'true')
-        video.setAttribute('autoplay', 'true')
-      } catch (_) {
-        // ignore
+      const video = videoRef.current
+      if (!video) {
+        throw new Error('Camera element not ready.')
       }
+
+      video.setAttribute('playsinline', 'true')
+      video.setAttribute('autoplay', 'true')
       video.muted = true
       video.srcObject = stream
 
-      // ✅ Start playback when metadata is ready (iOS needs this)
+      // Wait for metadata OR fallback timer
       await new Promise((resolve) => {
-        let doneCalled = false
-        const done = () => {
-          if (doneCalled) return
-          doneCalled = true
-          resolve(true)
-        }
-
+        const done = () => resolve(true)
         video.onloadedmetadata = done
-        // Fallback timer
-        setTimeout(done, 800)
+        setTimeout(done, 700)
       })
 
-      // ✅ Try play with retries (iOS sometimes rejects first attempt)
+      // Play with retries (iOS sometimes rejects first attempt)
       let played = false
       for (let i = 0; i < 5; i++) {
         try {
@@ -358,9 +337,10 @@ const LiveSelfieCapture = ({ disabled, value, onChange, onError }) => {
         }
       }
 
+      setCameraOn(true)
       onError?.('')
 
-      // ✅ Detect “black screen” (permission granted but video never becomes live)
+      // Detect “black screen”
       setTimeout(() => {
         const v = videoRef.current
         const hasFrames = !!(v && v.videoWidth > 0 && v.videoHeight > 0 && v.readyState >= 2)
@@ -374,7 +354,6 @@ const LiveSelfieCapture = ({ disabled, value, onChange, onError }) => {
       }
     } catch (e) {
       stopCamera()
-      setCameraOn(false)
       const msg = e?.message || 'Unable to access camera. Please allow camera permission.'
       onError?.(msg)
     } finally {
@@ -390,12 +369,6 @@ const LiveSelfieCapture = ({ disabled, value, onChange, onError }) => {
     const w = video.videoWidth || 720
     const h = video.videoHeight || 720
 
-    // If video never became "live", avoid capturing a black frame
-    if (!video.videoWidth || !video.videoHeight) {
-      onError?.('Camera preview not ready yet. Please wait 1–2 seconds and try again.')
-      return
-    }
-
     const canvas = document.createElement('canvas')
     canvas.width = w
     canvas.height = h
@@ -403,7 +376,7 @@ const LiveSelfieCapture = ({ disabled, value, onChange, onError }) => {
 
     try {
       ctx.drawImage(video, 0, 0, w, h)
-    } catch (err) {
+    } catch (e) {
       onError?.('Preview is blocked. Please retry and ensure camera permissions are enabled.')
       return
     }
@@ -464,8 +437,6 @@ const LiveSelfieCapture = ({ disabled, value, onChange, onError }) => {
                 playsInline
                 muted
                 autoPlay
-                // ✅ ensure it always has a visible area
-                style={{ width: '100%', height: 'auto' }}
                 className="w-full rounded-lg border border-slate-800 bg-black max-h-64 object-cover"
               />
 
@@ -510,6 +481,44 @@ const LiveSelfieCapture = ({ disabled, value, onChange, onError }) => {
       )}
     </div>
   )
+}
+
+// ---- helper: Tier 3 endpoint fallback (fixes your 404 “Not Found”) ----
+async function postTier3Start(payload) {
+  // If your axios baseURL already includes /api/v1, then "/verification/..." is correct.
+  // If not, "/api/v1/verification/..." will be correct.
+  const candidates = [
+    '/verification/tier3/start',
+    '/api/v1/verification/tier3/start',
+    '/verification/tier3',
+    '/api/v1/verification/tier3',
+  ]
+
+  let lastErr = null
+  for (const url of candidates) {
+    try {
+      // eslint-disable-next-line no-await-in-loop
+      const res = await client.post(url, payload)
+      return res
+    } catch (e) {
+      lastErr = e
+      const status = e?.response?.status
+      // Only fallback on 404; if 401/422/500 etc, stop and throw so user sees real issue.
+      if (status && status !== 404) throw e
+    }
+  }
+
+  // If we get here, every candidate 404’d.
+  const base = client?.defaults?.baseURL
+  const msg =
+    `Tier 3 endpoint not found (404).\n\n` +
+    `Tried: ${candidates.join(', ')}\n` +
+    (base ? `Axios baseURL: ${base}\n\n` : '\n') +
+    `Fix: confirm backend route exists for Tier 3 (e.g. POST /api/v1/verification/tier3/start) ` +
+    `or adjust the frontend to match the backend route.`
+  const err = new Error(msg)
+  err._isTier3NotFound = true
+  throw err
 }
 
 const KycCenter = () => {
@@ -653,15 +662,18 @@ const KycCenter = () => {
 
     setTier3Submitting(true)
     try {
-      // We only send the base64 portion (strip "data:image/jpeg;base64,")
+      // Only send base64 portion
       const base64Only = String(tier3SelfieDataUrl).includes(',')
         ? String(tier3SelfieDataUrl).split(',')[1]
         : String(tier3SelfieDataUrl)
 
-      const res = await client.post('/verification/tier3/start', {
+      const payload = {
         image: base64Only,
         ...(needsBvn ? { bvn: normalizedBvn } : {}),
-      })
+      }
+
+      // Robust endpoint attempt (fixes 404 mismatch)
+      const res = await postTier3Start(payload)
 
       const message =
         res?.data?.message ||
@@ -671,11 +683,15 @@ const KycCenter = () => {
       setTier3Success(message)
       await dispatch(userProfile())
     } catch (error) {
+      const status = error?.response?.status
       const msg =
-        error?.response?.data?.message ||
-        error?.response?.data?.error ||
-        error?.message ||
-        'Unable to complete Tier 3 verification.'
+        error?._isTier3NotFound
+          ? error.message
+          : error?.response?.data?.message ||
+            error?.response?.data?.error ||
+            (status === 404 ? 'Tier 3 endpoint not found on server.' : null) ||
+            error?.message ||
+            'Unable to complete Tier 3 verification.'
       setTier3Error(msg)
     } finally {
       setTier3Submitting(false)
@@ -1065,7 +1081,7 @@ const KycCenter = () => {
           ) : null}
 
           {tier3Error ? (
-            <div className="rounded-xl border border-rose-700/40 bg-rose-900/20 p-3 text-xs text-rose-200">
+            <div className="rounded-xl border border-rose-700/40 bg-rose-900/20 p-3 text-xs text-rose-200 whitespace-pre-wrap">
               {tier3Error}
             </div>
           ) : null}
@@ -1097,8 +1113,7 @@ const KycCenter = () => {
           </div>
 
           <div className="text-[11px] text-slate-500 pt-2">
-            Note: We do not store your selfie permanently. We store minimal verification evidence
-            (reference + timestamp).
+            Note: We do not store your selfie permanently. We store minimal verification evidence (reference + timestamp).
           </div>
         </div>
       </InlineModal>

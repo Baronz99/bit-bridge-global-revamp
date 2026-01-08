@@ -100,6 +100,13 @@ end
 
 
 
+namespace :verification do
+  namespace :tier3 do
+    post :start
+  end
+end
+
+
       resources :accounts do
         collection do
           post :verify_kyc
