@@ -160,8 +160,6 @@ const TierCard = ({ state, title, body, hint, onPrimary, primaryLabel }) => {
   const isLocked = state === 'locked'
 
   const containerClass = [
-    // ✅ Prevent "vertical text" by ensuring a sensible minimum width
-    // ✅ Works well with horizontal scroll on small screens (see tier ladder section below)
     'min-w-[240px] sm:min-w-0',
     'rounded-xl border p-3 transition',
     isCurrent
@@ -194,7 +192,6 @@ const TierCard = ({ state, title, body, hint, onPrimary, primaryLabel }) => {
     <div className={containerClass}>
       <div className="flex items-start justify-between gap-3 mb-2">
         <div className="min-w-0">
-          {/* ✅ Never break letters vertically */}
           <p className="font-semibold mb-1 text-slate-100 leading-snug whitespace-nowrap">
             {title}
           </p>
@@ -207,7 +204,6 @@ const TierCard = ({ state, title, body, hint, onPrimary, primaryLabel }) => {
         </span>
       </div>
 
-      {/* ✅ Keep body readable; clamp on small screens for consistent card height */}
       <p className="text-slate-400 text-[11px] leading-relaxed line-clamp-3 md:line-clamp-none">
         {body}
       </p>
@@ -252,10 +248,11 @@ const InlineModal = ({ open, title, children, onClose }) => {
 }
 
 /**
- * Live selfie capture widget (no uploads)
+ * LiveSelfieCapture (WEB)
  * - Uses getUserMedia
- * - Captures a frame to canvas
- * - Returns base64 dataUrl
+ * - Renders <video> ONLY when cameraOn=true
+ * - Must set cameraOn=true BEFORE reading videoRef.current, then wait for ref mount
+ * - Captures a frame to canvas -> returns base64 dataUrl
  */
 const LiveSelfieCapture = ({ disabled, value, onChange, onError }) => {
   const videoRef = React.useRef(null)
@@ -263,13 +260,12 @@ const LiveSelfieCapture = ({ disabled, value, onChange, onError }) => {
 
   const [starting, setStarting] = React.useState(false)
   const [cameraOn, setCameraOn] = React.useState(false)
+  const [stuckBlack, setStuckBlack] = React.useState(false)
 
   const stopCamera = React.useCallback(() => {
     try {
       const stream = streamRef.current
-      if (stream) {
-        stream.getTracks()?.forEach((t) => t.stop())
-      }
+      if (stream) stream.getTracks()?.forEach((t) => t.stop())
     } catch (_) {
       // no-op
     } finally {
@@ -282,29 +278,103 @@ const LiveSelfieCapture = ({ disabled, value, onChange, onError }) => {
     return () => stopCamera()
   }, [stopCamera])
 
+  const waitForVideoEl = React.useCallback(async () => {
+    // Wait up to ~1s for React to mount the <video> and attach ref
+    for (let i = 0; i < 20; i++) {
+      if (videoRef.current) return videoRef.current
+      // eslint-disable-next-line no-await-in-loop
+      await new Promise((r) => setTimeout(r, 50))
+    }
+    return null
+  }, [])
+
   const startCamera = async () => {
     if (disabled) return
     setStarting(true)
+    setStuckBlack(false)
+
     try {
       if (!navigator?.mediaDevices?.getUserMedia) {
         throw new Error('Camera not supported on this device/browser.')
       }
 
-      // Prefer front camera
+      // ✅ IMPORTANT: render <video> first so ref is available
+      setCameraOn(true)
+
+      // ✅ Wait for <video> ref to exist
+      const video = await waitForVideoEl()
+      if (!video) {
+        setCameraOn(false)
+        throw new Error('Camera element not ready. Please retry.')
+      }
+
+      // ✅ iOS Safari prefers ideal constraints
       const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: 'user' },
+        video: {
+          facingMode: { ideal: 'user' },
+          width: { ideal: 720 },
+          height: { ideal: 720 },
+        },
         audio: false,
       })
 
       streamRef.current = stream
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream
-        await videoRef.current.play()
+
+      // ✅ iOS / in-app browsers
+      try {
+        video.setAttribute('playsinline', 'true')
+        video.setAttribute('autoplay', 'true')
+      } catch (_) {
+        // ignore
       }
-      setCameraOn(true)
+      video.muted = true
+      video.srcObject = stream
+
+      // ✅ Start playback when metadata is ready (iOS needs this)
+      await new Promise((resolve) => {
+        let doneCalled = false
+        const done = () => {
+          if (doneCalled) return
+          doneCalled = true
+          resolve(true)
+        }
+
+        video.onloadedmetadata = done
+        // Fallback timer
+        setTimeout(done, 800)
+      })
+
+      // ✅ Try play with retries (iOS sometimes rejects first attempt)
+      let played = false
+      for (let i = 0; i < 5; i++) {
+        try {
+          // eslint-disable-next-line no-await-in-loop
+          await video.play()
+          played = true
+          break
+        } catch (_) {
+          // eslint-disable-next-line no-await-in-loop
+          await new Promise((r) => setTimeout(r, 250))
+        }
+      }
+
       onError?.('')
+
+      // ✅ Detect “black screen” (permission granted but video never becomes live)
+      setTimeout(() => {
+        const v = videoRef.current
+        const hasFrames = !!(v && v.videoWidth > 0 && v.videoHeight > 0 && v.readyState >= 2)
+        if (!hasFrames) setStuckBlack(true)
+      }, 1200)
+
+      if (!played) {
+        onError?.(
+          'Camera started but video preview is blocked. If you are on iPhone, disable Low Power Mode and ensure Safari camera permission is enabled.'
+        )
+      }
     } catch (e) {
       stopCamera()
+      setCameraOn(false)
       const msg = e?.message || 'Unable to access camera. Please allow camera permission.'
       onError?.(msg)
     } finally {
@@ -320,13 +390,24 @@ const LiveSelfieCapture = ({ disabled, value, onChange, onError }) => {
     const w = video.videoWidth || 720
     const h = video.videoHeight || 720
 
+    // If video never became "live", avoid capturing a black frame
+    if (!video.videoWidth || !video.videoHeight) {
+      onError?.('Camera preview not ready yet. Please wait 1–2 seconds and try again.')
+      return
+    }
+
     const canvas = document.createElement('canvas')
     canvas.width = w
     canvas.height = h
     const ctx = canvas.getContext('2d')
-    ctx.drawImage(video, 0, 0, w, h)
 
-    // JPEG is smaller than PNG
+    try {
+      ctx.drawImage(video, 0, 0, w, h)
+    } catch (err) {
+      onError?.('Preview is blocked. Please retry and ensure camera permissions are enabled.')
+      return
+    }
+
     const dataUrl = canvas.toDataURL('image/jpeg', 0.9)
     onChange?.(dataUrl)
     onError?.('')
@@ -336,6 +417,7 @@ const LiveSelfieCapture = ({ disabled, value, onChange, onError }) => {
   const retake = () => {
     onChange?.(null)
     onError?.('')
+    setStuckBlack(false)
   }
 
   return (
@@ -381,8 +463,19 @@ const LiveSelfieCapture = ({ disabled, value, onChange, onError }) => {
                 ref={videoRef}
                 playsInline
                 muted
+                autoPlay
+                // ✅ ensure it always has a visible area
+                style={{ width: '100%', height: 'auto' }}
                 className="w-full rounded-lg border border-slate-800 bg-black max-h-64 object-cover"
               />
+
+              {stuckBlack ? (
+                <div className="rounded-lg border border-amber-700/40 bg-amber-900/20 p-2 text-[11px] text-amber-200">
+                  Camera permission is allowed but the preview is blocked (common on iPhone browsers).
+                  Try: turn off Low Power Mode, refresh the page, and ensure Safari camera permission is enabled.
+                </div>
+              ) : null}
+
               <button
                 type="button"
                 onClick={capture}
@@ -392,6 +485,7 @@ const LiveSelfieCapture = ({ disabled, value, onChange, onError }) => {
                 <CameraOutlined />
                 Capture selfie
               </button>
+
               <div className="text-[11px] text-slate-500">
                 Tip: Use good lighting, remove cap/face covering, face centered.
               </div>
@@ -564,9 +658,6 @@ const KycCenter = () => {
         ? String(tier3SelfieDataUrl).split(',')[1]
         : String(tier3SelfieDataUrl)
 
-      // Backend endpoint:
-      // POST /api/v1/verification/tier3/start
-      // Body: { image: base64, bvn?: "..." }
       const res = await client.post('/verification/tier3/start', {
         image: base64Only,
         ...(needsBvn ? { bvn: normalizedBvn } : {}),
@@ -642,7 +733,6 @@ const KycCenter = () => {
 
             {/* Tier ladder */}
             <div className="mt-3">
-              {/* ✅ On mobile, prevent squishing by making it a horizontal scroll row */}
               <div className="flex gap-3 overflow-x-auto pb-2 md:hidden">
                 {tierOrder.map((tKey) => {
                   const state = getTierState(normalizedTierKey, tKey)
@@ -664,7 +754,6 @@ const KycCenter = () => {
                 })}
               </div>
 
-              {/* ✅ On md+, keep your original grid layout */}
               <div className="hidden md:grid md:grid-cols-4 gap-3 text-[11px]">
                 {tierOrder.map((tKey) => {
                   const state = getTierState(normalizedTierKey, tKey)
@@ -1008,7 +1097,8 @@ const KycCenter = () => {
           </div>
 
           <div className="text-[11px] text-slate-500 pt-2">
-            Note: We do not store your selfie permanently. We store minimal verification evidence (reference + timestamp).
+            Note: We do not store your selfie permanently. We store minimal verification evidence
+            (reference + timestamp).
           </div>
         </div>
       </InlineModal>
