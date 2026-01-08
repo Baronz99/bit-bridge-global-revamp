@@ -2,15 +2,16 @@
 
 class ApplicationController < ActionController::API
   include ActionController::Cookies
+
   before_action :force_json
-  before_action :authenticate_user!
+  before_action :authenticate_user!, unless: :devise_controller?
   before_action :configure_permitted_parameters, if: :devise_controller?
 
   protected
 
   # ✅ Prevent "Processing as HTML" when frontend misses Accept header
   def force_json
-    request.format = :json unless params[:format]
+    request.format = :json
   end
 
   def configure_permitted_parameters
@@ -45,7 +46,7 @@ class ApplicationController < ActionController::API
   #
   def require_transaction_pin!(raw_pin = nil, error_key: :message)
     unless current_user.respond_to?(:transaction_pin_set?) && current_user.transaction_pin_set?
-      render json: { error_key => 'Please set a transaction PIN before performing this action.' },
+      render json: { error_key => "Please set a transaction PIN before performing this action." },
              status: :forbidden
       return false
     end
@@ -64,12 +65,12 @@ class ApplicationController < ActionController::API
         params.dig(:circle, :transaction_pin).presence ||
         params.dig(:card, :transaction_pin).presence ||
         params.dig(:card, :pin).presence ||
-        ''
+        ""
       pin = pin.to_s.strip
     end
 
     if pin.blank?
-      render json: { error_key => 'Transaction PIN is required' }, status: :unprocessable_entity
+      render json: { error_key => "Transaction PIN is required" }, status: :unprocessable_entity
       return false
     end
 
@@ -88,9 +89,9 @@ class ApplicationController < ActionController::API
     if result != true
       remaining = User::MAX_TRANSACTION_PIN_ATTEMPTS - (current_user.transaction_pin_attempts || 0)
       render json: {
-        error_key => 'Invalid transaction PIN',
+        error_key => "Invalid transaction PIN",
         attempts_remaining: [remaining, 0].max
-      }, status: :unprocessable_entity   # ✅ 422 (NOT 401)
+      }, status: :unprocessable_entity
       return false
     end
 
@@ -105,7 +106,7 @@ class ApplicationController < ActionController::API
     return if allowed_levels.include?(user_level)
 
     render json: {
-      message: message || 'Complete Tier 2 verification to use this feature.'
+      message: message || "Complete Tier 2 verification to use this feature."
     }, status: :forbidden
   end
 end

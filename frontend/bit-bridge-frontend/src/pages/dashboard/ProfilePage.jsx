@@ -15,6 +15,7 @@ import ProfileInfoPanel from './profile/ProfileInfoPanel'
 import KycPanel from './profile/KycPanel'
 import SecurityPanel from './profile/SecurityPanel'
 import DangerZonePanel from './profile/DangerZonePanel'
+import FeesLimitsPanel from './profile/FeesLimitsPanel' // ✅ NEW
 
 // helper from onboarding API
 import { updateKycProfile } from '../../api/onboarding'
@@ -287,7 +288,7 @@ const ProfileAccountPage = () => {
   const { themeMode } = useSelector((state) => state.app || {})
 
   // Sidebar active section
-  const [active, setActive] = useState('profile') // profile | kyc | security | danger
+  const [active, setActive] = useState('profile') // profile | kyc | security | fees | danger ✅
 
   const [userPassword, setUserPassword] = useState({
     confirm_password: '',
@@ -368,6 +369,7 @@ const ProfileAccountPage = () => {
     if (active === 'profile') return 'Basic information and contact details'
     if (active === 'kyc') return 'Identity and address verification'
     if (active === 'security') return 'Password and transaction PIN'
+    if (active === 'fees') return 'Transparent fees, limits and pricing' // ✅ NEW
     if (active === 'danger') return 'Account deletion and irreversible actions'
     return ''
   }, [active])
@@ -395,7 +397,6 @@ const ProfileAccountPage = () => {
       if (isKycSave || userInfo.id_type) {
         formData.append('user[id_type]', userInfo.id_type || '')
       }
-
 
       formData.append('user[user_profile_attributes][first_name]', userInfo.user_profile.first_name || '')
       formData.append('user[user_profile_attributes][last_name]', userInfo.user_profile.last_name || '')
@@ -592,6 +593,10 @@ const ProfileAccountPage = () => {
                 <NavButton id="profile" title="Personal info" desc="Name, phone number, date of birth" />
                 <NavButton id="kyc" title="KYC & Documents" desc="ID type, address, uploads" />
                 <NavButton id="security" title="Security" desc="Password and transaction PIN" />
+
+                {/* ✅ NEW */}
+                <NavButton id="fees" title="Fees & Limits" desc="Pricing, transfer fees, card limits" />
+
                 <NavButton id="danger" title="Danger zone" desc="Delete your account" />
               </div>
             </aside>
@@ -642,6 +647,9 @@ const ProfileAccountPage = () => {
                   />
                 )}
 
+                {/* ✅ NEW */}
+                {active === 'fees' && <FeesLimitsPanel />}
+
                 {active === 'danger' && <DangerZonePanel onOpenDelete={() => setOpen(true)} />}
               </div>
             </main>
@@ -689,4 +697,3 @@ const ProfileAccountPage = () => {
 }
 
 export default ProfileAccountPage
-

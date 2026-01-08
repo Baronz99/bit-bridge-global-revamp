@@ -10,6 +10,8 @@ import {
   CreditCardOutlined,
   CheckCircleOutlined,
   LockOutlined,
+  CameraOutlined,
+  ReloadOutlined,
 } from '@ant-design/icons'
 import { NavLink, useNavigate } from 'react-router-dom'
 import client from '../../api/client'
@@ -98,16 +100,22 @@ const kycLevelConfig = {
   },
   tier_2: {
     label: 'Tier 2 - Full access',
-    description: 'BVN verified + ID upload + address. Unlocks cards, tunnel, transfers and virtual accounts.',
+    description:
+      'BVN verified + ID upload + address. Unlocks cards, tunnel, transfers and virtual accounts.',
+  },
+  tier_3: {
+    label: 'Tier 3 - Biometric',
+    description:
+      'Face verification (liveness + BVN face match). Unlocks higher limits and stronger protection.',
   },
 }
 
 // ---------- tier helpers ----------
-const tierOrder = ['tier_0', 'tier_1', 'tier_2']
+const tierOrder = ['tier_0', 'tier_1', 'tier_2', 'tier_3']
 
 const normalizeTierKey = (raw) => {
   const k = (raw ?? 'nil').toString()
-  if (k === 'nil' || k === '') return 'tier_0' // treat not started as Tier 0 for UI consistency
+  if (k === 'nil' || k === '') return 'tier_0'
   if (!tierOrder.includes(k)) return 'tier_0'
   return k
 }
@@ -139,6 +147,11 @@ const tierCardCopy = {
     body: 'BVN verified + ID upload + address. Unlock all services.',
     hint: 'Full access',
   },
+  tier_3: {
+    title: 'Tier 3',
+    body: 'Biometric verification (liveness + BVN face match) for higher limits & stronger protection.',
+    hint: 'Higher limits',
+  },
 }
 
 const TierCard = ({ state, title, body, hint, onPrimary, primaryLabel }) => {
@@ -147,6 +160,9 @@ const TierCard = ({ state, title, body, hint, onPrimary, primaryLabel }) => {
   const isLocked = state === 'locked'
 
   const containerClass = [
+    // ✅ Prevent "vertical text" by ensuring a sensible minimum width
+    // ✅ Works well with horizontal scroll on small screens (see tier ladder section below)
+    'min-w-[240px] sm:min-w-0',
     'rounded-xl border p-3 transition',
     isCurrent
       ? 'border-alt bg-slate-950/90 shadow-[0_0_0_1px_rgba(250,204,21,0.25)]'
@@ -155,12 +171,15 @@ const TierCard = ({ state, title, body, hint, onPrimary, primaryLabel }) => {
   ].join(' ')
 
   const badgeClass = [
-    'inline-flex items-center gap-1 rounded-full px-2 py-[2px] text-[10px] uppercase tracking-[0.16em] border',
+    'shrink-0 inline-flex items-center gap-1',
+    'rounded-full px-2.5 py-1',
+    'text-[10px] uppercase tracking-[0.16em] font-semibold',
+    'border whitespace-nowrap',
     isCurrent
       ? 'bg-alt/15 border-alt/60 text-alt'
       : isCompleted
-        ? 'bg-emerald-900/30 border-emerald-600/50 text-emerald-200'
-        : 'bg-slate-900 border-slate-700 text-slate-300',
+      ? 'bg-emerald-900/30 border-emerald-600/50 text-emerald-200'
+      : 'bg-slate-900 border-slate-700 text-slate-300',
   ].join(' ')
 
   const badgeText =
@@ -173,10 +192,13 @@ const TierCard = ({ state, title, body, hint, onPrimary, primaryLabel }) => {
 
   return (
     <div className={containerClass}>
-      <div className="flex items-start justify-between gap-2 mb-2">
-        <div>
-          <p className="font-semibold mb-1 text-slate-100">{title}</p>
-          <p className="text-slate-400 text-[11px]">{hint}</p>
+      <div className="flex items-start justify-between gap-3 mb-2">
+        <div className="min-w-0">
+          {/* ✅ Never break letters vertically */}
+          <p className="font-semibold mb-1 text-slate-100 leading-snug whitespace-nowrap">
+            {title}
+          </p>
+          <p className="text-slate-400 text-[11px] leading-snug line-clamp-1">{hint}</p>
         </div>
 
         <span className={badgeClass}>
@@ -185,7 +207,10 @@ const TierCard = ({ state, title, body, hint, onPrimary, primaryLabel }) => {
         </span>
       </div>
 
-      <p className="text-slate-400 text-[11px] leading-relaxed">{body}</p>
+      {/* ✅ Keep body readable; clamp on small screens for consistent card height */}
+      <p className="text-slate-400 text-[11px] leading-relaxed line-clamp-3 md:line-clamp-none">
+        {body}
+      </p>
 
       {isCurrent && typeof onPrimary === 'function' && primaryLabel ? (
         <button
@@ -200,17 +225,208 @@ const TierCard = ({ state, title, body, hint, onPrimary, primaryLabel }) => {
   )
 }
 
+// Simple modal (no new dependencies; won’t break existing builds)
+const InlineModal = ({ open, title, children, onClose }) => {
+  if (!open) return null
+  return (
+    <div className="fixed inset-0 z-[1000] flex items-center justify-center px-4">
+      <div className="absolute inset-0 bg-black/70" onClick={onClose} role="button" tabIndex={-1} />
+      <div className="relative w-full max-w-lg rounded-2xl border border-slate-700 bg-slate-950 p-5 shadow-xl">
+        <div className="flex items-start justify-between gap-3 mb-3">
+          <div>
+            <div className="text-[11px] uppercase tracking-[0.2em] text-slate-500">Verification</div>
+            <div className="text-lg font-semibold text-slate-100">{title}</div>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-lg border border-slate-700 bg-slate-900/60 px-3 py-1.5 text-xs text-slate-200 hover:bg-slate-800 transition"
+          >
+            Close
+          </button>
+        </div>
+        {children}
+      </div>
+    </div>
+  )
+}
+
+/**
+ * Live selfie capture widget (no uploads)
+ * - Uses getUserMedia
+ * - Captures a frame to canvas
+ * - Returns base64 dataUrl
+ */
+const LiveSelfieCapture = ({ disabled, value, onChange, onError }) => {
+  const videoRef = React.useRef(null)
+  const streamRef = React.useRef(null)
+
+  const [starting, setStarting] = React.useState(false)
+  const [cameraOn, setCameraOn] = React.useState(false)
+
+  const stopCamera = React.useCallback(() => {
+    try {
+      const stream = streamRef.current
+      if (stream) {
+        stream.getTracks()?.forEach((t) => t.stop())
+      }
+    } catch (_) {
+      // no-op
+    } finally {
+      streamRef.current = null
+      setCameraOn(false)
+    }
+  }, [])
+
+  React.useEffect(() => {
+    return () => stopCamera()
+  }, [stopCamera])
+
+  const startCamera = async () => {
+    if (disabled) return
+    setStarting(true)
+    try {
+      if (!navigator?.mediaDevices?.getUserMedia) {
+        throw new Error('Camera not supported on this device/browser.')
+      }
+
+      // Prefer front camera
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: 'user' },
+        audio: false,
+      })
+
+      streamRef.current = stream
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream
+        await videoRef.current.play()
+      }
+      setCameraOn(true)
+      onError?.('')
+    } catch (e) {
+      stopCamera()
+      const msg = e?.message || 'Unable to access camera. Please allow camera permission.'
+      onError?.(msg)
+    } finally {
+      setStarting(false)
+    }
+  }
+
+  const capture = () => {
+    if (disabled) return
+    const video = videoRef.current
+    if (!video) return
+
+    const w = video.videoWidth || 720
+    const h = video.videoHeight || 720
+
+    const canvas = document.createElement('canvas')
+    canvas.width = w
+    canvas.height = h
+    const ctx = canvas.getContext('2d')
+    ctx.drawImage(video, 0, 0, w, h)
+
+    // JPEG is smaller than PNG
+    const dataUrl = canvas.toDataURL('image/jpeg', 0.9)
+    onChange?.(dataUrl)
+    onError?.('')
+    stopCamera()
+  }
+
+  const retake = () => {
+    onChange?.(null)
+    onError?.('')
+  }
+
+  return (
+    <div className="rounded-xl border border-slate-800 bg-slate-950/50 p-3">
+      <div className="flex items-center justify-between gap-3 mb-2">
+        <div className="text-[11px] uppercase tracking-[0.2em] text-slate-500">Selfie capture</div>
+        {cameraOn ? (
+          <button
+            type="button"
+            onClick={stopCamera}
+            disabled={disabled}
+            className="text-xs text-slate-300 hover:text-slate-100 transition"
+          >
+            Stop
+          </button>
+        ) : null}
+      </div>
+
+      {value ? (
+        <div>
+          <img
+            src={value}
+            alt="Captured selfie"
+            className="w-full rounded-lg border border-slate-800 object-cover max-h-64"
+          />
+          <div className="mt-3 flex items-center gap-2">
+            <button
+              type="button"
+              onClick={retake}
+              disabled={disabled}
+              className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-slate-700 bg-slate-900/60 text-xs text-slate-200 hover:bg-slate-800 transition disabled:opacity-60"
+            >
+              <ReloadOutlined />
+              Retake
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div>
+          {cameraOn ? (
+            <div className="space-y-2">
+              <video
+                ref={videoRef}
+                playsInline
+                muted
+                className="w-full rounded-lg border border-slate-800 bg-black max-h-64 object-cover"
+              />
+              <button
+                type="button"
+                onClick={capture}
+                disabled={disabled}
+                className="w-full inline-flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-alt text-black text-xs font-semibold hover:brightness-110 transition disabled:opacity-60"
+              >
+                <CameraOutlined />
+                Capture selfie
+              </button>
+              <div className="text-[11px] text-slate-500">
+                Tip: Use good lighting, remove cap/face covering, face centered.
+              </div>
+            </div>
+          ) : (
+            <div className="flex flex-col gap-2">
+              <button
+                type="button"
+                onClick={startCamera}
+                disabled={disabled || starting}
+                className="inline-flex items-center justify-center gap-2 px-3 py-2 rounded-lg border border-alt text-alt text-xs font-semibold hover:bg-alt/10 transition disabled:opacity-60"
+              >
+                <CameraOutlined />
+                {starting ? 'Starting camera...' : 'Open camera'}
+              </button>
+              <div className="text-[11px] text-slate-500">
+                We do not allow uploads for Tier 3. This must be captured live.
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
 const KycCenter = () => {
   const dispatch = useDispatch()
   const { user } = useSelector((state) => state.auth) || {}
   const navigate = useNavigate()
 
   const primaryUseCase = user?.primary_use_case || 'airtime_utilities'
-
   const normalizedTierKey = normalizeTierKey(user?.kyc_level)
   const rawKycLevelKey = (user?.kyc_level || 'nil').toString()
   const kycInfo = kycLevelConfig[rawKycLevelKey] || kycLevelConfig.nil
-
   const useCaseInfo = useCaseConfig[primaryUseCase] || useCaseConfig.airtime_utilities
 
   // ✅ Phone verification modal
@@ -220,6 +436,15 @@ const KycCenter = () => {
   const [bvnSubmitting, setBvnSubmitting] = React.useState(false)
   const [bvnResponse, setBvnResponse] = React.useState(null)
   const [bvnError, setBvnError] = React.useState('')
+
+  // Tier 3 (biometric) UI state — isolated
+  const [showTier3Modal, setShowTier3Modal] = React.useState(false)
+  const [tier3Bvn, setTier3Bvn] = React.useState('')
+  const [tier3SelfieDataUrl, setTier3SelfieDataUrl] = React.useState(null)
+  const [tier3Submitting, setTier3Submitting] = React.useState(false)
+  const [tier3Error, setTier3Error] = React.useState('')
+  const [tier3Success, setTier3Success] = React.useState('')
+  const [tier3CameraError, setTier3CameraError] = React.useState('')
 
   // Supports either top-level fields (recommended) or nested profile
   const phoneVerified =
@@ -232,27 +457,21 @@ const KycCenter = () => {
   const bvnLast4 = userKyc?.bvn_last4 || ''
   const isBvnVerified = bvnStatus === 'verified'
 
-  const hasTier2 = normalizedTierKey === 'tier_2'
+  const hasTier2 = normalizedTierKey === 'tier_2' || normalizedTierKey === 'tier_3'
+  const hasTier3 = normalizedTierKey === 'tier_3'
 
-  // “next action” routing helpers
   const goProfile = () => navigate('/dashboard/profile-account')
   const goVirtualAccounts = () => navigate('/dashboard/virtual-accounts')
-  const goWallet = () => navigate('/dashboard/wallet') // if you don’t have this route, change to /dashboard/home
-  const goBvnSection = () => {
-    try {
-      document.getElementById('bvn-verify')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-    } catch (_) {
-      // no-op
-    }
-  }
+  const goWallet = () => navigate('/dashboard/wallet')
 
-  // Decide what button to show inside the CURRENT tier card
   const currentTierPrimary =
     normalizedTierKey === 'tier_0'
       ? { label: 'Open profile', action: goProfile }
       : normalizedTierKey === 'tier_1'
-        ? { label: null, action: null }
-        : { label: 'Go to virtual accounts', action: goVirtualAccounts }
+      ? { label: null, action: null }
+      : normalizedTierKey === 'tier_2'
+      ? { label: 'Go to virtual accounts', action: goVirtualAccounts }
+      : { label: null, action: null }
 
   const handleVerifyBvn = async () => {
     const normalized = bvnInput.replace(/\D/g, '')
@@ -283,6 +502,7 @@ const KycCenter = () => {
 
   const effectiveBvnStatus = bvnResponse?.status || bvnStatus
   const effectiveLast4 = bvnResponse?.bvn_last4 || bvnLast4
+
   const bvnStatusLabel =
     effectiveBvnStatus === 'verified'
       ? 'Verified'
@@ -307,20 +527,81 @@ const KycCenter = () => {
       ? 'text-rose-300'
       : 'text-slate-400'
 
+  const openTier3 = () => {
+    setTier3Error('')
+    setTier3Success('')
+    setTier3CameraError('')
+    setTier3SelfieDataUrl(null)
+    setTier3Bvn('')
+    setShowTier3Modal(true)
+  }
+
+  const handleTier3Submit = async () => {
+    setTier3Error('')
+    setTier3Success('')
+
+    if (!hasTier2) {
+      setTier3Error('Complete Tier 2 before upgrading to Tier 3.')
+      return
+    }
+
+    if (!tier3SelfieDataUrl) {
+      setTier3Error('Please capture a live selfie to continue.')
+      return
+    }
+
+    const needsBvn = !isBvnVerified
+    const normalizedBvn = tier3Bvn.replace(/\D/g, '')
+    if (needsBvn && normalizedBvn.length !== 11) {
+      setTier3Error('Enter a valid 11-digit BVN (or verify BVN first).')
+      return
+    }
+
+    setTier3Submitting(true)
+    try {
+      // We only send the base64 portion (strip "data:image/jpeg;base64,")
+      const base64Only = String(tier3SelfieDataUrl).includes(',')
+        ? String(tier3SelfieDataUrl).split(',')[1]
+        : String(tier3SelfieDataUrl)
+
+      // Backend endpoint:
+      // POST /api/v1/verification/tier3/start
+      // Body: { image: base64, bvn?: "..." }
+      const res = await client.post('/verification/tier3/start', {
+        image: base64Only,
+        ...(needsBvn ? { bvn: normalizedBvn } : {}),
+      })
+
+      const message =
+        res?.data?.message ||
+        res?.data?.detail ||
+        'Tier 3 verification submitted successfully.'
+
+      setTier3Success(message)
+      await dispatch(userProfile())
+    } catch (error) {
+      const msg =
+        error?.response?.data?.message ||
+        error?.response?.data?.error ||
+        error?.message ||
+        'Unable to complete Tier 3 verification.'
+      setTier3Error(msg)
+    } finally {
+      setTier3Submitting(false)
+    }
+  }
+
   return (
     <div className="min-h-screen p-4 md:p-8 bg-slate-950 text-slate-100">
       {/* Top header */}
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 mb-8">
         <div>
-          <p className="text-[11px] uppercase tracking-[0.2em] text-slate-500 mb-1">
-            Verification
-          </p>
+          <p className="text-[11px] uppercase tracking-[0.2em] text-slate-500 mb-1">Verification</p>
           <h1 className="text-2xl md:text-3xl font-semibold mb-1">
             Verify your BitBridge account
           </h1>
           <p className="text-sm text-slate-400 max-w-xl">
-            Complete a couple of quick checks to unlock transfers, virtual accounts and
-            higher limits.
+            Complete a couple of quick checks to unlock transfers, virtual accounts and higher limits.
           </p>
         </div>
 
@@ -359,35 +640,56 @@ const KycCenter = () => {
             <h3 className="font-semibold text-slate-100">What your level means</h3>
             <p className="text-slate-300">{kycInfo.description}</p>
 
-            {/* Tier ladder (stateful) */}
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-[11px] mt-3">
-              {tierOrder.map((tKey) => {
-                const state = getTierState(normalizedTierKey, tKey)
-                const copy = tierCardCopy[tKey]
+            {/* Tier ladder */}
+            <div className="mt-3">
+              {/* ✅ On mobile, prevent squishing by making it a horizontal scroll row */}
+              <div className="flex gap-3 overflow-x-auto pb-2 md:hidden">
+                {tierOrder.map((tKey) => {
+                  const state = getTierState(normalizedTierKey, tKey)
+                  const copy = tierCardCopy[tKey]
+                  const onPrimary = state === 'current' ? currentTierPrimary.action : undefined
+                  const primaryLabel = state === 'current' ? currentTierPrimary.label : undefined
 
-                // Only show a CTA inside the CURRENT tier card, to keep UI clean
-                const onPrimary =
-                  state === 'current' ? currentTierPrimary.action : undefined
-                const primaryLabel =
-                  state === 'current' ? currentTierPrimary.label : undefined
+                  return (
+                    <TierCard
+                      key={tKey}
+                      state={state}
+                      title={copy.title}
+                      body={copy.body}
+                      hint={copy.hint}
+                      onPrimary={onPrimary}
+                      primaryLabel={primaryLabel}
+                    />
+                  )
+                })}
+              </div>
 
-                return (
-                  <TierCard
-                    key={tKey}
-                    state={state}
-                    title={copy.title}
-                    body={copy.body}
-                    hint={copy.hint}
-                    onPrimary={onPrimary}
-                    primaryLabel={primaryLabel}
-                  />
-                )
-              })}
+              {/* ✅ On md+, keep your original grid layout */}
+              <div className="hidden md:grid md:grid-cols-4 gap-3 text-[11px]">
+                {tierOrder.map((tKey) => {
+                  const state = getTierState(normalizedTierKey, tKey)
+                  const copy = tierCardCopy[tKey]
+                  const onPrimary = state === 'current' ? currentTierPrimary.action : undefined
+                  const primaryLabel = state === 'current' ? currentTierPrimary.label : undefined
+
+                  return (
+                    <TierCard
+                      key={tKey}
+                      state={state}
+                      title={copy.title}
+                      body={copy.body}
+                      hint={copy.hint}
+                      onPrimary={onPrimary}
+                      primaryLabel={primaryLabel}
+                    />
+                  )
+                })}
+              </div>
             </div>
           </div>
         </div>
 
-        {/* RIGHT: Next steps card */}
+        {/* RIGHT: Next steps */}
         <div className="rounded-2xl border border-slate-800 bg-slate-900/80 p-5 md:p-6 flex flex-col justify-between">
           <div>
             <h3 className="text-sm font-semibold mb-1 flex items-center gap-2">
@@ -405,12 +707,9 @@ const KycCenter = () => {
                   1
                 </div>
                 <div>
-                  <p className="font-semibold text-slate-100">
-                    Confirm your basic details
-                  </p>
+                  <p className="font-semibold text-slate-100">Confirm your basic details</p>
                   <p className="text-xs text-slate-400 mt-1">
-                    Make sure your name and phone number in your profile match your bank
-                    records.
+                    Make sure your name and phone number in your profile match your bank records.
                   </p>
 
                   <div className="mt-2 flex flex-wrap items-center gap-2">
@@ -447,7 +746,8 @@ const KycCenter = () => {
                 <div>
                   <p className="font-semibold text-slate-100">Verify your BVN</p>
                   <p className="text-xs text-slate-400 mt-1">
-                    Confirm your BVN with our verification partner. We never store your BVN in plain text.
+                    Confirm your BVN with our verification partner. We never store your BVN
+                    in plain text.
                   </p>
                   <p className="mt-2 text-xs text-slate-400">
                     Current status: <span className={bvnStatusClass}>{bvnStatusLabel}</span>
@@ -474,6 +774,41 @@ const KycCenter = () => {
                 </div>
               </li>
             </ol>
+
+            {/* Tier 3 prompt */}
+            {hasTier2 && !hasTier3 ? (
+              <div className="mt-5 rounded-xl border border-slate-800 bg-slate-950/50 p-4">
+                <div className="text-xs uppercase tracking-[0.2em] text-slate-500 mb-2">
+                  Optional upgrade
+                </div>
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <div className="font-semibold text-slate-100">Upgrade to Tier 3</div>
+                    <div className="text-xs text-slate-400 mt-1">
+                      Complete biometric verification (live selfie + face match) to unlock higher limits.
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={openTier3}
+                    className="shrink-0 inline-flex items-center px-3 py-2 rounded-lg bg-alt text-black text-xs font-semibold hover:brightness-110 transition"
+                  >
+                    Upgrade
+                  </button>
+                </div>
+              </div>
+            ) : null}
+
+            {hasTier3 ? (
+              <div className="mt-5 rounded-xl border border-emerald-700/40 bg-emerald-900/20 p-4">
+                <div className="flex items-center gap-2 text-emerald-200 font-semibold">
+                  <CheckCircleOutlined /> Tier 3 verified
+                </div>
+                <div className="text-xs text-slate-300 mt-1">
+                  Biometric verification completed. You now qualify for higher limits.
+                </div>
+              </div>
+            ) : null}
           </div>
 
           <div className="mt-6 flex flex-wrap gap-3 justify-between">
@@ -484,16 +819,11 @@ const KycCenter = () => {
               Back to dashboard
             </NavLink>
 
-            {/* context-aware “skip” */}
             <button
               type="button"
               onClick={hasTier2 ? goVirtualAccounts : goWallet}
               className="inline-flex items-center justify-center px-4 py-2.5 rounded-xl bg-alt text-black text-xs md:text-sm font-semibold hover:brightness-110 transition"
-              title={
-                hasTier2
-                  ? 'Go to virtual accounts'
-                  : 'Use wallet for now (virtual accounts unlock at Tier 2)'
-              }
+              title={hasTier2 ? 'Go to virtual accounts' : 'Use wallet for now (virtual accounts unlock at Tier 2)'}
             >
               {hasTier2 ? 'Go to virtual accounts' : 'Skip for now - use wallet'}
             </button>
@@ -501,7 +831,10 @@ const KycCenter = () => {
         </div>
       </div>
 
-      <section id="bvn-verify" className="mt-6 rounded-2xl border border-slate-800 bg-slate-900/80 p-5 md:p-6">
+      <section
+        id="bvn-verify"
+        className="mt-6 rounded-2xl border border-slate-800 bg-slate-900/80 p-5 md:p-6"
+      >
         <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
           <div>
             <h2 className="text-lg md:text-xl font-semibold">Verify BVN</h2>
@@ -510,7 +843,10 @@ const KycCenter = () => {
             </p>
           </div>
           <div className="text-xs text-slate-400">
-            Status: <span className={['font-semibold', bvnStatusClass].join(' ')}>{bvnStatusLabel}</span>
+            Status:{' '}
+            <span className={['font-semibold', bvnStatusClass].join(' ')}>
+              {bvnStatusLabel}
+            </span>
           </div>
         </div>
 
@@ -570,14 +906,114 @@ const KycCenter = () => {
                 Provider unavailable. Please retry in a few minutes.
               </p>
             )}
-            {effectiveBvnStatus === 'unverified' && (
-              <p>Enter your BVN to begin verification.</p>
-            )}
+            {effectiveBvnStatus === 'unverified' && <p>Enter your BVN to begin verification.</p>}
           </div>
         </div>
       </section>
 
-      {/* ✅ Phone verification modal mount (keeps existing flows intact) */}
+      {/* Tier 3 modal */}
+      <InlineModal
+        open={showTier3Modal}
+        title="Tier 3 - Biometric Verification"
+        onClose={() => {
+          if (!tier3Submitting) setShowTier3Modal(false)
+        }}
+      >
+        <div className="text-xs text-slate-300">
+          Capture a live selfie. We will run a liveness check and match your face against your BVN.
+        </div>
+
+        {!hasTier2 ? (
+          <div className="mt-4 rounded-xl border border-rose-700/40 bg-rose-900/20 p-3 text-xs text-rose-200">
+            Complete Tier 2 before upgrading to Tier 3.
+          </div>
+        ) : null}
+
+        <div className="mt-4 space-y-3">
+          {/* BVN input only if BVN not already verified */}
+          {!isBvnVerified ? (
+            <div>
+              <div className="text-[11px] uppercase tracking-[0.2em] text-slate-500 mb-1">
+                BVN (required)
+              </div>
+              <input
+                type="text"
+                inputMode="numeric"
+                maxLength={11}
+                value={tier3Bvn}
+                onChange={(e) => setTier3Bvn(e.target.value.replace(/\D/g, '').slice(0, 11))}
+                className="w-full rounded-xl border border-slate-700 bg-slate-950/60 px-3 py-2 text-sm text-slate-100 outline-none focus:border-alt"
+                placeholder="Enter 11-digit BVN"
+                autoComplete="off"
+                disabled={tier3Submitting}
+              />
+              <div className="text-[11px] text-slate-500 mt-1">
+                Tip: If you verify BVN first, Tier 3 won’t ask again.
+              </div>
+            </div>
+          ) : (
+            <div className="rounded-xl border border-slate-800 bg-slate-950/50 p-3 text-xs text-slate-300">
+              BVN status: <span className="text-emerald-300 font-semibold">Verified</span>{' '}
+              (****{effectiveLast4})
+              <div className="text-[11px] text-slate-500 mt-1">
+                We’ll reuse your verified BVN evidence on file.
+              </div>
+            </div>
+          )}
+
+          {/* ✅ LIVE capture only */}
+          <LiveSelfieCapture
+            disabled={tier3Submitting || !hasTier2}
+            value={tier3SelfieDataUrl}
+            onChange={setTier3SelfieDataUrl}
+            onError={(msg) => setTier3CameraError(msg || '')}
+          />
+
+          {tier3CameraError ? (
+            <div className="rounded-xl border border-rose-700/40 bg-rose-900/20 p-3 text-xs text-rose-200">
+              {tier3CameraError}
+            </div>
+          ) : null}
+
+          {tier3Error ? (
+            <div className="rounded-xl border border-rose-700/40 bg-rose-900/20 p-3 text-xs text-rose-200">
+              {tier3Error}
+            </div>
+          ) : null}
+
+          {tier3Success ? (
+            <div className="rounded-xl border border-emerald-700/40 bg-emerald-900/20 p-3 text-xs text-emerald-200">
+              {tier3Success}
+            </div>
+          ) : null}
+
+          <div className="flex items-center gap-2 pt-2">
+            <button
+              type="button"
+              onClick={() => setShowTier3Modal(false)}
+              disabled={tier3Submitting}
+              className="inline-flex items-center px-4 py-2 rounded-xl border border-slate-700 bg-slate-900/60 text-xs text-slate-200 hover:bg-slate-800 transition disabled:opacity-60"
+            >
+              Cancel
+            </button>
+
+            <button
+              type="button"
+              onClick={handleTier3Submit}
+              disabled={tier3Submitting || !hasTier2}
+              className="inline-flex items-center px-4 py-2 rounded-xl bg-alt text-black text-xs font-semibold hover:brightness-110 transition disabled:opacity-60"
+            >
+              {tier3Submitting ? 'Verifying...' : 'Verify & upgrade'}
+            </button>
+          </div>
+
+          <div className="text-[11px] text-slate-500 pt-2">
+            Note: We do not store your selfie permanently. We store minimal verification evidence (reference + timestamp).
+          </div>
+        </div>
+      </InlineModal>
+
+      {/* Phone verification modal mount */}
       <PhoneVerifyModal
         open={showPhoneModal}
         onClose={() => setShowPhoneModal(false)}
