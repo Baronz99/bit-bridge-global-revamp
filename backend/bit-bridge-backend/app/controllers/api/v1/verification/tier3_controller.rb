@@ -4,37 +4,59 @@ module Api
   module V1
     module Verification
       class Tier3Controller < ApplicationController
-        # If your API uses auth, keep this. If your app uses a different method,
-        # replace with your existing authentication hook.
         before_action :authenticate_user!
 
         # POST /api/v1/verification/tier3/start
-        # Body: { image: "<base64>", bvn?: "12345678901" }
+        # Body: { image: "<base64>" } OR { tier3: { image: "<base64>" } }
         def start
-          image = params[:image].to_s
-          bvn   = params[:bvn].to_s.presence
+          image =
+            params[:image].presence ||
+            params.dig(:tier3, :image).presence
+
+          image = image.to_s
 
           if image.blank?
             return render json: { error: "image is required" }, status: :unprocessable_entity
           end
 
-          # Optional basic BVN validation (only if provided)
-          if bvn.present? && bvn.gsub(/\D/, "").length != 11
-            return render json: { error: "bvn must be 11 digits" }, status: :unprocessable_entity
+          kyc = current_user.user_kyc
+          if kyc.nil?
+            return render json: { error: "KYC record not found" }, status: :unprocessable_entity
           end
 
-          # TODO: Plug in your real tier3 flow:
-          # - run liveness
-          # - run BVN face match
-          # - store a verification reference + status
-          # - upgrade user kyc_level to tier_3 on success
+          unless kyc.verified?
+            return render json: { error: "BVN must be verified before Tier 3" }, status: :unprocessable_entity
+          end
 
-          render json: {
-            message: "Tier 3 verification received",
-            status: "submitted"
-          }, status: :ok
-        rescue => e
+          bvn = kyc.bvn_encrypted.to_s.gsub(/\D/, "")
+          if bvn.length != 11
+            return render json: { error: "Verified BVN not available. Please re-verify BVN." }, status: :unprocessable_entity
+          end
+
+          if %w[pending processing].include?(kyc.tier3_status.to_s)
+            return render json: { status: kyc.tier3_status, message: "Tier 3 already in progress" }, status: :ok
+          end
+
+          kyc.update!(
+            tier3_status: "pending",
+            tier3_error: nil,
+            tier3_reference: nil,
+            tier3_verified_at: nil
+          )
+
+          Tier3VerificationJob.perform_later(current_user.id, image)
+
+          render json: { message: "Tier 3 submitted", status: kyc.tier3_status }, status: :ok
+        rescue StandardError => e
           render json: { error: e.message }, status: :internal_server_error
+        end
+
+        # GET /api/v1/verification/tier3/status
+        def status
+          kyc = current_user.user_kyc
+          return render json: { error: "KYC record not found" }, status: :unprocessable_entity if kyc.nil?
+
+          render json: UserKycSerializer.new(kyc).as_json, status: :ok
         end
       end
     end

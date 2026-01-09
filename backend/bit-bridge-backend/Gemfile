@@ -38,6 +38,8 @@ gem 'bootsnap', require: false
 gem 'rack-cors'
 gem "rack-attack"
 
+gem "sidekiq"
+gem "redis", "~> 5.0"
 
 # added gems for app
 gem 'aws-sdk-s3'

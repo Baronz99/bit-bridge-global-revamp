@@ -252,7 +252,7 @@ const InlineModal = ({ open, title, children, onClose }) => {
  * - Captures a frame to canvas
  * - Returns base64 dataUrl
  */
-const LiveSelfieCapture = ({ disabled, value, onChange, onError }) => {
+const LiveSelfieCapture = ({ disabled, value, onChange, onError, registerStop }) => {
   const videoRef = React.useRef(null)
   const streamRef = React.useRef(null)
 
@@ -272,29 +272,43 @@ const LiveSelfieCapture = ({ disabled, value, onChange, onError }) => {
     }
   }, [])
 
+  // Allow parent to stop camera when modal closes
+  React.useEffect(() => {
+    if (typeof registerStop === 'function') registerStop(() => stopCamera())
+  }, [registerStop, stopCamera])
+
   React.useEffect(() => {
     return () => stopCamera()
   }, [stopCamera])
+
+  // wait for <video> to exist in DOM before attaching stream
+  const waitForVideoEl = async () => {
+    for (let i = 0; i < 20; i++) {
+      const v = videoRef.current
+      if (v) return v
+      // eslint-disable-next-line no-await-in-loop
+      await new Promise((r) => setTimeout(r, 25))
+    }
+    return null
+  }
 
   const startCamera = async () => {
     if (disabled) return
     setStarting(true)
     setStuckBlack(false)
+    onError?.('')
 
     try {
       if (!navigator?.mediaDevices?.getUserMedia) {
         throw new Error('Camera not supported on this device/browser.')
       }
 
-      // If running on http (not localhost), Safari/Chrome may block camera
-      const isLocalhost =
-        window?.location?.hostname === 'localhost' || window?.location?.hostname === '127.0.0.1'
-      const isSecure = window?.location?.protocol === 'https:' || isLocalhost
-      if (!isSecure) {
-        throw new Error('Camera requires HTTPS. Open this page on https:// or localhost.')
-      }
+      // ✅ IMPORTANT: render/mount the <video> first
+      setCameraOn(true)
 
-      // iOS Safari prefers ideal constraints
+      const video = await waitForVideoEl()
+      if (!video) throw new Error('Camera element not ready.')
+
       const stream = await navigator.mediaDevices.getUserMedia({
         video: {
           facingMode: { ideal: 'user' },
@@ -306,26 +320,22 @@ const LiveSelfieCapture = ({ disabled, value, onChange, onError }) => {
 
       streamRef.current = stream
 
-      const video = videoRef.current
-      if (!video) {
-        throw new Error('Camera element not ready.')
-      }
-
+      // iOS / in-app browsers
       video.setAttribute('playsinline', 'true')
       video.setAttribute('autoplay', 'true')
       video.muted = true
       video.srcObject = stream
 
-      // Wait for metadata OR fallback timer
+      // wait metadata (or fallback)
       await new Promise((resolve) => {
         const done = () => resolve(true)
         video.onloadedmetadata = done
-        setTimeout(done, 700)
+        setTimeout(done, 650)
       })
 
-      // Play with retries (iOS sometimes rejects first attempt)
+      // play retries
       let played = false
-      for (let i = 0; i < 5; i++) {
+      for (let i = 0; i < 4; i++) {
         try {
           // eslint-disable-next-line no-await-in-loop
           await video.play()
@@ -337,10 +347,7 @@ const LiveSelfieCapture = ({ disabled, value, onChange, onError }) => {
         }
       }
 
-      setCameraOn(true)
-      onError?.('')
-
-      // Detect “black screen”
+      // detect “black preview” cases
       setTimeout(() => {
         const v = videoRef.current
         const hasFrames = !!(v && v.videoWidth > 0 && v.videoHeight > 0 && v.readyState >= 2)
@@ -349,7 +356,7 @@ const LiveSelfieCapture = ({ disabled, value, onChange, onError }) => {
 
       if (!played) {
         onError?.(
-          'Camera started but video preview is blocked. If you are on iPhone, disable Low Power Mode and ensure Safari camera permission is enabled.'
+          'Camera started but preview is blocked. If on iPhone, turn off Low Power Mode and allow camera in Safari settings.'
         )
       }
     } catch (e) {
@@ -364,7 +371,10 @@ const LiveSelfieCapture = ({ disabled, value, onChange, onError }) => {
   const capture = () => {
     if (disabled) return
     const video = videoRef.current
-    if (!video) return
+    if (!video) {
+      onError?.('Camera element not ready.')
+      return
+    }
 
     const w = video.videoWidth || 720
     const h = video.videoHeight || 720
@@ -482,6 +492,7 @@ const LiveSelfieCapture = ({ disabled, value, onChange, onError }) => {
     </div>
   )
 }
+
 
 // ---- helper: Tier 3 endpoint fallback (fixes your 404 “Not Found”) ----
 async function postTier3Start(payload) {

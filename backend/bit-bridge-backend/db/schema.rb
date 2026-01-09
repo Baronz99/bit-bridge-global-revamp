@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[7.1].define(version: 2026_01_09_093001) do
+ActiveRecord::Schema[7.1].define(version: 2026_01_09_133826) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pgcrypto"
   enable_extension "plpgsql"
@@ -559,6 +559,12 @@ ActiveRecord::Schema[7.1].define(version: 2026_01_09_093001) do
     t.string "bvn_fingerprint"
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
+    t.string "tier3_status", default: "not_started", null: false
+    t.string "tier3_reference"
+    t.datetime "tier3_verified_at"
+    t.string "tier3_error"
+    t.string "bvn_encrypted"
+    t.index ["bvn_encrypted"], name: "index_user_kycs_on_bvn_encrypted"
     t.index ["bvn_fingerprint"], name: "index_user_kycs_on_bvn_fingerprint"
     t.index ["bvn_status"], name: "index_user_kycs_on_bvn_status"
     t.index ["user_id"], name: "index_user_kycs_on_user_id", unique: true

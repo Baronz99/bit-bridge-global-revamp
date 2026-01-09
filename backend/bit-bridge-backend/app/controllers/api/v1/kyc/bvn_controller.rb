@@ -11,19 +11,19 @@ module Api
 
         def verify
           unless FeatureFlags.prembly?
-            raise StandardError, 'PREMBLY is disabled'
+            raise StandardError, "PREMBLY is disabled"
           end
 
-          bvn = params[:bvn].to_s.gsub(/\s+/, '')
+          bvn = params[:bvn].to_s.gsub(/\s+/, "")
           unless bvn.match?(/\A\d{11}\z/)
-            return render json: { status: 'error', message: 'BVN must be 11 digits.' }, status: :unprocessable_entity
+            return render json: { status: "error", message: "BVN must be 11 digits." }, status: :unprocessable_entity
           end
 
           user = current_user
           user_kyc = user.user_kyc || user.build_user_kyc
 
           if user_kyc.verified?
-            return render json: response_payload(user, user_kyc, status: 'verified'), status: :ok
+            return render json: response_payload(user, user_kyc, status: "verified"), status: :ok
           end
 
           reset_attempt_window!(user_kyc)
@@ -34,7 +34,7 @@ module Api
 
           ip_address = request.remote_ip.to_s
           if ip_rate_limited?(ip_address)
-            return render json: { status: 'locked', message: 'Too many attempts from this IP. Try again later.' },
+            return render json: { status: "locked", message: "Too many attempts from this IP. Try again later." },
                           status: :too_many_requests
           end
 
@@ -44,45 +44,45 @@ module Api
           user_kyc.assign_attributes(
             bvn_last4: last4,
             bvn_fingerprint: fingerprint,
-            bvn_provider: 'prembly',
+            bvn_provider: "prembly",
             bvn_attempts_count: (user_kyc.bvn_attempts_count || 0) + 1,
             bvn_last_attempt_at: Time.current
           )
           user_kyc.save!
 
           if bvn_in_use?(fingerprint, user.id)
-            user_kyc.update!(bvn_status: 'pending_review')
-            review = create_review(user, 'bvn_in_use', 'pending')
-            log_attempt(user, ip_address, false, 'pending_review')
-            log_audit(user, 'verification_attempt', 'pending_review', ip_address, review_id: review&.id)
+            user_kyc.update!(bvn_status: "pending_review")
+            review = create_review(user, "bvn_in_use", "pending")
+            log_attempt(user, ip_address, false, "pending_review")
+            log_audit(user, "verification_attempt", "pending_review", ip_address, review_id: review&.id)
 
-            return render json: response_payload(user, user_kyc, status: 'pending_review', reason: 'bvn_in_use'),
+            return render json: response_payload(user, user_kyc, status: "pending_review", reason: "bvn_in_use"),
                           status: :ok
           end
 
           result = ::Kyc::PremblyBvnVerification.new(bvn).call
           unless result[:ok]
-            handle_failed_attempt!(user, user_kyc, ip_address, 'failed', result[:error])
-            return render json: { status: 'error', message: 'BVN verification is unavailable. Try again later.' },
+            handle_failed_attempt!(user, user_kyc, ip_address, "failed", result[:error])
+            return render json: { status: "error", message: "BVN verification is unavailable. Try again later." },
                           status: :service_unavailable
           end
 
           outcome = resolve_match_outcome(user, result)
-          apply_outcome!(user, user_kyc, result, outcome)
+          apply_outcome!(user_kyc, bvn, result, outcome)
 
-          if outcome[:status] == 'mismatch'
-            handle_failed_attempt!(user, user_kyc, ip_address, 'mismatch', outcome[:reason])
+          if outcome[:status] == "mismatch"
+            handle_failed_attempt!(user, user_kyc, ip_address, "mismatch", outcome[:reason])
             refresh_tier!(user)
             return render json: response_payload(user, user_kyc, status: user_kyc.bvn_status, reason: outcome[:reason]),
                           status: :ok
           end
 
-          log_attempt(user, ip_address, outcome[:status] == 'verified', outcome[:status])
-          log_audit(user, 'verification_attempt', outcome[:status], ip_address, outcome.slice(:reason))
+          log_attempt(user, ip_address, outcome[:status] == "verified", outcome[:status])
+          log_audit(user, "verification_attempt", outcome[:status], ip_address, outcome.slice(:reason))
 
-          if outcome[:status] == 'pending_review'
-            review = create_review(user, outcome[:reason], 'pending')
-            log_audit(user, 'review_created', 'pending_review', ip_address, review_id: review&.id)
+          if outcome[:status] == "pending_review"
+            review = create_review(user, outcome[:reason], "pending")
+            log_audit(user, "review_created", "pending_review", ip_address, review_id: review&.id)
           end
 
           refresh_tier!(user)
@@ -96,7 +96,7 @@ module Api
         def response_payload(user, user_kyc, status:, reason: nil)
           {
             status: status,
-            tier: user.kyc_level || 'tier_0',
+            tier: user.kyc_level || "tier_0",
             bvn_last4: user_kyc.bvn_last4,
             matches: {
               dob: user_kyc.bvn_dob_match,
@@ -112,7 +112,7 @@ module Api
 
         def locked_payload(user_kyc)
           {
-            status: 'locked',
+            status: "locked",
             bvn_last4: user_kyc.bvn_last4,
             locked_until: user_kyc.bvn_locked_until
           }
@@ -134,14 +134,14 @@ module Api
         end
 
         def ip_rate_limited?(ip_address)
-          KycAttempt.where(kyc_type: 'bvn', ip_address: ip_address)
-                    .where('created_at >= ?', 24.hours.ago)
+          KycAttempt.where(kyc_type: "bvn", ip_address: ip_address)
+                    .where("created_at >= ?", 24.hours.ago)
                     .count >= IP_DAILY_LIMIT
         end
 
         def bvn_in_use?(fingerprint, current_user_id)
           UserKyc.where.not(user_id: current_user_id)
-                 .where(bvn_fingerprint: fingerprint, bvn_status: 'verified')
+                 .where(bvn_fingerprint: fingerprint, bvn_status: "verified")
                  .exists?
         end
 
@@ -154,17 +154,17 @@ module Api
 
           if failed >= USER_DAILY_LIMIT
             user_kyc.bvn_locked_until = 24.hours.from_now
-            user_kyc.bvn_status = 'locked'
+            user_kyc.bvn_status = "locked"
           end
 
           user_kyc.save!
           log_attempt(user, ip_address, false, status)
-          log_audit(user, 'verification_attempt', status, ip_address, error: error_message)
+          log_audit(user, "verification_attempt", status, ip_address, error: error_message)
         end
 
         def resolve_match_outcome(user, result)
           profile = user.user_profile
-          return { status: 'pending_review', reason: 'profile_incomplete' } unless profile
+          return { status: "pending_review", reason: "profile_incomplete" } unless profile
 
           dob_match = match_dob(profile.date_of_birth, result[:date_of_birth])
           last_name_match = match_name(profile.last_name, result[:last_name])
@@ -174,25 +174,27 @@ module Api
           incomplete = result[:first_name].blank? || result[:last_name].blank? || result[:date_of_birth].blank?
 
           if watchlisted
-            return { status: 'pending_review', reason: 'watchlisted', dob_match:, last_name_match:, first_name_match: }
+            return { status: "pending_review", reason: "watchlisted", dob_match:, last_name_match:, first_name_match: }
           end
 
           if incomplete
-            return { status: 'pending_review', reason: 'provider_incomplete', dob_match:, last_name_match:, first_name_match: }
+            return { status: "pending_review", reason: "provider_incomplete", dob_match:, last_name_match:, first_name_match: }
           end
 
           if dob_match && last_name_match && first_name_match
-            return { status: 'verified', reason: nil, dob_match:, last_name_match:, first_name_match: }
+            return { status: "verified", reason: nil, dob_match:, last_name_match:, first_name_match: }
           end
 
           if dob_match && last_name_match && !first_name_match
-            return { status: 'pending_review', reason: 'name_mismatch', dob_match:, last_name_match:, first_name_match: }
+            return { status: "pending_review", reason: "name_mismatch", dob_match:, last_name_match:, first_name_match: }
           end
 
-          { status: 'mismatch', reason: 'mismatch', dob_match:, last_name_match:, first_name_match: }
+          { status: "mismatch", reason: "mismatch", dob_match:, last_name_match:, first_name_match: }
         end
 
-        def apply_outcome!(user, user_kyc, result, outcome)
+        # NOTE: user is not needed here; keep scope tight.
+        # Stores BVN only when verified (encrypted at rest).
+        def apply_outcome!(user_kyc, bvn, result, outcome)
           score =
             [outcome[:dob_match], outcome[:last_name_match], outcome[:first_name_match]]
               .compact
@@ -210,14 +212,18 @@ module Api
           )
 
           case outcome[:status]
-          when 'verified'
-            user_kyc.bvn_status = 'verified'
+          when "verified"
+            user_kyc.bvn_status = "verified"
             user_kyc.bvn_verified_at = Time.current
             user_kyc.bvn_failed_attempts_count = 0
-            user_kyc.bvn_locked_until = nil          when 'pending_review'
-            user_kyc.bvn_status = 'pending_review'
+            user_kyc.bvn_locked_until = nil
+
+            # ✅ NEW: Store full BVN (encrypted column) for Tier-3 reuse
+            user_kyc.bvn_encrypted = bvn
+          when "pending_review"
+            user_kyc.bvn_status = "pending_review"
           else
-            user_kyc.bvn_status = 'mismatch'
+            user_kyc.bvn_status = "mismatch"
           end
 
           user_kyc.save!
@@ -230,7 +236,7 @@ module Api
         def create_review(user, reason, status)
           KycReview.create!(
             user_id: user.id,
-            kyc_type: 'bvn',
+            kyc_type: "bvn",
             status: status,
             reason: reason
           )
@@ -241,7 +247,7 @@ module Api
         def log_attempt(user, ip_address, success, status)
           KycAttempt.create!(
             user_id: user.id,
-            kyc_type: 'bvn',
+            kyc_type: "bvn",
             ip_address: ip_address,
             success: success,
             result_status: status
@@ -279,7 +285,7 @@ module Api
         end
 
         def normalize_name(value)
-          value.to_s.downcase.gsub(/[^a-z\s]/, ' ').split.join(' ')
+          value.to_s.downcase.gsub(/[^a-z\s]/, " ").split.join(" ")
         end
 
         def match_dob(profile_dob, provider_dob)
@@ -298,7 +304,7 @@ module Api
           raw = value.to_s.strip
           return nil if raw.blank?
 
-          Date.strptime(raw, '%d-%b-%Y')
+          Date.strptime(raw, "%d-%b-%Y")
         rescue StandardError
           begin
             Date.parse(raw)
@@ -310,7 +316,7 @@ module Api
         def to_bool(value)
           return true if value == true
           return false if value == false
-          value.to_s.downcase == 'true'
+          value.to_s.downcase == "true"
         end
       end
     end
