@@ -7,22 +7,13 @@ module Api
         before_action :authenticate_user!
 
         # POST /api/v1/verification/tier3/start
-        # Body: { image: "<base64>" } OR { tier3: { image: "<base64>" } }
+        # Body: { image: "<base64 or data-url>" }
         def start
-          image =
-            params[:image].presence ||
-            params.dig(:tier3, :image).presence
-
-          image = image.to_s
-
-          if image.blank?
-            return render json: { error: "image is required" }, status: :unprocessable_entity
-          end
+          image = params[:image].to_s.strip
+          return render json: { error: "image is required" }, status: :unprocessable_entity if image.blank?
 
           kyc = current_user.user_kyc
-          if kyc.nil?
-            return render json: { error: "KYC record not found" }, status: :unprocessable_entity
-          end
+          return render json: { error: "KYC record not found" }, status: :unprocessable_entity if kyc.nil?
 
           unless kyc.verified?
             return render json: { error: "BVN must be verified before Tier 3" }, status: :unprocessable_entity
@@ -33,8 +24,9 @@ module Api
             return render json: { error: "Verified BVN not available. Please re-verify BVN." }, status: :unprocessable_entity
           end
 
-          if %w[pending processing].include?(kyc.tier3_status.to_s)
-            return render json: { status: kyc.tier3_status, message: "Tier 3 already in progress" }, status: :ok
+          # Don’t enqueue repeatedly
+          if %w[pending processing verified].include?(kyc.tier3_status.to_s)
+            return render json: { status: kyc.tier3_status, message: "Tier 3 already #{kyc.tier3_status}" }, status: :ok
           end
 
           kyc.update!(
@@ -46,9 +38,12 @@ module Api
 
           Tier3VerificationJob.perform_later(current_user.id, image)
 
-          render json: { message: "Tier 3 submitted", status: kyc.tier3_status }, status: :ok
+          render json: { message: "Tier 3 submitted", status: "pending" }, status: :ok
+        rescue ActiveRecord::RecordInvalid => e
+          render json: { error: e.record.errors.full_messages.join(", ") }, status: :unprocessable_entity
         rescue StandardError => e
-          render json: { error: e.message }, status: :internal_server_error
+          Rails.logger.error("[Tier3] start failed: #{e.class}: #{e.message}")
+          render json: { error: "Tier 3 could not be started" }, status: :internal_server_error
         end
 
         # GET /api/v1/verification/tier3/status
