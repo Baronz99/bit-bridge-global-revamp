@@ -42,19 +42,35 @@ class Tier3VerificationJob < ApplicationJob
     client = ::Kyc::PremblyTier3Biometrics.new
 
     # ---------- LIVENESS ----------
-    liveness = client.liveness_check(image_base64)
+liveness = client.liveness_check(image_base64)
 
-    liveness_status = liveness.dig("verification", "status").to_s
-    liveness_ref    = liveness.dig("verification", "reference").to_s
-    liveness_conf   = liveness.dig("data", "confidence").to_f
+liveness_verify_stat = liveness.dig("verification", "status").to_s
+liveness_ref        = liveness.dig("verification", "reference").to_s
+liveness_conf       = liveness.dig("data", "confidence").to_f
+liveness_top_status = liveness["status"]
+liveness_data_stat  = liveness.dig("data", "status")
+liveness_msg        = liveness["message"].to_s.presence || liveness.dig("data", "message").to_s
+liveness_code       = liveness["response_code"].to_s
 
-    unless liveness_status.casecmp("VERIFIED").zero?
-      return reject!(kyc, liveness_ref, "Liveness failed")
-    end
+Rails.logger.warn("[Tier3] LIVENESS raw=#{liveness.except('image').to_json[0, 1200]}")
 
-    if liveness_conf.positive? && liveness_conf < LIVENESS_MIN_CONFIDENCE
-      return reject!(kyc, liveness_ref, "Liveness confidence too low")
-    end
+liveness_passed =
+  liveness_top_status == true ||
+  liveness_data_stat == true ||
+  liveness_verify_stat.casecmp("VERIFIED").zero? ||
+  liveness_verify_stat.casecmp("PASSED").zero? ||
+  liveness_verify_stat.casecmp("SUCCESS").zero?
+
+unless liveness_passed
+  pretty = liveness_msg.presence || "Liveness failed"
+  pretty = "#{pretty} [code=#{liveness_code}]" if liveness_code.present?
+  return reject!(kyc, liveness_ref, pretty)
+end
+
+if liveness_conf.positive? && liveness_conf < LIVENESS_MIN_CONFIDENCE
+  return reject!(kyc, liveness_ref, "Liveness confidence too low")
+end
+
 
     # ---------- FACE MATCH ----------
     match = client.bvn_face_match(bvn, image_base64)
