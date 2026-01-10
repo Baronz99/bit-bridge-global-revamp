@@ -111,6 +111,15 @@ const kycLevelConfig = {
 
 // ---------- tier helpers ----------
 const tierOrder = ['tier_0', 'tier_1', 'tier_2', 'tier_3']
+const TIER3_POLL_INTERVAL_MS = 2000
+const TIER3_POLL_TIMEOUT_MS = 30000
+const TIER3_UI_STATUS = {
+  idle: 'idle',
+  submitting: 'submitting',
+  processing: 'processing',
+  verified: 'verified',
+  failed: 'failed',
+}
 
 const normalizeTierKey = (raw) => {
   const k = (raw ?? 'nil').toString()
@@ -151,6 +160,14 @@ const tierCardCopy = {
     body: 'Biometric verification (liveness + BVN face match) for higher limits & stronger protection.',
     hint: 'Higher limits',
   },
+}
+
+const normalizeTier3Status = (raw) => {
+  const status = (raw ?? '').toString().trim().toLowerCase()
+  if (status === 'verified') return 'verified'
+  if (status === 'failed' || status === 'rejected') return 'failed'
+  if (status === 'pending' || status === 'processing') return 'processing'
+  return ''
 }
 
 const TierCard = ({ state, title, body, hint, onPrimary, primaryLabel }) => {
@@ -305,6 +322,11 @@ const KycCenter = () => {
   const [tier3Success, setTier3Success] = React.useState('')
   const [tier3CameraError, setTier3CameraError] = React.useState('')
   const [tier3StatusSnapshot, setTier3StatusSnapshot] = React.useState(null)
+  const [tier3UiStatus, setTier3UiStatus] = React.useState(TIER3_UI_STATUS.idle)
+  const [tier3SubmittedAt, setTier3SubmittedAt] = React.useState(null)
+  const [tier3PollExpired, setTier3PollExpired] = React.useState(false)
+  const tier3PollRef = React.useRef(null)
+  const tier3PollUntilRef = React.useRef(0)
 
   const phoneVerified =
     user?.phone_verified === true ||
@@ -329,15 +351,64 @@ const KycCenter = () => {
       : normalizedTierKey === 'tier_2'
       ? { label: 'Go to virtual accounts', action: goVirtualAccounts }
       : { label: null, action: null }
+  const stopTier3Polling = React.useCallback(() => {
+    if (tier3PollRef.current) {
+      clearInterval(tier3PollRef.current)
+      tier3PollRef.current = null
+    }
+  }, [])
+
+  const resolveTier3UiStatus = React.useCallback((snapshot, submittedAt) => {
+    const normalized = normalizeTier3Status(snapshot?.tier3_status)
+    if (normalized === 'verified') return TIER3_UI_STATUS.verified
+    if (normalized === 'failed') return TIER3_UI_STATUS.failed
+    if (normalized === 'processing') return TIER3_UI_STATUS.processing
+
+    if (submittedAt && Date.now() - submittedAt <= TIER3_POLL_TIMEOUT_MS) {
+      return TIER3_UI_STATUS.processing
+    }
+
+    return TIER3_UI_STATUS.idle
+  }, [])
 
   const fetchTier3Status = React.useCallback(async () => {
     try {
       const res = await client.get('/verification/tier3/status')
-      setTier3StatusSnapshot(res?.data || null)
+      const data = res?.data || null
+      setTier3StatusSnapshot(data)
+      const nextStatus = resolveTier3UiStatus(data, tier3SubmittedAt)
+      setTier3UiStatus((prev) => (prev === TIER3_UI_STATUS.submitting ? prev : nextStatus))
+      if (nextStatus === TIER3_UI_STATUS.verified || nextStatus === TIER3_UI_STATUS.failed) {
+        stopTier3Polling()
+      }
+      return data
     } catch (_) {
-      // optional endpoint, ignore
+      return null
     }
-  }, [])
+  }, [resolveTier3UiStatus, stopTier3Polling, tier3SubmittedAt])
+
+  const startTier3Polling = React.useCallback(() => {
+    stopTier3Polling()
+    setTier3PollExpired(false)
+    tier3PollUntilRef.current = Date.now() + TIER3_POLL_TIMEOUT_MS
+
+    const pollOnce = async () => {
+      if (Date.now() > tier3PollUntilRef.current) {
+        stopTier3Polling()
+        setTier3PollExpired(true)
+        return
+      }
+
+      const data = await fetchTier3Status()
+      const nextStatus = resolveTier3UiStatus(data, tier3SubmittedAt)
+      if (nextStatus === TIER3_UI_STATUS.verified || nextStatus === TIER3_UI_STATUS.failed) {
+        stopTier3Polling()
+      }
+    }
+
+    pollOnce()
+    tier3PollRef.current = setInterval(pollOnce, TIER3_POLL_INTERVAL_MS)
+  }, [fetchTier3Status, resolveTier3UiStatus, stopTier3Polling, tier3SubmittedAt])
 
   const handleVerifyBvn = async () => {
     const normalized = bvnInput.replace(/\D/g, '')
@@ -399,31 +470,40 @@ const KycCenter = () => {
     setTier3CameraError('')
     setTier3SelfieDataUrl(null)
     setTier3StatusSnapshot(null)
+    setTier3UiStatus(TIER3_UI_STATUS.idle)
+    setTier3SubmittedAt(null)
+    setTier3PollExpired(false)
+    stopTier3Polling()
     setShowTier3Modal(true)
     await fetchTier3Status()
   }
-
   const handleTier3Submit = async () => {
-    if (tier3Submitting) return // ✅ prevent double-tap enqueue
+    if (tier3Submitting) return // prevent double-tap enqueue
     setTier3Error('')
     setTier3Success('')
+    setTier3UiStatus(TIER3_UI_STATUS.submitting)
 
     if (!hasTier2) {
       setTier3Error('Complete Tier 2 before upgrading to Tier 3.')
+      setTier3UiStatus(TIER3_UI_STATUS.idle)
       return
     }
 
     if (!isBvnVerified) {
       setTier3Error('Tier 3 requires BVN verification first. Please verify BVN.')
+      setTier3UiStatus(TIER3_UI_STATUS.idle)
       return
     }
 
     if (!tier3SelfieDataUrl) {
       setTier3Error('Please capture a live selfie to continue.')
+      setTier3UiStatus(TIER3_UI_STATUS.idle)
       return
     }
 
     setTier3Submitting(true)
+    setTier3SubmittedAt(Date.now())
+    setTier3PollExpired(false)
     try {
       const str = String(tier3SelfieDataUrl || '')
       let dataUrl = str.trim()
@@ -448,6 +528,8 @@ const KycCenter = () => {
         'Tier 3 submitted. We are processing your verification now.'
 
       setTier3Success(message)
+      setTier3UiStatus(TIER3_UI_STATUS.processing)
+      startTier3Polling()
 
       await dispatch(userProfile())
       await fetchTier3Status()
@@ -462,12 +544,17 @@ const KycCenter = () => {
             error?.message ||
             'Unable to complete Tier 3 verification.'
       setTier3Error(msg)
+      setTier3UiStatus(TIER3_UI_STATUS.failed)
 
       await fetchTier3Status()
     } finally {
       setTier3Submitting(false)
     }
   }
+
+  React.useEffect(() => {
+    return () => stopTier3Polling()
+  }, [stopTier3Polling])
 
   return (
     <div className="min-h-screen p-4 md:p-8 bg-slate-950 text-slate-100">
@@ -792,7 +879,10 @@ const KycCenter = () => {
         open={showTier3Modal}
         title="Tier 3 - Biometric Verification"
         onClose={() => {
-          if (!tier3Submitting) setShowTier3Modal(false)
+          if (!tier3Submitting) {
+            stopTier3Polling()
+            setShowTier3Modal(false)
+          }
         }}
       >
         <div className="text-xs text-slate-300">
@@ -859,25 +949,68 @@ const KycCenter = () => {
             </div>
           ) : null}
 
+          {tier3UiStatus === TIER3_UI_STATUS.processing ? (
+            <div className="rounded-xl border border-slate-800 bg-slate-950/50 p-3 text-xs text-slate-300">
+              Verification in progress. This usually takes a few seconds.
+              {tier3PollExpired ? (
+                <div className="mt-1 text-[11px] text-slate-500">
+                  Check back soon. Use refresh to check status.
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+
+          {tier3UiStatus === TIER3_UI_STATUS.verified ? (
+            <div className="rounded-xl border border-emerald-700/40 bg-emerald-900/20 p-3 text-xs text-emerald-200">
+              Tier 3 Verified
+            </div>
+          ) : null}
+
           <div className="flex items-center gap-2 pt-2">
             <button
               type="button"
-              onClick={() => setShowTier3Modal(false)}
+              onClick={() => {
+                stopTier3Polling()
+                setShowTier3Modal(false)
+              }}
               disabled={tier3Submitting}
               className="inline-flex items-center px-4 py-2 rounded-xl border border-slate-700 bg-slate-900/60 text-xs text-slate-200 hover:bg-slate-800 transition disabled:opacity-60"
             >
               Cancel
             </button>
 
-            <button
-              type="button"
-              onClick={handleTier3Submit}
-              disabled={tier3Submitting || !hasTier2 || !isBvnVerified}
-              className="inline-flex items-center px-4 py-2 rounded-xl bg-alt text-black text-xs font-semibold hover:brightness-110 transition disabled:opacity-60"
-              title={!isBvnVerified ? 'Verify BVN first' : undefined}
-            >
-              {tier3Submitting ? 'Verifying...' : 'Verify & upgrade'}
-            </button>
+            {tier3UiStatus === TIER3_UI_STATUS.processing ? (
+              <>
+                <button
+                  type="button"
+                  disabled
+                  className="inline-flex items-center px-4 py-2 rounded-xl border border-slate-700 bg-slate-900/60 text-xs text-slate-300 cursor-not-allowed"
+                >
+                  Verification in progress
+                </button>
+                <button
+                  type="button"
+                  onClick={fetchTier3Status}
+                  className="inline-flex items-center px-4 py-2 rounded-xl border border-slate-700 bg-slate-900/60 text-xs text-slate-200 hover:bg-slate-800 transition"
+                >
+                  Refresh status
+                </button>
+              </>
+            ) : tier3UiStatus === TIER3_UI_STATUS.verified ? null : (
+              <button
+                type="button"
+                onClick={handleTier3Submit}
+                disabled={tier3Submitting || !hasTier2 || !isBvnVerified}
+                className="inline-flex items-center px-4 py-2 rounded-xl bg-alt text-black text-xs font-semibold hover:brightness-110 transition disabled:opacity-60"
+                title={!isBvnVerified ? 'Verify BVN first' : undefined}
+              >
+                {tier3Submitting
+                  ? 'Verifying...'
+                  : tier3UiStatus === TIER3_UI_STATUS.failed
+                  ? 'Retry verification'
+                  : 'Verify & upgrade'}
+              </button>
+            )}
           </div>
 
           <div className="text-[11px] text-slate-500 pt-2">
