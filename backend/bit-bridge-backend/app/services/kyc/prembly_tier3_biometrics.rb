@@ -42,7 +42,7 @@ module Kyc
     def liveness_check(image_input)
       post_json(
         "/verification/biometrics/face/liveliness_check",
-        { image: normalize_image_base64(image_input) }
+        { image: normalize_image_input(image_input) }
       )
     end
 
@@ -100,34 +100,32 @@ module Kyc
     # - Accepts raw base64
     # - Accepts data URL and strips prefix
     # - Rejects plain http(s) URL early with a clear error
-    def normalize_image_base64(value)
-      str = value.to_s.strip
-      raise StandardError, "image is required" if str.empty?
+  def normalize_image_input(value)
+  str = value.to_s.strip
+  raise StandardError, "image is required" if str.empty?
 
-      # data:image/jpeg;base64,....
-      if str.include?("base64,")
-        str = str.split("base64,", 2).last.to_s.strip
-      end
+  # If it's an http(s) URL, allow it as-is (Prembly supports URL input)
+  return str if str.start_with?("http://", "https://")
 
-      if str.start_with?("http://", "https://")
-        raise StandardError, "Invalid request data: image must be base64 (not a URL)."
-      end
+  # data:image/jpeg;base64,....
+  if str.include?("base64,")
+    str = str.split("base64,", 2).last.to_s.strip
+  end
 
-      # Minimal sanity check: base64 chars only (allow newlines)
-      candidate = str.gsub(/\s+/, "")
-      unless candidate.match?(/\A[A-Za-z0-9+\/=]+\z/)
-        raise StandardError, "Invalid request data: image must be base64."
-      end
+  candidate = str.gsub(/\s+/, "")
+  unless candidate.match?(/\A[A-Za-z0-9+\/=]+\z/)
+    raise StandardError, "Invalid request data: image must be a URL or base64."
+  end
 
-      # Optional: try decode to ensure it's valid base64
-      begin
-        Base64.decode64(candidate)
-      rescue StandardError
-        raise StandardError, "Invalid request data: image base64 is not decodable."
-      end
+  begin
+    Base64.decode64(candidate)
+  rescue StandardError
+    raise StandardError, "Invalid request data: image base64 is not decodable."
+  end
 
-      candidate
-    end
+  candidate
+end
+
 
     # Returns [value, source_key]
     def fetch_env(keys)

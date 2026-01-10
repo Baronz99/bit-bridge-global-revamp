@@ -2,6 +2,7 @@
 import React from 'react'
 import { useDispatch, useSelector } from 'react-redux'
 import PhoneVerifyModal from '../../components/PhoneVerifyModal'
+import SelfieCapture from '../../components/Kyc/SelfieCapture'
 
 import {
   IdcardOutlined,
@@ -10,8 +11,6 @@ import {
   CreditCardOutlined,
   CheckCircleOutlined,
   LockOutlined,
-  CameraOutlined,
-  ReloadOutlined,
 } from '@ant-design/icons'
 import { NavLink, useNavigate } from 'react-router-dom'
 import client from '../../api/client'
@@ -247,262 +246,11 @@ const InlineModal = ({ open, title, children, onClose }) => {
   )
 }
 
-/**
- * - Uses getUserMedia
- * - Captures a frame to canvas
- * - Returns base64 dataUrl
- */
-const LiveSelfieCapture = ({ disabled, value, onChange, onError, registerStop }) => {
-  const videoRef = React.useRef(null)
-  const streamRef = React.useRef(null)
-
-  const [starting, setStarting] = React.useState(false)
-  const [cameraOn, setCameraOn] = React.useState(false)
-  const [stuckBlack, setStuckBlack] = React.useState(false)
-
-  const stopCamera = React.useCallback(() => {
-    try {
-      const stream = streamRef.current
-      if (stream) stream.getTracks()?.forEach((t) => t.stop())
-    } catch (_) {
-      // no-op
-    } finally {
-      streamRef.current = null
-      setCameraOn(false)
-    }
-  }, [])
-
-  // Allow parent to stop camera when modal closes
-  React.useEffect(() => {
-    if (typeof registerStop === 'function') registerStop(() => stopCamera())
-  }, [registerStop, stopCamera])
-
-  React.useEffect(() => {
-    return () => stopCamera()
-  }, [stopCamera])
-
-  // wait for <video> to exist in DOM before attaching stream
-  const waitForVideoEl = async () => {
-    for (let i = 0; i < 20; i++) {
-      const v = videoRef.current
-      if (v) return v
-      // eslint-disable-next-line no-await-in-loop
-      await new Promise((r) => setTimeout(r, 25))
-    }
-    return null
-  }
-
-  const startCamera = async () => {
-    if (disabled) return
-    setStarting(true)
-    setStuckBlack(false)
-    onError?.('')
-
-    try {
-      if (!navigator?.mediaDevices?.getUserMedia) {
-        throw new Error('Camera not supported on this device/browser.')
-      }
-
-      // ✅ IMPORTANT: render/mount the <video> first
-      setCameraOn(true)
-
-      const video = await waitForVideoEl()
-      if (!video) throw new Error('Camera element not ready.')
-
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: {
-          facingMode: { ideal: 'user' },
-          width: { ideal: 720 },
-          height: { ideal: 720 },
-        },
-        audio: false,
-      })
-
-      streamRef.current = stream
-
-      // iOS / in-app browsers
-      video.setAttribute('playsinline', 'true')
-      video.setAttribute('autoplay', 'true')
-      video.muted = true
-      video.srcObject = stream
-
-      // wait metadata (or fallback)
-      await new Promise((resolve) => {
-        const done = () => resolve(true)
-        video.onloadedmetadata = done
-        setTimeout(done, 650)
-      })
-
-      // play retries
-      let played = false
-      for (let i = 0; i < 4; i++) {
-        try {
-          // eslint-disable-next-line no-await-in-loop
-          await video.play()
-          played = true
-          break
-        } catch (_) {
-          // eslint-disable-next-line no-await-in-loop
-          await new Promise((r) => setTimeout(r, 250))
-        }
-      }
-
-      // detect “black preview” cases
-      setTimeout(() => {
-        const v = videoRef.current
-        const hasFrames = !!(v && v.videoWidth > 0 && v.videoHeight > 0 && v.readyState >= 2)
-        if (!hasFrames) setStuckBlack(true)
-      }, 1200)
-
-      if (!played) {
-        onError?.(
-          'Camera started but preview is blocked. If on iPhone, turn off Low Power Mode and allow camera in Safari settings.'
-        )
-      }
-    } catch (e) {
-      stopCamera()
-      const msg = e?.message || 'Unable to access camera. Please allow camera permission.'
-      onError?.(msg)
-    } finally {
-      setStarting(false)
-    }
-  }
-
-  const capture = () => {
-    if (disabled) return
-    const video = videoRef.current
-    if (!video) {
-      onError?.('Camera element not ready.')
-      return
-    }
-
-    const w = video.videoWidth || 720
-    const h = video.videoHeight || 720
-
-    const canvas = document.createElement('canvas')
-    canvas.width = w
-    canvas.height = h
-    const ctx = canvas.getContext('2d')
-
-    try {
-      ctx.drawImage(video, 0, 0, w, h)
-    } catch (e) {
-      onError?.('Preview is blocked. Please retry and ensure camera permissions are enabled.')
-      return
-    }
-
-    const dataUrl = canvas.toDataURL('image/jpeg', 0.9)
-    onChange?.(dataUrl)
-    onError?.('')
-    stopCamera()
-  }
-
-  const retake = () => {
-    onChange?.(null)
-    onError?.('')
-    setStuckBlack(false)
-  }
-
-  return (
-    <div className="rounded-xl border border-slate-800 bg-slate-950/50 p-3">
-      <div className="flex items-center justify-between gap-3 mb-2">
-        <div className="text-[11px] uppercase tracking-[0.2em] text-slate-500">Selfie capture</div>
-        {cameraOn ? (
-          <button
-            type="button"
-            onClick={stopCamera}
-            disabled={disabled}
-            className="text-xs text-slate-300 hover:text-slate-100 transition"
-          >
-            Stop
-          </button>
-        ) : null}
-      </div>
-
-      {value ? (
-        <div>
-          <img
-            src={value}
-            alt="Captured selfie"
-            className="w-full rounded-lg border border-slate-800 object-cover max-h-64"
-          />
-          <div className="mt-3 flex items-center gap-2">
-            <button
-              type="button"
-              onClick={retake}
-              disabled={disabled}
-              className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-slate-700 bg-slate-900/60 text-xs text-slate-200 hover:bg-slate-800 transition disabled:opacity-60"
-            >
-              <ReloadOutlined />
-              Retake
-            </button>
-          </div>
-        </div>
-      ) : (
-        <div>
-          {cameraOn ? (
-            <div className="space-y-2">
-              <video
-                ref={videoRef}
-                playsInline
-                muted
-                autoPlay
-                className="w-full rounded-lg border border-slate-800 bg-black max-h-64 object-cover"
-              />
-
-              {stuckBlack ? (
-                <div className="rounded-lg border border-amber-700/40 bg-amber-900/20 p-2 text-[11px] text-amber-200">
-                  Camera permission is allowed but the preview is blocked (common on iPhone browsers).
-                  Try: turn off Low Power Mode, refresh the page, and ensure Safari camera permission is enabled.
-                </div>
-              ) : null}
-
-              <button
-                type="button"
-                onClick={capture}
-                disabled={disabled}
-                className="w-full inline-flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-alt text-black text-xs font-semibold hover:brightness-110 transition disabled:opacity-60"
-              >
-                <CameraOutlined />
-                Capture selfie
-              </button>
-
-              <div className="text-[11px] text-slate-500">
-                Tip: Use good lighting, remove cap/face covering, face centered.
-              </div>
-            </div>
-          ) : (
-            <div className="flex flex-col gap-2">
-              <button
-                type="button"
-                onClick={startCamera}
-                disabled={disabled || starting}
-                className="inline-flex items-center justify-center gap-2 px-3 py-2 rounded-lg border border-alt text-alt text-xs font-semibold hover:bg-alt/10 transition disabled:opacity-60"
-              >
-                <CameraOutlined />
-                {starting ? 'Starting camera...' : 'Open camera'}
-              </button>
-              <div className="text-[11px] text-slate-500">
-                We do not allow uploads for Tier 3. This must be captured live.
-              </div>
-            </div>
-          )}
-        </div>
-      )}
-    </div>
-  )
-}
-
-
-// ---- helper: Tier 3 endpoint fallback (fixes your 404 “Not Found”) ----
+// ---- helper: Tier 3 endpoint fallback (robust, but only falls back on 404) ----
 async function postTier3Start(payload) {
-  // If your axios baseURL already includes /api/v1, then "/verification/..." is correct.
-  // If not, "/api/v1/verification/..." will be correct.
   const candidates = [
-    '/verification/tier3/start',
-    '/api/v1/verification/tier3/start',
-    '/verification/tier3',
-    '/api/v1/verification/tier3',
+    '/verification/tier3/start',       // ✅ correct for your client baseURL=/api/v1
+    '/api/v1/verification/tier3/start' // safety if baseURL is misconfigured
   ]
 
   let lastErr = null
@@ -514,21 +262,19 @@ async function postTier3Start(payload) {
     } catch (e) {
       lastErr = e
       const status = e?.response?.status
-      // Only fallback on 404; if 401/422/500 etc, stop and throw so user sees real issue.
       if (status && status !== 404) throw e
     }
   }
 
-  // If we get here, every candidate 404’d.
   const base = client?.defaults?.baseURL
   const msg =
     `Tier 3 endpoint not found (404).\n\n` +
     `Tried: ${candidates.join(', ')}\n` +
     (base ? `Axios baseURL: ${base}\n\n` : '\n') +
-    `Fix: confirm backend route exists for Tier 3 (e.g. POST /api/v1/verification/tier3/start) ` +
-    `or adjust the frontend to match the backend route.`
+    `Fix: confirm backend route exists: POST /api/v1/verification/tier3/start`
   const err = new Error(msg)
   err._isTier3NotFound = true
+  err._lastErr = lastErr
   throw err
 }
 
@@ -553,12 +299,12 @@ const KycCenter = () => {
 
   // Tier 3 (biometric) UI state — isolated
   const [showTier3Modal, setShowTier3Modal] = React.useState(false)
-  const [tier3Bvn, setTier3Bvn] = React.useState('')
   const [tier3SelfieDataUrl, setTier3SelfieDataUrl] = React.useState(null)
   const [tier3Submitting, setTier3Submitting] = React.useState(false)
   const [tier3Error, setTier3Error] = React.useState('')
   const [tier3Success, setTier3Success] = React.useState('')
   const [tier3CameraError, setTier3CameraError] = React.useState('')
+  const [tier3StatusSnapshot, setTier3StatusSnapshot] = React.useState(null)
 
   // Supports either top-level fields (recommended) or nested profile
   const phoneVerified =
@@ -586,6 +332,15 @@ const KycCenter = () => {
       : normalizedTierKey === 'tier_2'
       ? { label: 'Go to virtual accounts', action: goVirtualAccounts }
       : { label: null, action: null }
+
+  const fetchTier3Status = React.useCallback(async () => {
+    try {
+      const res = await client.get('/verification/tier3/status')
+      setTier3StatusSnapshot(res?.data || null)
+    } catch (_) {
+      // Ignore; status endpoint is optional for the UI
+    }
+  }, [])
 
   const handleVerifyBvn = async () => {
     const normalized = bvnInput.replace(/\D/g, '')
@@ -641,13 +396,15 @@ const KycCenter = () => {
       ? 'text-rose-300'
       : 'text-slate-400'
 
-  const openTier3 = () => {
+  const openTier3 = async () => {
     setTier3Error('')
     setTier3Success('')
     setTier3CameraError('')
     setTier3SelfieDataUrl(null)
-    setTier3Bvn('')
+    setTier3StatusSnapshot(null)
     setShowTier3Modal(true)
+    // pull last known provider error/reference to reduce confusion
+    await fetchTier3Status()
   }
 
   const handleTier3Submit = async () => {
@@ -664,35 +421,29 @@ const KycCenter = () => {
       return
     }
 
-    const needsBvn = !isBvnVerified
-    const normalizedBvn = tier3Bvn.replace(/\D/g, '')
-    if (needsBvn && normalizedBvn.length !== 11) {
-      setTier3Error('Enter a valid 11-digit BVN (or verify BVN first).')
-      return
-    }
-
     setTier3Submitting(true)
     try {
-      // Only send base64 portion
-      const base64Only = String(tier3SelfieDataUrl).includes(',')
+      // Send base64 only (backend expects base64; URLs are intentionally rejected in the service)
+      const base64Only = String(tier3SelfieDataUrl).includes('base64,')
+        ? String(tier3SelfieDataUrl).split('base64,')[1]
+        : String(tier3SelfieDataUrl).includes(',')
         ? String(tier3SelfieDataUrl).split(',')[1]
         : String(tier3SelfieDataUrl)
 
-      const payload = {
-        image: base64Only,
-        ...(needsBvn ? { bvn: normalizedBvn } : {}),
-      }
+      const payload = { image: base64Only }
 
-      // Robust endpoint attempt (fixes 404 mismatch)
       const res = await postTier3Start(payload)
 
       const message =
         res?.data?.message ||
         res?.data?.detail ||
-        'Tier 3 verification submitted successfully.'
+        'Tier 3 submitted. We are processing your verification now.'
 
       setTier3Success(message)
+
+      // Refresh user + snapshot status (will likely be pending/processing immediately after submit)
       await dispatch(userProfile())
+      await fetchTier3Status()
     } catch (error) {
       const status = error?.response?.status
       const msg =
@@ -704,6 +455,9 @@ const KycCenter = () => {
             error?.message ||
             'Unable to complete Tier 3 verification.'
       setTier3Error(msg)
+
+      // Still try to pull status (sometimes backend writes tier3_error)
+      await fetchTier3Status()
     } finally {
       setTier3Submitting(false)
     }
@@ -1045,29 +799,23 @@ const KycCenter = () => {
           </div>
         ) : null}
 
-        <div className="mt-4 space-y-3">
-          {/* BVN input only if BVN not already verified */}
-          {!isBvnVerified ? (
+        {tier3StatusSnapshot?.tier3_status ? (
+          <div className="mt-4 rounded-xl border border-slate-800 bg-slate-950/50 p-3 text-xs text-slate-300">
             <div>
-              <div className="text-[11px] uppercase tracking-[0.2em] text-slate-500 mb-1">
-                BVN (required)
-              </div>
-              <input
-                type="text"
-                inputMode="numeric"
-                maxLength={11}
-                value={tier3Bvn}
-                onChange={(e) => setTier3Bvn(e.target.value.replace(/\D/g, '').slice(0, 11))}
-                className="w-full rounded-xl border border-slate-700 bg-slate-950/60 px-3 py-2 text-sm text-slate-100 outline-none focus:border-alt"
-                placeholder="Enter 11-digit BVN"
-                autoComplete="off"
-                disabled={tier3Submitting}
-              />
-              <div className="text-[11px] text-slate-500 mt-1">
-                Tip: If you verify BVN first, Tier 3 won’t ask again.
-              </div>
+              Current Tier 3 status:{' '}
+              <span className="font-semibold text-slate-100">{tier3StatusSnapshot.tier3_status}</span>
             </div>
-          ) : (
+            {tier3StatusSnapshot?.tier3_error ? (
+              <div className="mt-1 text-[11px] text-slate-400">
+                Last error: <span className="text-rose-200">{tier3StatusSnapshot.tier3_error}</span>
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+
+        <div className="mt-4 space-y-3">
+          {/* BVN summary */}
+          {isBvnVerified ? (
             <div className="rounded-xl border border-slate-800 bg-slate-950/50 p-3 text-xs text-slate-300">
               BVN status: <span className="text-emerald-300 font-semibold">Verified</span>{' '}
               (****{effectiveLast4})
@@ -1075,14 +823,19 @@ const KycCenter = () => {
                 We’ll reuse your verified BVN evidence on file.
               </div>
             </div>
+          ) : (
+            <div className="rounded-xl border border-rose-700/40 bg-rose-900/20 p-3 text-xs text-rose-200">
+              Tier 3 requires BVN verification first. Please verify BVN under “Verify BVN” before continuing.
+            </div>
           )}
 
-          {/* ✅ LIVE capture only */}
-          <LiveSelfieCapture
-            disabled={tier3Submitting || !hasTier2}
+          {/* ✅ LIVE capture only (uses your upgraded SelfieCapture.jsx) */}
+          <SelfieCapture
             value={tier3SelfieDataUrl}
-            onChange={setTier3SelfieDataUrl}
+            onChange={(dataUrl) => setTier3SelfieDataUrl(dataUrl)}
             onError={(msg) => setTier3CameraError(msg || '')}
+            title="Live selfie"
+            hint="Use good lighting. Remove cap/face covering. Keep face centered and hold still."
           />
 
           {tier3CameraError ? (
@@ -1116,8 +869,9 @@ const KycCenter = () => {
             <button
               type="button"
               onClick={handleTier3Submit}
-              disabled={tier3Submitting || !hasTier2}
+              disabled={tier3Submitting || !hasTier2 || !isBvnVerified}
               className="inline-flex items-center px-4 py-2 rounded-xl bg-alt text-black text-xs font-semibold hover:brightness-110 transition disabled:opacity-60"
+              title={!isBvnVerified ? 'Verify BVN first' : undefined}
             >
               {tier3Submitting ? 'Verifying...' : 'Verify & upgrade'}
             </button>

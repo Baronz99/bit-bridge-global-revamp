@@ -42,35 +42,39 @@ class Tier3VerificationJob < ApplicationJob
     client = ::Kyc::PremblyTier3Biometrics.new
 
     # ---------- LIVENESS ----------
-liveness = client.liveness_check(image_base64)
+    liveness = client.liveness_check(image_base64)
 
-liveness_verify_stat = liveness.dig("verification", "status").to_s
-liveness_ref        = liveness.dig("verification", "reference").to_s
-liveness_conf       = liveness.dig("data", "confidence").to_f
-liveness_top_status = liveness["status"]
-liveness_data_stat  = liveness.dig("data", "status")
-liveness_msg        = liveness["message"].to_s.presence || liveness.dig("data", "message").to_s
-liveness_code       = liveness["response_code"].to_s
+    liveness_verify_stat = liveness.dig("verification", "status").to_s
+    liveness_ref        = liveness.dig("verification", "reference").to_s
+    liveness_conf       = liveness.dig("data", "confidence").to_f
+    liveness_top_status = liveness["status"]
+    liveness_data_stat  = liveness.dig("data", "status")
+    liveness_msg        = liveness["message"].to_s.presence || liveness["detail"].to_s.presence || liveness.dig("data", "message").to_s
+    liveness_code       = liveness["response_code"].to_s
 
-Rails.logger.warn("[Tier3] LIVENESS raw=#{liveness.except('image').to_json[0, 1200]}")
+    Rails.logger.warn("[Tier3] LIVENESS code=#{liveness_code.inspect} verify_status=#{liveness_verify_stat.inspect} ref=#{liveness_ref.inspect} conf=#{liveness_conf} msg=#{liveness_msg.inspect}")
 
-liveness_passed =
-  liveness_top_status == true ||
-  liveness_data_stat == true ||
-  liveness_verify_stat.casecmp("VERIFIED").zero? ||
-  liveness_verify_stat.casecmp("PASSED").zero? ||
-  liveness_verify_stat.casecmp("SUCCESS").zero?
+    # Provider downtime / endpoint unavailable should be RETRYABLE, not "rejected"
+    if provider_unavailable?(liveness_code, liveness_msg)
+      return fail_retryable!(kyc, liveness_ref, "Face liveness is temporarily unavailable. Please try again in a few minutes. [code=#{liveness_code.presence || 'N/A'}]")
+    end
 
-unless liveness_passed
-  pretty = liveness_msg.presence || "Liveness failed"
-  pretty = "#{pretty} [code=#{liveness_code}]" if liveness_code.present?
-  return reject!(kyc, liveness_ref, pretty)
-end
+    liveness_passed =
+      liveness_top_status == true ||
+      liveness_data_stat == true ||
+      liveness_verify_stat.casecmp("VERIFIED").zero? ||
+      liveness_verify_stat.casecmp("PASSED").zero? ||
+      liveness_verify_stat.casecmp("SUCCESS").zero?
 
-if liveness_conf.positive? && liveness_conf < LIVENESS_MIN_CONFIDENCE
-  return reject!(kyc, liveness_ref, "Liveness confidence too low")
-end
+    unless liveness_passed
+      pretty = liveness_msg.presence || "Liveness failed"
+      pretty = "#{pretty} [code=#{liveness_code}]" if liveness_code.present?
+      return reject!(kyc, liveness_ref, pretty)
+    end
 
+    if liveness_conf.positive? && liveness_conf < LIVENESS_MIN_CONFIDENCE
+      return reject!(kyc, liveness_ref, "Liveness confidence too low (#{liveness_conf.round(3)}). Please retry with better lighting.")
+    end
 
     # ---------- FACE MATCH ----------
     match = client.bvn_face_match(bvn, image_base64)
@@ -80,6 +84,13 @@ end
     top_status  = match["status"]
     resp_code   = match["response_code"].to_s
     msg         = match["message"].to_s.presence || match.dig("data", "message").to_s
+
+    Rails.logger.warn("[Tier3] FACE_MATCH code=#{resp_code.inspect} verify_status=#{verify_stat.inspect} ref=#{match_ref.inspect} msg=#{msg.inspect}")
+
+    # Treat "unavailable" / provider issues here as retryable too
+    if provider_unavailable?(resp_code, msg)
+      return fail_retryable!(kyc, match_ref.presence || liveness_ref.presence, "Face match is temporarily unavailable. Please try again. [code=#{resp_code.presence || 'N/A'}]")
+    end
 
     passed =
       top_status == true ||
@@ -102,11 +113,39 @@ end
       reject!(kyc, match_ref.presence || liveness_ref.presence, pretty)
     end
   rescue StandardError => e
-    User.find_by(id: user_id)&.user_kyc&.update!(tier3_status: "failed", tier3_error: e.message)
+    # network errors, unexpected parsing errors, etc = retryable fail
+    User.find_by(id: user_id)&.user_kyc&.update!(
+      tier3_status: "failed",
+      tier3_error: "Tier 3 verification failed: #{e.message}"
+    )
     raise
   end
 
   private
+
+  # Provider temporarily unavailable -> retryable (failed), not rejected
+  def provider_unavailable?(code, msg)
+    c = code.to_s.strip
+    m = msg.to_s.downcase
+
+    return true if c == "02" # your observed "unavailable" code
+    return true if m.include?("unavailable")
+    return true if m.include?("temporarily")
+    return true if m.include?("try again")
+    return true if m.include?("service") && m.include?("down")
+
+    false
+  end
+
+  def fail_retryable!(kyc, ref, msg)
+    kyc.with_lock do
+      kyc.update!(
+        tier3_status: "failed",
+        tier3_reference: ref.presence,
+        tier3_error: msg
+      )
+    end
+  end
 
   def reject!(kyc, ref, msg)
     kyc.with_lock do

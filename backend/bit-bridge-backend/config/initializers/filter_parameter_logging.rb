@@ -14,6 +14,8 @@ Rails.application.config.filter_parameters += %i[
   # Auth header-ish values that sometimes land in params
   authorization bearer
 
+  :image, :image_base64, :selfie, :photo, :document_image
+
   # Payment provider secrets
   monnify_api_key monnify_secret_key
 ]

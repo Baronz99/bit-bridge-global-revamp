@@ -9,8 +9,13 @@ module Api
         # POST /api/v1/verification/tier3/start
         # Body: { image: "<base64 or data-url>" }
         def start
-          image = params[:image].to_s.strip
-          return render json: { error: "image is required" }, status: :unprocessable_entity if image.blank?
+  image     = params[:image].to_s.strip
+  image_url = params[:image_url].to_s.strip
+
+  # Accept either
+  input = image_url.presence || image.presence
+  return render json: { error: "image or image_url is required" }, status: :unprocessable_entity if input.blank?
+
 
           kyc = current_user.user_kyc
           return render json: { error: "KYC record not found" }, status: :unprocessable_entity if kyc.nil?
@@ -36,7 +41,7 @@ module Api
             tier3_verified_at: nil
           )
 
-          Tier3VerificationJob.perform_later(current_user.id, image)
+          Tier3VerificationJob.perform_later(current_user.id, input)
 
           render json: { message: "Tier 3 submitted", status: "pending" }, status: :ok
         rescue ActiveRecord::RecordInvalid => e
