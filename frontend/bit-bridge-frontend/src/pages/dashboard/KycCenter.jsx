@@ -246,10 +246,10 @@ const InlineModal = ({ open, title, children, onClose }) => {
   )
 }
 
-// ---- helper: Tier 3 endpoint fallback (robust, but only falls back on 404) ----
+// ---- helper: Tier 3 endpoint fallback (only fallback on 404) ----
 async function postTier3Start(payload) {
   const candidates = [
-    '/verification/tier3/start',       // ✅ correct for your client baseURL=/api/v1
+    '/verification/tier3/start',       // correct if baseURL is .../api/v1
     '/api/v1/verification/tier3/start' // safety if baseURL is misconfigured
   ]
 
@@ -297,7 +297,7 @@ const KycCenter = () => {
   const [bvnResponse, setBvnResponse] = React.useState(null)
   const [bvnError, setBvnError] = React.useState('')
 
-  // Tier 3 (biometric) UI state — isolated
+  // Tier 3 (biometric) UI state
   const [showTier3Modal, setShowTier3Modal] = React.useState(false)
   const [tier3SelfieDataUrl, setTier3SelfieDataUrl] = React.useState(null)
   const [tier3Submitting, setTier3Submitting] = React.useState(false)
@@ -306,7 +306,6 @@ const KycCenter = () => {
   const [tier3CameraError, setTier3CameraError] = React.useState('')
   const [tier3StatusSnapshot, setTier3StatusSnapshot] = React.useState(null)
 
-  // Supports either top-level fields (recommended) or nested profile
   const phoneVerified =
     user?.phone_verified === true ||
     !!user?.phone_verified_at ||
@@ -327,8 +326,6 @@ const KycCenter = () => {
   const currentTierPrimary =
     normalizedTierKey === 'tier_0'
       ? { label: 'Open profile', action: goProfile }
-      : normalizedTierKey === 'tier_1'
-      ? { label: null, action: null }
       : normalizedTierKey === 'tier_2'
       ? { label: 'Go to virtual accounts', action: goVirtualAccounts }
       : { label: null, action: null }
@@ -338,7 +335,7 @@ const KycCenter = () => {
       const res = await client.get('/verification/tier3/status')
       setTier3StatusSnapshot(res?.data || null)
     } catch (_) {
-      // Ignore; status endpoint is optional for the UI
+      // optional endpoint, ignore
     }
   }, [])
 
@@ -403,16 +400,21 @@ const KycCenter = () => {
     setTier3SelfieDataUrl(null)
     setTier3StatusSnapshot(null)
     setShowTier3Modal(true)
-    // pull last known provider error/reference to reduce confusion
     await fetchTier3Status()
   }
 
   const handleTier3Submit = async () => {
+    if (tier3Submitting) return // ✅ prevent double-tap enqueue
     setTier3Error('')
     setTier3Success('')
 
     if (!hasTier2) {
       setTier3Error('Complete Tier 2 before upgrading to Tier 3.')
+      return
+    }
+
+    if (!isBvnVerified) {
+      setTier3Error('Tier 3 requires BVN verification first. Please verify BVN.')
       return
     }
 
@@ -423,12 +425,13 @@ const KycCenter = () => {
 
     setTier3Submitting(true)
     try {
-      // Send base64 only (backend expects base64; URLs are intentionally rejected in the service)
-      const base64Only = String(tier3SelfieDataUrl).includes('base64,')
-        ? String(tier3SelfieDataUrl).split('base64,')[1]
-        : String(tier3SelfieDataUrl).includes(',')
-        ? String(tier3SelfieDataUrl).split(',')[1]
-        : String(tier3SelfieDataUrl)
+      // Send base64 only
+      const str = String(tier3SelfieDataUrl)
+      const base64Only = str.includes('base64,')
+        ? str.split('base64,')[1]
+        : str.includes(',')
+        ? str.split(',')[1]
+        : str
 
       const payload = { image: base64Only }
 
@@ -441,7 +444,6 @@ const KycCenter = () => {
 
       setTier3Success(message)
 
-      // Refresh user + snapshot status (will likely be pending/processing immediately after submit)
       await dispatch(userProfile())
       await fetchTier3Status()
     } catch (error) {
@@ -456,7 +458,6 @@ const KycCenter = () => {
             'Unable to complete Tier 3 verification.'
       setTier3Error(msg)
 
-      // Still try to pull status (sometimes backend writes tier3_error)
       await fetchTier3Status()
     } finally {
       setTier3Submitting(false)
@@ -814,11 +815,9 @@ const KycCenter = () => {
         ) : null}
 
         <div className="mt-4 space-y-3">
-          {/* BVN summary */}
           {isBvnVerified ? (
             <div className="rounded-xl border border-slate-800 bg-slate-950/50 p-3 text-xs text-slate-300">
-              BVN status: <span className="text-emerald-300 font-semibold">Verified</span>{' '}
-              (****{effectiveLast4})
+              BVN status: <span className="text-emerald-300 font-semibold">Verified</span> (****{effectiveLast4})
               <div className="text-[11px] text-slate-500 mt-1">
                 We’ll reuse your verified BVN evidence on file.
               </div>
@@ -829,7 +828,6 @@ const KycCenter = () => {
             </div>
           )}
 
-          {/* ✅ LIVE capture only (uses your upgraded SelfieCapture.jsx) */}
           <SelfieCapture
             value={tier3SelfieDataUrl}
             onChange={(dataUrl) => setTier3SelfieDataUrl(dataUrl)}
@@ -883,7 +881,6 @@ const KycCenter = () => {
         </div>
       </InlineModal>
 
-      {/* Phone verification modal mount */}
       <PhoneVerifyModal
         open={showPhoneModal}
         onClose={() => setShowPhoneModal(false)}

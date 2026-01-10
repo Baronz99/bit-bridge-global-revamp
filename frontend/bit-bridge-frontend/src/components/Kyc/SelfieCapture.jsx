@@ -9,18 +9,24 @@ const dataUrlToBlob = (dataUrl) => {
   return new Blob([arr], { type: mime });
 };
 
+const isIOSSafari = () => {
+  const ua = navigator.userAgent || "";
+  const isIOS = /iPad|iPhone|iPod/.test(ua);
+  const isWebKit = /WebKit/.test(ua);
+  const isChromeIOS = /CriOS/.test(ua);
+  const isFirefoxIOS = /FxiOS/.test(ua);
+  // Safari on iOS is WebKit but not CriOS/FxiOS
+  return isIOS && isWebKit && !isChromeIOS && !isFirefoxIOS;
+};
+
 // --- Simple image quality analysis (fast, no deps) ---
 const analyzeImageQuality = (imageData /* Uint8ClampedArray */, w, h) => {
-  // Compute luminance stats + a rough sharpness score.
-  // Luminance: Y = 0.2126R + 0.7152G + 0.0722B
   let sum = 0;
   let sumSq = 0;
 
-  // Rough sharpness: mean absolute difference between neighboring pixels
   let edgeSum = 0;
   let edgeCount = 0;
 
-  // sample every other pixel for speed
   const step = 2;
   for (let y = 0; y < h; y += step) {
     for (let x = 0; x < w; x += step) {
@@ -33,7 +39,6 @@ const analyzeImageQuality = (imageData /* Uint8ClampedArray */, w, h) => {
       sum += yLum;
       sumSq += yLum * yLum;
 
-      // Edge/contrast measure vs right and bottom neighbors
       if (x + step < w) {
         const idx2 = (y * w + (x + step)) * 4;
         const r2 = imageData[idx2];
@@ -63,13 +68,11 @@ const analyzeImageQuality = (imageData /* Uint8ClampedArray */, w, h) => {
   const sharpness = edgeCount > 0 ? edgeSum / edgeCount : 0;
 
   return {
-    meanLum: mean,  // ~0-255
-    stdLum: std,    // contrast-ish
-    sharpness,      // higher = sharper
+    meanLum: mean,  // 0-255
+    stdLum: std,
+    sharpness,
   };
 };
-
-const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 
 const SelfieCapture = ({
   value, // base64 dataURL
@@ -104,38 +107,68 @@ const SelfieCapture = ({
     try {
       stopCamera();
 
-      // Prefer front camera + decent resolution
+      if (!navigator?.mediaDevices?.getUserMedia) {
+        throw new Error("Camera not supported on this browser/device.");
+      }
+
       const stream = await navigator.mediaDevices.getUserMedia({
         video: {
           facingMode: "user",
           width: { ideal: 1280 },
           height: { ideal: 720 },
+          frameRate: { ideal: 30 },
         },
         audio: false,
       });
 
       streamRef.current = stream;
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
 
-        // Wait until metadata loaded
+      const v = videoRef.current;
+      if (v) {
+        // iOS friendliness
+        v.setAttribute("playsinline", "true");
+        v.setAttribute("autoplay", "true");
+        v.muted = true;
+
+        v.srcObject = stream;
+
+        // Wait metadata
         await new Promise((resolve) => {
-          const v = videoRef.current;
-          const done = () => resolve();
-          if (!v) return resolve();
-          if (v.readyState >= 2 && v.videoWidth > 0) return resolve();
+          const done = () => resolve(true);
+          if (v.readyState >= 2 && v.videoWidth > 0) return resolve(true);
           v.onloadedmetadata = done;
+          setTimeout(done, 700);
         });
 
-        await videoRef.current.play();
+        // play retries (iOS sometimes fails first attempt)
+        let ok = false;
+        for (let i = 0; i < 4; i++) {
+          try {
+            // eslint-disable-next-line no-await-in-loop
+            await v.play();
+            ok = true;
+            break;
+          } catch (_) {
+            // eslint-disable-next-line no-await-in-loop
+            await new Promise((r) => setTimeout(r, 250));
+          }
+        }
+
+        if (!ok) {
+          // still show UI; user can retry
+          onError?.(
+            "Camera opened but preview may be blocked. Refresh the page and confirm camera permission in Safari settings."
+          );
+        }
       }
 
       setStarted(true);
     } catch (e) {
+      stopCamera();
       const msg =
         e?.name === "NotAllowedError"
           ? "Camera permission denied. Please allow camera access."
-          : "Unable to open camera. Check permissions and try again.";
+          : e?.message || "Unable to open camera. Check permissions and try again.";
       setQualityMsg(msg);
       onError?.(msg);
     } finally {
@@ -143,33 +176,35 @@ const SelfieCapture = ({
     }
   };
 
-  const validateFrame = async (ctx, w, h) => {
-    // Downsample for analysis speed
+  const validateFrame = async (w, h) => {
     const sampleW = 180;
     const sampleH = 180;
 
     const tmp = document.createElement("canvas");
     tmp.width = sampleW;
     tmp.height = sampleH;
-    const tctx = tmp.getContext("2d");
+    const tctx = tmp.getContext("2d", { willReadFrequently: true });
+
+    // Use the already-rendered main canvas as source
     tctx.drawImage(canvasRef.current, 0, 0, w, h, 0, 0, sampleW, sampleH);
 
     const img = tctx.getImageData(0, 0, sampleW, sampleH);
     const { meanLum, stdLum, sharpness } = analyzeImageQuality(img.data, sampleW, sampleH);
 
-    // Thresholds tuned for “reduce friction”:
-    // If you get too many blocks, loosen them.
+    // iOS Safari needs looser blur threshold (camera softness)
+    const blurThreshold = isIOSSafari() ? 7.0 : 10.0;
+
     const tooDark = meanLum < 70;
-    const tooBright = meanLum > 200;
-    const tooLowContrast = stdLum < 18;
-    const tooBlurry = sharpness < 10;
+    const tooBright = meanLum > 205;
+    const tooLowContrast = stdLum < 16;
+    const tooBlurry = sharpness < blurThreshold;
 
-    if (tooDark) return "Too dark. Move into better light (face lit from front).";
-    if (tooBright) return "Too bright. Avoid direct harsh light on the face.";
-    if (tooLowContrast) return "Low contrast. Improve lighting so your face is clear.";
-    if (tooBlurry) return "Blurry. Hold steady and wipe camera lens.";
+    // IMPORTANT: message accuracy reduces friction
+    if (tooDark) return "Too dark. Move into better light (light your face from the front).";
+    if (tooBright) return "Too bright. Avoid harsh light or bright bulb behind/above you.";
+    if (tooLowContrast) return "Low contrast. Face not clear—adjust lighting and try again.";
 
-    // Face framing (optional, only if browser supports it)
+    // Face framing (if FaceDetector exists)
     const FaceDetector = window.FaceDetector;
     if (FaceDetector) {
       try {
@@ -179,29 +214,29 @@ const SelfieCapture = ({
           return "No face detected. Center your face and remove hats/coverings.";
         }
         const box = faces[0].boundingBox;
-
-        // Face size + center rules relative to sample frame
         const faceArea = box.width * box.height;
         const frameArea = sampleW * sampleH;
         const ratio = faceArea / frameArea;
 
-        // These are gentle bounds to reduce rejections:
+        // Gentle bounds
         if (ratio < 0.08) return "Face too small. Move closer to the camera.";
-        if (ratio > 0.45) return "Too close. Move slightly back so your full face fits.";
+        if (ratio > 0.50) return "Too close. Move slightly back so your full face fits.";
 
         const cx = box.x + box.width / 2;
         const cy = box.y + box.height / 2;
 
         const dx = Math.abs(cx - sampleW / 2) / (sampleW / 2);
         const dy = Math.abs(cy - sampleH / 2) / (sampleH / 2);
-
         if (dx > 0.35 || dy > 0.35) return "Center your face in the frame.";
       } catch (_) {
-        // If FaceDetector errors, ignore and proceed
+        // ignore FaceDetector failures
       }
     }
 
-    return ""; // OK
+    // Blur last (so we don't blame blur when it's framing/lighting)
+    if (tooBlurry) return "Blurry. Hold steady, clean lens, and ensure your face is well-lit.";
+
+    return "";
   };
 
   const capture = async () => {
@@ -211,7 +246,6 @@ const SelfieCapture = ({
     const video = videoRef.current;
     const canvas = canvasRef.current;
 
-    // Ensure video is actually ready
     if (video.readyState < 2 || !video.videoWidth) {
       const msg = "Camera not ready yet. Please wait a moment and try again.";
       setQualityMsg(msg);
@@ -219,40 +253,42 @@ const SelfieCapture = ({
       return;
     }
 
-    // Use actual video dimensions
+    // iOS autofocus benefit: tiny wait before capture
+    await new Promise((r) => setTimeout(r, isIOSSafari() ? 200 : 80));
+
     const vw = video.videoWidth;
     const vh = video.videoHeight;
 
-    // Crop to center square (better for face/liveness consistency)
     const side = Math.min(vw, vh);
     const sx = Math.floor((vw - side) / 2);
     const sy = Math.floor((vh - side) / 2);
 
-    // Output size: 720x720 (good balance)
     const out = 720;
     canvas.width = out;
     canvas.height = out;
 
     const ctx = canvas.getContext("2d", { willReadFrequently: true });
 
-    // draw cropped square → output square
-    ctx.drawImage(video, sx, sy, side, side, 0, 0, out, out);
+    try {
+      ctx.drawImage(video, sx, sy, side, side, 0, 0, out, out);
+    } catch (e) {
+      const msg = "Preview is blocked. Please retry and ensure camera permissions are enabled.";
+      setQualityMsg(msg);
+      onError?.(msg);
+      return;
+    }
 
-    // Validate quality BEFORE generating the final data URL
-    const validationMsg = await validateFrame(ctx, out, out);
+    const validationMsg = await validateFrame(out, out);
     if (validationMsg) {
       setQualityMsg(validationMsg);
       onError?.(validationMsg);
       return;
     }
 
-    // JPEG keeps payload smaller than PNG
     const dataUrl = canvas.toDataURL("image/jpeg", 0.90);
     const blob = dataUrlToBlob(dataUrl);
 
     onChange?.(dataUrl, blob);
-
-    // Stop camera after capture (less creepy + more compliant)
     stopCamera();
   };
 
@@ -322,6 +358,7 @@ const SelfieCapture = ({
                 ref={videoRef}
                 playsInline
                 muted
+                autoPlay
                 className="w-full max-h-[280px] object-contain"
               />
             </div>

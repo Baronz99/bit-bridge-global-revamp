@@ -1,5 +1,3 @@
-// frontend/bit-bridge-frontend/src/api/client.js
-
 import axios from 'axios'
 import { API_BASE_URL } from './config'
 import {
