@@ -16,7 +16,7 @@ import { getBankList } from '../../redux/actions/account'
 import { NavLink, useNavigate, useSearchParams } from 'react-router-dom'
 import ShadowValue from '../../components/ShadowValue'
 import { toast } from 'react-toastify'
-import { withTier2MissingDetails } from '../../utils/kycGate'
+import { needsTier2Access, withTier2MissingDetails } from '../../utils/kycGate'
 
 // NEW
 import {
@@ -73,8 +73,7 @@ const tunnelWallet = data?.tunnel
   const address = 'Card Transfer'
   const coinType = 'bank'
 
-  const userKyc = (user?.kyc_level || 'nil').toString().toLowerCase()
-  const needsTier2 = ['nil', '', 'tier_0', 'tier_1'].includes(userKyc)
+  const needsTier2 = needsTier2Access(user)
 
   const isTunnel = mode === MODES.TUNNEL
 

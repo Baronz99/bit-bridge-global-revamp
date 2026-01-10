@@ -8,7 +8,7 @@ import { getWallet } from '../../redux/actions/wallet'
 import ShadowValue from '../../components/ShadowValue'
 import client from '../../api/client'
 import { toast } from 'react-toastify'
-import { withTier2MissingDetails } from '../../utils/kycGate'
+import { needsTier2Access, withTier2MissingDetails } from '../../utils/kycGate'
 
 //  Use your reusable masked PIN input (4 digits)
 import TransactionPinInput from '../../components/pin/TransactionPinInput' // adjust if needed
@@ -144,8 +144,7 @@ export default function VirtualCardApplication() {
     ? fundingAmount
     : feeDue + (fundingAmount >= minFunding ? fundingAmount : 0)
 
-  const userKyc = (user?.kyc_level || 'nil').toString().toLowerCase()
-  const needsTier2 = ['nil', '', 'tier_0', 'tier_1'].includes(userKyc)
+  const needsTier2 = needsTier2Access(user)
 
   useEffect(() => {
     dispatch(getUserCard())

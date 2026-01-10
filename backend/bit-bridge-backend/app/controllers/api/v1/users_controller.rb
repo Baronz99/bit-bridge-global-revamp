@@ -4,6 +4,8 @@ module Api
   module V1
     class UsersController < ApplicationController
       before_action :set_user, only: %i[show update destroy clear_pin_lockout]
+      before_action :require_admin_access!, only: %i[index show clear_pin_lockout]
+      before_action :require_super_admin!, only: %i[destroy]
       skip_before_action :authenticate_user!,
                          only: %i[update_password password_reset activate_user resend_confirmation_token]
 
@@ -27,10 +29,13 @@ end
 
       def index
         @users = User.all
-        render json: { data: @users }, status: :ok
+        render json: {
+          data: ActiveModelSerializers::SerializableResource.new(@users, each_serializer: UserSerializer)
+        }, status: :ok
       end
 
       def show
+        log_admin_audit('view_user', target: @user) if current_user&.admin_access?
         render json: { data: UserSerializer.new(@user) }, status: :ok
       end
 
@@ -314,16 +319,14 @@ end
       # ========= ADMIN: CLEAR TRANSACTION PIN LOCKOUT =========
 
       def clear_pin_lockout
-        unless current_user&.admin?
-          return render json: { message: 'Not authorized' }, status: :forbidden
-        end
-
         return render json: { message: 'User not found' }, status: :not_found unless @user
 
         @user.update_columns(
           transaction_pin_attempts: 0,
           transaction_pin_locked_until: nil
         )
+
+        log_admin_audit('clear_pin_lockout', target: @user)
 
         render json: {
           message: 'Transaction PIN lockout cleared',
@@ -337,6 +340,31 @@ end
 
       def set_user
         @user = User.find_by(id: params[:id])
+      end
+
+      def require_admin_access!
+        return if current_user&.admin_access?
+
+        render json: { message: 'Not authorized' }, status: :forbidden
+      end
+
+      def require_super_admin!
+        return if current_user&.super_admin?
+
+        render json: { message: 'Not authorized' }, status: :forbidden
+      end
+
+      def log_admin_audit(action, target: nil, metadata: {})
+        AdminAuditEvent.create!(
+          admin_user_id: current_user.id,
+          target_user_id: target&.id,
+          action: action,
+          ip: request.remote_ip.to_s,
+          user_agent: request.user_agent.to_s,
+          metadata: metadata
+        )
+      rescue StandardError
+        nil
       end
 
       def user_params

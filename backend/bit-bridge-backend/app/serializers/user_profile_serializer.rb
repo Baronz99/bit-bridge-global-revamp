@@ -20,6 +20,12 @@ class UserProfileSerializer < ActiveModel::Serializer
              :id_document_url,        # read-only URL for ID doc
              :proof_of_address_url    # read-only URL for proof of address
 
+  def phone_number
+    return object.phone_number unless admin_scope?
+
+    mask_phone(object.phone_number)
+  end
+
   # ✅ boolean helper so frontend can simply check `user.user_profile.phone_verified`
   def phone_verified
     object.phone_verified_at.present?
@@ -76,6 +82,20 @@ class UserProfileSerializer < ActiveModel::Serializer
 
   def default_protocol
     Rails.env.production? || Rails.env.staging? ? 'https' : 'http'
+  end
+
+  def admin_scope?
+    scope.respond_to?(:admin?) && scope.admin?
+  end
+
+  def mask_phone(value)
+    digits = value.to_s.gsub(/\D/, '')
+    return value.to_s if digits.length < 6
+
+    prefix = value.to_s.start_with?('+') ? '+' : ''
+    head = digits[0, 4]
+    tail = digits[-2, 2]
+    "#{prefix}#{head}*****#{tail}"
   end
 end
 

@@ -28,7 +28,7 @@ import OnboardingBanner from '../../components/onboarding/OnboardingBanner'
 import CableTvComponent from './components/cable-tv-compoent'
 import { FaRegEye, FaRegEyeSlash } from 'react-icons/fa'
 import ShadowValue from '../../components/ShadowValue'
-import { withTier2MissingDetails } from '../../utils/kycGate'
+import { needsTier2Access, withTier2MissingDetails } from '../../utils/kycGate'
 
 // ✅ Toasts
 import { toast } from 'react-toastify'
@@ -131,7 +131,7 @@ const HomeDashboard = () => {
   // 🔐 KYC gate for virtual accounts
 const handleGenerate = (i, data = {}) => {
   const vendor = items[i]?.name
-  const userKyc = (user?.kyc_level || 'nil').toString().toLowerCase()
+  const needsTier2 = needsTier2Access(user)
 
   // 🚫 Monnify intentionally disabled
   if (vendor === 'monnify') {
@@ -146,7 +146,7 @@ const handleGenerate = (i, data = {}) => {
   // 🏦 Anchor
   if (vendor === 'anchor') {
     // Require Tier 2
-    if (['nil', '', 'tier_0', 'tier_1'].includes(userKyc)) {
+    if (needsTier2) {
       toast.info(withTier2MissingDetails(user, 'Complete Tier 2 verification'), {
         position: 'top-right',
         autoClose: 4000,

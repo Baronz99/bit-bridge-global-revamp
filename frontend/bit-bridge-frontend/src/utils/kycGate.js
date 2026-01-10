@@ -22,6 +22,33 @@ export const getTier1MissingDetails = (user) => {
   return missing
 }
 
+const TIER_RANKS = {
+  tier_0: 0,
+  tier_1: 1,
+  tier_2: 2,
+  tier_3: 3,
+}
+
+export const normalizeKycLevel = (raw) => {
+  const value = (raw ?? '').toString().toLowerCase()
+  if (!value || value === 'nil') return 'tier_0'
+  if (value.includes('tier_3')) return 'tier_3'
+  if (value.includes('tier_2')) return 'tier_2'
+  if (value.includes('tier_1')) return 'tier_1'
+  if (value.includes('tier_0')) return 'tier_0'
+  return value
+}
+
+export const kycRank = (rawLevel) => {
+  const normalized = normalizeKycLevel(rawLevel)
+  return TIER_RANKS[normalized] ?? 0
+}
+
+export const kycAtLeast = (rawLevel, requiredLevel) =>
+  kycRank(rawLevel) >= kycRank(requiredLevel)
+
+export const needsTier2Access = (user) => !kycAtLeast(user?.kyc_level, 'tier_2')
+
 export const withTier1MissingDetails = (user, baseMessage) => {
   const missing = getTier1MissingDetails(user)
   if (!missing.length) return baseMessage

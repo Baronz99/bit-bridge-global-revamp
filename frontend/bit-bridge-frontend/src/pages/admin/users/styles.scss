@@ -99,6 +99,32 @@
   flex-wrap: wrap;
 }
 
+.admin-user-tabs {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.admin-user-tab {
+  border: 1px solid var(--au-border);
+  background: #ffffff;
+  color: var(--au-muted);
+  border-radius: 999px;
+  padding: 8px 14px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.admin-user-tab.is-active {
+  background: var(--au-accent);
+  color: #ffffff;
+  border-color: transparent;
+}
+
 .admin-badge {
   border-radius: 999px;
   padding: 6px 12px;
@@ -223,6 +249,15 @@
   color: var(--au-ink);
 }
 
+.admin-kv-meta {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 6px;
+  font-size: 11px;
+  color: var(--au-muted);
+}
+
 .admin-kv--wide {
   grid-column: 1 / -1;
 }
@@ -239,6 +274,54 @@
   border: 1px solid #c7d2fe;
   background: #eef2ff;
   color: #4338ca;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.admin-reveal-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  background: #f8fafc;
+  border: 1px dashed var(--au-border);
+  border-radius: 16px;
+  padding: 12px 16px;
+  margin-bottom: 18px;
+}
+
+.admin-reveal-title {
+  margin: 0;
+  font-weight: 700;
+  font-size: 13px;
+}
+
+.admin-reveal-sub {
+  margin: 2px 0 0;
+  font-size: 11px;
+  color: var(--au-muted);
+}
+
+.admin-reveal-button {
+  border: none;
+  background: var(--au-accent);
+  color: #ffffff;
+  border-radius: 999px;
+  padding: 10px 18px;
+  font-weight: 700;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.admin-reveal-button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.admin-reveal-error {
+  margin: -6px 0 14px;
+  color: var(--au-danger);
   font-size: 12px;
   font-weight: 600;
 }

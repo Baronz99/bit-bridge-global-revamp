@@ -7,7 +7,7 @@ import ClassicBtn from '../../components/button/ClassicButton'
 import DisputeModal from '../../components/DisputeModal'
 import { getAccessToken } from '../../auth/tokenStore'
 import { toast } from 'react-toastify'
-import { withTier2MissingDetails } from '../../utils/kycGate'
+import { needsTier2Access, withTier2MissingDetails } from '../../utils/kycGate'
 
 import {
   getCircle,
@@ -656,8 +656,7 @@ const CirclesDetailPage = () => {
   const [error, setError] = useState(null)
 
   const currentUser = useSelector((state) => state.auth.user)
-  const userKyc = (currentUser?.kyc_level || 'nil').toString().toLowerCase()
-  const needsTier2 = ['nil', '', 'tier_0', 'tier_1'].includes(userKyc)
+  const needsTier2 = needsTier2Access(currentUser)
 
   const [depositing, setDepositing] = useState(false)
   const [depositError, setDepositError] = useState(null)

@@ -277,6 +277,9 @@ Rails.application.routes.draw do
 
       namespace :admin do
         resources :kyc_reviews, only: %i[index update]
+        resources :users, only: [] do
+          post :reveal, on: :member
+        end
       end
     end
   end

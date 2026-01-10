@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[7.1].define(version: 2026_01_09_133826) do
+ActiveRecord::Schema[7.1].define(version: 2026_01_12_090100) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pgcrypto"
   enable_extension "plpgsql"
@@ -68,6 +68,20 @@ ActiveRecord::Schema[7.1].define(version: 2026_01_09_133826) do
     t.uuid "blob_id", null: false
     t.string "variation_digest", null: false
     t.index ["blob_id", "variation_digest"], name: "index_active_storage_variant_records_uniqueness", unique: true
+  end
+
+  create_table "admin_audit_events", id: :uuid, default: -> { "gen_random_uuid()" }, force: :cascade do |t|
+    t.uuid "admin_user_id", null: false
+    t.uuid "target_user_id"
+    t.string "action", null: false
+    t.string "ip"
+    t.string "user_agent"
+    t.jsonb "metadata", default: {}, null: false
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["action"], name: "index_admin_audit_events_on_action"
+    t.index ["admin_user_id"], name: "index_admin_audit_events_on_admin_user_id"
+    t.index ["target_user_id"], name: "index_admin_audit_events_on_target_user_id"
   end
 
   create_table "bank_transactions", id: :uuid, default: -> { "gen_random_uuid()" }, force: :cascade do |t|
@@ -622,6 +636,8 @@ ActiveRecord::Schema[7.1].define(version: 2026_01_09_133826) do
     t.integer "transaction_pin_attempts", default: 0, null: false
     t.datetime "transaction_pin_locked_until"
     t.string "refresh_token_digest"
+    t.string "admin_role"
+    t.datetime "admin_auth_time"
     t.index ["confirmation_token"], name: "index_users_on_confirmation_token", unique: true
     t.index ["email"], name: "index_users_on_email", unique: true
     t.index ["jti"], name: "index_users_on_jti", unique: true
@@ -654,6 +670,8 @@ ActiveRecord::Schema[7.1].define(version: 2026_01_09_133826) do
   add_foreign_key "accounts", "users"
   add_foreign_key "active_storage_attachments", "active_storage_blobs", column: "blob_id"
   add_foreign_key "active_storage_variant_records", "active_storage_blobs", column: "blob_id"
+  add_foreign_key "admin_audit_events", "users", column: "admin_user_id"
+  add_foreign_key "admin_audit_events", "users", column: "target_user_id"
   add_foreign_key "bank_transactions", "accounts"
   add_foreign_key "beneficiaries", "users"
   add_foreign_key "bill_orders", "order_details"

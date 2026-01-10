@@ -6,7 +6,7 @@ import { useNavigate } from 'react-router-dom'
 import ClassicBtn from '../../components/button/ClassicButton'
 import client from '../../api/client'
 import { toast } from 'react-toastify'
-import { withTier2MissingDetails } from '../../utils/kycGate'
+import { needsTier2Access, withTier2MissingDetails } from '../../utils/kycGate'
 
 // Rough categorisation for the filter pills (purely UI)
 const detectCategory = (group) => {
@@ -22,8 +22,7 @@ const CirclesPage = () => {
   const navigate = useNavigate()
   const { user } = useSelector((state) => state.auth)
 
-  const userKyc = (user?.kyc_level || 'nil').toString().toLowerCase()
-  const needsTier2 = ['nil', '', 'tier_0', 'tier_1'].includes(userKyc)
+  const needsTier2 = needsTier2Access(user)
 
   const [groups, setGroups] = useState([])
   const [loading, setLoading] = useState(true)

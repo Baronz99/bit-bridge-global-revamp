@@ -122,7 +122,7 @@ const TIER3_UI_STATUS = {
 }
 
 const normalizeTierKey = (raw) => {
-  const k = (raw ?? 'nil').toString()
+  const k = (raw ?? 'nil').toString().toLowerCase()
   if (k === 'nil' || k === '') return 'tier_0'
   if (!tierOrder.includes(k)) return 'tier_0'
   return k
@@ -302,8 +302,7 @@ const KycCenter = () => {
 
   const primaryUseCase = user?.primary_use_case || 'airtime_utilities'
   const normalizedTierKey = normalizeTierKey(user?.kyc_level)
-  const rawKycLevelKey = (user?.kyc_level || 'nil').toString()
-  const kycInfo = kycLevelConfig[rawKycLevelKey] || kycLevelConfig.nil
+  const kycInfo = kycLevelConfig[normalizedTierKey] || kycLevelConfig.nil
   const useCaseInfo = useCaseConfig[primaryUseCase] || useCaseConfig.airtime_utilities
 
   // ✅ Phone verification modal
@@ -575,9 +574,7 @@ const KycCenter = () => {
           <div>
             <p className="font-semibold text-slate-100">Current KYC level</p>
             <p className="text-slate-300">{kycInfo.label}</p>
-            <p className="text-[11px] text-slate-500">
-              Tier 2 unlocks virtual accounts via Anchor / Moniepoint.
-            </p>
+            <p className="text-[11px] text-slate-500">{kycInfo.description}</p>
           </div>
         </div>
       </div>

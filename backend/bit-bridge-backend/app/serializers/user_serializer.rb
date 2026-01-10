@@ -6,6 +6,7 @@ class UserSerializer < ActiveModel::Serializer
              :created_at,
              :admin,
              :role,
+             :admin_role,
              :active,
              :onboarding_stage,
              :primary_use_case,
@@ -26,6 +27,16 @@ class UserSerializer < ActiveModel::Serializer
   has_many :transactions
   has_many :accounts
   has_many :cards, if: :admin_scope?
+
+  def email
+    return object.email unless admin_scope?
+
+    mask_email(object.email)
+  end
+
+  def admin_role
+    object.admin_role
+  end
 
   def phone_verified
     object.user_profile&.phone_verified_at.present?
@@ -53,5 +64,17 @@ class UserSerializer < ActiveModel::Serializer
 
   def admin_scope?
     scope.respond_to?(:admin?) && scope.admin?
+  end
+
+  def mask_email(value)
+    return "" if value.to_s.strip.empty?
+
+    name, domain = value.split('@', 2)
+    return value if domain.blank?
+    return "*@#{domain}" if name.length < 2
+
+    head = name[0, 2]
+    tail = name[-1, 1]
+    "#{head}***#{tail}@#{domain}"
   end
 end

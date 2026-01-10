@@ -9,7 +9,7 @@ import {
 import AppButton from '../button/Button'
 import { nairaFormat } from '../../utils/nairaFormat'
 import { toast } from 'react-toastify'
-import { withTier2MissingDetails } from '../../utils/kycGate'
+import { needsTier2Access, withTier2MissingDetails } from '../../utils/kycGate'
 import { getWallet, sendMoneyToUser } from '../../redux/actions/wallet'
 
 // ✅ Masked PIN input
@@ -63,9 +63,7 @@ export default function MoneyTransferFlow({ setIsfundTransferOpen }) {
   const isInternal = transferMode === 'bitbridge'
 
   useEffect(() => {
-    const userKyc = (user?.kyc_level || 'nil').toString().toLowerCase()
-    const needsTier2 = ['nil', '', 'tier_0', 'tier_1'].includes(userKyc)
-    if (!needsTier2) return
+    if (!needsTier2Access(user)) return
     toast.info(withTier2MissingDetails(user, 'Complete Tier 2 verification to make transfers.'), {
       position: 'top-right',
       autoClose: 4000,
@@ -76,9 +74,7 @@ export default function MoneyTransferFlow({ setIsfundTransferOpen }) {
   }, [navigate, setIsfundTransferOpen, user])
 
   useEffect(() => {
-    const userKyc = (user?.kyc_level || 'nil').toString().toLowerCase()
-    const needsTier2 = ['nil', '', 'tier_0', 'tier_1'].includes(userKyc)
-    if (needsTier2) return
+    if (needsTier2Access(user)) return
     dispatch(getBeneficiaries())
   }, [dispatch, user])
 

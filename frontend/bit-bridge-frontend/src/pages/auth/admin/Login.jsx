@@ -4,7 +4,7 @@ import enUS from 'antd/es/locale/en_US'
 
 import { ConfigProvider, Tabs, theme } from 'antd'
 import { useState } from 'react'
-import { NavLink, useNavigate } from 'react-router-dom'
+import { NavLink, useLocation, useNavigate } from 'react-router-dom'
 // import logo from "../../../assets/logos/2.png"
 import logo from '../../../assets/logos/2.png'
 import { useDispatch, useSelector } from 'react-redux'
@@ -19,6 +19,8 @@ export const AdminLogin = () => {
   const [loginType, setLoginType] = useState('phone')
   const dispatch = useDispatch()
   const navigate = useNavigate()
+  const location = useLocation()
+  const returnTo = new URLSearchParams(location.search).get('return')
 
   return (
     <ProConfigProvider hashed={false}>
@@ -29,7 +31,7 @@ export const AdminLogin = () => {
             dispatch(userLogin({ user: values })).then((result) => {
               if (userLogin.fulfilled.match(result)) {
                 dispatch(SET_LOADING(false))
-                navigate('/admin/dashboard')
+                navigate(returnTo || '/admin/dashboard')
               } else if (userSignUp.rejected.match(result)) {
                 dispatch(SET_LOADING(false))
               }

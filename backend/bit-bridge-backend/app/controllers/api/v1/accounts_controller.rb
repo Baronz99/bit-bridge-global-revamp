@@ -607,12 +607,13 @@ return unless require_transaction_pin!(pin, error_key: :message)
           return unless vendor == 'anchor'
         end
 
-        allowed_levels = %w[tier_1 tier_2]
-        user_level = current_user&.kyc_level.to_s
+        required_level = 'tier_2'
 
-        return if allowed_levels.include?(user_level)
+        return if current_user&.kyc_at_least?(required_level)
 
         render json: {
+          error: 'kyc_required',
+          required_level: required_level,
           message: 'Please complete Tier 2 verification before generating or using an Anchor virtual account.'
         }, status: :forbidden
       end

@@ -64,6 +64,13 @@ module Users
       # Get the JWT access token from the request environment
       access_token = request.env['warden-jwt_auth.token']
 
+      if resource.admin?
+        resource.update_columns(
+          admin_auth_time: Time.current,
+          admin_role: resource.admin_role.presence || resource[:admin_role]
+        )
+      end
+
       set_refresh_cookie(refresh_token)
       response.set_header('Bit-Refresh-Token', refresh_token) if refresh_header_enabled?
 

@@ -28,6 +28,14 @@ class User < ApplicationRecord
   has_many :beneficiaries, dependent: :destroy
   has_one :user_kyc, dependent: :destroy
   has_many :kyc_reviews, dependent: :destroy
+  has_many :admin_audit_events_as_admin,
+           class_name: 'AdminAuditEvent',
+           foreign_key: :admin_user_id,
+           dependent: :nullify
+  has_many :admin_audit_events_as_target,
+           class_name: 'AdminAuditEvent',
+           foreign_key: :target_user_id,
+           dependent: :nullify
 
   has_many :circle_memberships, dependent: :destroy
   has_many :circles, through: :circle_memberships
@@ -63,6 +71,56 @@ class User < ApplicationRecord
 
   def admin?
     admin || role == 'super_admin'
+  end
+
+  def admin_role
+    return 'super_admin' if role == 'super_admin'
+    return self[:admin_role].presence if self[:admin_role].present?
+    return 'support' if admin?
+
+    nil
+  end
+
+  def support?
+    admin_role == 'support'
+  end
+
+  def ops?
+    admin_role == 'ops'
+  end
+
+  def compliance?
+    admin_role == 'compliance'
+  end
+
+  def super_admin?
+    admin_role == 'super_admin'
+  end
+
+  def admin_access?
+    admin? && admin_role.present?
+  end
+
+  def admin_session_fresh?(max_age: 10.minutes)
+    return false if admin_auth_time.blank?
+
+    admin_auth_time >= max_age.ago
+  end
+
+  KYC_RANKS = {
+    'tier_0' => 0,
+    'tier_1' => 1,
+    'tier_2' => 2,
+    'tier_3' => 3
+  }.freeze
+
+  def kyc_rank
+    KYC_RANKS.fetch(kyc_level.to_s, 0)
+  end
+
+  def kyc_at_least?(required_level)
+    required_rank = KYC_RANKS.fetch(required_level.to_s, 0)
+    kyc_rank >= required_rank
   end
 
   # ✅ Ensure NGN wallet exists on signup (no behaviour change)

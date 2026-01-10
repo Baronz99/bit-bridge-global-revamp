@@ -100,12 +100,13 @@ class ApplicationController < ActionController::API
 
   # Tier 2 guard for restricted features (shared groups, tunnel, cards, transfers)
   def ensure_tier2!(message: nil)
-    allowed_levels = %w[tier_2]
-    user_level = current_user&.kyc_level.to_s
+    required_level = 'tier_2'
 
-    return if allowed_levels.include?(user_level)
+    return if current_user&.kyc_at_least?(required_level)
 
     render json: {
+      error: 'kyc_required',
+      required_level: required_level,
       message: message || "Complete Tier 2 verification to use this feature."
     }, status: :forbidden
   end
