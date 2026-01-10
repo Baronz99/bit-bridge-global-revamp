@@ -6,6 +6,23 @@ module Api
       class Tier3Controller < ApplicationController
         before_action :authenticate_user!
 
+        # POST /api/v1/verification/tier3/liveness
+        # Body: { image: "<base64 or data-url>" }
+        def liveness
+          Rails.logger.warn("[Tier3] liveness image_len=#{params[:image].to_s.length}")
+
+          image = params[:image].to_s.strip
+          if image.blank?
+            return render json: { error: "image is required" }, status: :unprocessable_entity
+          end
+
+          result = ::Kyc::PremblyTier3Biometrics.new.liveness_check(image)
+          render json: result, status: :ok
+        rescue StandardError => e
+          Rails.logger.error("[Tier3] liveness failed: #{e.class}: #{e.message}")
+          render json: { error: "Tier 3 liveness failed" }, status: :internal_server_error
+        end
+
         # POST /api/v1/verification/tier3/start
         # Body: { image: "<base64 or data-url>" } OR { image_url: "<base64 or data-url>" }
         def start

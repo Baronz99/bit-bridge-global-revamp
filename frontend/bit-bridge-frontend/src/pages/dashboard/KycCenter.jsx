@@ -425,15 +425,20 @@ const KycCenter = () => {
 
     setTier3Submitting(true)
     try {
-      // Send base64 only
-      const str = String(tier3SelfieDataUrl)
-      const base64Only = str.includes('base64,')
-        ? str.split('base64,')[1]
-        : str.includes(',')
-        ? str.split(',')[1]
-        : str
+      const str = String(tier3SelfieDataUrl || '')
+      let dataUrl = str.trim()
 
-      const payload = { image: base64Only }
+      if (!dataUrl.startsWith('data:image/')) {
+        const base64Only = dataUrl.includes('base64,')
+          ? dataUrl.split('base64,')[1]
+          : dataUrl.includes(',')
+          ? dataUrl.split(',')[1]
+          : dataUrl
+
+        dataUrl = `data:image/jpeg;base64,${base64Only}`
+      }
+
+      const payload = { image: dataUrl }
 
       const res = await postTier3Start(payload)
 

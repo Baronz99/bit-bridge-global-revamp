@@ -111,6 +111,7 @@ Rails.application.routes.draw do
       namespace :verification do
         namespace :tier3 do
           post :start   # POST /api/v1/verification/tier3/start
+          post :liveness # POST /api/v1/verification/tier3/liveness
           get  :status  # GET  /api/v1/verification/tier3/status   ✅ added
         end
       end
