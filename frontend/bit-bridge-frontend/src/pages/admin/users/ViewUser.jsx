@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useDispatch, useSelector } from 'react-redux'
-import { NavLink, useNavigate, useParams } from 'react-router-dom'
+import { NavLink, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { nairaFormat } from '../../../utils/nairaFormat'
 
 import './styles.scss'
@@ -20,18 +20,26 @@ import { Button, Form } from 'antd'
 import FormInput from '../../../components/formInput/FormInput'
 import { createUserTransaction } from '../../../redux/actions/transaction'
 import { SET_LOADING } from '../../../redux/app'
+import client from '../../../api/client'
 
 const ViewUser = () => {
   const { id } = useParams()
   const navigate = useNavigate()
+  const location = useLocation()
   const dispatch = useDispatch()
   const { user, loading } = useSelector((state) => state.user)
+  const { user: adminUser } = useSelector((state) => state.auth)
   const [selectedId, setSelectedId] = useState(null)
   const [open, setOpen] = useState(false)
   const [openActivate, setOpenActivate] = useState(false)
   const [openAccountModal, setOpenAccountModal] = useState(false)
   const [transactionType, setTransactionType] = useState('deposit')
   const [formLayout] = useState('vertical')
+  const [activeTab, setActiveTab] = useState('overview')
+  const [revealData, setRevealData] = useState(null)
+  const [revealError, setRevealError] = useState('')
+  const [revealLoading, setRevealLoading] = useState(false)
+  const revealTimerRef = useRef(null)
 
   const [form] = Form.useForm()
 
@@ -114,6 +122,37 @@ const ViewUser = () => {
       })
   }
 
+  const handleReveal = async () => {
+    setRevealError('')
+    setRevealLoading(true)
+    try {
+      const res = await client.post(`/admin/users/${id}/reveal`)
+      setRevealData(res?.data?.data || null)
+      if (revealTimerRef.current) clearTimeout(revealTimerRef.current)
+      revealTimerRef.current = setTimeout(() => setRevealData(null), 60 * 1000)
+    } catch (error) {
+      const status = error?.response?.status
+      if (status === 401) {
+        const returnTo = encodeURIComponent(`${location.pathname}${location.search}`)
+        navigate(`/admin/login?return=${returnTo}`)
+        return
+      }
+      const message =
+        error?.response?.data?.message ||
+        error?.response?.data?.error ||
+        'Unable to reveal sensitive data.'
+      setRevealError(message)
+    } finally {
+      setRevealLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    return () => {
+      if (revealTimerRef.current) clearTimeout(revealTimerRef.current)
+    }
+  }, [])
+
   const no_items = 10
   const pages = Math.ceil((user?.transactions?.length ?? 1) / no_items)
   const [activePage, setActivePage] = useState(0)
@@ -125,6 +164,10 @@ const ViewUser = () => {
   // ---------------------------
   const profile = user?.user_profile || {}
   const userKyc = user?.user_kyc || {}
+  const adminRole =
+    adminUser?.admin_role ||
+    (adminUser?.role === 'super_admin' ? 'super_admin' : adminUser?.role === 'admin' ? 'support' : null)
+  const canReveal = adminRole === 'compliance' || adminRole === 'super_admin'
 
   const bvnStatusRaw = userKyc?.bvn_status || 'unverified'
   const bvnStatusLabel =
@@ -160,10 +203,13 @@ const ViewUser = () => {
     ? dateFormater(userKyc.bvn_locked_until)
     : 'Not locked'
 
+  const emailDisplay = revealData?.email || user?.email || 'Not provided'
+  const phoneDisplay = revealData?.phone_number || profile.phone_number || 'Not provided'
+
   const fullName =
     [profile.first_name, profile.last_name].filter(Boolean).join(' ') || 'Not provided'
 
-  const phoneNumber = profile.phone_number || 'Not provided'
+  const phoneNumber = phoneDisplay
 
   const addressParts = [
     profile.address_line1,
@@ -178,6 +224,14 @@ const ViewUser = () => {
   // KYC document URLs coming from UserProfileSerializer
   const idDocumentUrl = profile.id_document_url
   const proofOfAddressUrl = profile.proof_of_address_url
+
+  const revealAccounts = useMemo(() => {
+    const list = Array.isArray(revealData?.virtual_accounts) ? revealData.virtual_accounts : []
+    return list.reduce((acc, item) => {
+      if (item?.id) acc[item.id] = item
+      return acc
+    }, {})
+  }, [revealData])
 
   const primaryUseCaseMap = {
     send_receive: 'Send & receive money',
@@ -217,15 +271,10 @@ const ViewUser = () => {
     }).format(Number(value))
   }
 
-  const maskCardId = (value) => {
-    const raw = String(value || '')
-    if (!raw) return 'Not available'
-    return `**** ${raw.slice(-4)}`
-  }
-
   const wallets = Array.isArray(user?.wallets) ? user.wallets : []
   const ngnWallet = wallets.find((wallet) => wallet.wallet_type === 'ngn') || user?.wallet
   const usdWallet = wallets.find((wallet) => wallet.wallet_type === 'usd')
+  const accounts = Array.isArray(user?.accounts) ? user.accounts : []
 
   const walletData = useMemo(
     () => [
@@ -254,6 +303,12 @@ const ViewUser = () => {
   )
 
   const cards = Array.isArray(user?.cards) ? user.cards : []
+  const tabs = [
+    { key: 'overview', label: 'Overview' },
+    { key: 'financial', label: 'Financial' },
+    { key: 'compliance', label: 'KYC & Compliance' },
+    { key: 'activity', label: 'Activity' },
+  ]
 
   return (
     <>
@@ -272,7 +327,7 @@ const ViewUser = () => {
             <div className="admin-user-title">
               <p className="admin-user-eyebrow">Admin user</p>
               <h1>Profile overview</h1>
-              <p className="admin-user-email">{user?.email ?? 'Not available'}</p>
+              <p className="admin-user-email">{emailDisplay}</p>
             </div>
 
             <div className="admin-user-badges">
@@ -284,6 +339,20 @@ const ViewUser = () => {
             </div>
           </div>
 
+          <div className="admin-user-tabs">
+            {tabs.map((tab) => (
+              <button
+                key={tab.key}
+                type="button"
+                onClick={() => setActiveTab(tab.key)}
+                className={`admin-user-tab ${activeTab === tab.key ? 'is-active' : ''}`}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
+
+          {activeTab === 'overview' ? (
           <div className="admin-user-card admin-user-summary">
               <div className="admin-card-header">
               <div>
@@ -299,7 +368,7 @@ const ViewUser = () => {
             <div className="admin-user-grid">
               <div className="admin-kv">
                 <span>Email</span>
-                <strong>{user?.email ?? 'Not available'}</strong>
+                <strong>{emailDisplay}</strong>
               </div>
               <div className="admin-kv">
                 <span>User ID</span>
@@ -323,7 +392,9 @@ const ViewUser = () => {
               </div>
             </div>
           </div>
+          ) : null}
 
+          {activeTab === 'financial' ? (
           <div className="admin-user-card admin-user-wallets">
             <div className="admin-card-header">
               <div>
@@ -344,7 +415,48 @@ const ViewUser = () => {
               ))}
             </div>
           </div>
+          ) : null}
 
+          {activeTab === 'financial' ? (
+          <div className="admin-user-card admin-user-accounts">
+            <div className="admin-card-header">
+              <div>
+                <p className="admin-card-eyebrow">Virtual accounts</p>
+                <h2>Bank accounts</h2>
+              </div>
+              <div className="admin-card-aside">
+                <span className="admin-card-label">Count</span>
+                <span className="admin-card-value">{accounts.length}</span>
+              </div>
+            </div>
+            {accounts.length === 0 ? (
+              <p className="admin-empty">No virtual accounts found for this user.</p>
+            ) : (
+              <div className="admin-user-grid admin-user-grid--wide">
+                {accounts.map((account) => {
+                  const revealedAccount = revealAccounts[account.id]
+                  const accountNumber =
+                    revealedAccount?.account_number ||
+                    account.account_number ||
+                    (account.account_last4 ? `****${account.account_last4}` : 'Not available')
+
+                  return (
+                    <div className="admin-kv" key={account.id}>
+                      <span>{account.bank_name || account.vendor || 'Virtual account'}</span>
+                      <strong>{accountNumber}</strong>
+                      <div className="admin-kv-meta">
+                        <span>{account.currency || 'NGN'}</span>
+                        <span className="capitalize">{account.status || 'active'}</span>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </div>
+          ) : null}
+
+          {activeTab === 'compliance' ? (
           <div className="admin-user-card admin-user-profile">
             <div className="admin-card-header">
               <div>
@@ -357,10 +469,32 @@ const ViewUser = () => {
               </div>
             </div>
 
+            <div className="admin-reveal-row">
+              <div>
+                <p className="admin-reveal-title">PII is masked by default</p>
+                <p className="admin-reveal-sub">Reveals expire after 60 seconds.</p>
+              </div>
+              {canReveal ? (
+                <button
+                  type="button"
+                  onClick={handleReveal}
+                  className="admin-reveal-button"
+                  disabled={revealLoading}
+                >
+                  {revealLoading ? 'Revealing...' : 'Reveal PII'}
+                </button>
+              ) : null}
+            </div>
+            {revealError ? <p className="admin-reveal-error">{revealError}</p> : null}
+
             <div className="admin-user-grid admin-user-grid--wide">
               <div className="admin-kv">
                 <span>Full name</span>
                 <strong>{fullName}</strong>
+              </div>
+              <div className="admin-kv">
+                <span>Email</span>
+                <strong>{emailDisplay}</strong>
               </div>
               <div className="admin-kv">
                 <span>Phone</span>
@@ -452,7 +586,9 @@ const ViewUser = () => {
               </div>
             </div>
           </div>
+          ) : null}
 
+          {activeTab === 'financial' ? (
           <div className="admin-user-card admin-user-cards">
             <div className="admin-card-header">
               <div>
@@ -475,7 +611,9 @@ const ViewUser = () => {
                         <p className="admin-card-item__brand">
                           {card.card_brand || 'Card'}
                         </p>
-                        <p className="admin-card-item__id">{maskCardId(card.card_id)}</p>
+                        <p className="admin-card-item__id">
+                          {card.card_last4 ? `**** ${card.card_last4}` : 'Not available'}
+                        </p>
                       </div>
                       <span
                         className={`admin-badge ${
@@ -487,16 +625,12 @@ const ViewUser = () => {
                     </div>
                     <div className="admin-card-item__meta">
                       <div>
-                        <span>Currency</span>
-                        <strong>{card.card_currency || 'Not available'}</strong>
-                      </div>
-                      <div>
-                        <span>Limit</span>
-                        <strong>{formatUsd(card.card_limit)}</strong>
-                      </div>
-                      <div>
-                        <span>Funding</span>
-                        <strong>{formatUsd(card.funding_amount)}</strong>
+                        <span>Expiry</span>
+                        <strong>
+                          {card.exp_month && card.exp_year
+                            ? `${card.exp_month}/${card.exp_year}`
+                            : 'Not available'}
+                        </strong>
                       </div>
                     </div>
                   </div>
@@ -504,7 +638,9 @@ const ViewUser = () => {
               </div>
             )}
           </div>
+          ) : null}
 
+          {activeTab === 'financial' ? (
           <div className={`admin-user-card admin-user-actions ${!user?.active ? 'is-disabled' : ''}`}>
             <div className="admin-card-header">
               <div>
@@ -525,7 +661,10 @@ const ViewUser = () => {
               <ClickButton onClick={handleClearPinLockout}>Clear PIN Lockout</ClickButton>
             </div>
           </div>
+          ) : null}
 
+          {activeTab === 'activity' ? (
+          <>
           {/* Transactions table */}
           <div className="admin-user-card admin-user-table">
             <div className="admin-card-header">
@@ -807,10 +946,13 @@ const ViewUser = () => {
               </div>
             </div>
           </div>
+          </>
+          ) : null}
         </div>
       </div>
 
       {/* Approve / decline order modal */}
+
       <AppModal handleCancel={() => setOpen(false)} isModalOpen={open} title={'Approve Orders'}>
         <div className="flex my-6 justify-between">
           <ClickButton onClick={() => handleOrderUpdate('declined')} btnType="decline">
