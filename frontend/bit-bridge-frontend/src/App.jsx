@@ -43,6 +43,8 @@ import CryptoSell from './pages/dashboard/crypto-exchange/CryptoSell'
 import AdminTransactions from './pages/admin/transactions/deposits'
 import Users from './pages/admin/users/Users'
 import KycReviews from './pages/admin/KycReviews'
+import FxSettings from './pages/admin/FxSettings'
+import PricingSpec from './pages/admin/PricingSpec'
 import Deposits from './pages/dashboard/transactions/Deposits'
 import ConfirmOrder from './pages/ConfirmOrder'
 import ViewProduct from './pages/admin/products/View'
@@ -98,6 +100,7 @@ import VirtualCardApplication from './components/cardView/CardView'
 import VirtualAccounts from './pages/dashboard/VirtualAccounts'
 import Rewards from './pages/dashboard/Rewards'
 import CheckEmail from './pages/auth/CheckEmail'
+import Receipt from './pages/dashboard/Receipt'
 
 // ✅ NEW: Idle logout hook
 import useIdleLogout from './hooks/useIdleLogout'
@@ -285,6 +288,7 @@ function App() {
             <Route path="virtual-cards" element={<VirtualCardApplication />} />
             <Route path="virtual-accounts" element={<VirtualAccounts />} />
             <Route path="rewards" element={<Rewards />} />
+            <Route path="receipt/:reference" element={<Receipt />} />
 
             <Route path="kyc" element={<KycCenter />} />
 
@@ -373,6 +377,8 @@ function App() {
             <Route path="users" element={<Users />} />
             <Route path="users/:id" element={<ViewUser />} />
             <Route path="kyc-reviews" element={<KycReviews />} />
+            <Route path="fx-settings" element={<FxSettings />} />
+            <Route path="pricing-spec" element={<PricingSpec />} />
           </Route>
         </Routes>
 

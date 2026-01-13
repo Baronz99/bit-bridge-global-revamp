@@ -45,6 +45,12 @@ class Transaction < ApplicationRecord
     amount + (bonus || 0)
   end
 
+  def currency
+    return self[:currency] if respond_to?(:has_attribute?) && has_attribute?(:currency)
+
+    wallet&.currency
+  end
+
   def email
     user.email
   end

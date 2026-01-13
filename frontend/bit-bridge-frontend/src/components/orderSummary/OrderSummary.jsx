@@ -12,8 +12,7 @@ const OrderSummary = ({ cartItems, VAT, netAmount, convertedTotal }) => {
   const dispatch = useDispatch()
   const [conversions, setConversion] = useState()
 
-  const _VAT = VAT ?? convertedTotal * (10 / 100)
-  const _netAmount = netAmount ?? _VAT + convertedTotal
+  const netTotal = netAmount ?? convertedTotal
 
   const handleConversion = async (fromCurr, toCurr, amount) => {
     const newvalue = await converter({ fromCurr, toCurr, amount })
@@ -83,14 +82,9 @@ const OrderSummary = ({ cartItems, VAT, netAmount, convertedTotal }) => {
         </span>
       </div>
 
-      <div className="flex justify-between my-2 py-1">
-        <span className="text-base font-semibold text-gray-900 ">VAT</span>
-        <span className="font-semibold text-lg">{nairaFormat(_VAT, 'usd')}</span>
-      </div>
-
       <div className="flex justify-between my-2 border-t py-5">
         <span className="text-base font-semibold text-gray-900 ">NET TOTAL</span>
-        <span className="font-semibold text-lg">{nairaFormat(_netAmount, 'usd')}</span>
+        <span className="font-semibold text-lg">{nairaFormat(netTotal, 'usd')}</span>
       </div>
     </div>
   )

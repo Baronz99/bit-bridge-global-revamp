@@ -2,7 +2,7 @@ import { useDispatch, useSelector } from 'react-redux'
 import dateFormater from '../../../utils/dateFormat'
 import { nairaFormat } from '../../../utils/nairaFormat'
 import { useEffect, useMemo, useState } from 'react'
-import { useOutletContext } from 'react-router-dom'
+import { NavLink, useOutletContext } from 'react-router-dom'
 import { getUserTransactions } from '../../../redux/actions/transaction'
 import AppModal from '../../../components/modal/Modal'
 import Loading from '../../../components/loader/Loading'
@@ -76,6 +76,12 @@ const Deposits = () => {
                     >
                       Time
                     </th>
+                    <th
+                      scope="col"
+                      className="sticky top-0 z-10 border-b border-gray-200/50 bg-opacity-75 px-3 py-3.5 text-center text-xs font-semibold text-gray-300 backdrop-blur backdrop-filter uppercase"
+                    >
+                      Receipt
+                    </th>
                   </tr>
                 </thead>
 
@@ -108,11 +114,19 @@ const Deposits = () => {
                         <td className="relative whitespace-nowrap border-b text-left border-gray-200 py-3 pr-4 pl-3 text-gray-300 text-sm sm:pr-8 lg:pr-8">
                           {dateFormater(item?.created_at)}
                         </td>
+                        <td className="relative whitespace-nowrap border-b border-gray-200 py-3 pr-4 pl-3 text-center text-sm sm:pr-8 lg:pr-8">
+                          <NavLink
+                            to={`/dashboard/receipt/${item?.id}`}
+                            className="text-indigo-300 hover:text-indigo-200 text-xs"
+                          >
+                            View
+                          </NavLink>
+                        </td>
                       </tr>
                     ))
                   ) : (
                     <tr>
-                      <td className="text-center py-10" colSpan={6}>
+                      <td className="text-center py-10" colSpan={7}>
                         <span className="text-gray-300">No deposits found.</span>
                       </td>
                     </tr>

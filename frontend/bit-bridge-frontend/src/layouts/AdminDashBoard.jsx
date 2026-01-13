@@ -28,6 +28,7 @@ const AdminDashboardLayout = () => {
   const [toggleNav, setToggleNav] = useState(false)
   const { user, loading } = useSelector((state) => state.auth)
   const navigate = useNavigate()
+  const isSuperAdmin = user?.admin_role === 'super_admin' || user?.role === 'super_admin'
 
   useEffect(() => {
     dispatch(getWallet())
@@ -146,6 +147,18 @@ const AdminDashboardLayout = () => {
               <span>KYC Reviews</span>
             </NavLink>{' '}
           </li>
+          {isSuperAdmin ? (
+            <li className="my-2 py-2 px-3 bg-blue-80 text-sm">
+              {' '}
+              <NavLink
+                to={'/admin/pricing-spec'}
+                className={`flex ${toggleNav ? 'flex-row' : 'flex-col'} gap-3 `}
+              >
+                <IoPricetagOutline className="text-2xl" />
+                <span>Pricing Spec</span>
+              </NavLink>{' '}
+            </li>
+          ) : null}
           <li className="my-2 py-2 px-3 bg-blue-80 text-sm">
             {' '}
             <a

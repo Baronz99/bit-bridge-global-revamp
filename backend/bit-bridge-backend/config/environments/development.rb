@@ -7,6 +7,8 @@ Rails.application.routes.default_url_options = {
 }
 
 Rails.application.configure do
+
+  config.hosts << /.*\.ngrok-free\.dev/
   # Settings specified here will take precedence over those in config/application.rb.
 
   # Reload app code on every request — good for development.

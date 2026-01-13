@@ -116,20 +116,21 @@ Rails.application.routes.draw do
         end
       end
 
-      resources :accounts do
-        collection do
-          post :verify_kyc
-          get  :get_account_number
-          get  :user_accounts
-          get  :get_user_account_detail
-          get  :get_account_details
-          get  :get_banks
-          get  :beneficiaries
+        resources :accounts do
+          collection do
+            post :verify_kyc
+            get  :get_account_number
+            get  :user_accounts
+            get  :get_user_account_detail
+            get  :get_account_details
+            get  :get_banks
+            get  :beneficiaries
+            post :resolve
 
-          get  :verify_transfer
-          post :initiate_fund_transfer
-          post :create_counter_party
-        end
+            get  :verify_transfer
+            post :initiate_fund_transfer
+            post :create_counter_party
+          end
 
         member do
           get :verify_transfer
@@ -176,6 +177,10 @@ Rails.application.routes.draw do
           get  :user
         end
       end
+
+      resources :receipts, only: [:show]
+
+      resources :fees, only: [:index]
 
       resources :wallets do
         collection do
@@ -277,6 +282,35 @@ Rails.application.routes.draw do
 
       namespace :admin do
         resources :kyc_reviews, only: %i[index update]
+        get 'pricing-spec', to: 'pricing_spec#show'
+        get 'ops/health', to: 'ops#health'
+        resource :fx_settings, path: 'fx-settings', only: %i[show update] do
+          post :refresh_provider
+          post :apply_provider
+        end
+        post 'fx-settings/refresh-provider', to: 'fx_settings#refresh_provider'
+        post 'fx-settings/apply-provider', to: 'fx_settings#apply_provider'
+        post 'fx-settings/provider/refresh', to: 'fx_settings#refresh_exchange_rate'
+        post 'fx-settings/provider/apply', to: 'fx_settings#apply_exchange_rate'
+        resources :cards, only: [] do
+          post :mock_debit, on: :member
+          post :refresh_status, on: :member
+          post :sync_transactions, on: :member
+          post :enrich_transaction, on: :member
+          get :provider_details, on: :member
+          post :refresh_provider_status, on: :member
+          get :provider_transactions, on: :member
+          get :provider_transaction, on: :member
+          get :provider_transaction_status, on: :member
+          get :events, on: :member
+        end
+        get 'cards/:id/provider-details', to: 'cards#provider_details'
+        post 'cards/:id/refresh-provider-status', to: 'cards#refresh_provider_status'
+        post 'cards/:id/sync-transactions', to: 'cards#sync_transactions'
+        post 'cards/:id/enrich-transaction', to: 'cards#enrich_transaction'
+        get 'cards/:id/provider-transactions', to: 'cards#provider_transactions'
+        get 'cards/:id/provider-transaction', to: 'cards#provider_transaction'
+        get 'cards/:id/provider-transaction-status', to: 'cards#provider_transaction_status'
         resources :users, only: [] do
           post :reveal, on: :member
         end

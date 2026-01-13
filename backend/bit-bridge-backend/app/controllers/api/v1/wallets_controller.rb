@@ -67,7 +67,7 @@ module Api
         }, status: :ok
       end
 
-      # ✅ Convert NGN -> USD (atomic) using CurrencyService
+      # ✅ Convert NGN -> USD (atomic) using FxDesk pricing
       # POST /api/v1/wallets/tunnel/convert
       #
       # Accepts body in either form:
@@ -77,31 +77,34 @@ module Api
       def convert_ngn_to_usd
         amount_ngn = extract_amount_ngn
         raw_pin = extract_transaction_pin
+        amount_in_expected = FxDesk::Money.ngn(amount_ngn)
+        fx_quote = fetch_fx_quote('ngn_to_usd', expected_amount: amount_in_expected, tolerance: 1)
+        return if fx_quote == :invalid
 
-        return render json: { message: 'amount_ngn must be greater than 0' }, status: :unprocessable_entity if amount_ngn <= 0
+        quote_data =
+          if fx_quote
+            quote_from_record(fx_quote)
+          else
+            FxDesk::Pricing.new.quote_ngn_to_usd(amount_ngn)
+          end
 
-        # 🔐 PIN gate
+        amount_in = quote_data[:amount_in].to_d
+        amount_out = quote_data[:amount_out].to_d
+
+        return render json: { message: 'amount_ngn must be greater than 0' }, status: :unprocessable_entity if amount_in <= 0
+
+        # dY"? PIN gate
         return unless require_transaction_pin!(raw_pin)
 
         ngn_wallet = current_user.ngn_wallet
         usd_wallet = current_user.usd_wallet
 
         # Ensure balance check uses legacy computed NGN balance (no regression)
-        if amount_ngn > ngn_wallet.balance.to_d
+        if amount_in > ngn_wallet.balance.to_d
           return render json: { message: 'insufficient balance' }, status: :unprocessable_entity
         end
 
-        # CurrencyService returns: { from_curr: ..., to_curr: ..., rate: calculated_rate }
-        response = CurrencyService.new('ngn', 'usd').get_calculated_rate(amount_ngn, 'ngn', 'usd')
-
-        if response.is_a?(Hash) && response[:status] == 'error'
-          return render json: { message: response[:message] }, status: :unprocessable_entity
-        end
-
-        usd_amount = BigDecimal(response[:calc].to_s) rescue 0.to_d
-        return render json: { message: 'conversion failed' }, status: :unprocessable_entity if usd_amount <= 0
-
-        usd_cents = usd_wallet.money_to_cents(usd_amount)
+        usd_cents = usd_wallet.money_to_cents(amount_out)
         return render json: { message: 'conversion failed' }, status: :unprocessable_entity if usd_cents <= 0
 
         ActiveRecord::Base.transaction do
@@ -109,9 +112,9 @@ module Api
           ngn_wallet.transactions.create!(
             transaction_type: 'withdrawal',
             status: 'approved',
-            amount: amount_ngn,
+            amount: amount_in,
             coin_type: 'bank',
-            address: 'Tunnel Conversion (NGN → USD)'
+            address: 'Tunnel Conversion (NGN -> USD)'
           )
 
           # Credit USD stored balance
@@ -121,9 +124,9 @@ module Api
           usd_wallet.transactions.create!(
             transaction_type: 'deposit',
             status: 'approved',
-            amount: usd_amount,
+            amount: amount_out,
             coin_type: 'bank',
-            address: 'Tunnel Conversion (NGN → USD)'
+            address: 'Tunnel Conversion (NGN -> USD)'
           )
         end
 
@@ -136,15 +139,7 @@ module Api
           data: {
             ngn_wallet: WalletSerializer.new(ngn_wallet).as_json,
             usd_wallet: WalletSerializer.new(usd_wallet).as_json,
-            conversion: {
-              from: 'NGN',
-              to: 'USD',
-              amount_ngn: amount_ngn.to_f,
-              amount_usd: usd_amount.to_f,
-              rate: response[:rate].to_s,
-              fee: 0,
-              fee_currency: 'NGN'
-            }
+            quote: serialize_quote(quote_data).merge(quote_token: fx_quote&.token)
           }
         }, status: :ok
       end
@@ -156,29 +151,13 @@ module Api
         amount_ngn = extract_amount_ngn
         return render json: { message: 'amount_ngn must be greater than 0' }, status: :unprocessable_entity if amount_ngn <= 0
 
-        response = CurrencyService.new('ngn', 'usd').get_calculated_rate(amount_ngn, 'ngn', 'usd')
+        quote_data = FxDesk::Pricing.new.quote_ngn_to_usd(amount_ngn)
+        fx_quote = persist_fx_quote(quote_data, 'ngn_to_usd')
 
-        if response.is_a?(Hash) && response[:status] == 'error'
-          return render json: { message: response[:message] }, status: :unprocessable_entity
-        end
-
-        usd_amount = BigDecimal(response[:calc].to_s) rescue 0.to_d
-        return render json: { message: 'quote failed' }, status: :unprocessable_entity if usd_amount <= 0
-
-        render json: {
-          data: {
-            from: 'NGN',
-            to: 'USD',
-            amount_ngn: amount_ngn.to_f,
-            amount_usd: usd_amount.to_f,
-            rate: response[:rate].to_s,
-            fee: 0,
-            fee_currency: 'NGN'
-          }
-        }, status: :ok
+        render json: serialize_quote(quote_data).merge(quote_token: fx_quote.token), status: :ok
       end
 
-      # ✅ Convert USD -> NGN (atomic) using CurrencyService
+      # ✅ Convert USD -> NGN (atomic) using FxDesk pricing
       # POST /api/v1/wallets/tunnel/convert-back
       #
       # Accepts body in either form:
@@ -188,25 +167,29 @@ module Api
       def convert_usd_to_ngn
         amount_usd = extract_amount_usd
         raw_pin = extract_transaction_pin
+        amount_in_expected = FxDesk::Money.usd(amount_usd)
+        fx_quote = fetch_fx_quote('usd_to_ngn', expected_amount: amount_in_expected, tolerance: 0.01)
+        return if fx_quote == :invalid
 
-        return render json: { message: 'amount_usd must be greater than 0' }, status: :unprocessable_entity if amount_usd <= 0
+        quote_data =
+          if fx_quote
+            quote_from_record(fx_quote)
+          else
+            FxDesk::Pricing.new.quote_usd_to_ngn(amount_usd)
+          end
 
-        # ✅ PIN gate
+        amount_in = quote_data[:amount_in].to_d
+        amount_out = quote_data[:amount_out].to_d
+
+        return render json: { message: 'amount_usd must be greater than 0' }, status: :unprocessable_entity if amount_in <= 0
+
+        # PIN gate
         return unless require_transaction_pin!(raw_pin)
 
         ngn_wallet = current_user.ngn_wallet
         usd_wallet = current_user.usd_wallet
 
-        response = CurrencyService.new('usd', 'ngn').get_calculated_rate(amount_usd, 'usd', 'ngn')
-
-        if response.is_a?(Hash) && response[:status] == 'error'
-          return render json: { message: response[:message] }, status: :unprocessable_entity
-        end
-
-        ngn_amount = BigDecimal(response[:calc].to_s) rescue 0.to_d
-        return render json: { message: 'conversion failed' }, status: :unprocessable_entity if ngn_amount <= 0
-
-        usd_cents = usd_wallet.money_to_cents(amount_usd)
+        usd_cents = usd_wallet.money_to_cents(amount_in)
         return render json: { message: 'conversion failed' }, status: :unprocessable_entity if usd_cents <= 0
 
         ActiveRecord::Base.transaction do
@@ -214,9 +197,9 @@ module Api
           usd_wallet.transactions.create!(
             transaction_type: 'withdrawal',
             status: 'approved',
-            amount: amount_usd,
+            amount: amount_in,
             coin_type: 'bank',
-            address: 'Tunnel Conversion (USD → NGN)'
+            address: 'Tunnel Conversion (USD -> NGN)'
           )
 
           # Debit USD stored balance
@@ -226,9 +209,9 @@ module Api
           ngn_wallet.transactions.create!(
             transaction_type: 'deposit',
             status: 'approved',
-            amount: ngn_amount,
+            amount: amount_out,
             coin_type: 'bank',
-            address: 'Tunnel Conversion (USD → NGN)'
+            address: 'Tunnel Conversion (USD -> NGN)'
           )
         end
 
@@ -240,15 +223,7 @@ module Api
           data: {
             ngn_wallet: WalletSerializer.new(ngn_wallet).as_json,
             usd_wallet: WalletSerializer.new(usd_wallet).as_json,
-            conversion: {
-              from: 'USD',
-              to: 'NGN',
-              amount_usd: amount_usd.to_f,
-              amount_ngn: ngn_amount.to_f,
-              rate: response[:rate].to_s,
-              fee: 0,
-              fee_currency: 'USD'
-            }
+            quote: serialize_quote(quote_data).merge(quote_token: fx_quote&.token)
           }
         }, status: :ok
       end
@@ -260,26 +235,10 @@ module Api
         amount_usd = extract_amount_usd
         return render json: { message: 'amount_usd must be greater than 0' }, status: :unprocessable_entity if amount_usd <= 0
 
-        response = CurrencyService.new('usd', 'ngn').get_calculated_rate(amount_usd, 'usd', 'ngn')
+        quote_data = FxDesk::Pricing.new.quote_usd_to_ngn(amount_usd)
+        fx_quote = persist_fx_quote(quote_data, 'usd_to_ngn')
 
-        if response.is_a?(Hash) && response[:status] == 'error'
-          return render json: { message: response[:message] }, status: :unprocessable_entity
-        end
-
-        ngn_amount = BigDecimal(response[:calc].to_s) rescue 0.to_d
-        return render json: { message: 'quote failed' }, status: :unprocessable_entity if ngn_amount <= 0
-
-        render json: {
-          data: {
-            from: 'USD',
-            to: 'NGN',
-            amount_usd: amount_usd.to_f,
-            amount_ngn: ngn_amount.to_f,
-            rate: response[:rate].to_s,
-            fee: 0,
-            fee_currency: 'USD'
-          }
-        }, status: :ok
+        render json: serialize_quote(quote_data).merge(quote_token: fx_quote.token), status: :ok
       end
 
       # POST /api/v1/wallets/send_money
@@ -372,6 +331,97 @@ module Api
 
       def wallet_params
         params.require(:wallet).permit(:user_id, :wallet_type, :currency)
+      end
+
+      def extract_quote_token
+        params[:quote_token].presence ||
+          params.dig(:wallet, :quote_token).presence ||
+          ''
+      end
+
+      def fetch_fx_quote(direction, expected_amount: nil, tolerance: 0)
+        token = extract_quote_token
+        return nil if token.blank?
+
+        quote = FxQuote.valid_token(token).find_by(user_id: current_user.id)
+        if quote.blank? || quote.direction != direction
+          render json: { message: 'Invalid or expired quote', errors: { quote_token: 'invalid' } },
+                 status: :unprocessable_entity
+          return :invalid
+        end
+
+        if expected_amount && (quote.amount_in.to_d - expected_amount.to_d).abs > tolerance.to_d
+          render json: {
+            message: 'Quote amount mismatch',
+            errors: {
+              amount_in: 'does not match quote'
+            }
+          }, status: :unprocessable_entity
+          return :invalid
+        end
+
+        quote
+      end
+
+      def quote_from_record(record)
+        from, to = quote_pair_for(record.direction)
+
+        {
+          from: from,
+          to: to,
+          base_rate: record.base_rate,
+          markup: record.markup,
+          execution_rate: record.execution_rate,
+          fee_amount: record.fee_amount,
+          fee_currency: record.fee_currency,
+          amount_in: record.amount_in,
+          amount_after_fee: record.amount_after_fee,
+          amount_out: record.amount_out,
+          as_of: record.created_at
+        }
+      end
+
+      def persist_fx_quote(quote_data, direction)
+        FxQuote.create!(
+          user: current_user,
+          direction: direction,
+          base_rate: quote_data[:base_rate],
+          markup: quote_data[:markup],
+          execution_rate: quote_data[:execution_rate],
+          base_rate_raw: quote_data[:base_rate_raw],
+          markup_raw: quote_data[:markup_raw],
+          execution_rate_raw: quote_data[:execution_rate_raw],
+          fee_amount: quote_data[:fee_amount],
+          fee_amount_raw: quote_data[:fee_amount_raw],
+          fee_currency: quote_data[:fee_currency],
+          amount_in: quote_data[:amount_in],
+          amount_in_raw: quote_data[:amount_in_raw],
+          amount_after_fee: quote_data[:amount_after_fee],
+          amount_after_fee_raw: quote_data[:amount_after_fee_raw],
+          amount_out: quote_data[:amount_out],
+          amount_out_raw: quote_data[:amount_out_raw],
+          expires_at: 5.minutes.from_now
+        )
+      end
+
+      def serialize_quote(quote_data)
+        {
+          from: quote_data[:from],
+          to: quote_data[:to],
+          amount_in: quote_data[:amount_in].to_f,
+          fee_amount: quote_data[:fee_amount].to_f,
+          fee_currency: quote_data[:fee_currency],
+          amount_after_fee: quote_data[:amount_after_fee].to_f,
+          base_rate: quote_data[:base_rate].to_f,
+          markup: quote_data[:markup].to_f,
+          execution_rate: quote_data[:execution_rate].to_f,
+          amount_out: quote_data[:amount_out].to_f,
+          as_of: quote_data[:as_of]&.iso8601
+        }
+      end
+
+      def quote_pair_for(direction)
+        direction == 'ngn_to_usd' ? ['NGN', 'USD'] : ['USD', 'NGN']
       end
 
       # Support both payload styles:

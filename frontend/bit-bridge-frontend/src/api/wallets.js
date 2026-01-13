@@ -8,12 +8,12 @@ export const getBridgeWallet = () => api.get('/wallets/user')
 export const activateTunnelWallet = () => api.post('/wallets/tunnel/activate')
 
 // Convert NGN -> USD (atomic, requires PIN)
-export const convertNgnToUsd = ({ amount_ngn, transaction_pin }) =>
-  api.post('/wallets/tunnel/convert', { amount_ngn, transaction_pin })
+export const convertNgnToUsd = ({ amount_ngn, transaction_pin, quote_token }) =>
+  api.post('/wallets/tunnel/convert', { amount_ngn, transaction_pin, quote_token })
 
 // Convert USD -> NGN (atomic, requires PIN)
-export const convertUsdToNgn = ({ amount_usd, transaction_pin }) =>
-  api.post('/wallets/tunnel/convert-back', { amount_usd, transaction_pin })
+export const convertUsdToNgn = ({ amount_usd, transaction_pin, quote_token }) =>
+  api.post('/wallets/tunnel/convert-back', { amount_usd, transaction_pin, quote_token })
 
 // Quote NGN -> USD (no PIN)
 export const quoteNgnToUsd = ({ amount_ngn }) =>

@@ -16,6 +16,22 @@ const AdminWithdrawalTransactions = () => {
   const [open, setOpen] = useState(false)
   const [selectedId, setSelectedId] = useState(null)
 
+  const formatAdminAmount = (amount, currency, walletType) => {
+    const value = Number(amount || 0)
+    if (Number.isNaN(value)) return '--'
+    const code =
+      currency ||
+      (walletType === 'usd' ? 'USD' : walletType === 'ngn' ? 'NGN' : null)
+    if (!code || code.toUpperCase() === 'NGN') {
+      return nairaFormat(value, 'ngn')
+    }
+    return new Intl.NumberFormat('en-US', {
+      style: 'currency',
+      currency: code.toUpperCase(),
+      minimumFractionDigits: 2,
+    }).format(value)
+  }
+
   useEffect(() => {
     dispatch(getTransactions())
   }, [])
@@ -103,10 +119,12 @@ const AdminWithdrawalTransactions = () => {
                   {/* make conditional statement  here  */}
                   {/* <td colspan="5" rowspan="10" class="font-semibold text-gray-900 backdrop-blur backdrop-filter text-center">  </td> */}
                   {withdrawals?.map(
-                    ({ id, status, bank, transaction_type, address, created_at, amount }) => (
+                    ({ id, status, bank, transaction_type, address, created_at, amount, currency, wallet_type }) => (
                       <tr key={id}>
                         <td className="whitespace-nowrap border-b border-gray-200 px-3 py-3 text-sm text-gray-600/90  font-semibold ">
-                          <p className="font-bold">{nairaFormat(amount)}</p>
+                          <p className="font-bold">
+                            {formatAdminAmount(amount, currency, wallet_type)}
+                          </p>
                         </td>
                         <td className="whitespace-nowrap border-b border-gray-200 px-3 py-3 text-sm text-gray-600/90  font-semibold ">
                           <p className="font-bold">{transaction_type}</p>

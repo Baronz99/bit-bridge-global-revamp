@@ -24,6 +24,22 @@ const AdminHome = () => {
     (item) => item.adminAction
   )
 
+  const formatAdminAmount = (amount, currency, walletType) => {
+    const value = Number(amount || 0)
+    if (Number.isNaN(value)) return '--'
+    const code =
+      currency ||
+      (walletType === 'usd' ? 'USD' : walletType === 'ngn' ? 'NGN' : null)
+    if (!code || code.toUpperCase() === 'NGN') {
+      return nairaFormat(value, 'ngn')
+    }
+    return new Intl.NumberFormat('en-US', {
+      style: 'currency',
+      currency: code.toUpperCase(),
+      minimumFractionDigits: 2,
+    }).format(value)
+  }
+
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 p-6 overflow-y-auto">
       {/* Header */}
@@ -122,7 +138,7 @@ const AdminHome = () => {
 
                     <td className="whitespace-nowrap py-2 px-3 text-slate-200">
                       <p className="font-medium">
-                        {nairaFormat(item.amount)}
+                        {formatAdminAmount(item.amount, item.currency, item.wallet_type)}
                       </p>
                     </td>
 

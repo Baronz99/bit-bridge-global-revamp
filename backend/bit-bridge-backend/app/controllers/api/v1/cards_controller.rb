@@ -231,6 +231,14 @@ module Api
         card = current_user.cards.find(params[:id])
         return render json: { message: 'card_id not available' }, status: :unprocessable_entity if card.card_id.blank?
 
+        if params[:refresh].to_s == '1'
+          result = Bridgecard::SyncCardTransactions.call(
+            card: card,
+            page_limit: params[:page_limit]
+          )
+          Rails.logger.warn("[CardsController] bridgecard sync failed message=#{result[:message]}") if result[:status] != :ok
+        end
+
         txns =
           Transaction
           .joins(:wallet)
@@ -244,28 +252,54 @@ module Api
           .order(transaction_at: :desc)
 
         txn_payload = txns.map do |txn|
+          metadata = txn.metadata.is_a?(Hash) ? txn.metadata : {}
           {
             id: "txn-#{txn.id}",
             address: txn.address,
             amount: txn.amount,
             status: txn.status,
             created_at: txn.created_at,
-            source: 'wallet'
+            source: 'wallet',
+            breakdown: metadata['fee_breakdown']
           }
         end
 
         event_payload = events.map do |event|
           event_time = event.transaction_at || event.created_at
           label = event.description.presence || event.event.to_s.tr('._', ' ').strip
+          metadata = event.metadata.is_a?(Hash) ? event.metadata : {}
+          fx_payload =
+            if event.merchant_currency.present? || metadata['fx_discovery_present']
+              {
+                merchant_amount: event.merchant_amount,
+                merchant_currency: event.merchant_currency,
+                billing_amount: event.billing_amount,
+                billing_currency: event.billing_currency,
+                fx_implied_rate: event.fx_implied_rate,
+                fx_reference_rate: event.fx_reference_rate,
+                fx_margin_usd: event.fx_margin_usd
+              }.compact
+            end
 
-          {
+          payload = {
             id: "evt-#{event.id}",
             address: label,
             amount: event.amount,
             status: event.status,
             created_at: event_time,
-            source: 'bridge'
+            source: 'bridge',
+            breakdown: {
+              principal_usd: metadata['principal_usd'],
+              provider_fee_usd: metadata['provider_fee_usd'],
+              bitbridge_fee_usd: metadata['bitbridge_fee_usd'],
+              fx_markup_usd: metadata['fx_markup_usd'],
+              total_debit_usd: metadata['total_debit_usd']
+            },
+            decline_reason: metadata['decline_reason']
           }
+
+          payload[:fx] = fx_payload if fx_payload.present?
+          payload
         end
 
         combined =
@@ -345,6 +379,7 @@ module Api
         service_response = service.freeze_card(card.card_id)
 
         if service_response[:status] == :ok
+          card.update!(status: 'frozen', frozen_by: 'user', frozen_reason: 'User requested freeze')
           render json: { data: service_response[:data], message: service_response[:message], status: :ok }
         else
           render json: { message: service_response[:message] }, status: :unprocessable_entity
@@ -360,6 +395,8 @@ module Api
         service_response = service.unfreeze_card(card.card_id)
 
         if service_response[:status] == :ok
+          card.update!(status: 'active', frozen_by: nil, frozen_reason: nil)
+          Cards::RiskEngine.reset_declines!(card: card)
           render json: { data: service_response[:data], message: service_response[:message], status: :ok }
         else
           render json: { message: service_response[:message] }, status: :unprocessable_entity

@@ -7,6 +7,7 @@ class UserSerializer < ActiveModel::Serializer
              :admin,
              :role,
              :admin_role,
+             :admin_flags,
              :active,
              :onboarding_stage,
              :primary_use_case,
@@ -36,6 +37,12 @@ class UserSerializer < ActiveModel::Serializer
 
   def admin_role
     object.admin_role
+  end
+
+  def admin_flags
+    return {} unless admin_scope?
+
+    { card_debug_enabled: FeatureFlags.admin_card_debug? }
   end
 
   def phone_verified

@@ -38,6 +38,125 @@ const usdFormat = (n) => {
   return v.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 }
 
+const DirectionToggle = ({ value, onChange }) => {
+  return (
+    <div className="flex items-center gap-1 rounded-full border border-slate-800 bg-slate-950/80 p-1">
+      <button
+        type="button"
+        onClick={() => onChange('ngn_to_usd')}
+        className={`flex-1 rounded-full px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wide transition ${
+          value === 'ngn_to_usd'
+            ? 'bg-orange-500 text-black shadow-[0_0_12px_rgba(249,115,22,0.45)]'
+            : 'text-slate-400 hover:text-slate-100'
+        }`}
+      >
+        NGN → USD
+      </button>
+      <button
+        type="button"
+        onClick={() => onChange('usd_to_ngn')}
+        className={`flex-1 rounded-full px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wide transition ${
+          value === 'usd_to_ngn'
+            ? 'bg-orange-500 text-black shadow-[0_0_12px_rgba(249,115,22,0.45)]'
+            : 'text-slate-400 hover:text-slate-100'
+        }`}
+      >
+        USD → NGN
+      </button>
+    </div>
+  )
+}
+
+const QuoteBreakdownCard = ({
+  loading,
+  error,
+  stale,
+  quote,
+  fromCurrency,
+  toCurrency,
+  formatAmount,
+  onRetry,
+}) => {
+  if (loading) {
+    return (
+      <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-4 space-y-3">
+        <p className="text-xs text-slate-400">Fetching live rate...</p>
+        <div className="animate-pulse space-y-3">
+          <div className="h-3 w-40 rounded bg-slate-800/80" />
+          <div className="h-3 w-52 rounded bg-slate-800/60" />
+          <div className="h-3 w-44 rounded bg-slate-800/60" />
+          <div className="h-3 w-56 rounded bg-slate-800/60" />
+          <div className="h-3 w-32 rounded bg-slate-800/60" />
+        </div>
+      </div>
+    )
+  }
+
+  if (error) {
+    return (
+      <div className="rounded-xl border border-rose-500/40 bg-rose-500/10 p-4 text-xs text-rose-200">
+        <p className="font-semibold">Couldn't fetch rate.</p>
+        <p className="text-rose-200/80 mt-1">{error}</p>
+        <div className="mt-3">
+          <button
+            type="button"
+            onClick={onRetry}
+            className="text-[11px] font-semibold text-rose-100 underline underline-offset-2 hover:text-white"
+          >
+            Retry
+          </button>
+        </div>
+      </div>
+    )
+  }
+
+  if (stale) {
+    return (
+      <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-4 text-xs text-slate-400">
+        Updating quote with the latest rate...
+      </div>
+    )
+  }
+
+  if (!quote) {
+    return (
+      <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-4 text-xs text-slate-400">
+        Enter an amount to see the live rate and fee breakdown.
+      </div>
+    )
+  }
+
+  const feeAmount = Number(quote?.fee_amount || 0)
+  const amountAfterFee = Number(quote?.amount_after_fee || 0)
+  const executionRate = Number(quote?.execution_rate || 0)
+  const amountOut = Number(quote?.amount_out || 0)
+  const asOf = quote?.as_of
+
+  return (
+    <div className="rounded-xl border border-slate-800 bg-slate-950/70 p-4 text-xs text-slate-300 space-y-2">
+      <div className="flex items-center justify-between">
+        <span>Conversion fee (1%)</span>
+        <span className="text-slate-100">- {formatAmount(feeAmount, fromCurrency)}</span>
+      </div>
+      <div className="flex items-center justify-between">
+        <span>Amount we'll convert</span>
+        <span className="text-slate-100">= {formatAmount(amountAfterFee, fromCurrency)}</span>
+      </div>
+      <div className="flex items-center justify-between">
+        <span>Todays rate</span>
+        <span className="text-slate-100">1 USD = {executionRate.toFixed(2)} NGN</span>
+      </div>
+      <div className="flex items-center justify-between text-slate-100 font-semibold">
+        <span>You receive</span>
+        <span>{formatAmount(amountOut, toCurrency)}</span>
+      </div>
+      {asOf ? (
+        <div className="text-[11px] text-slate-500">As of {new Date(asOf).toLocaleString()}</div>
+      ) : null}
+    </div>
+  )
+}
+
 const Account = () => {
   const formRef = useRef(null)
   const dispatch = useDispatch()
@@ -45,8 +164,8 @@ const Account = () => {
 
   const { user } = useSelector((state) => state.auth)
   const { data } = useSelector((state) => state.wallet)
-const wallet = data?.bridge
-const tunnelWallet = data?.tunnel
+  const wallet = data?.bridge
+  const tunnelWallet = data?.tunnel
 
 
   const [searchParams, setSearchParams] = useSearchParams()
@@ -68,7 +187,10 @@ const tunnelWallet = data?.tunnel
   const [convertPin, setConvertPin] = useState('')
   const [convertQuote, setConvertQuote] = useState(null)
   const [quoteLoading, setQuoteLoading] = useState(false)
+  const [quoteError, setQuoteError] = useState('')
+  const [convertLoading, setConvertLoading] = useState(false)
   const [convertDirection, setConvertDirection] = useState('ngn_to_usd')
+  const amountInputRef = useRef(null)
 
   const address = 'Card Transfer'
   const coinType = 'bank'
@@ -194,26 +316,36 @@ const tunnelWallet = data?.tunnel
     setIsConvertOpen(true)
   }
 
+  const handleDirectionChange = (nextDirection) => {
+    setConvertDirection(nextDirection)
+    setConvertAmount('')
+    setConvertPin('')
+    setConvertQuote(null)
+    setQuoteError('')
+    requestAnimationFrame(() => amountInputRef.current?.focus())
+  }
+
   const doConvert = async () => {
     const amount = Number(convertAmount || 0)
     const pin = String(convertPin || '').trim()
+    const quoteToken = convertQuote?.quote_token
 
     if (!amount || amount <= 0) {
       return toast.error(
         `Enter a valid ${convertDirection === 'usd_to_ngn' ? 'USD' : 'NGN'} amount`
       )
     }
-    if (!/^\d{4}$/.test(pin)) return toast.error('PIN must be 4 digits')
+    if (!/^[0-9]{4}$/.test(pin)) return toast.error('PIN must be 4 digits')
 
-    setTunnelLoading(true)
+    setConvertLoading(true)
     try {
       let res
       if (convertDirection === 'usd_to_ngn') {
-        res = await convertUsdToNgn({ amount_usd: amount, transaction_pin: pin })
+        res = await convertUsdToNgn({ amount_usd: amount, transaction_pin: pin, quote_token: quoteToken })
       } else {
-        res = await convertNgnToUsd({ amount_ngn: amount, transaction_pin: pin })
+        res = await convertNgnToUsd({ amount_ngn: amount, transaction_pin: pin, quote_token: quoteToken })
       }
-      toast.success(res?.data?.message || 'Conversion successful')
+      toast.success(res?.data?.message || res?.message || 'Conversion successful')
 
       // refresh Bridge wallet + Tunnel wallet + USD tx
       dispatch(getWallet())
@@ -228,11 +360,12 @@ const tunnelWallet = data?.tunnel
       setConvertAmount('')
       setConvertPin('')
       setConvertQuote(null)
+      setQuoteError('')
       setConvertDirection('ngn_to_usd')
     } catch (e) {
       toast.error(e?.response?.data?.message || 'Conversion failed')
     } finally {
-      setTunnelLoading(false)
+      setConvertLoading(false)
     }
   }
 
@@ -240,24 +373,32 @@ const tunnelWallet = data?.tunnel
     const amount = Number(convertAmount || 0)
     if (!isConvertOpen || !amount || amount <= 0) {
       setConvertQuote(null)
+      setQuoteError('')
+      setQuoteLoading(false)
       return
     }
 
     let cancelled = false
     const timer = setTimeout(async () => {
       setQuoteLoading(true)
+      setQuoteError('')
       try {
         const res =
           convertDirection === 'usd_to_ngn'
             ? await quoteUsdToNgn({ amount_usd: amount })
             : await quoteNgnToUsd({ amount_ngn: amount })
-        if (!cancelled) setConvertQuote(res?.data?.data || null)
+        if (!cancelled) setConvertQuote(res?.data || null)
       } catch (e) {
-        if (!cancelled) setConvertQuote(null)
+        if (!cancelled) {
+          const msg = e?.response?.data?.message || 'Unable to fetch live rate.'
+          toast.error(msg)
+          setQuoteError(msg)
+          setConvertQuote(null)
+        }
       } finally {
         if (!cancelled) setQuoteLoading(false)
       }
-    }, 400)
+    }, 450)
 
     return () => {
       cancelled = true
@@ -265,8 +406,56 @@ const tunnelWallet = data?.tunnel
     }
   }, [convertAmount, isConvertOpen, convertDirection])
 
+  const refetchQuote = () => {
+    if (!isConvertOpen) return
+    const amount = Number(convertAmount || 0)
+    if (!amount || amount <= 0) return
+    setQuoteLoading(true)
+    setQuoteError('')
+    const run = async () => {
+      try {
+        const res =
+          convertDirection === 'usd_to_ngn'
+            ? await quoteUsdToNgn({ amount_usd: amount })
+            : await quoteNgnToUsd({ amount_ngn: amount })
+        setConvertQuote(res?.data || null)
+      } catch (e) {
+        const msg = e?.response?.data?.message || 'Unable to fetch live rate.'
+        toast.error(msg)
+        setQuoteError(msg)
+        setConvertQuote(null)
+      } finally {
+        setQuoteLoading(false)
+      }
+    }
+    run()
+  }
+
   const balance = wallet?.balance ?? 0
   const usdBalance = usdWallet?.balance ?? 0
+
+  const quoteFrom = convertDirection === 'usd_to_ngn' ? 'USD' : 'NGN'
+  const quoteTo = convertDirection === 'usd_to_ngn' ? 'NGN' : 'USD'
+  const directionLabel = `${quoteFrom} → ${quoteTo}`
+
+  const formatQuoteAmount = (value, currency) => {
+    if (currency === 'USD') return `USD ${usdFormat(value)}`
+    return nairaFormat(value, 'ngn')
+  }
+
+  const amountValue = Number(convertAmount || 0)
+  const hasValidAmount = Number.isFinite(amountValue) && amountValue > 0
+  const hasValidPin = /^\d{4}$/.test(String(convertPin || '').trim())
+  const quoteAmount = Number(convertQuote?.amount_in || 0)
+  const quoteTolerance = quoteFrom === 'USD' ? 0.01 : 1
+  const quoteMatchesAmount = Math.abs(quoteAmount - amountValue) <= quoteTolerance
+  const quoteMatchesDirection = convertQuote?.from === quoteFrom && convertQuote?.to === quoteTo
+  const isQuoteStale = Boolean(convertQuote && (!quoteMatchesAmount || !quoteMatchesDirection))
+  const hasValidQuote = Boolean(
+    convertQuote && !quoteError && quoteMatchesAmount && quoteMatchesDirection
+  )
+  const availableBalance = convertDirection === 'usd_to_ngn' ? usdBalance : balance
+  const hasSufficientBalance = amountValue <= Number(availableBalance || 0)
 
   const pageShellClass = useMemo(() => {
     return 'min-h-screen w-full bg-slate-950 text-slate-100 p-4 md:p-6'
@@ -493,6 +682,9 @@ const tunnelWallet = data?.tunnel
                               <th className="sticky top-0 z-10 border-b border-slate-600/50 px-3 py-3.5 text-left text-[11px] font-semibold text-slate-300 uppercase">
                                 Time
                               </th>
+                              <th className="sticky top-0 z-10 border-b border-slate-600/50 px-3 py-3.5 text-center text-[11px] font-semibold text-slate-300 uppercase">
+                                Receipt
+                              </th>
                             </tr>
                           </thead>
 
@@ -528,11 +720,19 @@ const tunnelWallet = data?.tunnel
                                   <td className="whitespace-nowrap border-b border-slate-800 px-3 py-3 text-sm text-slate-300 text-left">
                                     {dateFormater(item?.created_at)}
                                   </td>
+                                  <td className="whitespace-nowrap border-b border-slate-800 px-3 py-3 text-xs text-center">
+                                    <NavLink
+                                      to={`/dashboard/receipt/${item?.id}`}
+                                      className="text-indigo-300 hover:text-indigo-200"
+                                    >
+                                      View
+                                    </NavLink>
+                                  </td>
                                 </tr>
                               ))
                             ) : (
                               <tr>
-                                <td colSpan={4} className="py-8 text-center text-sm text-slate-500">
+                                <td colSpan={5} className="py-8 text-center text-sm text-slate-500">
                                   {tunnelLoading ? 'Loading...' : 'No transactions yet.'}
                                 </td>
                               </tr>
@@ -581,101 +781,82 @@ const tunnelWallet = data?.tunnel
 
       {/* Tunnel conversion modal */}
       <AppModal title={'Convert'} isModalOpen={isConvertOpen} handleCancel={() => setIsConvertOpen(false)}>
-        <div className="space-y-3">
-          <div className="text-xs text-slate-300">
-            {convertDirection === 'usd_to_ngn' ? (
-              <>
-                Tunnel balance:{' '}
-                <span className="font-semibold text-orange-300">USD {usdFormat(usdBalance)}</span>
-              </>
-            ) : (
-              <>
-                Bridge balance:{' '}
-                <span className="font-semibold text-emerald-300">{nairaFormat(balance, 'ngn')}</span>
-              </>
-            )}
+        <div className="space-y-4">
+          <div className="space-y-1">
+            <div className="flex items-center justify-between">
+              <p className="text-xs text-slate-400">
+                {directionLabel} · Available:{' '}
+                <span className="text-slate-200">
+                  {quoteFrom === 'USD'
+                    ? `USD ${usdFormat(usdBalance)}`
+                    : nairaFormat(balance, 'ngn')}
+                </span>
+              </p>
+              {convertQuote && !quoteError && !quoteLoading ? (
+                <span className="rounded-full bg-emerald-500/20 px-2 py-1 text-[10px] font-semibold text-emerald-200">
+                  Live rate
+                </span>
+              ) : null}
+            </div>
           </div>
 
-          <div className="flex gap-2">
-            <button
-              type="button"
-              onClick={() => setConvertDirection('ngn_to_usd')}
-              className={`flex-1 rounded-xl border px-3 py-2 text-xs font-semibold ${
-                convertDirection === 'ngn_to_usd'
-                  ? 'border-orange-500 bg-orange-500 text-black'
-                  : 'border-slate-700 bg-slate-950 text-slate-200'
-              }`}
-            >
-              NGN to USD
-            </button>
-            <button
-              type="button"
-              onClick={() => setConvertDirection('usd_to_ngn')}
-              className={`flex-1 rounded-xl border px-3 py-2 text-xs font-semibold ${
-                convertDirection === 'usd_to_ngn'
-                  ? 'border-orange-500 bg-orange-500 text-black'
-                  : 'border-slate-700 bg-slate-950 text-slate-200'
-              }`}
-            >
-              USD to NGN
-            </button>
+          <DirectionToggle value={convertDirection} onChange={handleDirectionChange} />
+
+          <div className="space-y-2">
+            <label className="block text-xs text-slate-300">Amount ({quoteFrom})</label>
+            <div className="flex items-center gap-2 rounded-xl border border-slate-800 bg-slate-950 px-3 py-2">
+              <span className="rounded-lg bg-slate-800 px-2 py-1 text-[11px] font-semibold text-slate-200">
+                {quoteFrom}
+              </span>
+              <input
+                ref={amountInputRef}
+                value={convertAmount}
+                onChange={(e) => setConvertAmount(e.target.value)}
+                className="flex-1 bg-transparent text-sm text-slate-100 focus:outline-none"
+                placeholder={quoteFrom === 'USD' ? '25.00' : '15000'}
+                inputMode="decimal"
+              />
+            </div>
           </div>
 
-          <label className="block text-xs text-slate-300">
-            Amount ({convertDirection === 'usd_to_ngn' ? 'USD' : 'NGN'})
-          </label>
-          <input
-            value={convertAmount}
-            onChange={(e) => setConvertAmount(e.target.value)}
-            className="w-full rounded-xl bg-slate-950 border border-slate-700 px-3 py-2 text-sm text-slate-100"
-            placeholder={convertDirection === 'usd_to_ngn' ? '25' : '15000'}
-            inputMode="decimal"
+          <QuoteBreakdownCard
+            loading={quoteLoading}
+            error={quoteError}
+            stale={isQuoteStale}
+            quote={convertQuote}
+            fromCurrency={quoteFrom}
+            toCurrency={quoteTo}
+            formatAmount={formatQuoteAmount}
+            onRetry={refetchQuote}
           />
 
-          <div className="rounded-xl border border-slate-800 bg-slate-950/60 px-3 py-2 text-xs text-slate-300">
-            {quoteLoading ? (
-              <p>Fetching live rate...</p>
-            ) : convertQuote ? (
-              <div className="space-y-1">
-                <p>
-                  Rate: 1 {convertQuote.from} = {Number(convertQuote.rate || 0).toFixed(6)}{' '}
-                  {convertQuote.to}
-                </p>
-                <p>
-                  Fee: {convertQuote.fee_currency === 'USD'
-                    ? `USD ${Number(convertQuote.fee || 0).toFixed(2)}`
-                    : nairaFormat(convertQuote.fee || 0, 'ngn')}
-                </p>
-                <p className="text-slate-100">
-                  You receive:{' '}
-                  {convertQuote.to === 'USD'
-                    ? `USD ${Number(convertQuote.amount_usd || 0).toFixed(2)}`
-                    : nairaFormat(convertQuote.amount_ngn || 0, 'ngn')}
-                </p>
-              </div>
-            ) : (
-              <p>Enter an amount to see the rate and fee.</p>
-            )}
+          <div className="space-y-2">
+            <label className="block text-xs text-slate-300">Transaction PIN</label>
+            <input
+              value={convertPin}
+              onChange={(e) => setConvertPin(e.target.value)}
+              className="w-full rounded-xl bg-slate-950 border border-slate-700 px-3 py-2 text-sm text-slate-100"
+              placeholder="****"
+              inputMode="numeric"
+              type="password"
+              maxLength={4}
+            />
           </div>
-
-          <label className="block text-xs text-slate-300">Transaction PIN</label>
-          <input
-            value={convertPin}
-            onChange={(e) => setConvertPin(e.target.value)}
-            className="w-full rounded-xl bg-slate-950 border border-slate-700 px-3 py-2 text-sm text-slate-100"
-            placeholder="****"
-            inputMode="numeric"
-            type="password"
-            maxLength={4}
-          />
 
           <button
             type="button"
             onClick={doConvert}
-            disabled={tunnelLoading}
+            disabled={
+              quoteLoading ||
+              convertLoading ||
+              !hasValidQuote ||
+              !hasValidAmount ||
+              !hasValidPin ||
+              !hasSufficientBalance
+            }
             className="w-full mt-2 px-4 py-2 rounded-xl bg-orange-500 text-black text-sm font-semibold hover:bg-orange-400 disabled:opacity-60"
           >
-            {tunnelLoading ? 'Converting...' : 'Convert'}
+            {convertLoading ? 'Converting...' : 'Convert'}
           </button>
         </div>
       </AppModal>

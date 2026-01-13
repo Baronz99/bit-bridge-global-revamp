@@ -8,11 +8,13 @@ module Api
       def index
         @transactions =
           if current_user&.admin || current_user&.role == 'super_admin'
-            Transaction.all.order(created_at: :desc)
+            Transaction.with_attached_proof.order(created_at: :desc)
           else
-            current_user.transactions.order(created_at: :desc)
+            current_user.transactions.with_attached_proof.order(created_at: :desc)
           end
-        render json: { data: @transactions }
+        render json: {
+          data: ActiveModelSerializers::SerializableResource.new(@transactions)
+        }
       end
 
       # GET /api/v1/transactions/user
@@ -25,7 +27,7 @@ module Api
         status = params[:status]
         wallet_type = params[:wallet_type].to_s.downcase
 
-        scope = current_user.transactions.order(created_at: :desc)
+        scope = current_user.transactions.with_attached_proof.order(created_at: :desc)
         scope = scope.where(transaction_type: transaction_type) if transaction_type.present?
         scope = scope.where(status: status) if status.present?
 

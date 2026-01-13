@@ -1,10 +1,10 @@
-import React, { useEffect, useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { useDispatch, useSelector } from 'react-redux'
 import { useNavigate } from 'react-router-dom'
 import {
   getBeneficiaries,
   initiateTransfer,
-  verifyAccountUser,
+  resolveAccountName,
 } from '../../redux/actions/account'
 import AppButton from '../button/Button'
 import { nairaFormat } from '../../utils/nairaFormat'
@@ -12,7 +12,7 @@ import { toast } from 'react-toastify'
 import { needsTier2Access, withTier2MissingDetails } from '../../utils/kycGate'
 import { getWallet, sendMoneyToUser } from '../../redux/actions/wallet'
 
-// ✅ Masked PIN input
+//  Masked PIN input
 import TransactionPinInput from '../pin/TransactionPinInput' // adjust path if needed
 
 const PIN_LENGTH = 4
@@ -39,7 +39,6 @@ export default function MoneyTransferFlow({ setIsfundTransferOpen }) {
   )
 
   const [step, setStep] = useState(1)
-  const [isVerified, setIsVerified] = useState(false)
   const [transferMode, setTransferMode] = useState('bank')
 
   const [formData, setFormData] = useState({
@@ -56,11 +55,31 @@ export default function MoneyTransferFlow({ setIsfundTransferOpen }) {
     // keep in state for UI, but we will map to account.pin for backend
     transaction_pin: '',
   })
+  const [accountLookupStatus, setAccountLookupStatus] = useState('idle')
+  const [accountLookupError, setAccountLookupError] = useState('')
+  const [saveBeneficiary, setSaveBeneficiary] = useState(false)
+  const [beneficiarySearch, setBeneficiarySearch] = useState('')
+  const lastLookupKeyRef = useRef('')
+  const [transferReference, setTransferReference] = useState('')
 
   const canVerify = useMemo(() => {
     return String(formData.account_number || '').trim().length === 10 && !!formData.bank_code
   }, [formData.account_number, formData.bank_code])
   const isInternal = transferMode === 'bitbridge'
+  const accountResolved = accountLookupStatus === 'success'
+  const amountValue = Number(formData.amount || 0)
+  const hasValidAmount = Number.isFinite(amountValue) && amountValue > 0
+
+  const generateTransferReference = () => {
+    if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+      return crypto.randomUUID()
+    }
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (ch) => {
+      const rand = (Math.random() * 16) | 0
+      const val = ch === 'x' ? rand : (rand & 0x3) | 0x8
+      return val.toString(16)
+    })
+  }
 
   useEffect(() => {
     if (!needsTier2Access(user)) return
@@ -91,7 +110,13 @@ export default function MoneyTransferFlow({ setIsfundTransferOpen }) {
     })
 
     if (name === 'account_number' || name === 'bank_code') {
-      setIsVerified(false)
+      setAccountLookupStatus('idle')
+      setAccountLookupError('')
+      lastLookupKeyRef.current = ''
+      setTransferReference('')
+    }
+    if (name === 'amount') {
+      setTransferReference('')
     }
   }
 
@@ -100,10 +125,9 @@ export default function MoneyTransferFlow({ setIsfundTransferOpen }) {
     setFormData((prev) => ({ ...prev, transaction_pin: clean }))
   }
 
-  const fetchAccountName = async () => {
+  const fetchAccountName = async (force = false) => {
     if (!canVerify) return
 
-    setLoading(true)
     try {
       // IMPORTANT: verification should NOT include any pin fields
       const payload = {
@@ -112,21 +136,51 @@ export default function MoneyTransferFlow({ setIsfundTransferOpen }) {
         inter_bank: !!formData.inter_bank,
       }
 
-      const res = await dispatch(verifyAccountUser({ account: payload })).unwrap()
+      const lookupKey = `${payload.bank_code}:${payload.account_number}`
+      if (!force && accountResolved && lastLookupKeyRef.current === lookupKey) return
+
+      setAccountLookupStatus('loading')
+      setAccountLookupError('')
+
+      const res = await dispatch(resolveAccountName({ account: payload })).unwrap()
 
       setFormData((prev) => ({
         ...prev,
-        counter_party_id: res?.data?.id,
-        bank: res?.data?.attributes?.bank?.name,
-        account_name: res?.data?.attributes?.accountName,
+        counter_party_id: '',
+        bank: res?.bank_name || prev.bank,
+        account_name: res?.account_name,
       }))
-      setIsVerified(true)
-    } catch (err) {
-      toast(pickErrorMessage(err), { type: 'error' })
-    } finally {
-      setLoading(false)
+      setAccountLookupStatus('success')
+      lastLookupKeyRef.current = `${payload.bank_code}:${payload.account_number}`
+    } catch (_err) {
+      setAccountLookupStatus('error')
+      setAccountLookupError('Account not found. Check details.')
     }
   }
+
+  useEffect(() => {
+    if (isInternal) return
+    if (!canVerify) {
+      setAccountLookupStatus('idle')
+      setAccountLookupError('')
+      return
+    }
+    const lookupKey = `${formData.bank_code}:${formData.account_number}`
+    if (accountResolved && lastLookupKeyRef.current === lookupKey) return
+
+    const timer = setTimeout(() => {
+      fetchAccountName()
+    }, 500)
+
+    return () => clearTimeout(timer)
+  }, [
+    canVerify,
+    isInternal,
+    formData.account_number,
+    formData.bank_code,
+    formData.inter_bank,
+    accountResolved,
+  ])
 
   const selectBeneficiary = (item) => {
     if (!item) return
@@ -138,23 +192,27 @@ export default function MoneyTransferFlow({ setIsfundTransferOpen }) {
       account_name: item.account_name || '',
       counter_party_id: item.counter_party_id || '',
     }))
-    setIsVerified(true)
+    setAccountLookupStatus('success')
+    setAccountLookupError('')
+    lastLookupKeyRef.current = `${item.bank_code || ''}:${item.account_number || ''}`
   }
 
   const handleSend = () => {
-    const amt = Number(formData?.amount)
     if (isInternal) {
       if (!String(formData.phone_number || '').trim()) {
         return toast('Enter a valid phone number', { type: 'error' })
       }
-      if (!amt || amt <= 0) return toast('Enter a valid amount', { type: 'error' })
+      if (!hasValidAmount) return toast('Enter a valid amount', { type: 'error' })
       setStep(2)
       return
     }
     if (!canVerify) return toast('Enter a valid account number and bank', { type: 'error' })
-    if (!isVerified || !formData?.account_name)
+    if (!accountResolved || !formData?.account_name)
       return toast('Please verify the account details', { type: 'error' })
-    if (!amt || amt <= 0) return toast('Enter a valid amount', { type: 'error' })
+    if (!hasValidAmount) return toast('Enter a valid amount', { type: 'error' })
+    if (!transferReference) {
+      setTransferReference(generateTransferReference())
+    }
     setStep(2)
   }
 
@@ -165,10 +223,10 @@ export default function MoneyTransferFlow({ setIsfundTransferOpen }) {
 
     if (!isInternal) {
       if (!canVerify) return toast('Enter a valid account number and bank', { type: 'error' })
-      if (!isVerified || !formData?.account_name)
+      if (!accountResolved || !formData?.account_name)
         return toast('Please verify the account details', { type: 'error' })
-      if (!formData.counter_party_id) {
-        return toast('Please verify the account details before transferring.', { type: 'error' })
+      if (!transferReference) {
+        setTransferReference(generateTransferReference())
       }
     }
 
@@ -185,7 +243,7 @@ export default function MoneyTransferFlow({ setIsfundTransferOpen }) {
         ).unwrap()
         toast(result?.message || 'Transfer Successful', { type: 'success' })
       } else {
-        // ? Backend AccountsController currently reads: params.dig(:account, :pin)
+        // Backend AccountsController currently reads: params.dig(:account, :pin)
         // So we send pin explicitly.
         const transferPayload = {
           account_number: String(formData.account_number || '').trim(),
@@ -196,9 +254,11 @@ export default function MoneyTransferFlow({ setIsfundTransferOpen }) {
           amount: formData.amount,
           inter_bank: !!formData.inter_bank,
           description: formData.description,
+          save_beneficiary: saveBeneficiary,
+          transfer_reference: transferReference,
 
-          wallet_type: 'ngn', // ? enforce bridge wallet
-          pin: formData.transaction_pin, // ? THIS is the key your backend expects
+          wallet_type: 'ngn', // enforce bridge wallet
+          pin: formData.transaction_pin, // THIS is the key your backend expects
         }
 
         const result = await dispatch(initiateTransfer({ account: transferPayload })).unwrap()
@@ -226,7 +286,10 @@ export default function MoneyTransferFlow({ setIsfundTransferOpen }) {
         description: '',
         transaction_pin: '',
       })
-      setIsVerified(false)
+      setAccountLookupStatus('idle')
+      setAccountLookupError('')
+      setSaveBeneficiary(false)
+      setTransferReference('')
     } catch (err) {
       toast(pickErrorMessage(err), { type: 'error' })
     } finally {
@@ -292,20 +355,43 @@ export default function MoneyTransferFlow({ setIsfundTransferOpen }) {
 
             {!isInternal && beneficiaries?.length ? (
               <div className="space-y-2">
-                <p className="text-xs text-gray-400">Recent beneficiaries</p>
-                <div className="flex flex-wrap gap-2">
-                  {beneficiaries.slice(0, 6).map((item) => (
-                    <button
-                      key={item.id}
-                      type="button"
-                      onClick={() => selectBeneficiary(item)}
-                      className="px-3 py-1.5 text-xs rounded-full bg-gray-800 border border-gray-700 text-gray-200 hover:border-blue-500/60 transition-colors"
-                    >
-                      {item.account_name || 'Unknown'} • ••••
-                      {String(item.account_number || '').slice(-4)}
-                    </button>
-                  ))}
-                </div>
+                <label className="block text-sm font-medium text-gray-400">Beneficiary (optional)</label>
+                <input
+                  type="text"
+                  value={beneficiarySearch}
+                  onChange={(e) => setBeneficiarySearch(e.target.value)}
+                  className="w-full bg-gray-800 border border-gray-700 rounded-lg p-2 text-gray-100 focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                  placeholder="Search beneficiaries"
+                />
+                <select
+                  value=""
+                  onChange={(e) => {
+                    const id = e.target.value
+                    const item = (beneficiaries || []).find((b) => String(b.id) === id)
+                    selectBeneficiary(item)
+                  }}
+                  className="w-full bg-gray-800 border border-gray-700 rounded-lg p-2 text-gray-100 focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                >
+                  <option value="">Select beneficiary</option>
+                  {(beneficiaries || [])
+                    .filter((item) => {
+                      const term = beneficiarySearch.toLowerCase().trim()
+                      if (!term) return true
+                      const name = (item.account_name || '').toLowerCase()
+                      const bank = (item.bank_name || '').toLowerCase()
+                      const acct = String(item.account_number || '')
+                      return name.includes(term) || bank.includes(term) || acct.includes(term)
+                    })
+                    .map((item) => {
+                      const last4 = String(item.account_number || '').slice(-4)
+                      const masked = last4 ? `****${last4}` : '****'
+                      return (
+                        <option key={item.id} value={item.id}>
+                          {`${item.account_name || 'Unknown'} - ${masked} - ${item.bank_name || item.bank_code}`}
+                        </option>
+                      )
+                    })}
+                </select>
               </div>
             ) : null}
 
@@ -341,14 +427,29 @@ export default function MoneyTransferFlow({ setIsfundTransferOpen }) {
                   </select>
                 </div>
 
-                <AppButton
-                  loading={loading || accountLoading}
-                  onClick={fetchAccountName}
-                  disabled={!canVerify || loading}
-                  className="w-full py-2 rounded-lg font-semibold transition-colors bg-gray-800 border border-gray-700 text-gray-200 hover:border-blue-500/70"
-                >
-                  Verify account
-                </AppButton>
+                {accountLookupStatus === 'loading' && (
+                  <div className="inline-flex items-center gap-2 rounded-full border border-blue-700/60 bg-blue-900/30 px-3 py-1 text-xs text-blue-200">
+                    <span className="h-3 w-3 animate-spin rounded-full border border-blue-200 border-t-transparent" />
+                    Checking account
+                  </div>
+                )}
+                {accountLookupStatus === 'success' && formData.account_name && (
+                  <div className="inline-flex items-center gap-2 rounded-full bg-green-900/30 border border-green-600 px-3 py-1 text-xs text-green-200">
+                    Account verified
+                  </div>
+                )}
+                {accountLookupStatus === 'error' && (
+                  <div className="inline-flex items-center gap-2 rounded-full bg-red-900/30 border border-red-600 px-3 py-1 text-xs text-red-200">
+                    Account not found
+                    <button
+                      type="button"
+                      onClick={() => fetchAccountName(true)}
+                      className="text-[11px] font-semibold text-red-100 underline underline-offset-2"
+                    >
+                      Retry
+                    </button>
+                  </div>
+                )}
               </>
             )}
 
@@ -376,24 +477,27 @@ export default function MoneyTransferFlow({ setIsfundTransferOpen }) {
               />
             </div>
 
-            {!isInternal && loading && (
-              <div className="bg-blue-900/30 border border-blue-600 p-3 rounded-lg text-center text-blue-300">
-                <span className="font-semibold">Verifying account...</span>
-              </div>
-            )}
-
-            {!isInternal && formData.account_name && (
-              <div className="bg-green-900/30 border border-green-600 p-3 rounded-lg text-center text-green-300">
-                Account Name: <span className="font-semibold">{formData.account_name}</span>
-              </div>
+            {!isInternal && (
+              <label className="flex items-center gap-2 text-xs text-gray-300">
+                <input
+                  type="checkbox"
+                  checked={saveBeneficiary}
+                  onChange={(e) => setSaveBeneficiary(e.target.checked)}
+                  className="h-4 w-4 rounded border-gray-700 bg-gray-800 text-blue-500 focus:ring-blue-500"
+                />
+                Save beneficiary
+              </label>
             )}
 
             <AppButton
               loading={loading || accountLoading}
               onClick={handleSend}
-              disabled={loading || (isInternal ? !formData.phone_number : !formData.account_name)}
+              disabled={
+                loading ||
+                (isInternal ? !formData.phone_number || !hasValidAmount : !accountResolved || !hasValidAmount)
+              }
               className={`w-full py-2 rounded-lg font-semibold transition-colors ${
-                (isInternal ? formData.phone_number : formData.account_name)
+                (isInternal ? formData.phone_number && hasValidAmount : accountResolved && hasValidAmount)
                   ? '!bg-green-600 hover:bg-blue-500 '
                   : 'bg-gray-700 !text-gray-400 '
               }`}

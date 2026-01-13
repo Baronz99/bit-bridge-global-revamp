@@ -1,5 +1,9 @@
 # frozen_string_literal: true
 
+require 'openssl'
+require 'base64'
+require 'digest'
+
 module Api
   module V1
     class WebhooksController < ApplicationController
@@ -13,10 +17,7 @@ module Api
         raw_body = request.raw_post
         signature = request.headers['x-webhook-signature'] || request.headers['X-Webhook-Signature']
 
-        secrets = [
-          ENV['BRIDGECARD_TEST_WEBHOOK_SECRET'],
-          ENV['BRIDGECARD_LIVE_WEBHOOK_SECRET']
-        ].compact
+        secrets = Bridgecard::Config.webhook_secrets
 
         verifier = BridgecardWebhookVerifier.new(
           body: raw_body,
@@ -40,44 +41,11 @@ module Api
         card = card_id.present? ? Card.find_by(card_id: card_id) : nil
         user_id = card&.user_id
 
-        status =
-          if event.include?('successful')
-            'successful'
-          elsif event.include?('failed')
-            'failed'
-          elsif event.include?('declined')
-            'declined'
-          else
-            'notification'
-          end
-
-        transaction_at =
-          if data['transaction_date'].present?
-            Time.zone.parse(data['transaction_date']) rescue nil
-          elsif data['transaction_timestamp'].present?
-            Time.at(data['transaction_timestamp'].to_i)
-          end
-
-        if transaction_reference.present? &&
-           CardEvent.exists?(transaction_reference: transaction_reference, event: event)
-          return head :ok
-        end
-
-        CardEvent.create!(
-          event: event.presence || 'unknown',
-          status: status,
-          card_id: card_id.presence,
-          cardholder_id: cardholder_id.presence,
-          currency: data['currency'],
-          amount: data['amount'],
-          transaction_reference: transaction_reference.presence,
-          card_transaction_type: data['card_transaction_type'],
-          merchant_category_code: data['merchant_category_code'],
-          description: data['description'] || data['message'],
-          decline_reason: data['decline_reason'] || data['reason'],
-          transaction_at: transaction_at,
-          livemode: data['livemode'],
+        card_event = CardEvent.upsert_bridgecard_event!(
+          event_name: event,
+          data: data,
           raw_payload: payload,
+          card: card,
           user_id: user_id
         )
 
@@ -86,6 +54,25 @@ module Api
           handle_card_unload_success(data)
         when 'card_unload_event.failed'
           handle_card_unload_failed(data)
+        when 'card_debit_event.successful'
+          begin
+            Cards::Ledger::PostCardSettlement.call(card: card, card_event: card_event)
+          rescue StandardError => e
+            Rails.logger.warn("[BridgecardWebhook] settlement failed message=#{e.message}")
+          end
+          begin
+            Bridgecard::EnrichTransactionJob.perform_later(card_event.id) if card_event&.id
+          rescue StandardError => e
+            Rails.logger.warn("[BridgecardWebhook] enrichment enqueue failed message=#{e.message}")
+          end
+        when 'card_debit_event.failed', 'card_debit_event.declined'
+          Cards::RiskEngine.record_decline!(
+            card: card,
+            reason: data['decline_reason'] || data['reason'] || 'Card declined',
+            provider_reference: card_event&.provider_transaction_reference || transaction_reference
+          )
+        when 'card_credit_event.successful', 'card_credit_event.failed'
+          # stored via CardEvent upsert
         end
 
         head :ok
@@ -120,61 +107,83 @@ module Api
 
         head :ok
       end
-
       def anchor
-        data = JSON.parse(request.raw_post)
-        data.dig('relationships', 'data', 'type')
+        raw_body = request.body.read.to_s
+        request.body.rewind
+        signature = request.headers['x-anchor-signature'] || request.headers['X-Anchor-Signature']
+        secret = ENV['ANCHOR_WEBHOOK_SECRET'].to_s.strip
 
-
-        account_id = data&.dig('relationships', 'customer', 'data', 'id')
-        transfer_id = data.dig('relationships', 'transfer', 'data', 'id')
-        type = data['type']
-        Rails.logger.info("✅  Anchor webhook Data TYPE: #{data['type']}")
-        Rails.logger.info("✅  Anchor webhook json post: #{data}")
-
-        service = AnchorService.new
-
-        handleKycVerificatiion(account_id) if data['type'] == 'customer.identification.approved'
-
-        transfer_id if data['type'] == 'nip.inbound.received'
-
-
-        case type
-
-        when 'nip.inbound.completed'
-          service.get_inbound_transfer(transfer_id)
-
-        when 'nip.transfer.successful'
-          # Rails.logger.info("✅  Anchor webhook transfer successful data: #{data}")
-          service.confirm_transfer_withdrawal(data)
-
-        when 'transaction.created'
-          # Rails.logger.info("✅  Anchor webhook: Initiatetransaction")
-          # AnchorService.new
-
-        when 'payment.received'
-          # Rails.logger.info("✅  Anchor webhook: Payment Received")
-          # service.fund_deposit_account(data)
-
-        when 'payment.settled'
-          # Rails.logger.info("✅  Anchor webhook: Transfer successful- deposit")
-          service.fund_deposit_account(data)
-        else
-          Rails.logger.info('✅  Anchor webhook: No Option')
-
+        if secret.blank?
+          Rails.logger.warn('[AnchorWebhook] missing ANCHOR_WEBHOOK_SECRET')
+          return render json: { message: 'Webhook not configured' }, status: :service_unavailable
         end
 
+        if allow_unsigned_anchor_webhooks?
+          Rails.logger.warn('[AnchorWebhook] unsigned webhooks allowed in development')
+        elsif !valid_anchor_signature?(raw_body, signature, secret)
+          payload_hash = Digest::SHA256.hexdigest(raw_body)[0, 12]
+          sig_hint = signature.to_s[0, 8]
+          hex_digest = OpenSSL::HMAC.hexdigest('sha1', secret, raw_body)
+          raw_digest = OpenSSL::HMAC.digest('sha1', secret, raw_body)
+          computed_hex = Base64.strict_encode64(hex_digest)[0, 8]
+          computed_raw = Base64.strict_encode64(raw_digest)[0, 8]
+          Rails.logger.warn(
+            "[AnchorWebhook] invalid signature payload_sha=#{payload_hash} sig_prefix=#{sig_hint} " \
+            "computed_hex_prefix=#{computed_hex} computed_raw_prefix=#{computed_raw}"
+          )
+          return head :unauthorized
+        end
 
-        # Process the webhook data as needed
+        payload = JSON.parse(raw_body) rescue nil
+        return render json: { message: 'Invalid payload' }, status: :bad_request if payload.blank?
+
+        AnchorWebhookJob.perform_later(payload, raw_body)
         head :ok
       end
-
-
       private
 
       def handleKycVerificatiion(account_id)
         account = Account.find_by(account_id: account_id)
         account.update(status: 'verified')
+      end
+
+      def valid_anchor_signature?(raw_body, signature, secret)
+        return false if signature.blank? || raw_body.blank?
+
+        provided = signature.to_s.strip
+        provided = provided.sub(/\Asha1=/i, '').sub(/\Av1=/i, '')
+
+        hex_digest = OpenSSL::HMAC.hexdigest('sha1', secret, raw_body)
+        raw_digest = OpenSSL::HMAC.digest('sha1', secret, raw_body)
+        computed_hex = Base64.strict_encode64(hex_digest)
+        computed_raw = Base64.strict_encode64(raw_digest)
+
+        candidates = [
+          computed_hex,
+          computed_raw,
+          hex_digest,
+          hex_digest.upcase
+        ].uniq
+
+        provided_no_pad = provided.delete('=')
+
+        candidates.any? do |candidate|
+          if candidate.length == provided.length
+            ActiveSupport::SecurityUtils.secure_compare(candidate, provided)
+          elsif candidate.delete('=').length == provided_no_pad.length
+            ActiveSupport::SecurityUtils.secure_compare(candidate.delete('='), provided_no_pad)
+          else
+            false
+          end
+        end
+      rescue StandardError
+        false
+      end
+
+      def allow_unsigned_anchor_webhooks?
+        return false unless Rails.env.development?
+
+        ENV['ALLOW_ANCHOR_UNSIGNED_WEBHOOKS'].to_s == 'true'
       end
 
       def handleTransactionConfirmation(event_data)
@@ -250,9 +259,10 @@ end
           else
             txn.amount.to_f
           end
-
-        txn.wallet.credit_cents!(amount_cents) if amount_cents.positive?
-        txn.update!(status: 'approved', amount: amount_usd)
+        result = Cards::UnloadFeeApplier.call(transaction: txn, amount_cents: amount_cents)
+        if result[:status] != :ok
+          Rails.logger.warn("[BridgecardWebhook] unload fee apply failed reference=#{reference} message=#{result[:message]}")
+        end
       end
 
       def handle_card_unload_failed(data)

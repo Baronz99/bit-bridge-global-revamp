@@ -183,26 +183,6 @@ module Api
 
         if service_response[:status] == :ok
           data = service_response[:data] || {}
-          counter_party_id = data['id']
-
-          if counter_party_id.present?
-            beneficiary = current_user.beneficiaries.find_or_initialize_by(
-              vendor: 'anchor',
-              bank_code: bank_code,
-              account_number: account_number
-            )
-            beneficiary.assign_attributes(
-              counter_party_id: counter_party_id,
-              account_name: data.dig('attributes', 'accountName') || account_params[:account_name],
-              bank_name: data.dig('attributes', 'bank', 'name')
-            )
-
-            begin
-              beneficiary.save!
-            rescue StandardError => e
-              Rails.logger.error("Failed to save beneficiary: #{e.message}")
-            end
-          end
 
           render json: {
             data:     data,
@@ -215,7 +195,6 @@ module Api
 
       # ✅ PIN enforced here (with lockouts)
       def initiate_fund_transfer
-        service = AnchorService.new
         anchor_account = current_user.accounts.find_by(vendor: 'anchor')
 
         if anchor_account.nil? || anchor_account.useable_id.nil?
@@ -225,33 +204,87 @@ module Api
         return unless validate_transfer_params!
 
         pin = params.dig(:account, :pin).to_s.strip
-return unless require_transaction_pin!(pin, error_key: :message)
-
-
-
-
+        return unless require_transaction_pin!(pin, error_key: :message)
         transfer_params = account_params.to_h.symbolize_keys.merge(
           source_id:             anchor_account.useable_id,
           source_name:           anchor_account.account_name,
           account_id:            anchor_account.id,
-          wallet_id:             current_user.wallet.id,
+          wallet_id:             current_user.ngn_wallet.id,
           source_account_number: anchor_account.account_number,
           account_name:          anchor_account.account_name
         )
 
-        service_response = service.initiate_transfer(transfer_params)
+        if !transfer_params[:inter_bank] && transfer_params[:counter_party_id].blank?
+          counter_party_response = AnchorService.new.create_counter_party(transfer_params)
+          if counter_party_response[:status] != :ok
+            return render json: { message: counter_party_response[:message] || 'Unable to resolve beneficiary' },
+                          status: :unprocessable_entity
+          end
+
+          counter_party_id = counter_party_response.dig(:data, 'id')
+          if counter_party_id.blank?
+            return render json: { message: 'Unable to resolve beneficiary' }, status: :unprocessable_entity
+          end
+
+          transfer_params[:counter_party_id] = counter_party_id
+          transfer_params[:bank] = counter_party_response.dig(:data, 'attributes', 'bank', 'name') || transfer_params[:bank]
+          transfer_params[:account_name] =
+            counter_party_response.dig(:data, 'attributes', 'accountName') || transfer_params[:account_name]
+        end
+
+        narration = transfer_params[:description].presence || 'Fund Transfer'
+        transfer_reference =
+          params[:transfer_reference].presence ||
+          params.dig(:account, :transfer_reference).presence
+        result = Transfers::AnchorNgnTransferService.call(
+          user: current_user,
+          sender_wallet: current_user.ngn_wallet,
+          amount_ngn: transfer_params[:amount],
+          bank_payload: transfer_params,
+          narration: narration,
+          transfer_reference: transfer_reference
+        )
+
+        render json: result[:body], status: result[:status]
+
+        if result[:status] == :ok
+          transfer_status = result.dig(:body, :status)
+          should_save = ActiveModel::Type::Boolean.new.cast(params.dig(:account, :save_beneficiary))
+          if should_save && %w[pending approved].include?(transfer_status)
+            upsert_beneficiary_if_requested!(transfer_params)
+          end
+        end
+      end
+
+      def resolve
+        account_number =
+          params[:account_number].presence ||
+          params.dig(:account, :account_number).presence
+        bank_code =
+          params[:bank_code].presence ||
+          params.dig(:account, :bank_code).presence
+
+        if bank_code.blank?
+          return render json: { message: 'bank_code is required' }, status: :unprocessable_entity
+        end
+
+        unless account_number.to_s.strip.match?(/\A\d{10}\z/)
+          return render json: { message: 'account_number must be 10 digits' },
+                        status: :unprocessable_entity
+        end
+
+        service = AnchorService.new
+        service_response = service.resolve_account_name(bank_code, account_number)
 
         if service_response[:status] == :ok
-          transfer_id = service_response[:data]&.transfer_id
           render json: {
-            data:    service_response[:data],
-            message: 'Fund has been sent',
-            meta: {
-              transfer_id: transfer_id
-            }
+            account_name: service_response[:account_name],
+            bank_name: service_response[:bank_name],
+            bank_code: bank_code
           }, status: :ok
         else
-          render json: { message: service_response[:message] }, status: :unprocessable_entity
+          render json: { message: service_response[:message] || 'Account not found' },
+                 status: :unprocessable_entity
         end
       end
 
@@ -469,8 +502,42 @@ return unless require_transaction_pin!(pin, error_key: :message)
           :lastname,
           :surname,
           :family_name,
-          :email
+          :email,
+          :save_beneficiary,
+          :transfer_reference
         )
+      end
+
+      def upsert_beneficiary_if_requested!(transfer_params)
+        counter_party_id = transfer_params[:counter_party_id]
+        return if counter_party_id.blank?
+
+        beneficiary = current_user.beneficiaries.find_or_initialize_by(
+          vendor: 'anchor',
+          bank_code: transfer_params[:bank_code],
+          account_number: transfer_params[:account_number]
+        )
+        beneficiary.assign_attributes(
+          counter_party_id: counter_party_id,
+          account_name: transfer_params[:account_name],
+          bank_name: transfer_params[:bank] || transfer_params[:bank_name]
+        )
+        beneficiary.save!
+      rescue ActiveRecord::RecordNotUnique
+        existing = current_user.beneficiaries.find_by(
+          vendor: 'anchor',
+          bank_code: transfer_params[:bank_code],
+          account_number: transfer_params[:account_number]
+        )
+        if existing
+          existing.update(
+            counter_party_id: counter_party_id,
+            account_name: transfer_params[:account_name],
+            bank_name: transfer_params[:bank] || transfer_params[:bank_name]
+          )
+        end
+      rescue StandardError => e
+        Rails.logger.error("Failed to save beneficiary: #{e.message}")
       end
 
       def anchor_onboarding_missing_fields(account_info)

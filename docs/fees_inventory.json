@@ -1,0 +1,203 @@
+[
+  {
+    "id": "tunnel_conversion_fee",
+    "name": "Tunnel conversion fee",
+    "flow": "Tunnel FX",
+    "trigger": "Quote/convert",
+    "formula": "fee = amount_in * 0.01",
+    "rounding": "NGN 0dp, USD 2dp",
+    "debited": "Yes (amount_after_fee)",
+    "stored_in": "FxQuote.fee_amount, fee_currency, amount_after_fee",
+    "surfaced_in": "WalletsController quote response; dashboard/account.jsx",
+    "code_refs": [
+      "backend/bit-bridge-backend/app/services/fx_desk/pricing.rb",
+      "backend/bit-bridge-backend/app/services/fx_desk/money.rb",
+      "backend/bit-bridge-backend/app/controllers/api/v1/wallets_controller.rb",
+      "frontend/bit-bridge-frontend/src/pages/dashboard/account.jsx"
+    ]
+  },
+  {
+    "id": "tunnel_markup_spread",
+    "name": "Tunnel markup/spread",
+    "flow": "Tunnel FX",
+    "trigger": "Quote/convert",
+    "formula": "markup = max(45, base_rate*0.008) + tier_add; execution_rate = base +/- markup",
+    "rounding": "markup 0dp, rate 6dp",
+    "debited": "Yes (rate affects amount_out)",
+    "stored_in": "FxQuote.markup, execution_rate",
+    "surfaced_in": "WalletsController quote response; dashboard/account.jsx",
+    "code_refs": [
+      "backend/bit-bridge-backend/app/services/fx_desk/pricing.rb",
+      "backend/bit-bridge-backend/app/services/fx_desk/money.rb",
+      "backend/bit-bridge-backend/app/controllers/api/v1/wallets_controller.rb"
+    ]
+  },
+  {
+    "id": "anchor_transfer_fee",
+    "name": "Anchor transfer fee",
+    "flow": "NGN bank transfer",
+    "trigger": "initiate_fund_transfer",
+    "formula": "tiered total_fee; includes stamp duty where applicable",
+    "rounding": "2dp in response",
+    "debited": "Yes (separate fee txn)",
+    "stored_in": "Transaction.metadata.fee_breakdown",
+    "surfaced_in": "Transfer response; FeesLimitsPanel.jsx",
+    "code_refs": [
+      "backend/bit-bridge-backend/app/services/pricing/engine.rb",
+      "backend/bit-bridge-backend/app/services/transfers/anchor_ngn_transfer_service.rb",
+      "frontend/bit-bridge-frontend/src/pages/dashboard/profile/FeesLimitsPanel.jsx"
+    ]
+  },
+  {
+    "id": "anchor_stamp_duty",
+    "name": "Anchor stamp duty",
+    "flow": "NGN bank transfer",
+    "trigger": "amount >= 10000",
+    "formula": "stamp_duty = 50",
+    "rounding": "2dp in response",
+    "debited": "Yes (part of fee txn)",
+    "stored_in": "Transaction.metadata.fee_breakdown.stamp_duty_fee",
+    "surfaced_in": "FeesLimitsPanel.jsx",
+    "code_refs": [
+      "backend/bit-bridge-backend/app/services/pricing/engine.rb",
+      "backend/bit-bridge-backend/app/services/transfers/anchor_ngn_transfer_service.rb"
+    ]
+  },
+  {
+    "id": "card_spend_provider_fee",
+    "name": "Card spend provider fee",
+    "flow": "Card spend",
+    "trigger": "Card debit event settled",
+    "formula": "USD: min(1%, 10); non-USD: 1.5%",
+    "rounding": "2dp",
+    "debited": "Yes",
+    "stored_in": "CardEvent.metadata + Transaction",
+    "surfaced_in": "CardsController history + CardView.jsx",
+    "code_refs": [
+      "backend/bit-bridge-backend/app/services/pricing/card_pricing.rb",
+      "backend/bit-bridge-backend/app/services/cards/ledger/post_card_settlement.rb",
+      "frontend/bit-bridge-frontend/src/components/cardView/CardView.jsx"
+    ]
+  },
+  {
+    "id": "card_spend_bitbridge_fee",
+    "name": "Card spend BitBridge fee",
+    "flow": "Card spend",
+    "trigger": "USD spend",
+    "formula": "USD: min(1%, 5)",
+    "rounding": "2dp",
+    "debited": "Yes",
+    "stored_in": "CardEvent.metadata + Transaction",
+    "surfaced_in": "CardsController history + CardView.jsx",
+    "code_refs": [
+      "backend/bit-bridge-backend/app/services/pricing/card_pricing.rb",
+      "backend/bit-bridge-backend/app/services/cards/ledger/post_card_settlement.rb"
+    ]
+  },
+  {
+    "id": "card_spend_fx_markup",
+    "name": "Card spend FX markup",
+    "flow": "Card spend",
+    "trigger": "Non-USD spend",
+    "formula": "principal * 0.012",
+    "rounding": "2dp",
+    "debited": "Yes",
+    "stored_in": "CardEvent.metadata + Transaction",
+    "surfaced_in": "CardsController history + CardView.jsx",
+    "code_refs": [
+      "backend/bit-bridge-backend/app/services/pricing/card_pricing.rb",
+      "backend/bit-bridge-backend/app/services/cards/ledger/post_card_settlement.rb"
+    ]
+  },
+  {
+    "id": "card_creation_fee",
+    "name": "Card creation fee",
+    "flow": "Card create",
+    "trigger": "Create card (USD tunnel)",
+    "formula": "fixed USD 4",
+    "rounding": "2dp",
+    "debited": "Yes",
+    "stored_in": "Transaction + Card.meta_data",
+    "surfaced_in": "CardView.jsx",
+    "code_refs": [
+      "backend/bit-bridge-backend/app/services/bridge_card_service.rb",
+      "frontend/bit-bridge-frontend/src/components/cardView/CardView.jsx"
+    ]
+  },
+  {
+    "id": "card_funding_fee",
+    "name": "Card funding fee",
+    "flow": "Card funding",
+    "trigger": "Fund card",
+    "formula": "bps of amount, capped",
+    "rounding": "2dp",
+    "debited": "Yes",
+    "stored_in": "Transaction.metadata.fee_breakdown",
+    "surfaced_in": "CardView.jsx",
+    "code_refs": [
+      "backend/bit-bridge-backend/app/services/pricing/card_fee_policy.rb",
+      "backend/bit-bridge-backend/app/services/bridge_card_service.rb#fund_wallet"
+    ]
+  },
+  {
+    "id": "card_withdrawal_fee",
+    "name": "Card withdrawal fee",
+    "flow": "Card unload",
+    "trigger": "Unload card",
+    "formula": "bps of amount, capped; net credit = amount - fee",
+    "rounding": "2dp",
+    "debited": "Yes",
+    "stored_in": "Transaction.metadata.fee_breakdown",
+    "surfaced_in": "CardView.jsx",
+    "code_refs": [
+      "backend/bit-bridge-backend/app/services/pricing/card_fee_policy.rb",
+      "backend/bit-bridge-backend/app/services/bridge_card_service.rb#unload_wallet",
+      "backend/bit-bridge-backend/app/services/cards/unload_fee_applier.rb"
+    ]
+  },
+  {
+    "id": "card_monthly_maintenance",
+    "name": "Card monthly maintenance",
+    "flow": "Card maintenance",
+    "trigger": "Monthly batch",
+    "formula": "fixed USD from settings",
+    "rounding": "2dp",
+    "debited": "Yes",
+    "stored_in": "Transaction.metadata.fee_breakdown",
+    "surfaced_in": "Transactions (if exposed)",
+    "code_refs": [
+      "backend/bit-bridge-backend/app/services/cards/monthly_maintenance_charger.rb",
+      "backend/bit-bridge-backend/app/services/pricing/card_fee_policy.rb"
+    ]
+  },
+  {
+    "id": "bill_service_charge",
+    "name": "Bills service charge",
+    "flow": "Bills/Utilities",
+    "trigger": "Bill order (non-VTU/DATA)",
+    "formula": "NGN 100",
+    "rounding": "NGN int",
+    "debited": "Yes (part of total_amount)",
+    "stored_in": "BillOrder.service_charge/total_amount",
+    "surfaced_in": "BillOrder serializer + UI",
+    "code_refs": [
+      "backend/bit-bridge-backend/app/models/bill_order.rb#calc_service_charge",
+      "backend/bit-bridge-backend/app/serializers/bill_order_serializer.rb"
+    ]
+  },
+  {
+    "id": "bill_commission",
+    "name": "Bills commission credit",
+    "flow": "Bills/Utilities",
+    "trigger": "Bill completed",
+    "formula": "1% of amount (non-electricity)",
+    "rounding": "2dp",
+    "debited": "No (credit to wallet commission)",
+    "stored_in": "Wallet.commission",
+    "surfaced_in": "Bill order UI",
+    "code_refs": [
+      "backend/bit-bridge-backend/app/models/bill_order.rb#commission,#save_commission",
+      "frontend/bit-bridge-frontend/src/components/confirmationDetails/billOrderDetails.jsx"
+    ]
+  }
+]

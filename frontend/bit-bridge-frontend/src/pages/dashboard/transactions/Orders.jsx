@@ -1,6 +1,6 @@
 import { useEffect } from 'react'
 import { useDispatch, useSelector } from 'react-redux'
-import { useOutletContext } from 'react-router-dom'
+import { NavLink, useOutletContext } from 'react-router-dom'
 import { getUserBillOrders } from '../../../redux/actions/order'
 import { nairaFormat } from '../../../utils/nairaFormat'
 import dateFormater from '../../../utils/dateFormat'
@@ -133,8 +133,13 @@ const Orders = () => {
                         {dateFormater(item?.created_at)}
                       </td>
 
-                      <td className="whitespace-nowrap border-b border-slate-800 px-3 py-3 text-xs md:text-sm text-indigo-300 text-center cursor-pointer hover:text-indigo-200">
-                        <span>Details</span>
+                      <td className="whitespace-nowrap border-b border-slate-800 px-3 py-3 text-xs md:text-sm text-center">
+                        <NavLink
+                          to={`/dashboard/receipt/${item?.id}`}
+                          className="text-indigo-300 hover:text-indigo-200"
+                        >
+                          View
+                        </NavLink>
                       </td>
                     </tr>
                   ))

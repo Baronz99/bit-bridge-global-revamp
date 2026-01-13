@@ -147,6 +147,19 @@ export const verifyAccountUser = createAsyncThunk(
   }
 )
 
+export const resolveAccountName = createAsyncThunk(
+  'account/resolve-account-name',
+  async (data, { rejectWithValue }) => {
+    try {
+      const response = await client.post('/accounts/resolve', data)
+      return response.data
+    } catch (error) {
+      const message = getErrorMessage(error)
+      return rejectWithValue({ message })
+    }
+  }
+)
+
 export const initiateTransfer = createAsyncThunk(
   'account/initiate_fund_transfer',
   async (data, { rejectWithValue }) => {

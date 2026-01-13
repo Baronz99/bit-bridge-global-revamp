@@ -200,6 +200,33 @@ class AnchorService
     { message: e.message.to_s || 'bad request', status: :bad_request }
   end
 
+  def resolve_account_name(bank_code, account_number)
+    response = verify_account_details(bank_code, account_number)
+    return response unless response[:status] == :ok
+
+    payload = response[:data] || {}
+    data = payload['data'] || payload[:data] || payload
+    attributes = data['attributes'] || data[:attributes] || {}
+
+    account_name =
+      attributes['accountName'] ||
+      attributes['account_name'] ||
+      data['accountName'] ||
+      data[:accountName]
+    bank_name =
+      attributes.dig('bank', 'name') ||
+      attributes.dig(:bank, :name) ||
+      data.dig('bank', 'name')
+
+    if account_name.blank?
+      return { status: :bad_request, message: 'Account not found' }
+    end
+
+    { status: :ok, account_name: account_name, bank_name: bank_name }
+  rescue StandardError => e
+    { status: :bad_request, message: e.message.to_s }
+  end
+
   def create_counter_party(transfer_params)
     account_name = transfer_params['account_name'].present? ? transfer_params['account_name'] : 'nil'
     body = {
@@ -234,7 +261,9 @@ class AnchorService
     raise response['message'] || 'bad request' unless response.success?
 
     receipient_id = response&.dig('relationships', 'account', 'data', 'id')
-    amount = response&.dig('attributes', 'amount')
+    raw_amount = response&.dig('attributes', 'amount')
+    currency = response&.dig('attributes', 'currency') || 'NGN'
+    amount, scale = normalize_anchor_amount(raw_amount, currency)
     sender = response&.dig('attributes', 'sourceAccountName')
     address = response&.dig('attributes', 'sourceAccountNumber')
     bank = response&.dig('attributes', 'sourceBank', 'name')
@@ -253,7 +282,12 @@ class AnchorService
       bank: bank,
       transaction_type: 'deposit',
       status: 'approved',
-      coin_type: 'bank'
+      coin_type: 'bank',
+      metadata: {
+        anchor_amount_raw: raw_amount,
+        anchor_amount_scale: scale,
+        currency: currency
+      }
     }
 
 
@@ -270,12 +304,12 @@ class AnchorService
     source_name = transfer_params[:source_name]
     source_account_number = transfer_params[:source_account_number]
     initials = recipient_name.to_s.strip.split(' ').map { |name| name[0] }.join.downcase
-    reference = "fbg#{Time.now.to_i}#{initials}"
+    reference = transfer_params[:reference].presence || "fbg#{Time.now.to_i}#{initials}"
     counter_party_id = transfer_params[:counter_party_id]
     counter_party_id_type = 'CounterParty'
     bank_code = transfer_params[:bank_code]
     bank = 'anchor'
-    recipient_bank = transfer_params['bank']
+    recipient_bank = transfer_params[:bank] || transfer_params['bank']
     relationships = if transfer_type == 'NIPTransfer'
                       {
                         account: {
@@ -333,40 +367,26 @@ class AnchorService
       amount       = response.dig(:data, 'attributes', 'amount')
       description  = response.dig(:data, 'attributes', 'reason')
 
-      # Example: create a transaction record (assuming `transaction` is a model)
-      transaction = Transaction.new(
-        wallet_id: transfer_params[:wallet_id],
-        account_id: transfer_params[:account_id],
-        status: status,
-        amount: amount,
-        account_name: source_name,
-        address: source_account_number,
-        transaction_type: 'withdrawal',
-        unique_transaction_id: counter_party_id,
-        bank: bank,
-        transfer_id: transfer_id
-      )
-
-      raise transaction.errors.full_messages.to_sentence unless transaction.valid?
-
-      transaction.save!
-      transaction.create_transaction_record!(
-        status: status,
-        description: description,
-        customer_name: recipient_name,
-        reference: reference,
-        account_number: account_number,
-        bank_code: bank_code,
-        bank: recipient_bank,
-        amount: amount
-      )
-
       Rails.logger.info(
         "Anchor transfer created transfer_id=#{transfer_id} counter_party_id=#{counter_party_id} " \
-        "transaction_id=#{transaction.id} reference=#{reference}"
+        "reference=#{reference}"
       )
 
-      { data: transaction, status: :ok }
+      {
+        data: {
+          transfer_id: transfer_id,
+          status: status,
+          amount: amount,
+          description: description,
+          reference: reference,
+          bank_code: bank_code,
+          bank: recipient_bank,
+          account_number: account_number,
+          account_name: recipient_name,
+          source_name: source_name
+        },
+        status: :ok
+      }
     rescue StandardError => e
       Rails.logger.error(
         "Anchor transfer failed counter_party_id=#{counter_party_id} reference=#{reference} " \
@@ -414,7 +434,9 @@ class AnchorService
 
     Rails.logger.info("❌ Anchor account  does not exist ======================== #{account}") unless account
 
-    amount = data['attributes']['payment']['amount']
+    raw_amount = data['attributes']['payment']['amount']
+    currency = data.dig('attributes', 'payment', 'currency') || 'NGN'
+    amount, scale = normalize_anchor_amount(raw_amount, currency)
     receiver_account_number = data.dig('attributes', 'payment', 'virtualNuban', 'accountNumber') || 'N/A'
     receiver_account_name = data.dig('attributes', 'payment', 'virtualNuban', 'accountName') || 'N/A'
     bank = 'Anchor'
@@ -447,7 +469,12 @@ class AnchorService
       bank: sender_bank,
       transaction_type: 'deposit',
       status: 'approved',
-      coin_type: 'bank'
+      coin_type: 'bank',
+      metadata: {
+        anchor_amount_raw: raw_amount,
+        anchor_amount_scale: scale,
+        currency: currency
+      }
     }
 
 
@@ -494,27 +521,62 @@ class AnchorService
     end
   end
 
+  def fail_transfer_withdrawal(data)
+    transfer_id = data.dig('relationships', 'transfer', 'data', 'id')
+    unless transfer_id
+      Rails.logger.warn('[AnchorWebhook] missing transfer ID for failure event')
+      return
+    end
+
+    transaction = Transaction.find_by(transfer_id: transfer_id)
+    unless transaction
+      Rails.logger.warn("Anchor transfer failure: transaction not found transfer_id=#{transfer_id}")
+      return
+    end
+
+    provider_status = data['type'].to_s
+    reason =
+      data.dig('attributes', 'failureReason') ||
+      data.dig('attributes', 'reason') ||
+      data.dig('attributes', 'message') ||
+      'Transfer failed'
+
+    Transfers::AnchorNgnTransferService.reverse_transfer!(
+      transaction,
+      reason: reason,
+      provider_status: provider_status
+    )
+  end
+
 
   private
 
   def anchor_base_url
-    env_value = ENV['DEV_ANCHOR_BASE_URL'].to_s.strip
-    raise_missing_anchor_env! if Rails.env.production? && env_value.empty?
+    primary = ENV['ANCHOR_BASE_URL'].to_s.strip
+    fallback = ENV['DEV_ANCHOR_BASE_URL'].to_s.strip
 
-    env_value.empty? ? SANDBOX_BASE_URL : env_value
+    return primary if primary.present?
+    raise_missing_anchor_env! if Rails.env.production?
+
+    fallback.presence || SANDBOX_BASE_URL
   end
 
   def anchor_api_key
-    env_value = ENV['DEV_ANCHOR_API_KEY'].to_s.strip
-    raise RuntimeError, 'Missing DEV_ANCHOR_API_KEY' if env_value.empty?
+    primary = ENV['ANCHOR_API_KEY'].to_s.strip
+    fallback = ENV['DEV_ANCHOR_API_KEY'].to_s.strip
 
-    env_value
+    return primary if primary.present?
+    raise RuntimeError, 'Missing ANCHOR_API_KEY' if Rails.env.production?
+
+    return fallback if fallback.present?
+
+    raise RuntimeError, 'Missing ANCHOR_API_KEY'
   end
 
   def raise_missing_anchor_env!
     return unless Rails.env.production?
 
-    raise RuntimeError, 'Missing DEV_ANCHOR_BASE_URL or DEV_ANCHOR_API_KEY in production'
+    raise RuntimeError, 'Missing ANCHOR_BASE_URL or ANCHOR_API_KEY in production'
   end
 
   def store_account_details(account_id, user_data)
@@ -545,5 +607,26 @@ class AnchorService
     end
   rescue StandardError => e
     raise StandardError, e.message
+  end
+
+  def normalize_anchor_amount(amount, currency)
+    raw = BigDecimal(amount.to_s)
+    scale = ENV['ANCHOR_AMOUNT_SCALE'].to_s.downcase
+
+    if scale == 'naira'
+      return [raw, 'naira']
+    end
+
+    if scale == 'kobo'
+      return [(raw / 100).round(2), 'kobo']
+    end
+
+    if currency.to_s.upcase == 'NGN' && raw.frac.zero? && raw >= 1000
+      return [(raw / 100).round(2), 'kobo']
+    end
+
+    [raw, 'naira']
+  rescue ArgumentError
+    [amount, 'unknown']
   end
 end

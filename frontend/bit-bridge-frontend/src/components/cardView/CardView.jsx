@@ -62,6 +62,7 @@ export default function VirtualCardApplication() {
   const [showInlineWithdraw, setShowInlineWithdraw] = useState(false)
   const [withdrawAmount, setWithdrawAmount] = useState('')
   const [withdrawResult, setWithdrawResult] = useState(null)
+  const [creationFeeUsd, setCreationFeeUsd] = useState(CARD_CREATION_FEE_USD)
   const gateToastShownRef = useRef(false)
     const [showRevealPinModal, setShowRevealPinModal] = useState(false)
   const [revealPin, setRevealPin] = useState('') // PIN used ONLY for reveal
@@ -131,9 +132,11 @@ export default function VirtualCardApplication() {
     card?.status || cardDetails?.status || cardDetails?.card_status || ''
   const normalizedStatus = statusFromApi.toString().toLowerCase()
   const isPendingFunding = normalizedStatus === 'pending_funding'
+  const frozenBy = card?.frozen_by || card?.frozenBy || ''
+  const frozenReason = card?.frozen_reason || card?.frozenReason || ''
   const creationFeeCharged = Boolean(card?.meta_data?.creation_fee_charged)
   const fundingAmount = Number(formData.amount || 0)
-  const feeAmount = CARD_CREATION_FEE_USD
+  const feeAmount = Number(creationFeeUsd || 0)
   const isExistingCard = hasCardId && !isPendingFunding
   const feeDue = isExistingCard ? 0 : creationFeeCharged ? 0 : feeAmount
   const minFunding = CARD_MIN_FUNDING_USD
@@ -150,6 +153,28 @@ export default function VirtualCardApplication() {
     dispatch(getUserCard())
     dispatch(getWallet()) //  ensure we have tunnel wallet status/balance
   }, [dispatch])
+
+  useEffect(() => {
+    let active = true
+
+    const loadFees = async () => {
+      try {
+        const res = await client.get('/fees')
+        const feeValue = res?.data?.data?.cards?.creation_fee_usd
+        if (!active) return
+        if (feeValue !== undefined && feeValue !== null && !Number.isNaN(Number(feeValue))) {
+          setCreationFeeUsd(Number(feeValue))
+        }
+      } catch (_) {
+        // fallback to default constant
+      }
+    }
+
+    loadFees()
+    return () => {
+      active = false
+    }
+  }, [])
 
   useEffect(() => {
     if (!card?.id) return
@@ -1327,7 +1352,18 @@ const setPin = (nextPin) => {
                   </div>
                 </div>
 
-                <div className="mt-6 flex flex-wrap gap-3 text-xs">
+                  {normalizedStatus === 'frozen' && (
+                    <div className="mb-4 rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-100">
+                      <div className="font-semibold">Card frozen</div>
+                      <div className="mt-1 text-[11px] text-red-200/90">
+                        {frozenReason || 'Your card is temporarily frozen.'}
+                      </div>
+                      {frozenBy && (
+                        <div className="mt-1 text-[11px] text-red-200/80">Frozen by: {frozenBy}</div>
+                      )}
+                    </div>
+                  )}
+                  <div className="mt-6 flex flex-wrap gap-3 text-xs">
                   <button
                     type="button"
                     onClick={() =>
@@ -1585,6 +1621,137 @@ const setPin = (nextPin) => {
                             <span>{entry.status}</span>
                             <span>{entry.created_at ? new Date(entry.created_at).toLocaleString() : ''}</span>
                           </div>
+                          <div className="mt-2 text-[11px]">
+                            <button
+                              type="button"
+                              onClick={() => navigate(`/dashboard/receipt/${entry.id}`)}
+                              className="text-indigo-300 hover:text-indigo-200"
+                            >
+                              View receipt
+                            </button>
+                          </div>
+                          {entry?.decline_reason === 'insufficient_balance' && (
+                            <div className="mt-2 rounded-md border border-amber-500/30 bg-amber-500/10 px-2 py-1 text-[11px] text-amber-200">
+                              Insufficient USD balance to cover purchase + fees.
+                            </div>
+                          )}
+                          {entry?.breakdown &&
+                            (entry.breakdown.total_debit_usd ||
+                              entry.breakdown.provider_fee_usd ||
+                              entry.breakdown.bitbridge_fee_usd ||
+                              entry.breakdown.fx_markup_usd ||
+                              entry.breakdown.funding_fee_usd ||
+                              entry.breakdown.withdrawal_fee_usd ||
+                              entry.breakdown.total_credit_usd) && (
+                              <div className="mt-2 space-y-1 text-[11px] text-slate-400">
+                                <div className="flex items-center justify-between">
+                                  <span>Principal</span>
+                                  <span>USD {Number(entry.breakdown.principal_usd || 0).toFixed(2)}</span>
+                                </div>
+                                <div className="flex items-center justify-between">
+                                  <span>Provider fee</span>
+                                  <span>USD {Number(entry.breakdown.provider_fee_usd || 0).toFixed(2)}</span>
+                                </div>
+                                <div className="flex items-center justify-between">
+                                  <span>BitBridge fee</span>
+                                  <span>USD {Number(entry.breakdown.bitbridge_fee_usd || 0).toFixed(2)}</span>
+                                </div>
+                                {entry.breakdown.funding_fee_usd !== undefined ? (
+                                  <div className="flex items-center justify-between">
+                                    <span>Funding fee</span>
+                                    <span>
+                                      USD {Number(entry.breakdown.funding_fee_usd || 0).toFixed(2)}
+                                    </span>
+                                  </div>
+                                ) : null}
+                                {entry.breakdown.withdrawal_fee_usd !== undefined ? (
+                                  <div className="flex items-center justify-between">
+                                    <span>Withdrawal fee</span>
+                                    <span>
+                                      USD {Number(entry.breakdown.withdrawal_fee_usd || 0).toFixed(2)}
+                                    </span>
+                                  </div>
+                                ) : null}
+                                <div className="flex items-center justify-between">
+                                  <span>FX markup</span>
+                                  <span>USD {Number(entry.breakdown.fx_markup_usd || 0).toFixed(2)}</span>
+                                </div>
+                                <div className="flex items-center justify-between text-slate-200 font-semibold">
+                                  <span>Total debit</span>
+                                  <span>USD {Number(entry.breakdown.total_debit_usd || 0).toFixed(2)}</span>
+                                </div>
+                                {entry.breakdown.total_credit_usd !== undefined ? (
+                                  <div className="flex items-center justify-between text-slate-200 font-semibold">
+                                    <span>Total credit</span>
+                                    <span>
+                                      USD {Number(entry.breakdown.total_credit_usd || 0).toFixed(2)}
+                                    </span>
+                                  </div>
+                                ) : null}
+                              </div>
+                            )}
+                          {entry?.fx &&
+                            (entry.fx.merchant_currency || entry.fx.billing_currency) && (
+                              <div className="mt-2 space-y-1 text-[11px] text-slate-400">
+                                {entry.fx.merchant_currency && entry.fx.merchant_amount ? (
+                                  <div className="flex items-center justify-between">
+                                    <span>Merchant amount</span>
+                                    <span>
+                                      {Number.isFinite(Number(entry.fx.merchant_amount))
+                                        ? `${Number(entry.fx.merchant_amount).toFixed(2)} ${
+                                            entry.fx.merchant_currency
+                                          }`
+                                        : '--'}
+                                    </span>
+                                  </div>
+                                ) : null}
+                                {entry.fx.billing_currency && entry.fx.billing_amount ? (
+                                  <div className="flex items-center justify-between">
+                                    <span>Billing amount</span>
+                                    <span>
+                                      {Number.isFinite(Number(entry.fx.billing_amount))
+                                        ? `${Number(entry.fx.billing_amount).toFixed(2)} ${
+                                            entry.fx.billing_currency
+                                          }`
+                                        : '--'}
+                                    </span>
+                                  </div>
+                                ) : null}
+                                {entry.fx.fx_implied_rate !== null &&
+                                entry.fx.fx_implied_rate !== undefined ? (
+                                  <div className="flex items-center justify-between">
+                                    <span>Implied FX rate</span>
+                                    <span>
+                                      {Number.isFinite(Number(entry.fx.fx_implied_rate))
+                                        ? Number(entry.fx.fx_implied_rate).toFixed(4)
+                                        : '--'}
+                                    </span>
+                                  </div>
+                                ) : null}
+                                {entry.fx.fx_reference_rate !== null &&
+                                entry.fx.fx_reference_rate !== undefined ? (
+                                  <div className="flex items-center justify-between">
+                                    <span>Reference FX rate</span>
+                                    <span>
+                                      {Number.isFinite(Number(entry.fx.fx_reference_rate))
+                                        ? Number(entry.fx.fx_reference_rate).toFixed(4)
+                                        : '--'}
+                                    </span>
+                                  </div>
+                                ) : null}
+                                {entry.fx.fx_margin_usd !== null &&
+                                entry.fx.fx_margin_usd !== undefined ? (
+                                  <div className="flex items-center justify-between">
+                                    <span>FX margin (USD)</span>
+                                    <span>
+                                      {Number.isFinite(Number(entry.fx.fx_margin_usd))
+                                        ? `USD ${Number(entry.fx.fx_margin_usd).toFixed(2)}`
+                                        : '--'}
+                                    </span>
+                                  </div>
+                                ) : null}
+                              </div>
+                            )}
                         </div>
                       ))}
                       {!cardHistoryLoading && cardHistory.length === 0 && (

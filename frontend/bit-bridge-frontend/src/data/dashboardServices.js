@@ -81,4 +81,13 @@ export const dashboardServices = [
       cta: 'Start a group',
     },
   },
+  {
+    key: 'fx-settings',
+    label: 'FX settings',
+    description: 'Manage Tunnel conversion base rates.',
+    adminAction: {
+      label: 'Manage FX settings',
+      to: '/admin/fx-settings',
+    },
+  },
 ]

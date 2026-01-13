@@ -1,5 +1,9 @@
 // src/pages/dashboard/profile/FeesLimitsPanel.jsx
 
+import { useEffect, useState } from 'react'
+import client from '../../../api/client'
+import { nairaFormat } from '../../../utils/nairaFormat'
+
 const Section = ({ title, subtitle, children }) => (
   <div className="rounded-2xl border border-white/10 bg-white/5 backdrop-blur p-4 md:p-5">
     <div className="flex items-start justify-between gap-3">
@@ -23,8 +27,39 @@ const Row = ({ label, value, note }) => (
 )
 
 const FeesLimitsPanel = () => {
-  // If later you want tier-based pricing, this can accept props (user, kyc_level, etc.)
   const lastUpdatedLabel = 'v2' // match your PDF naming (BitBridge_Pricing_v2)
+  const [fees, setFees] = useState(null)
+
+  useEffect(() => {
+    let mounted = true
+    client
+      .get('/fees')
+      .then((res) => {
+        if (!mounted) return
+        setFees(res?.data?.data || null)
+      })
+      .catch(() => {
+        if (!mounted) return
+        setFees(null)
+      })
+    return () => {
+      mounted = false
+    }
+  }, [])
+
+  const cardFees = fees?.cards || {}
+  const spendFees = cardFees?.spend_fees || null
+  const transferFees = Array.isArray(fees?.transfers?.anchor_fee_tiers)
+    ? fees.transfers.anchor_fee_tiers
+    : []
+  const stampDuty = fees?.transfers?.stamp_duty_ngn
+
+  const renderTransferLabel = (tier, idx) => {
+    if (tier.max_amount === null) return 'NGN 50,000+'
+    if (idx === 0) return 'NGN 0 - 1,999'
+    if (tier.max_amount === 9999) return 'NGN 2,000 - 9,999'
+    return 'NGN 10,000 - 49,999'
+  }
 
   return (
     <div className="space-y-4">
@@ -44,20 +79,66 @@ const FeesLimitsPanel = () => {
       </div>
 
       <Section title="Naira Transfers" subtitle="Local bank transfers (NGN)">
-        <Row label="₦0 – ₦1,999" value="₦55" />
-        <Row label="₦2,000 – ₦9,999" value="₦76.80" />
-        <Row label="₦10,000 – ₦49,999" value="₦126.80" note="Includes ₦50 stamp duty" />
-        <Row label="₦50,000+" value="₦150" note="Includes ₦50 stamp duty" />
+        {transferFees.length > 0 ? (
+          transferFees.map((tier, idx) => {
+            const note =
+              stampDuty && tier.max_amount && tier.max_amount >= 10_000
+                ? `Includes NGN ${Number(stampDuty).toFixed(0)} stamp duty`
+                : null
+            return (
+              <Row
+                key={renderTransferLabel(tier, idx)}
+                label={renderTransferLabel(tier, idx)}
+                value={nairaFormat(tier.fee, 'ngn')}
+                note={note}
+              />
+            )
+          })
+        ) : (
+          <Row label="Transfer fees" value="Not available" />
+        )}
         <div className="mt-3 text-[11px] text-slate-300/70">
-          Stamp duty applies to transfers ₦10,000+ and is included in the amounts above.
+          Stamp duty applies to transfers NGN 10,000+ and is included in the amounts above.
         </div>
       </Section>
 
       <Section title="Virtual Card Fees" subtitle="Card creation, maintenance, and wallet actions (USD)">
-        <Row label="Card creation" value="$4" />
-        <Row label="Monthly maintenance" value="$1" />
-        <Row label="Card funding" value="$1" />
-        <Row label="Card withdrawal" value="$1" />
+        <Row
+          label="Card creation"
+          value={
+            cardFees.creation_fee_usd !== undefined
+              ? `USD ${Number(cardFees.creation_fee_usd).toFixed(2)}`
+              : 'Not available'
+          }
+        />
+        <Row
+          label="Monthly maintenance"
+          value={
+            cardFees.monthly_maintenance_fee_usd !== undefined
+              ? `USD ${Number(cardFees.monthly_maintenance_fee_usd).toFixed(2)}`
+              : 'Not available'
+          }
+        />
+        <Row
+          label="Card funding fee"
+          value={
+            cardFees.funding_fee_bps !== undefined
+              ? `${cardFees.funding_fee_bps} bps (cap USD ${Number(
+                  cardFees.funding_fee_cap_usd || 0
+                ).toFixed(2)})`
+              : 'Not available'
+          }
+        />
+        <Row
+          label="Card withdrawal fee"
+          value={
+            cardFees.withdrawal_fee_bps !== undefined
+              ? `${cardFees.withdrawal_fee_bps} bps (cap USD ${Number(
+                  cardFees.withdrawal_fee_cap_usd || 0
+                ).toFixed(2)})`
+              : 'Not available'
+          }
+        />
       </Section>
 
       <Section title="Virtual Card Limits" subtitle="Daily limits (USD)">
@@ -67,22 +148,46 @@ const FeesLimitsPanel = () => {
       </Section>
 
       <Section title="Card Transaction Fees" subtitle="Charges on card usage">
-        <Row label="Transaction fee" value="1%" note="Capped at $10" />
-        <Row label="Foreign currency fee (non-USD)" value="1.5%" />
+        <Row
+          label="Provider fee (USD)"
+          value={
+            spendFees
+              ? `${Number(spendFees.provider_fee_percent_usd * 100).toFixed(1)}% (cap USD ${Number(
+                  spendFees.provider_fee_cap_usd
+                ).toFixed(2)})`
+              : 'Not available'
+          }
+        />
+        <Row
+          label="Provider fee (non-USD)"
+          value={
+            spendFees
+              ? `${Number(spendFees.provider_fee_percent_non_usd * 100).toFixed(1)}%`
+              : 'Not available'
+          }
+        />
+        <Row
+          label="BitBridge fee (USD)"
+          value={
+            spendFees
+              ? `${Number(spendFees.bitbridge_fee_percent_usd * 100).toFixed(1)}% (cap USD ${Number(
+                  spendFees.bitbridge_fee_cap_usd
+                ).toFixed(2)})`
+              : 'Not available'
+          }
+        />
+        <Row
+          label="FX markup (non-USD)"
+          value={
+            spendFees
+              ? `${Number(spendFees.bitbridge_fx_markup_percent * 100).toFixed(1)}%`
+              : 'Not available'
+          }
+        />
       </Section>
 
       <Section title="Bills & Utilities" subtitle="Airtime, data, TV & electricity">
         <Row label="Airtime, Data, TV & Electricity" value="FREE" />
-      </Section>
-
-      <Section title="Community & Business Tools" subtitle="Institutional and group services (NGN)">
-        <Row label="Bulk transfers" value="₦50 per recipient" />
-        <Row label="Salary disbursement" value="₦50 per recipient" />
-        <Row label="Community wallet" value="₦1,000 / month" />
-      </Section>
-
-      <Section title="Government Tax" subtitle="Regulatory charges">
-        <Row label="Stamp duty (₦10k+ transfers)" value="₦50" note="Already included above" />
       </Section>
 
       <div className="rounded-2xl border border-white/10 bg-white/5 backdrop-blur p-4 md:p-5">

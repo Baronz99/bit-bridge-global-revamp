@@ -2,7 +2,7 @@ import { useDispatch, useSelector } from 'react-redux'
 import dateFormater from '../../../utils/dateFormat'
 import { nairaFormat } from '../../../utils/nairaFormat'
 import { useEffect, useMemo } from 'react'
-import { useOutletContext } from 'react-router-dom'
+import { NavLink, useOutletContext } from 'react-router-dom'
 import { getUserTransactions } from '../../../redux/actions/transaction'
 import Loading from '../../../components/loader/Loading'
 import statusStyleCard from '../../../utils/statusCard'
@@ -84,7 +84,7 @@ const Withdrawals = () => {
 
                     <th
                       scope="col"
-                      className="sticky top-0 z-10 border-b border-gray-600/50 bg-opacity-75 px-3 py-3.5 text-left text-xs font-semibold text-gray-300 uppercase backdrop-blur backdrop-filter lg:table-cell"
+                      className="sticky top-0 z-10 border-b border-gray-600/50 bg-opacity-75 px-3 py-3.5 text-center text-xs font-semibold text-gray-300 uppercase backdrop-blur backdrop-filter lg:table-cell"
                     />
                   </tr>
                 </thead>
@@ -123,8 +123,13 @@ const Withdrawals = () => {
                           {dateFormater(item?.created_at)}
                         </td>
 
-                        <td className="relative whitespace-nowrap border-b text-center border-gray-600 py-3 pr-4 pl-3 text-blue-400 text-sm sm:pr-8 lg:pr-8">
-                          <span>Details</span>
+                        <td className="relative whitespace-nowrap border-b text-center border-gray-600 py-3 pr-4 pl-3 text-sm sm:pr-8 lg:pr-8">
+                          <NavLink
+                            to={`/dashboard/receipt/${item?.id}`}
+                            className="text-indigo-300 hover:text-indigo-200 text-xs"
+                          >
+                            View
+                          </NavLink>
                         </td>
                       </tr>
                     ))

@@ -148,7 +148,9 @@ class BridgeCardService
 
     return { message: 'Funding amount must be 0 or more', status: :unprocessable_entity } if amount_usd.negative?
 
-    fee_cents = (CARD_CREATION_FEE_USD * 100).to_i
+    setting = FxSetting.current
+    fee_cents = setting.card_creation_fee_usd_cents.to_i
+    fee_cents = (CARD_CREATION_FEE_USD * 100).to_i if fee_cents <= 0
     min_funding_cents = (CARD_ACTIVATION_MIN_USD * 100).to_i
     meta = card.meta_data.is_a?(Hash) ? card.meta_data.dup : {}
     fee_charged = meta['creation_fee_charged'] == true
@@ -172,10 +174,11 @@ class BridgeCardService
       if !fee_charged
         fee_reference = "card-fee-#{SecureRandom.uuid}"
 
+        fee_amount_usd = (fee_cents / 100.0).round(2)
         fee_txn = usd_wallet.transactions.create!(
           transaction_type: 'withdrawal',
           status: 'approved',
-          amount: CARD_CREATION_FEE_USD,
+          amount: fee_amount_usd,
           coin_type: 'bank',
           address: 'Virtual Card Creation Fee',
           unique_transaction_id: fee_reference
@@ -340,8 +343,13 @@ end
 
   def card_details(card_id)
     raise ArgumentError, 'card_id is required' if card_id.blank?
-    url = "/issuing/sandbox/cards/get_card_details?card_id=#{card_id}"
-    response = fetch('get', url, nil)
+    path =
+      if Bridgecard::Config.live?
+        "/issuing/cards/get_card_details?card_id=#{CGI.escape(card_id.to_s)}"
+      else
+        "/issuing/sandbox/cards/get_card_details?card_id=#{CGI.escape(card_id.to_s)}"
+      end
+    response = fetch('get', path, nil)
     { data: response['data'], status: :ok }
   rescue StandardError => e
     { message: e.message, status: :unprocessable_entity }
@@ -404,11 +412,191 @@ end
 
   def card_balance(card_id)
     raise ArgumentError, 'card_id is required' if card_id.blank?
-    url = "/issuing/sandbox/cards/get_card_balance?card_id=#{card_id}"
-    response = fetch('get', url, nil)
+    path =
+      if Bridgecard::Config.live?
+        "/issuing/cards/get_card_balance?card_id=#{CGI.escape(card_id.to_s)}"
+      else
+        "/issuing/sandbox/cards/get_card_balance?card_id=#{CGI.escape(card_id.to_s)}"
+      end
+    response = fetch('get', path, nil)
     { data: response['data'], status: :ok }
   rescue StandardError => e
     { message: e.message, status: :unprocessable_entity }
+  end
+
+  def get_card_transactions(card_id:, page: 1, count: 20)
+    raise ArgumentError, 'card_id is required' if card_id.blank?
+
+    path =
+      if Bridgecard::Config.live?
+        '/issuing/cards/get_card_transactions'
+      else
+        '/issuing/sandbox/cards/get_card_transactions'
+      end
+
+    url = "#{path}?card_id=#{CGI.escape(card_id.to_s)}&page=#{page}&count=#{count}"
+    response = fetch('get', url, nil)
+
+    { data: response['data'], status: :ok }
+  rescue StandardError => e
+    { message: e.message, status: :unprocessable_entity }
+  end
+
+  def list_card_transactions(card_id:, page: 1, count: 20)
+    get_card_transactions(card_id: card_id, page: page, count: count)
+  end
+
+  def get_card_transaction_by_id(card_id:, reference: nil, client_transaction_reference: nil)
+    raise ArgumentError, 'card_id is required' if card_id.blank?
+    reference ||= client_transaction_reference
+    raise ArgumentError, 'reference is required' if reference.blank?
+
+    path =
+      if Bridgecard::Config.live?
+        '/issuing/cards/get_card_transaction_by_id'
+      else
+        '/issuing/sandbox/cards/get_card_transaction_by_id'
+      end
+
+    url =
+      "#{path}?card_id=#{CGI.escape(card_id.to_s)}&client_transaction_reference=" \
+      "#{CGI.escape(reference.to_s)}"
+    response = fetch('get', url, nil)
+
+    { data: response['data'], status: :ok }
+  rescue StandardError => e
+    { message: e.message, status: :unprocessable_entity }
+  end
+
+  def get_card_transaction_status(card_id:, reference: nil, client_transaction_reference: nil)
+    raise ArgumentError, 'card_id is required' if card_id.blank?
+    reference ||= client_transaction_reference
+    raise ArgumentError, 'reference is required' if reference.blank?
+
+    path =
+      if Bridgecard::Config.live?
+        '/issuing/cards/get_card_transaction_status'
+      else
+        '/issuing/sandbox/cards/get_card_transaction_status'
+      end
+
+    url =
+      "#{path}?card_id=#{CGI.escape(card_id.to_s)}&client_transaction_reference=" \
+      "#{CGI.escape(reference.to_s)}"
+    response = fetch('get', url, nil)
+
+    { data: response['data'], status: :ok }
+  rescue StandardError => e
+    { message: e.message, status: :unprocessable_entity }
+  end
+
+  def fetch_card_transaction_by_id(card_id:, reference:)
+    fetch_transaction_payload(
+      endpoint: :by_id,
+      card_id: card_id,
+      reference: reference
+    )
+  end
+
+  def fetch_card_transaction_status(card_id:, reference:)
+    fetch_transaction_payload(
+      endpoint: :status,
+      card_id: card_id,
+      reference: reference
+    )
+  end
+
+  def fetch_card_details(card_id:)
+    raise ArgumentError, 'card_id is required' if card_id.blank?
+
+    path =
+      if Bridgecard::Config.live?
+        "/issuing/cards/get_card_details?card_id=#{CGI.escape(card_id.to_s)}"
+      else
+        "/issuing/sandbox/cards/get_card_details?card_id=#{CGI.escape(card_id.to_s)}"
+      end
+
+    response = self.class.get(path, headers: headers, timeout: 10, open_timeout: 5)
+    status_code = response.respond_to?(:code) ? response.code.to_i : nil
+    parsed =
+      if response.respond_to?(:parsed_response)
+        response.parsed_response
+      else
+        response
+      end
+
+    if status_code && status_code >= 400
+      return {
+        ok: false,
+        message: 'Bridgecard details fetch failed',
+        error: {
+          message: 'Bridgecard details fetch failed',
+          status: status_code,
+          snippet: sanitize_error_snippet(parsed)
+        }
+      }
+    end
+
+    data = parsed.is_a?(Hash) ? parsed['data'] : nil
+    if data.blank?
+      return {
+        ok: false,
+        message: 'Bridgecard details fetch failed',
+        error: {
+          message: 'Bridgecard details fetch failed',
+          status: status_code,
+          snippet: sanitize_error_snippet(parsed)
+        }
+      }
+    end
+    raw = data.is_a?(Hash) ? data : nil
+    provider_status =
+      raw&.fetch('status', nil) ||
+      raw&.fetch('card_status', nil) ||
+      raw&.fetch('state', nil) ||
+      raw&.fetch('card_state', nil)
+    is_active = raw&.fetch('is_active', nil)
+    provider_status ||= is_active == true ? 'active' : is_active == false ? 'inactive' : nil
+
+    payload = {
+      provider_card_id: raw&.fetch('card_id', nil) || raw&.fetch('id', nil),
+      provider_status: provider_status,
+      is_active: is_active,
+      livemode: raw&.fetch('livemode', nil),
+      currency: raw&.fetch('currency', nil) || raw&.fetch('card_currency', nil) || raw&.fetch('balance_currency', nil),
+      balance: raw&.fetch('balance', nil) || raw&.fetch('available_balance', nil) || raw&.fetch('card_balance', nil),
+      raw: raw
+    }
+
+    { ok: true, data: payload }
+  rescue StandardError => e
+    {
+      ok: false,
+      message: 'Bridgecard details fetch failed',
+      error: {
+        message: 'Bridgecard details fetch failed',
+        status: nil,
+        snippet: sanitize_error_snippet(e.message)
+      }
+    }
+  end
+
+  def fetch_card_balance(card_id:)
+    response = card_balance(card_id)
+    return response if response[:status] != :ok
+
+    data = response[:data].is_a?(Hash) ? response[:data] : nil
+    { ok: true, data: data }
+  rescue StandardError => e
+    {
+      ok: false,
+      message: 'Bridgecard balance fetch failed',
+      data: {
+        status_code: nil,
+        env_name: Bridgecard::Config.env_name,
+        error_snippet: sanitize_error_snippet(e.message)
+      }
+    }
   end
 
   def freeze_card(card_id)
@@ -439,6 +627,25 @@ end
     { message: e.message, status: :unprocessable_entity }
   end
 
+  def mock_debit_transaction(card_id:)
+    raise ArgumentError, 'card_id is required' if card_id.blank?
+
+    url = '/issuing/sandbox/cards/mock_debit_transaction'
+    body = { card_id: card_id }.to_json
+    response = fetch('patch', url, body)
+
+    data = response['data'] || {}
+    {
+      data: {
+        transaction_reference: data['transaction_reference'] || data['reference'],
+        card_id: card_id
+      },
+      status: :ok
+    }
+  rescue StandardError => e
+    { message: e.message, status: :unprocessable_entity }
+  end
+
   # -----------------------------
   # FUND ISSUING WALLET (Bridge side)
   # -----------------------------
@@ -464,11 +671,27 @@ end
     raise StandardError, 'USD wallet not found. Activate tunnel first.' if usd_wallet.blank?
 
     cents = usd_wallet.money_to_cents(amount_usd)
-    if wallet_balance_cents(usd_wallet) < cents
-      return { message: 'Insufficient Tunnel balance to cover the funding amount.', status: :unprocessable_entity }
+    fee_policy = Pricing::CardFeePolicy.new
+    funding_fee_usd = fee_policy.funding_fee_usd(amount_usd)
+    total_debit_usd = amount_usd + funding_fee_usd
+    total_cents = usd_wallet.money_to_cents(total_debit_usd)
+    if wallet_balance_cents(usd_wallet) < total_cents
+      return {
+        message: 'Insufficient Tunnel balance to cover the funding amount and fee.',
+        status: :unprocessable_entity,
+        fee_breakdown: {
+          funding_fee_usd: funding_fee_usd.to_f,
+          total_debit_usd: total_debit_usd.to_f
+        }
+      }
     end
 
     reference = card_params[:transaction_reference].presence || "card-fund-#{SecureRandom.uuid}"
+    fee_reference = "#{reference}:funding_fee"
+
+    if Transaction.exists?(unique_transaction_id: reference)
+      return { data: { transaction_reference: reference }, message: 'Funding already processed.', status: :ok }
+    end
 
     ActiveRecord::Base.transaction do
       usd_wallet.transactions.create!(
@@ -478,10 +701,38 @@ end
         coin_type: 'bank',
         address: 'Virtual Card Funding (USD)',
         unique_transaction_id: reference,
-        bridge_card_id: card_id
+        bridge_card_id: card_id,
+        metadata: {
+          subtype: 'card_funding_principal',
+          fee_breakdown: {
+            principal_usd: amount_usd.to_f,
+            funding_fee_usd: funding_fee_usd.to_f,
+            total_debit_usd: total_debit_usd.to_f
+          }
+        }
       )
 
-      usd_wallet.debit_cents!(cents)
+      if funding_fee_usd.to_d.positive?
+        usd_wallet.transactions.create!(
+          transaction_type: 'withdrawal',
+          status: 'approved',
+          amount: funding_fee_usd,
+          coin_type: 'bank',
+          address: 'Virtual Card Funding Fee (USD)',
+          unique_transaction_id: fee_reference,
+          bridge_card_id: card_id,
+          metadata: {
+            subtype: 'card_funding_fee',
+            fee_breakdown: {
+              principal_usd: amount_usd.to_f,
+              funding_fee_usd: funding_fee_usd.to_f,
+              total_debit_usd: total_debit_usd.to_f
+            }
+          }
+        )
+      end
+
+      usd_wallet.debit_cents!(total_cents)
 
       body = {
         card_id: card_id,
@@ -496,7 +747,13 @@ end
           "/issuing/sandbox/cards/fund_card_asynchronously"
         end
       response = fetch('patch', url, body)
-      return { data: response['data'], message: response['message'], status: :ok }
+      data = response['data'].is_a?(Hash) ? response['data'] : {}
+      data['fee_breakdown'] = {
+        principal_usd: amount_usd.to_f,
+        funding_fee_usd: funding_fee_usd.to_f,
+        total_debit_usd: total_debit_usd.to_f
+      }
+      return { data: data, message: response['message'], status: :ok }
     end
   rescue StandardError => e
     if user&.usd_wallet && amount_usd.to_d.positive?
@@ -507,7 +764,8 @@ end
         coin_type: 'bank',
         address: 'Virtual Card Funding (USD)',
         unique_transaction_id: reference,
-        bridge_card_id: card_id
+        bridge_card_id: card_id,
+        metadata: { subtype: 'card_funding_principal' }
       )
     end
     { message: e.message, status: :unprocessable_entity }
@@ -537,6 +795,15 @@ end
     usd_wallet = user.usd_wallet
     raise StandardError, 'USD wallet not found. Activate tunnel first.' if usd_wallet.blank?
 
+    fee_policy = Pricing::CardFeePolicy.new
+    withdrawal_fee_usd = fee_policy.withdrawal_fee_usd(amount_usd)
+    if withdrawal_fee_usd.to_d >= amount_usd.to_d
+      return {
+        message: 'Withdrawal fee exceeds or equals the withdrawal amount.',
+        status: :unprocessable_entity
+      }
+    end
+
     cents = usd_wallet.money_to_cents(amount_usd)
     reference = card_params[:transaction_reference].presence || "card-unload-#{SecureRandom.uuid}"
     txn = nil
@@ -549,7 +816,17 @@ end
         coin_type: 'mobile_bank',
         address: 'Virtual Card Withdrawal (USD)',
         unique_transaction_id: reference,
-        bridge_card_id: card_id
+        bridge_card_id: card_id,
+        metadata: {
+          subtype: 'card_withdrawal_principal',
+          withdrawal_fee_usd: withdrawal_fee_usd.to_f,
+          gross_amount_usd: amount_usd.to_f,
+          fee_breakdown: {
+            principal_usd: amount_usd.to_f,
+            withdrawal_fee_usd: withdrawal_fee_usd.to_f,
+            total_credit_usd: (amount_usd - withdrawal_fee_usd).to_f
+          }
+        }
       )
 
       body = {
@@ -568,7 +845,13 @@ end
 
       response = fetch('patch', url, body)
       return {
-        data: response['data'],
+        data: (response['data'].is_a?(Hash) ? response['data'] : {}).merge(
+          'fee_breakdown' => {
+            principal_usd: amount_usd.to_f,
+            withdrawal_fee_usd: withdrawal_fee_usd.to_f,
+            total_credit_usd: (amount_usd - withdrawal_fee_usd).to_f
+          }
+        ),
         message: response['message'] || 'Withdrawal submitted. Pending confirmation.',
         status: :ok
       }
@@ -705,14 +988,71 @@ end
       raise StandardError, 'BRIDGE cards are disabled'
     end
 
-    token = ENV['BRIDGE_CARD_TOKEN'].presence || ENV['BRIDGE_TOKEN'].presence
+    token = Bridgecard::Config.api_token
     if token.blank?
-      raise StandardError, 'BRIDGE_CARD_TOKEN is missing'
+      raise StandardError, 'Bridgecard token is missing'
     end
 
     @headers = {
       'token' => "Bearer #{token}",
+      'Accept' => 'application/json',
       'Content-Type' => 'application/json'
+    }
+  end
+
+  def sanitize_error_snippet(value)
+    text = value.to_s
+    text = text.gsub(/Bearer\s+\S+/i, 'Bearer [redacted]')
+    text = text.gsub(/token\s*[:=]\s*\S+/i, 'token=[redacted]')
+    text = text[0, 300]
+    text
+  end
+
+  def fetch_transaction_payload(endpoint:, card_id:, reference:)
+    raise ArgumentError, 'card_id is required' if card_id.blank?
+    raise ArgumentError, 'reference is required' if reference.blank?
+
+    path =
+      case endpoint
+      when :by_id
+        Bridgecard::Config.live? ? '/issuing/cards/get_card_transaction_by_id' : '/issuing/sandbox/cards/get_card_transaction_by_id'
+      when :status
+        Bridgecard::Config.live? ? '/issuing/cards/get_card_transaction_status' : '/issuing/sandbox/cards/get_card_transaction_status'
+      else
+        raise ArgumentError, 'endpoint is invalid'
+      end
+
+    url =
+      "#{path}?card_id=#{CGI.escape(card_id.to_s)}&client_transaction_reference=" \
+      "#{CGI.escape(reference.to_s)}"
+
+    response = self.class.get(url, headers: headers, timeout: 10, open_timeout: 5)
+    status_code = response.respond_to?(:code) ? response.code.to_i : nil
+    parsed = response.respond_to?(:parsed_response) ? response.parsed_response : response
+
+    if status_code && status_code >= 400
+      return {
+        ok: false,
+        error: {
+          message: 'Bridgecard transaction fetch failed',
+          status: status_code,
+          snippet: sanitize_error_snippet(parsed)
+        }
+      }
+    end
+
+    data = parsed.is_a?(Hash) ? (parsed['data'] || parsed) : nil
+    return { ok: false, error: { message: 'Bridgecard transaction fetch failed', status: status_code, snippet: sanitize_error_snippet(parsed) } } if data.blank?
+
+    { ok: true, data: data }
+  rescue StandardError => e
+    {
+      ok: false,
+      error: {
+        message: 'Bridgecard transaction fetch failed',
+        status: nil,
+        snippet: sanitize_error_snippet(e.message)
+      }
     }
   end
 

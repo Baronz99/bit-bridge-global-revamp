@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[7.1].define(version: 2026_01_12_090100) do
+ActiveRecord::Schema[7.1].define(version: 2026_01_16_090100) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pgcrypto"
   enable_extension "plpgsql"
@@ -82,6 +82,20 @@ ActiveRecord::Schema[7.1].define(version: 2026_01_12_090100) do
     t.index ["action"], name: "index_admin_audit_events_on_action"
     t.index ["admin_user_id"], name: "index_admin_audit_events_on_admin_user_id"
     t.index ["target_user_id"], name: "index_admin_audit_events_on_target_user_id"
+  end
+
+  create_table "anchor_webhook_events", force: :cascade do |t|
+    t.string "event_type", null: false
+    t.string "reference", null: false
+    t.jsonb "payload", default: {}, null: false
+    t.string "status", default: "received", null: false
+    t.datetime "processed_at"
+    t.datetime "received_at"
+    t.string "error_message"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["event_type", "reference"], name: "index_anchor_webhook_events_on_event_type_and_reference", unique: true
+    t.index ["received_at"], name: "index_anchor_webhook_events_on_received_at"
   end
 
   create_table "bank_transactions", id: :uuid, default: -> { "gen_random_uuid()" }, force: :cascade do |t|
@@ -158,6 +172,23 @@ ActiveRecord::Schema[7.1].define(version: 2026_01_12_090100) do
     t.uuid "user_id"
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
+    t.string "provider_transaction_reference"
+    t.string "provider_card_id"
+    t.string "event_name"
+    t.string "event_status"
+    t.decimal "fee_amount", precision: 12, scale: 2
+    t.string "fee_currency"
+    t.string "merchant_name"
+    t.jsonb "metadata"
+    t.decimal "merchant_amount", precision: 18, scale: 6
+    t.string "merchant_currency"
+    t.decimal "billing_amount", precision: 18, scale: 6
+    t.string "billing_currency"
+    t.decimal "fx_implied_rate", precision: 18, scale: 6
+    t.decimal "fx_reference_rate", precision: 18, scale: 6
+    t.decimal "fx_margin_usd", precision: 18, scale: 6
+    t.decimal "fx_markup_usd", precision: 18, scale: 6
+    t.index ["card_id", "provider_transaction_reference", "event_name"], name: "index_card_events_on_provider_reference", unique: true
     t.index ["card_id"], name: "index_card_events_on_card_id"
     t.index ["event"], name: "index_card_events_on_event"
     t.index ["transaction_at"], name: "index_card_events_on_transaction_at"
@@ -199,6 +230,16 @@ ActiveRecord::Schema[7.1].define(version: 2026_01_12_090100) do
     t.string "last_name"
     t.string "id_type"
     t.string "phone"
+    t.integer "decline_count", default: 0, null: false
+    t.datetime "last_declined_at"
+    t.string "frozen_by"
+    t.string "frozen_reason"
+    t.string "provider_status"
+    t.datetime "provider_updated_at"
+    t.string "last_provider_sync_error"
+    t.boolean "provider_livemode"
+    t.datetime "last_synced_at"
+    t.datetime "last_maintenance_fee_charged_at"
     t.index ["user_id"], name: "index_cards_on_user_id"
   end
 
@@ -309,6 +350,56 @@ ActiveRecord::Schema[7.1].define(version: 2026_01_12_090100) do
     t.string "token"
     t.decimal "total_amount"
     t.index ["order_detail_id"], name: "index_electric_bill_orders_on_order_detail_id"
+  end
+
+  create_table "fx_quotes", force: :cascade do |t|
+    t.string "token", null: false
+    t.string "direction", null: false
+    t.decimal "base_rate", precision: 24, scale: 12, null: false
+    t.decimal "markup", precision: 24, scale: 12, null: false
+    t.decimal "execution_rate", precision: 24, scale: 12, null: false
+    t.decimal "fee_amount", precision: 24, scale: 6, null: false
+    t.string "fee_currency", null: false
+    t.decimal "amount_in", precision: 24, scale: 6, null: false
+    t.decimal "amount_after_fee", precision: 24, scale: 6, null: false
+    t.decimal "amount_out", precision: 24, scale: 6, null: false
+    t.datetime "expires_at", null: false
+    t.uuid "user_id", null: false
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.decimal "base_rate_raw", precision: 24, scale: 12
+    t.decimal "markup_raw", precision: 24, scale: 12
+    t.decimal "execution_rate_raw", precision: 24, scale: 12
+    t.decimal "fee_amount_raw", precision: 24, scale: 12
+    t.decimal "amount_in_raw", precision: 24, scale: 12
+    t.decimal "amount_after_fee_raw", precision: 24, scale: 12
+    t.decimal "amount_out_raw", precision: 24, scale: 12
+    t.index ["expires_at"], name: "index_fx_quotes_on_expires_at"
+    t.index ["token"], name: "index_fx_quotes_on_token", unique: true
+    t.index ["user_id"], name: "index_fx_quotes_on_user_id"
+  end
+
+  create_table "fx_settings", force: :cascade do |t|
+    t.decimal "base_usd_ngn_rate", precision: 12, scale: 4, default: "1490.0", null: false
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.decimal "provider_usd_ngn_rate", precision: 18, scale: 6
+    t.bigint "provider_raw"
+    t.string "provider_source", default: "bridgecard", null: false
+    t.integer "provider_fx_divisor", default: 100, null: false
+    t.datetime "provider_updated_at"
+    t.string "provider_base", default: "USD", null: false
+    t.jsonb "provider_rates", default: {}
+    t.string "provider_as_of"
+    t.string "provider_error"
+    t.datetime "provider_next_refresh_at"
+    t.jsonb "base_fx_rates", default: {}
+    t.integer "card_monthly_maintenance_fee_usd_cents", default: 0, null: false
+    t.integer "card_funding_fee_bps", default: 0, null: false
+    t.integer "card_funding_fee_cap_usd_cents", default: 0, null: false
+    t.integer "card_withdrawal_fee_bps", default: 0, null: false
+    t.integer "card_withdrawal_fee_cap_usd_cents", default: 0, null: false
+    t.integer "card_creation_fee_usd_cents", default: 400, null: false
   end
 
   create_table "gift_cards", id: :uuid, default: -> { "gen_random_uuid()" }, force: :cascade do |t|
@@ -547,6 +638,7 @@ ActiveRecord::Schema[7.1].define(version: 2026_01_12_090100) do
     t.string "unique_transaction_id"
     t.string "transfer_id"
     t.string "bridge_card_id"
+    t.jsonb "metadata", default: {}, null: false
     t.index ["account_id"], name: "index_transactions_on_account_id"
     t.index ["bridge_card_id"], name: "index_transactions_on_bridge_card_id"
     t.index ["transfer_id"], name: "index_transactions_on_transfer_id", unique: true
@@ -692,6 +784,7 @@ ActiveRecord::Schema[7.1].define(version: 2026_01_12_090100) do
   add_foreign_key "disputes", "circle_transactions"
   add_foreign_key "disputes", "users", column: "raised_by_id"
   add_foreign_key "electric_bill_orders", "order_details"
+  add_foreign_key "fx_quotes", "users"
   add_foreign_key "order_details", "users"
   add_foreign_key "order_items", "order_details"
   add_foreign_key "order_items", "products"

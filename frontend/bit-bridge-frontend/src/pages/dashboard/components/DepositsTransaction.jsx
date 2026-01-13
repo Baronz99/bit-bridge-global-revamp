@@ -1,4 +1,5 @@
 import { useEffect } from 'react'
+import { NavLink } from 'react-router-dom'
 import { useDispatch, useSelector } from 'react-redux'
 
 import dateFormater from '../../../utils/dateFormat'
@@ -48,6 +49,12 @@ const DepositTransaction = () => {
                   >
                     Time{' '}
                   </th>
+                  <th
+                    scope="col"
+                    className="sticky top-0 z-10  border-b border-gray-200/50 bg- bg-opacity-75 px-3 py-3.5 text-center text-xs font-semibold text-gray-900 backdrop-blur backdrop-filter lg:table-cell"
+                  >
+                    Receipt
+                  </th>
                 </tr>
               </thead>
 
@@ -71,11 +78,19 @@ const DepositTransaction = () => {
                       <td className="relative whitespace-nowrap border-b text-left border-gray-200 py-3 pr-4 pl-3 text-gray-900  text-sm sm:pr-8 lg:pr-8">
                         {dateFormater(item?.created_at)}
                       </td>
+                      <td className="relative whitespace-nowrap border-b text-center border-gray-200 py-3 pr-4 pl-3 text-sm sm:pr-8 lg:pr-8">
+                        <NavLink
+                          to={`/dashboard/receipt/${item?.id}`}
+                          className="text-indigo-600 hover:text-indigo-500 text-xs"
+                        >
+                          View
+                        </NavLink>
+                      </td>
                     </tr>
                   ))
                 ) : (
                   <tr>
-                    <td className="text-center py-10" colSpan={6}>
+                    <td className="text-center py-10" colSpan={7}>
                       <span className="text-black">No Transaction</span>
                     </td>
                   </tr>

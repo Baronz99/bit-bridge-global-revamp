@@ -36,7 +36,7 @@ end
 
       def show
         log_admin_audit('view_user', target: @user) if current_user&.admin_access?
-        render json: { data: UserSerializer.new(@user) }, status: :ok
+        render json: { data: UserSerializer.new(@user, scope: current_user) }, status: :ok
       end
 
       def update
