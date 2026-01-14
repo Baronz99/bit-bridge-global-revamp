@@ -318,6 +318,8 @@ const ProfileAccountPage = () => {
       country: '',
       postal_code: '',
       proof_of_address_type: '',
+      id_document_url: '',
+      proof_of_address_url: '',
     },
   })
   const [nin, setNin] = useState('')
@@ -355,6 +357,8 @@ const ProfileAccountPage = () => {
         country: up.country || '',
         postal_code: up.postal_code || '',
         proof_of_address_type: up.proof_of_address_type || '',
+        id_document_url: up.id_document_url || '',
+        proof_of_address_url: up.proof_of_address_url || '',
       },
     })
 
@@ -441,6 +445,8 @@ const ProfileAccountPage = () => {
           country: up2.country || '',
           postal_code: up2.postal_code || '',
           proof_of_address_type: up2.proof_of_address_type || '',
+          id_document_url: up2.id_document_url || '',
+          proof_of_address_url: up2.proof_of_address_url || '',
         },
       }))
 
