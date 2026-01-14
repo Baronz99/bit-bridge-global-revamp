@@ -96,6 +96,14 @@ client.interceptors.request.use(
     const token = getToken()
     if (token) config.headers.Authorization = `Bearer ${token}`
     config.headers.Accept = 'application/json'
+    if (typeof FormData !== 'undefined' && config.data instanceof FormData) {
+      if (typeof config.headers?.set === 'function') {
+        config.headers.set('Content-Type', undefined)
+      } else {
+        delete config.headers?.['Content-Type']
+        delete config.headers?.['content-type']
+      }
+    }
     try {
       window.dispatchEvent(new Event('bitbridge:activity'))
     } catch {
