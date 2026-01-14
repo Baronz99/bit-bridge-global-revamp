@@ -39,6 +39,9 @@ module Kyc
 
       parsed = response.parsed_response
       if response.code.to_i >= 400
+        Rails.logger.warn(
+          "[BVN] Prembly error http=#{response.code.to_i} body=#{parsed.inspect}"
+        )
         return { ok: false, error: parsed, status_code: response.code.to_i }
       end
 
@@ -56,6 +59,7 @@ module Kyc
         watchlisted: fetch_value(payload, %w[watchListed watchlisted])
       }
     rescue StandardError => e
+      Rails.logger.warn("[BVN] Prembly exception #{e.class}: #{e.message}")
       { ok: false, error: e.message, status_code: 500 }
     end
 
