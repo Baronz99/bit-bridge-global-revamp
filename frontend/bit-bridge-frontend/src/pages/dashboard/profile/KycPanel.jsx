@@ -95,6 +95,8 @@ export default function KycPanel({
   countryOptions,
   proofOfAddressOptions,
 }) {
+  const idDocumentUrl = userInfo?.user_profile?.id_document_url
+  const proofOfAddressUrl = userInfo?.user_profile?.proof_of_address_url
   const shouldShowIdUpload = useMemo(() => {
     return (
       userInfo.id_type === 'drivers_license' ||
@@ -158,15 +160,30 @@ export default function KycPanel({
         )}
 
         {shouldShowIdUpload && (
-          <FilePicker
-            label="Upload ID document"
-            helper="Accepted: image or PDF."
-            accept="image/*,application/pdf"
-            file={idDocumentFile}
-            onPick={setIdDocumentFile}
-            onClear={() => setIdDocumentFile(null)}
-            className="md:w-2/3"
-          />
+          <div className="md:w-2/3 space-y-3">
+            <FilePicker
+              label="Upload ID document"
+              helper="Accepted: image or PDF."
+              accept="image/*,application/pdf"
+              file={idDocumentFile}
+              onPick={setIdDocumentFile}
+              onClear={() => setIdDocumentFile(null)}
+            />
+
+            {idDocumentUrl && (
+              <div className="rounded-xl border border-gray-800 bg-gray-950/50 px-3 py-2 text-xs text-gray-300">
+                <span className="mr-2 text-gray-400">ID document on file:</span>
+                <a
+                  href={idDocumentUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-blue-300 hover:text-blue-200 underline"
+                >
+                  View
+                </a>
+              </div>
+            )}
+          </div>
         )}
       </div>
 
@@ -304,15 +321,30 @@ export default function KycPanel({
           </div>
 
           <div className="md:col-span-2">
-            <FilePicker
-              label="Upload proof of address"
-              helper="Accepted: utility bill, bank statement, rent receipt (image or PDF)."
-              accept="image/*,application/pdf"
-              file={proofOfAddressFile}
-              onPick={setProofOfAddressFile}
-              onClear={() => setProofOfAddressFile(null)}
-              className="md:w-2/3"
-            />
+            <div className="md:w-2/3 space-y-3">
+              <FilePicker
+                label="Upload proof of address"
+                helper="Accepted: utility bill, bank statement, rent receipt (image or PDF)."
+                accept="image/*,application/pdf"
+                file={proofOfAddressFile}
+                onPick={setProofOfAddressFile}
+                onClear={() => setProofOfAddressFile(null)}
+              />
+
+              {proofOfAddressUrl && (
+                <div className="rounded-xl border border-gray-800 bg-gray-950/50 px-3 py-2 text-xs text-gray-300">
+                  <span className="mr-2 text-gray-400">Proof of address on file:</span>
+                  <a
+                    href={proofOfAddressUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-blue-300 hover:text-blue-200 underline"
+                  >
+                    View
+                  </a>
+                </div>
+              )}
+            </div>
           </div>
         </div>
 
