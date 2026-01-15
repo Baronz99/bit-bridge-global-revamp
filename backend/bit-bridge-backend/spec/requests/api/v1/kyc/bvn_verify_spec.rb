@@ -155,7 +155,7 @@ RSpec.describe 'BVN verification caching', type: :request do
       bvn_fingerprint: fingerprint,
       bvn_last_result_status: 'mismatch',
       bvn_last_result_reason: 'mismatch',
-      bvn_last_checked_at: 2.days.ago,
+      bvn_last_checked_at: 1.hour.ago,
       bvn_last_profile_fingerprint: profile_fp,
       bvn_snapshot_first_name: nil,
       bvn_snapshot_last_name: nil,
@@ -171,6 +171,40 @@ RSpec.describe 'BVN verification caching', type: :request do
     json = JSON.parse(response.body)
     expect(json['status']).to eq('mismatch')
     expect(json['cached']).to eq(true)
+  end
+
+  it 'refreshes mismatch after TTL even when profile fingerprint is unchanged' do
+    fingerprint = Kyc::BvnFingerprint.generate(bvn)
+    profile_fp = profile_fingerprint(user.user_profile)
+
+    user.user_kyc.update!(
+      bvn_status: 'mismatch',
+      bvn_fingerprint: fingerprint,
+      bvn_last_result_status: 'mismatch',
+      bvn_last_result_reason: 'mismatch',
+      bvn_last_checked_at: 2.days.ago,
+      bvn_last_profile_fingerprint: profile_fp,
+      bvn_snapshot_first_name: nil,
+      bvn_snapshot_last_name: nil,
+      bvn_snapshot_dob: nil,
+      bvn_snapshot_expires_at: nil
+    )
+
+    result = {
+      ok: true,
+      reference: 'prembly-ref',
+      first_name: 'Test',
+      last_name: 'User',
+      date_of_birth: '01-Jan-1990',
+      watchlisted: false
+    }
+
+    expect(Kyc::PremblyBvnVerification).to receive(:new).with(bvn)
+      .and_return(double(call: result))
+
+    post '/api/v1/kyc/bvn/verify', params: { bvn: bvn }, headers: headers
+
+    expect(response).to have_http_status(:ok)
   end
 
   it 'rechecks snapshot and auto-verifies without provider call' do
@@ -266,6 +300,31 @@ RSpec.describe 'BVN verification caching', type: :request do
 
     user.user_kyc.reload
     expect(user.user_kyc.bvn_failed_attempts_count).to eq(before_attempts)
+  end
+
+  it 'does not persist mismatch when provider is unavailable' do
+    user.user_kyc.update!(
+      bvn_status: 'mismatch',
+      bvn_last_result_status: 'mismatch',
+      bvn_last_result_reason: 'mismatch'
+    )
+
+    result = { ok: false, error: 'Timeout while connecting', status_code: 500 }
+    expect(Kyc::PremblyBvnVerification).to receive(:new).with(bvn)
+      .and_return(double(call: result))
+
+    post '/api/v1/kyc/bvn/verify', params: { bvn: bvn }, headers: headers
+
+    expect(response).to have_http_status(:service_unavailable)
+    json = JSON.parse(response.body)
+    expect(json['status']).to eq('failed')
+    expect(json['reason']).to eq('provider_unavailable')
+    expect(json['retryable']).to eq(true)
+
+    user.user_kyc.reload
+    expect(user.user_kyc.bvn_status).to eq('mismatch')
+    expect(user.user_kyc.bvn_last_result_status).to eq('failed')
+    expect(user.user_kyc.bvn_last_result_reason).to eq('provider_unavailable')
   end
 
   it 'normalizes provider errors into stable reasons' do

@@ -88,6 +88,12 @@ module Api
           if transient_backoff?(user_kyc, fingerprint) && !snapshot_available?(user_kyc, fingerprint)
             wait = backoff_remaining_seconds(user_kyc)
             Rails.logger.info("[BVN] backoff active wait_seconds=#{wait} user_id=#{user.id}")
+            update_last_result!(
+              user_kyc,
+              status: "failed",
+              reason: "provider_unavailable",
+              profile_fingerprint: profile_fingerprint
+            )
             response.set_header("Retry-After", wait.to_s)
             return render json: response_payload(
               user,
@@ -123,7 +129,7 @@ module Api
           unless result[:ok]
             update_last_result!(
               user_kyc,
-              status: user_kyc.bvn_status,
+              status: "failed",
               reason: "provider_unavailable",
               profile_fingerprint: profile_fingerprint
             )
@@ -132,7 +138,7 @@ module Api
             return render json: response_payload(
               user,
               user_kyc,
-              status: user_kyc.bvn_status,
+              status: "failed",
               reason: "provider_unavailable",
               cached: false,
               retryable: true,
@@ -271,10 +277,6 @@ module Api
         def mismatch_cache_expired_without_snapshot?(user_kyc, fingerprint, profile_fingerprint)
           return false unless user_kyc.bvn_last_result_status.to_s == "mismatch"
           return false if snapshot_available?(user_kyc, fingerprint)
-          return false unless profile_fingerprint.present?
-          return false unless user_kyc.bvn_last_profile_fingerprint.present?
-          return false if user_kyc.bvn_last_profile_fingerprint == profile_fingerprint
-
           last = user_kyc.bvn_last_checked_at
           return false unless last
 
@@ -321,7 +323,12 @@ module Api
         end
 
         def store_snapshot!(user_kyc, result)
-          return unless snapshot_fields_present?(result)
+          unless snapshot_fields_present?(result)
+            missing = %i[first_name last_name date_of_birth].select { |key| result[key].blank? }
+            reference = result[:reference].to_s.presence || "n/a"
+            Rails.logger.info("[BVN] snapshot_skipped missing=#{missing.join(',')} reference=#{reference}")
+            return
+          end
 
           user_kyc.update!(
             bvn_snapshot_first_name: normalize_snapshot_name(result[:first_name]),

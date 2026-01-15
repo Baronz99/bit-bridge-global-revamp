@@ -11,7 +11,26 @@ module Api
         def index
           scope = KycReview.where(kyc_type: 'bvn').order(created_at: :desc)
           scope = scope.where(status: params[:status]) if params[:status].present?
-          render json: { data: ActiveModelSerializers::SerializableResource.new(scope, each_serializer: KycReviewSerializer) }, status: :ok
+          reviews = scope.to_a
+
+          if truthy_param?(params[:include_mismatch])
+            review_user_ids = reviews.map(&:user_id).compact
+            mismatches = UserKyc.where(bvn_status: 'mismatch')
+                                .where.not(user_id: review_user_ids)
+                                .where(
+                                  "bvn_snapshot_first_name IS NULL OR bvn_snapshot_last_name IS NULL OR bvn_snapshot_dob IS NULL OR bvn_snapshot_expires_at IS NULL OR bvn_last_result_reason = ?",
+                                  "provider_unavailable"
+                                )
+
+            reviews.concat(mismatches.includes(:user).to_a)
+          end
+
+          reviews = reviews.each_with_index.sort_by do |item, idx|
+            timestamp = review_timestamp(item)
+            [-(timestamp&.to_f || 0.0), idx]
+          end.map(&:first)
+
+          render json: { data: ActiveModelSerializers::SerializableResource.new(reviews, each_serializer: KycReviewSerializer) }, status: :ok
         end
 
         def update
@@ -94,6 +113,15 @@ module Api
           )
         rescue StandardError
           nil
+        end
+
+        def truthy_param?(value)
+          ActiveModel::Type::Boolean.new.cast(value)
+        end
+
+        def review_timestamp(item)
+          return item.bvn_last_checked_at || item.updated_at if item.is_a?(UserKyc)
+          item.created_at
         end
       end
     end
