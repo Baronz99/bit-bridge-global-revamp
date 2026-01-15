@@ -430,7 +430,9 @@ const KycCenter = () => {
       if (payload?.retry_after_seconds) {
         setBvnRetryUntil(Date.now() + payload.retry_after_seconds * 1000)
       }
-      setBvnInput('')
+      if (payload?.status === 'verified' || payload?.status === 'pending_review') {
+        setBvnInput('')
+      }
       await dispatch(userProfile())
     } catch (error) {
       const payload = error?.response?.data || null
