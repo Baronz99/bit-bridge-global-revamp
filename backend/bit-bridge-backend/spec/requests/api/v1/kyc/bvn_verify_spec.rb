@@ -109,6 +109,68 @@ RSpec.describe 'BVN verification caching', type: :request do
     expect(response).to have_http_status(:ok)
   end
 
+  it 'rechecks snapshot and auto-verifies without provider call' do
+    fingerprint = Kyc::BvnFingerprint.generate(bvn)
+    profile_fp = profile_fingerprint(user.user_profile)
+
+    user.user_kyc.update!(
+      bvn_status: 'mismatch',
+      bvn_fingerprint: fingerprint,
+      bvn_last_result_status: 'mismatch',
+      bvn_last_result_reason: 'mismatch',
+      bvn_last_checked_at: 1.hour.ago,
+      bvn_last_profile_fingerprint: profile_fp,
+      bvn_snapshot_first_name: 'Test',
+      bvn_snapshot_last_name: 'User',
+      bvn_snapshot_dob: '1990-01-01',
+      bvn_snapshot_watchlisted: false,
+      bvn_snapshot_reference: 'prembly-ref',
+      bvn_snapshot_captured_at: 1.hour.ago,
+      bvn_snapshot_expires_at: 1.day.from_now
+    )
+
+    expect(Kyc::PremblyBvnVerification).not_to receive(:new)
+
+    post '/api/v1/kyc/bvn/verify', params: { bvn: bvn }, headers: headers
+
+    expect(response).to have_http_status(:ok)
+    json = JSON.parse(response.body)
+    expect(json['status']).to eq('verified')
+    expect(json['cached']).to eq(true)
+  end
+
+  it 'matches last name with hyphens or spaces using snapshot' do
+    fingerprint = Kyc::BvnFingerprint.generate(bvn)
+    profile = user.user_profile
+    profile.update!(last_name: 'Ade Bisi')
+    profile_fp = profile_fingerprint(profile)
+
+    user.user_kyc.update!(
+      bvn_status: 'mismatch',
+      bvn_fingerprint: fingerprint,
+      bvn_last_result_status: 'mismatch',
+      bvn_last_result_reason: 'mismatch',
+      bvn_last_checked_at: 1.hour.ago,
+      bvn_last_profile_fingerprint: profile_fp,
+      bvn_snapshot_first_name: 'Test',
+      bvn_snapshot_last_name: 'Ade-Bisi',
+      bvn_snapshot_dob: '1990-01-01',
+      bvn_snapshot_watchlisted: false,
+      bvn_snapshot_reference: 'prembly-ref',
+      bvn_snapshot_captured_at: 1.hour.ago,
+      bvn_snapshot_expires_at: 1.day.from_now
+    )
+
+    expect(Kyc::PremblyBvnVerification).not_to receive(:new)
+
+    post '/api/v1/kyc/bvn/verify', params: { bvn: bvn }, headers: headers
+
+    expect(response).to have_http_status(:ok)
+    json = JSON.parse(response.body)
+    expect(json['status']).to eq('verified')
+    expect(json['cached']).to eq(true)
+  end
+
   it 'skips provider call during transient backoff window' do
     fingerprint = Kyc::BvnFingerprint.generate(bvn)
     profile_fp = profile_fingerprint(user.user_profile)

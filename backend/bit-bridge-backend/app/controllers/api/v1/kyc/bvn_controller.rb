@@ -57,6 +57,10 @@ module Api
           fingerprint = ::Kyc::BvnFingerprint.generate(bvn)
           profile_fingerprint = build_profile_fingerprint(user.user_profile)
 
+          if snapshot_available?(user_kyc, fingerprint)
+            return handle_snapshot_recheck(user, user_kyc, bvn, profile_fingerprint)
+          end
+
           if cache_hit?(user_kyc, fingerprint, profile_fingerprint)
             Rails.logger.info("[BVN] cache hit status=#{user_kyc.bvn_last_result_status} user_id=#{user.id}")
             return render json: response_payload(
@@ -100,70 +104,6 @@ module Api
             log_audit(user, "verification_attempt", "pending_review", ip_address, review_id: review&.id)
 
             return render json: response_payload(user, user_kyc, status: "pending_review", reason: "bvn_in_use"),
-                          status: :ok
-          end
-
-          if snapshot_available?(user_kyc, fingerprint)
-            snapshot_result = build_snapshot_result(user_kyc)
-            outcome = resolve_match_outcome(user, snapshot_result)
-            apply_outcome!(user_kyc, bvn, snapshot_result, outcome)
-
-            if outcome[:status] == "mismatch"
-              handle_failed_attempt!(user, user_kyc, ip_address, "mismatch", outcome[:reason])
-              user_kyc.reload
-              update_last_result!(
-                user_kyc,
-                status: user_kyc.bvn_status,
-                reason: outcome[:reason],
-                profile_fingerprint: profile_fingerprint
-              )
-              refresh_tier!(user)
-              return render json: response_payload(
-                user,
-                user_kyc,
-                status: user_kyc.bvn_status,
-                reason: outcome[:reason],
-                cached: true,
-                retryable: false,
-                message: "Used saved BVN details for verification."
-              ),
-                            status: :ok
-            end
-
-            update_last_result!(
-              user_kyc,
-              status: outcome[:status],
-              reason: outcome[:reason],
-              profile_fingerprint: profile_fingerprint
-            )
-
-            log_attempt(user, ip_address, outcome[:status] == "verified", outcome[:status])
-            log_audit(user, "verification_attempt", outcome[:status], ip_address, outcome.slice(:reason))
-
-            if outcome[:status] == "pending_review"
-              review = create_review(user, outcome[:reason], "pending")
-              log_audit(user, "review_created", "pending_review", ip_address, review_id: review&.id)
-            end
-
-            refresh_tier!(user)
-
-            user_kyc.reload
-            update_last_result!(
-              user_kyc,
-              status: user_kyc.bvn_status,
-              reason: outcome[:reason],
-              profile_fingerprint: profile_fingerprint
-            )
-
-            return render json: response_payload(
-              user,
-              user_kyc,
-              status: user_kyc.bvn_status,
-              reason: outcome[:reason],
-              cached: true,
-              retryable: false,
-              message: "Used saved BVN details for verification."
-            ),
                           status: :ok
           end
 
@@ -326,6 +266,33 @@ module Api
           }
         end
 
+        def handle_snapshot_recheck(user, user_kyc, bvn, profile_fingerprint)
+          snapshot_result = build_snapshot_result(user_kyc)
+          outcome = resolve_match_outcome(user, snapshot_result)
+          apply_outcome!(user_kyc, bvn, snapshot_result, outcome)
+
+          update_last_result!(
+            user_kyc,
+            status: outcome[:status],
+            reason: outcome[:reason],
+            profile_fingerprint: profile_fingerprint
+          )
+
+          refresh_tier!(user)
+
+          user_kyc.reload
+          render json: response_payload(
+            user,
+            user_kyc,
+            status: user_kyc.bvn_status,
+            reason: outcome[:reason],
+            cached: true,
+            retryable: false,
+            message: "Used saved BVN details for verification."
+          ),
+                 status: :ok
+        end
+
         def store_snapshot!(user_kyc, result)
           user_kyc.update!(
             bvn_snapshot_first_name: normalize_snapshot_name(result[:first_name]),
@@ -445,33 +412,7 @@ module Api
         end
 
         def resolve_match_outcome(user, result)
-          profile = user.user_profile
-          return { status: "pending_review", reason: "profile_incomplete" } unless profile
-
-          dob_match = match_dob(profile.date_of_birth, result[:date_of_birth])
-          last_name_match = match_name(profile.last_name, result[:last_name])
-          first_name_match = match_first_name(profile.first_name, result[:first_name])
-
-          watchlisted = to_bool(result[:watchlisted])
-          incomplete = result[:first_name].blank? || result[:last_name].blank? || result[:date_of_birth].blank?
-
-          if watchlisted
-            return { status: "pending_review", reason: "watchlisted", dob_match:, last_name_match:, first_name_match: }
-          end
-
-          if incomplete
-            return { status: "pending_review", reason: "provider_incomplete", dob_match:, last_name_match:, first_name_match: }
-          end
-
-          if dob_match && last_name_match && first_name_match
-            return { status: "verified", reason: nil, dob_match:, last_name_match:, first_name_match: }
-          end
-
-          if dob_match && last_name_match && !first_name_match
-            return { status: "pending_review", reason: "name_mismatch", dob_match:, last_name_match:, first_name_match: }
-          end
-
-          { status: "mismatch", reason: "mismatch", dob_match:, last_name_match:, first_name_match: }
+          Kyc::BvnMatcher.resolve_match_outcome(user.user_profile, result)
         end
 
         # NOTE: user is not needed here; keep scope tight.
@@ -548,51 +489,6 @@ module Api
           )
         rescue StandardError
           nil
-        end
-
-        def match_name(profile_value, provider_value)
-          normalize_name(profile_value) == normalize_name(provider_value)
-        end
-
-        def match_first_name(profile_value, provider_value)
-          profile_norm = normalize_name(profile_value)
-          provider_norm = normalize_name(provider_value)
-
-          return false if profile_norm.blank? || provider_norm.blank?
-          return true if profile_norm == provider_norm
-
-          profile_tokens = profile_norm.split
-          provider_tokens = provider_norm.split
-          (profile_tokens & provider_tokens).any?
-        end
-
-        def normalize_name(value)
-          value.to_s.downcase.gsub(/[^a-z\s]/, " ").split.join(" ")
-        end
-
-        def match_dob(profile_dob, provider_dob)
-          return false if profile_dob.blank? || provider_dob.blank?
-
-          parsed = parse_prembly_dob(provider_dob)
-          return false unless parsed
-
-          profile_date = profile_dob.is_a?(Date) ? profile_dob : Date.parse(profile_dob.to_s)
-          profile_date == parsed
-        rescue StandardError
-          false
-        end
-
-        def parse_prembly_dob(value)
-          raw = value.to_s.strip
-          return nil if raw.blank?
-
-          Date.strptime(raw, "%d-%b-%Y")
-        rescue StandardError
-          begin
-            Date.parse(raw)
-          rescue StandardError
-            nil
-          end
         end
 
         def to_bool(value)
