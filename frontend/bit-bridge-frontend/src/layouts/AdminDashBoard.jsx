@@ -29,6 +29,8 @@ const AdminDashboardLayout = () => {
   const { user, loading } = useSelector((state) => state.auth)
   const navigate = useNavigate()
   const isSuperAdmin = user?.admin_role === 'super_admin' || user?.role === 'super_admin'
+  const isCompliance = user?.admin_role === 'compliance'
+  const canViewKycReviews = isSuperAdmin || isCompliance
 
   useEffect(() => {
     dispatch(getWallet())
@@ -139,13 +141,20 @@ const AdminDashboardLayout = () => {
           </li>
           <li className="my-2 py-2 px-3 bg-blue-80 text-sm">
             {' '}
-            <NavLink
-              to={'/admin/kyc-reviews'}
-              className={`flex ${toggleNav ? 'flex-row' : 'flex-col'} gap-3 `}
-            >
-              <SafetyCertificateOutlined className="text-2xl" />
-              <span>KYC Reviews</span>
-            </NavLink>{' '}
+            {canViewKycReviews ? (
+              <NavLink
+                to={'/admin/kyc-reviews'}
+                className={`flex ${toggleNav ? 'flex-row' : 'flex-col'} gap-3 `}
+              >
+                <SafetyCertificateOutlined className="text-2xl" />
+                <span>KYC Reviews</span>
+              </NavLink>
+            ) : (
+              <span className={`flex ${toggleNav ? 'flex-row' : 'flex-col'} gap-3 opacity-60`}>
+                <SafetyCertificateOutlined className="text-2xl" />
+                <span>KYC Reviews</span>
+              </span>
+            )}{' '}
           </li>
           {isSuperAdmin ? (
             <li className="my-2 py-2 px-3 bg-blue-80 text-sm">

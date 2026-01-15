@@ -14,6 +14,10 @@ module Api
       def user_profile
   return render json: { error: 'User not found or not authenticated' }, status: :unauthorized if current_user.nil?
 
+  response.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
+  response.headers['Pragma'] = 'no-cache'
+  response.headers['Expires'] = '0'
+
   serialized = UserSerializer.new(current_user).serializable_hash
 
   # If serializer returns JSON:API style: { data: { attributes: {...} } }

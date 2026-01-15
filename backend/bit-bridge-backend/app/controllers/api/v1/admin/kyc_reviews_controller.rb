@@ -5,7 +5,7 @@ module Api
     module Admin
       class KycReviewsController < ApplicationController
         before_action :authenticate_user!
-        before_action :ensure_admin!
+        before_action :ensure_kyc_admin!
         before_action :set_review, only: %i[update]
 
         def index
@@ -73,8 +73,8 @@ module Api
 
         private
 
-        def ensure_admin!
-          return if current_user&.admin?
+        def ensure_kyc_admin!
+          return if current_user&.can_access_admin_feature?(:kyc_review)
 
           render json: { message: 'Not authorized' }, status: :forbidden
         end

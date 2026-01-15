@@ -107,6 +107,20 @@ class User < ApplicationRecord
     admin_auth_time >= max_age.ago
   end
 
+  ADMIN_FEATURES = {
+    admin: %w[support ops compliance super_admin],
+    kyc_review: %w[compliance super_admin],
+    pricing_spec: %w[super_admin],
+    ops_tools: %w[ops super_admin]
+  }.freeze
+
+  def can_access_admin_feature?(feature)
+    return false unless admin?
+
+    allowed = ADMIN_FEATURES[feature.to_sym] || []
+    allowed.include?(admin_role)
+  end
+
   KYC_RANKS = {
     'tier_0' => 0,
     'tier_1' => 1,
