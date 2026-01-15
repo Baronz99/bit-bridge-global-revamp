@@ -23,4 +23,22 @@ class UserKycSerializer < ActiveModel::Serializer
              :tier3_reference,
              :tier3_verified_at,
              :tier3_error
+
+  attribute :bvn_snapshot, if: :show_bvn_snapshot?
+
+  def bvn_snapshot
+    {
+      first_name: object.bvn_snapshot_first_name,
+      last_name: object.bvn_snapshot_last_name,
+      dob: object.bvn_snapshot_dob,
+      watchlisted: object.bvn_snapshot_watchlisted,
+      reference: object.bvn_snapshot_reference,
+      captured_at: object.bvn_snapshot_captured_at,
+      expires_at: object.bvn_snapshot_expires_at
+    }
+  end
+
+  def show_bvn_snapshot?
+    scope.respond_to?(:super_admin?) && scope.super_admin?
+  end
 end

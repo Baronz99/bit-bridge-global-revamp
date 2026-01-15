@@ -414,6 +414,26 @@ const ViewUser = () => {
       : userKyc?.watchlisted === false
       ? 'Not watchlisted'
       : 'Unknown'
+  const bvnSnapshot = userKyc?.bvn_snapshot || null
+  const bvnSnapshotName = bvnSnapshot
+    ? [bvnSnapshot.first_name, bvnSnapshot.last_name].filter(Boolean).join(' ')
+    : ''
+  const bvnSnapshotDob = bvnSnapshot?.dob ? dateFormater(bvnSnapshot.dob) : 'Not available'
+  const bvnSnapshotCapturedAt = bvnSnapshot?.captured_at
+    ? dateFormater(bvnSnapshot.captured_at)
+    : 'Not available'
+  const bvnSnapshotExpiresAt = bvnSnapshot?.expires_at
+    ? dateFormater(bvnSnapshot.expires_at)
+    : 'Not available'
+  const bvnSnapshotReference = bvnSnapshot?.reference || 'Not available'
+  const bvnSnapshotWatchlisted =
+    bvnSnapshot?.watchlisted === true
+      ? 'Watchlisted'
+      : bvnSnapshot?.watchlisted === false
+      ? 'Not watchlisted'
+      : 'Unknown'
+  const hasBvnSnapshot =
+    !!bvnSnapshot && !!(bvnSnapshot.first_name || bvnSnapshot.last_name || bvnSnapshot.dob)
   const bvnAttempts = userKyc?.bvn_attempts_count ?? 0
   const bvnLockedUntil = userKyc?.bvn_locked_until
     ? dateFormater(userKyc.bvn_locked_until)
@@ -868,6 +888,23 @@ const ViewUser = () => {
                   ))}
                 </div>
               </div>
+              {isSuperAdmin && (
+                <div className="admin-kv admin-kv--wide">
+                  <span>BVN provider snapshot (super admin)</span>
+                  {hasBvnSnapshot ? (
+                    <div className="admin-doc-links">
+                      <span className="admin-chip">Name: {bvnSnapshotName || 'Not available'}</span>
+                      <span className="admin-chip">DOB: {bvnSnapshotDob}</span>
+                      <span className="admin-chip">Reference: {bvnSnapshotReference}</span>
+                      <span className="admin-chip">Watchlist: {bvnSnapshotWatchlisted}</span>
+                      <span className="admin-chip">Captured: {bvnSnapshotCapturedAt}</span>
+                      <span className="admin-chip">Expires: {bvnSnapshotExpiresAt}</span>
+                    </div>
+                  ) : (
+                    <strong>No BVN snapshot available</strong>
+                  )}
+                </div>
+              )}
             </div>
           </div>
           ) : null}

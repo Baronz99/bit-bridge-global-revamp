@@ -12,6 +12,7 @@ module Api
         IP_DAILY_LIMIT = 10
         NON_TRANSIENT_STATUSES = %w[mismatch locked pending_review].freeze
         PROVIDER_BACKOFF_SECONDS = 120
+        BVN_SNAPSHOT_TTL = 90.days
         ALLOWED_REASONS = %w[
           bvn_in_use
           watchlisted
@@ -68,7 +69,7 @@ module Api
             ), status: :ok
           end
 
-          if transient_backoff?(user_kyc, fingerprint)
+          if transient_backoff?(user_kyc, fingerprint) && !snapshot_available?(user_kyc, fingerprint)
             wait = backoff_remaining_seconds(user_kyc)
             Rails.logger.info("[BVN] backoff active wait_seconds=#{wait} user_id=#{user.id}")
             response.set_header("Retry-After", wait.to_s)
@@ -84,14 +85,7 @@ module Api
             ), status: :service_unavailable
           end
 
-          user_kyc.assign_attributes(
-            bvn_last4: last4,
-            bvn_fingerprint: fingerprint,
-            bvn_provider: "prembly",
-            bvn_attempts_count: (user_kyc.bvn_attempts_count || 0) + 1,
-            bvn_last_attempt_at: Time.current
-          )
-          user_kyc.save!
+          register_attempt!(user_kyc, last4, fingerprint)
 
           if bvn_in_use?(fingerprint, user.id)
             user_kyc.update!(bvn_status: "pending_review")
@@ -106,6 +100,70 @@ module Api
             log_audit(user, "verification_attempt", "pending_review", ip_address, review_id: review&.id)
 
             return render json: response_payload(user, user_kyc, status: "pending_review", reason: "bvn_in_use"),
+                          status: :ok
+          end
+
+          if snapshot_available?(user_kyc, fingerprint)
+            snapshot_result = build_snapshot_result(user_kyc)
+            outcome = resolve_match_outcome(user, snapshot_result)
+            apply_outcome!(user_kyc, bvn, snapshot_result, outcome)
+
+            if outcome[:status] == "mismatch"
+              handle_failed_attempt!(user, user_kyc, ip_address, "mismatch", outcome[:reason])
+              user_kyc.reload
+              update_last_result!(
+                user_kyc,
+                status: user_kyc.bvn_status,
+                reason: outcome[:reason],
+                profile_fingerprint: profile_fingerprint
+              )
+              refresh_tier!(user)
+              return render json: response_payload(
+                user,
+                user_kyc,
+                status: user_kyc.bvn_status,
+                reason: outcome[:reason],
+                cached: true,
+                retryable: false,
+                message: "Used saved BVN details for verification."
+              ),
+                            status: :ok
+            end
+
+            update_last_result!(
+              user_kyc,
+              status: outcome[:status],
+              reason: outcome[:reason],
+              profile_fingerprint: profile_fingerprint
+            )
+
+            log_attempt(user, ip_address, outcome[:status] == "verified", outcome[:status])
+            log_audit(user, "verification_attempt", outcome[:status], ip_address, outcome.slice(:reason))
+
+            if outcome[:status] == "pending_review"
+              review = create_review(user, outcome[:reason], "pending")
+              log_audit(user, "review_created", "pending_review", ip_address, review_id: review&.id)
+            end
+
+            refresh_tier!(user)
+
+            user_kyc.reload
+            update_last_result!(
+              user_kyc,
+              status: user_kyc.bvn_status,
+              reason: outcome[:reason],
+              profile_fingerprint: profile_fingerprint
+            )
+
+            return render json: response_payload(
+              user,
+              user_kyc,
+              status: user_kyc.bvn_status,
+              reason: outcome[:reason],
+              cached: true,
+              retryable: false,
+              message: "Used saved BVN details for verification."
+            ),
                           status: :ok
           end
 
@@ -133,6 +191,7 @@ module Api
 
           outcome = resolve_match_outcome(user, result)
           apply_outcome!(user_kyc, bvn, result, outcome)
+          store_snapshot!(user_kyc, result)
 
           if outcome[:status] == "mismatch"
             handle_failed_attempt!(user, user_kyc, ip_address, "mismatch", outcome[:reason])
@@ -245,6 +304,50 @@ module Api
           user_kyc.bvn_last_profile_fingerprint == profile_fingerprint
         end
 
+        def snapshot_available?(user_kyc, fingerprint)
+          return false unless user_kyc.bvn_fingerprint.present?
+          return false unless user_kyc.bvn_fingerprint == fingerprint
+          return false unless user_kyc.bvn_snapshot_expires_at.present?
+          return false if user_kyc.bvn_snapshot_expires_at < Time.current
+          return false if user_kyc.bvn_snapshot_first_name.blank?
+          return false if user_kyc.bvn_snapshot_last_name.blank?
+          return false if user_kyc.bvn_snapshot_dob.blank?
+
+          true
+        end
+
+        def build_snapshot_result(user_kyc)
+          {
+            first_name: user_kyc.bvn_snapshot_first_name,
+            last_name: user_kyc.bvn_snapshot_last_name,
+            date_of_birth: user_kyc.bvn_snapshot_dob,
+            watchlisted: user_kyc.bvn_snapshot_watchlisted,
+            reference: user_kyc.bvn_snapshot_reference
+          }
+        end
+
+        def store_snapshot!(user_kyc, result)
+          user_kyc.update!(
+            bvn_snapshot_first_name: normalize_snapshot_name(result[:first_name]),
+            bvn_snapshot_last_name: normalize_snapshot_name(result[:last_name]),
+            bvn_snapshot_dob: normalize_snapshot_dob(result[:date_of_birth]),
+            bvn_snapshot_watchlisted: to_bool(result[:watchlisted]),
+            bvn_snapshot_reference: result[:reference].to_s.presence,
+            bvn_snapshot_captured_at: Time.current,
+            bvn_snapshot_expires_at: Time.current + BVN_SNAPSHOT_TTL
+          )
+        end
+
+        def normalize_snapshot_name(value)
+          trimmed = value.to_s.strip
+          trimmed.presence
+        end
+
+        def normalize_snapshot_dob(value)
+          parsed = parse_prembly_dob(value)
+          parsed ? parsed.iso8601 : nil
+        end
+
         def transient_backoff?(user_kyc, fingerprint)
           return false unless user_kyc.bvn_fingerprint.present?
           return false unless user_kyc.bvn_fingerprint == fingerprint
@@ -262,6 +365,16 @@ module Api
 
           remaining = PROVIDER_BACKOFF_SECONDS - (Time.current - last)
           remaining.positive? ? remaining.ceil : 0
+        end
+
+        def register_attempt!(user_kyc, last4, fingerprint)
+          user_kyc.update!(
+            bvn_last4: last4,
+            bvn_fingerprint: fingerprint,
+            bvn_provider: "prembly",
+            bvn_attempts_count: (user_kyc.bvn_attempts_count || 0) + 1,
+            bvn_last_attempt_at: Time.current
+          )
         end
 
         def update_last_result!(user_kyc, status:, reason:, profile_fingerprint:)
