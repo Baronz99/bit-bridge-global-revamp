@@ -413,6 +413,10 @@ const KycCenter = () => {
 
   const handleVerifyBvn = async () => {
     const normalized = bvnInput.replace(/\D/g, '')
+    if (!normalized) {
+      setBvnError('Enter your BVN to continue.')
+      return
+    }
     if (normalized.length !== 11) {
       setBvnError('BVN must be 11 digits.')
       return
@@ -861,7 +865,6 @@ const KycCenter = () => {
                 bvnSubmitting ||
                 isBvnVerified ||
                 isRetryBackoff ||
-                effectiveBvnStatus === 'pending_review' ||
                 effectiveBvnStatus === 'locked'
               }
               className="inline-flex items-center px-4 py-2 rounded-xl bg-alt text-black text-xs font-semibold hover:brightness-110 transition disabled:opacity-60"
@@ -872,6 +875,8 @@ const KycCenter = () => {
                 ? 'Verifying...'
                 : isRetryBackoff
                 ? `Retry in ${retrySecondsRemaining}s`
+                : effectiveBvnStatus === 'pending_review'
+                ? 'Re-check BVN'
                 : 'Confirm BVN'}
             </button>
           </div>
@@ -887,7 +892,7 @@ const KycCenter = () => {
             )}
             {effectiveBvnStatus === 'pending_review' && (
               <p className="text-amber-200">
-                Submitted for review. We will notify you once verification is complete.
+                Submitted for review. You can re-check BVN if you updated your profile.
               </p>
             )}
             {effectiveBvnStatus === 'mismatch' && (
@@ -924,6 +929,9 @@ const KycCenter = () => {
               </p>
             )}
             {effectiveBvnStatus === 'unverified' && <p>Enter your BVN to begin verification.</p>}
+            {bvnResponse?.cached === true && bvnResponse?.message && (
+              <p className="text-slate-300 mt-2">{bvnResponse.message}</p>
+            )}
           </div>
         </div>
       </section>
