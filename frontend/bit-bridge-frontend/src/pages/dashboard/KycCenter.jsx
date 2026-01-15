@@ -934,18 +934,9 @@ const KycCenter = () => {
             )}
             {effectiveBvnStatus === 'failed' && (
               <p className="text-rose-300">
-                Provider unavailable. Please retry in a few minutes.
-                {isRetryBackoff && (
-                  <span className="ml-2 text-rose-200">Retry in {retrySecondsRemaining}s.</span>
-                )}
-              </p>
-            )}
-            {effectiveBvnReason === 'provider_unavailable' && effectiveBvnStatus !== 'failed' && (
-              <p className="text-rose-300">
-                Provider unavailable. Please retry in a few minutes.
-                {isRetryBackoff && (
-                  <span className="ml-2 text-rose-200">Retry in {retrySecondsRemaining}s.</span>
-                )}
+                {isRetryBackoff
+                  ? `Provider unavailable. Retry in ${retrySecondsRemaining}s.`
+                  : 'Provider unavailable. Please retry in a few minutes.'}
               </p>
             )}
             {effectiveBvnStatus === 'unverified' && <p>Enter your BVN to begin verification.</p>}

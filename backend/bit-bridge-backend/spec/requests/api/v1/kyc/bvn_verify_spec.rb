@@ -45,6 +45,7 @@ RSpec.describe 'BVN verification caching', type: :request do
     expect(response).to have_http_status(:ok)
     json = JSON.parse(response.body)
     expect(json['status']).to eq('mismatch')
+    expect(json['reason']).to eq('cached_mismatch')
     expect(json['cached']).to eq(true)
     expect(json['retryable']).to eq(false)
   end
@@ -253,13 +254,15 @@ RSpec.describe 'BVN verification caching', type: :request do
 
     expect(response).to have_http_status(:service_unavailable)
     json = JSON.parse(response.body)
-    expect(json['status']).to eq('unverified')
-    expect(json['cached']).to eq(true)
+    expect(json['status']).to eq('failed')
+    expect(json['cached']).to eq(false)
     expect(json['retryable']).to eq(true)
     expect(json['reason']).to eq('provider_unavailable')
     expect(json['message']).to match(/temporarily unavailable/i)
+    expect(json['retry_after_seconds']).to be_present
     expect(json['retry_after_seconds']).to be > 0
     expect(response.headers['Retry-After']).to be_present
+    expect(response.headers['Retry-After']).to eq(json['retry_after_seconds'].to_s)
 
     user.user_kyc.reload
     expect(user.user_kyc.bvn_failed_attempts_count).to eq(before_attempts)

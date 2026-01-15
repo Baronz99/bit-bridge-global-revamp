@@ -21,6 +21,8 @@ module Api
           profile_incomplete
           name_mismatch
           mismatch
+          cached_mismatch
+          cached_pending_review
           provider_unavailable
           locked_rate_limit
         ].freeze
@@ -71,12 +73,13 @@ module Api
           end
 
           if cache_hit
+            cached_reason = cached_reason_for(user_kyc.bvn_last_result_status)
             Rails.logger.info("[BVN] cache hit status=#{user_kyc.bvn_last_result_status} user_id=#{user.id}")
             return render json: response_payload(
               user,
               user_kyc,
               status: user_kyc.bvn_last_result_status,
-              reason: user_kyc.bvn_last_result_reason,
+              reason: cached_reason,
               cached: true,
               retryable: false
             ), status: :ok
@@ -89,9 +92,9 @@ module Api
             return render json: response_payload(
               user,
               user_kyc,
-              status: user_kyc.bvn_status,
+              status: "failed",
               reason: "provider_unavailable",
-              cached: true,
+              cached: false,
               retryable: true,
               message: "BVN verification temporarily unavailable. Please retry in #{wait}s.",
               retry_after_seconds: wait
@@ -408,6 +411,21 @@ module Api
           return "provider_incomplete" if status_key == "pending_review"
 
           nil
+        end
+
+        def cached_reason_for(status)
+          case status.to_s
+          when "mismatch"
+            "cached_mismatch"
+          when "pending_review"
+            "cached_pending_review"
+          when "locked"
+            "locked"
+          when "verified"
+            "verified"
+          else
+            "cached_result"
+          end
         end
 
         def reset_attempt_window!(user_kyc)
