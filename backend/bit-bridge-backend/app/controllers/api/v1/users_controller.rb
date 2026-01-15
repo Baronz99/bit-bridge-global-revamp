@@ -142,7 +142,11 @@ end
       # ========= UPDATE CURRENT USER (PROFILE) =========
 
       def user_update
+        profile_attrs = user_update_params[:user_profile_attributes]
+        should_recheck = should_recheck_bvn_snapshot?(current_user, profile_attrs)
+
         if current_user.update(user_update_params)
+          run_bvn_snapshot_recheck!(current_user) if should_recheck
           render json: { data: UserSerializer.new(current_user), message: 'User updated' }, status: :ok
         else
           render json: { message: current_user.errors.full_messages.to_sentence }, status: :unprocessable_entity
@@ -220,6 +224,7 @@ end
         # ✅ Normalize nested params into a plain Hash with STRING keys
         profile_attrs = (permitted[:user_profile_attributes] || {}).to_h
         id_type       = permitted[:id_type]
+        should_recheck = should_recheck_bvn_snapshot?(current_user, profile_attrs)
 
         error_message = nil
 
@@ -267,6 +272,7 @@ end
         if error_message.present?
           render json: { message: error_message }, status: :unprocessable_entity
         else
+          run_bvn_snapshot_recheck!(current_user) if should_recheck
           render json: {
             message: 'Profile updated',
             data: UserSerializer.new(current_user.reload)
@@ -369,6 +375,51 @@ end
         )
       rescue StandardError
         nil
+      end
+
+      def should_recheck_bvn_snapshot?(user, profile_attrs)
+        return false unless profile_attrs
+
+        profile = user&.user_profile
+        first = profile_attrs["first_name"] || profile_attrs[:first_name]
+        last = profile_attrs["last_name"] || profile_attrs[:last_name]
+        dob_raw = profile_attrs["date_of_birth"] || profile_attrs[:date_of_birth]
+
+        changed = false
+        if first.present?
+          current = profile&.first_name.to_s.strip.downcase
+          incoming = first.to_s.strip.downcase
+          changed ||= incoming != current
+        end
+
+        if last.present?
+          current = profile&.last_name.to_s.strip.downcase
+          incoming = last.to_s.strip.downcase
+          changed ||= incoming != current
+        end
+
+        if dob_raw.present?
+          current_date = profile&.date_of_birth
+          incoming_date =
+            begin
+              Date.iso8601(dob_raw.to_s)
+            rescue StandardError
+              nil
+            end
+          changed ||= incoming_date.nil? || incoming_date != current_date
+        end
+
+        changed
+      end
+
+      def run_bvn_snapshot_recheck!(user)
+        kyc = user&.user_kyc
+        return unless kyc
+        return unless kyc.bvn_fingerprint.present?
+        return unless %w[mismatch pending_review unverified].include?(kyc.bvn_status.to_s)
+        return unless ::Kyc::BvnSnapshotRecheck.snapshot_available?(kyc)
+
+        ::Kyc::BvnSnapshotRecheck.call(user)
       end
 
       def user_params

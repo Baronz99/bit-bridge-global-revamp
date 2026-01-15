@@ -677,12 +677,13 @@ ActiveRecord::Schema[7.1].define(version: 2026_01_16_090100) do
     t.string "bvn_snapshot_first_name"
     t.string "bvn_snapshot_last_name"
     t.string "bvn_snapshot_dob"
-    t.boolean "bvn_snapshot_watchlisted"
+    t.boolean "bvn_snapshot_watchlisted", default: false, null: false
     t.string "bvn_snapshot_reference"
     t.datetime "bvn_snapshot_captured_at"
     t.datetime "bvn_snapshot_expires_at"
     t.index ["bvn_encrypted"], name: "index_user_kycs_on_bvn_encrypted"
     t.index ["bvn_fingerprint"], name: "index_user_kycs_on_bvn_fingerprint"
+    t.index ["bvn_snapshot_expires_at"], name: "index_user_kycs_on_bvn_snapshot_expires_at"
     t.index ["bvn_status"], name: "index_user_kycs_on_bvn_status"
     t.index ["user_id"], name: "index_user_kycs_on_user_id", unique: true
   end

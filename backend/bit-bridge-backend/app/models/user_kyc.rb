@@ -13,4 +13,12 @@ class UserKyc < ApplicationRecord
   def verified?
     bvn_status == "verified" && bvn_verified_at.present?
   end
+
+  def bvn_identity_confirmed?
+    bvn_encrypted.present?
+  end
+
+  def decrypted_bvn
+    bvn_encrypted
+  end
 end

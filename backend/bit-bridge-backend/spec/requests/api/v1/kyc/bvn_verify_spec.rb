@@ -109,6 +109,69 @@ RSpec.describe 'BVN verification caching', type: :request do
     expect(response).to have_http_status(:ok)
   end
 
+  it 'refreshes mismatch after TTL when snapshot is missing' do
+    fingerprint = Kyc::BvnFingerprint.generate(bvn)
+    profile_fp = profile_fingerprint(user.user_profile)
+
+    user.user_profile.update!(last_name: 'User-Updated')
+
+    user.user_kyc.update!(
+      bvn_status: 'mismatch',
+      bvn_fingerprint: fingerprint,
+      bvn_last_result_status: 'mismatch',
+      bvn_last_result_reason: 'mismatch',
+      bvn_last_checked_at: 2.days.ago,
+      bvn_last_profile_fingerprint: profile_fp,
+      bvn_snapshot_first_name: nil,
+      bvn_snapshot_last_name: nil,
+      bvn_snapshot_dob: nil,
+      bvn_snapshot_expires_at: nil
+    )
+
+    result = {
+      ok: true,
+      reference: 'prembly-ref',
+      first_name: 'Test',
+      last_name: 'User',
+      date_of_birth: '01-Jan-1990',
+      watchlisted: false
+    }
+
+    expect(Kyc::PremblyBvnVerification).to receive(:new).with(bvn)
+      .and_return(double(call: result))
+
+    post '/api/v1/kyc/bvn/verify', params: { bvn: bvn }, headers: headers
+
+    expect(response).to have_http_status(:ok)
+  end
+
+  it 'keeps cached mismatch when profile fingerprint is unchanged' do
+    fingerprint = Kyc::BvnFingerprint.generate(bvn)
+    profile_fp = profile_fingerprint(user.user_profile)
+
+    user.user_kyc.update!(
+      bvn_status: 'mismatch',
+      bvn_fingerprint: fingerprint,
+      bvn_last_result_status: 'mismatch',
+      bvn_last_result_reason: 'mismatch',
+      bvn_last_checked_at: 2.days.ago,
+      bvn_last_profile_fingerprint: profile_fp,
+      bvn_snapshot_first_name: nil,
+      bvn_snapshot_last_name: nil,
+      bvn_snapshot_dob: nil,
+      bvn_snapshot_expires_at: nil
+    )
+
+    expect(Kyc::PremblyBvnVerification).not_to receive(:new)
+
+    post '/api/v1/kyc/bvn/verify', params: { bvn: bvn }, headers: headers
+
+    expect(response).to have_http_status(:ok)
+    json = JSON.parse(response.body)
+    expect(json['status']).to eq('mismatch')
+    expect(json['cached']).to eq(true)
+  end
+
   it 'rechecks snapshot and auto-verifies without provider call' do
     fingerprint = Kyc::BvnFingerprint.generate(bvn)
     profile_fp = profile_fingerprint(user.user_profile)

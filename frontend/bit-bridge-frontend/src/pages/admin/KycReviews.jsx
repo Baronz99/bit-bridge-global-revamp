@@ -97,6 +97,23 @@ const KycReviews = () => {
                 <div>
                   <p className="admin-table__primary">{review?.user?.email || 'Unknown user'}</p>
                   <p className="admin-table__secondary">{review?.user?.id || ''}</p>
+                  {review?.bvn_snapshot_first_name ||
+                  review?.bvn_snapshot_last_name ||
+                  review?.bvn_snapshot_dob ? (
+                    <p className="admin-table__secondary">
+                      Snapshot:{' '}
+                      {[review.bvn_snapshot_first_name, review.bvn_snapshot_last_name]
+                        .filter(Boolean)
+                        .join(' ') || 'N/A'}{' '}
+                      {review.bvn_snapshot_dob ? `· DOB ${review.bvn_snapshot_dob}` : ''}
+                    </p>
+                  ) : null}
+                  {review?.bvn_last_result_status ? (
+                    <p className="admin-table__secondary">
+                      Last result: {review.bvn_last_result_status}
+                      {review.bvn_last_result_reason ? ` (${review.bvn_last_result_reason})` : ''}
+                    </p>
+                  ) : null}
                 </div>
                 <div className="capitalize">{review.status || 'pending'}</div>
                 <div className="capitalize">{review.reason || 'N/A'}</div>

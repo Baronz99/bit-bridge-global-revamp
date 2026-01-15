@@ -12,7 +12,8 @@ module Api
         IP_DAILY_LIMIT = 10
         NON_TRANSIENT_STATUSES = %w[mismatch locked pending_review].freeze
         PROVIDER_BACKOFF_SECONDS = 120
-        BVN_SNAPSHOT_TTL = 90.days
+        BVN_SNAPSHOT_TTL = 60.days
+        MISMATCH_CACHE_TTL = 24.hours
         ALLOWED_REASONS = %w[
           bvn_in_use
           watchlisted
@@ -57,11 +58,19 @@ module Api
           fingerprint = ::Kyc::BvnFingerprint.generate(bvn)
           profile_fingerprint = build_profile_fingerprint(user.user_profile)
 
-          if snapshot_available?(user_kyc, fingerprint)
-            return handle_snapshot_recheck(user, user_kyc, bvn, profile_fingerprint)
+          snapshot_ok = snapshot_available?(user_kyc, fingerprint)
+          log_snapshot_availability(user, user_kyc, fingerprint) unless snapshot_ok
+
+          if snapshot_ok
+            return handle_snapshot_recheck(user, user_kyc, bvn, fingerprint)
           end
 
-          if cache_hit?(user_kyc, fingerprint, profile_fingerprint)
+          cache_hit = cache_hit?(user_kyc, fingerprint, profile_fingerprint)
+          if cache_hit && mismatch_cache_expired_without_snapshot?(user_kyc, fingerprint, profile_fingerprint)
+            cache_hit = false
+          end
+
+          if cache_hit
             Rails.logger.info("[BVN] cache hit status=#{user_kyc.bvn_last_result_status} user_id=#{user.id}")
             return render json: response_payload(
               user,
@@ -256,6 +265,33 @@ module Api
           true
         end
 
+        def mismatch_cache_expired_without_snapshot?(user_kyc, fingerprint, profile_fingerprint)
+          return false unless user_kyc.bvn_last_result_status.to_s == "mismatch"
+          return false if snapshot_available?(user_kyc, fingerprint)
+          return false unless profile_fingerprint.present?
+          return false unless user_kyc.bvn_last_profile_fingerprint.present?
+          return false if user_kyc.bvn_last_profile_fingerprint == profile_fingerprint
+
+          last = user_kyc.bvn_last_checked_at
+          return false unless last
+
+          Time.current - last > MISMATCH_CACHE_TTL
+        end
+
+        def log_snapshot_availability(user, user_kyc, fingerprint)
+          expires_at = user_kyc.bvn_snapshot_expires_at
+          details = {
+            user_id: user.id,
+            bvn_fp_match: user_kyc.bvn_fingerprint.present? && user_kyc.bvn_fingerprint == fingerprint,
+            expires_at: expires_at,
+            expired: expires_at.present? && expires_at < Time.current,
+            fn_present: user_kyc.bvn_snapshot_first_name.present?,
+            ln_present: user_kyc.bvn_snapshot_last_name.present?,
+            dob_present: user_kyc.bvn_snapshot_dob.present?
+          }
+          Rails.logger.info("[BVN] snapshot_unavailable #{details}")
+        end
+
         def build_snapshot_result(user_kyc)
           {
             first_name: user_kyc.bvn_snapshot_first_name,
@@ -266,26 +302,14 @@ module Api
           }
         end
 
-        def handle_snapshot_recheck(user, user_kyc, bvn, profile_fingerprint)
-          snapshot_result = build_snapshot_result(user_kyc)
-          outcome = resolve_match_outcome(user, snapshot_result)
-          apply_outcome!(user_kyc, bvn, snapshot_result, outcome)
-
-          update_last_result!(
-            user_kyc,
-            status: outcome[:status],
-            reason: outcome[:reason],
-            profile_fingerprint: profile_fingerprint
-          )
-
-          refresh_tier!(user)
-
+        def handle_snapshot_recheck(user, user_kyc, bvn, fingerprint)
+          result = ::Kyc::BvnSnapshotRecheck.call(user, bvn: bvn, fingerprint: fingerprint)
           user_kyc.reload
           render json: response_payload(
             user,
             user_kyc,
             status: user_kyc.bvn_status,
-            reason: outcome[:reason],
+            reason: result&.dig(:reason),
             cached: true,
             retryable: false,
             message: "Used saved BVN details for verification."
@@ -294,6 +318,8 @@ module Api
         end
 
         def store_snapshot!(user_kyc, result)
+          return unless snapshot_fields_present?(result)
+
           user_kyc.update!(
             bvn_snapshot_first_name: normalize_snapshot_name(result[:first_name]),
             bvn_snapshot_last_name: normalize_snapshot_name(result[:last_name]),
@@ -305,6 +331,10 @@ module Api
           )
         end
 
+        def snapshot_fields_present?(result)
+          result[:first_name].present? && result[:last_name].present? && result[:date_of_birth].present?
+        end
+
         def normalize_snapshot_name(value)
           trimmed = value.to_s.strip
           trimmed.presence
@@ -313,6 +343,19 @@ module Api
         def normalize_snapshot_dob(value)
           parsed = parse_prembly_dob(value)
           parsed ? parsed.iso8601 : nil
+        end
+
+        def parse_prembly_dob(value)
+          raw = value.to_s.strip
+          return nil if raw.blank?
+
+          Date.strptime(raw, "%d-%b-%Y")
+        rescue StandardError
+          begin
+            Date.parse(raw)
+          rescue StandardError
+            nil
+          end
         end
 
         def transient_backoff?(user_kyc, fingerprint)
@@ -412,7 +455,7 @@ module Api
         end
 
         def resolve_match_outcome(user, result)
-          Kyc::BvnMatcher.resolve_match_outcome(user.user_profile, result)
+          ::Kyc::BvnMatcher.resolve_match_outcome(user.user_profile, result)
         end
 
         # NOTE: user is not needed here; keep scope tight.

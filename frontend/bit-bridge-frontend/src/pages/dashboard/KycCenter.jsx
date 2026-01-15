@@ -858,6 +858,23 @@ const KycCenter = () => {
             />
             {bvnError && <p className="text-xs text-rose-300">{bvnError}</p>}
 
+            {!phoneVerified && !hasTier2 && (
+              <div className="rounded-xl border border-amber-700/40 bg-amber-900/20 p-3 text-xs text-amber-200">
+                <span>
+                  {effectiveBvnStatus === 'verified'
+                    ? 'Phone verification is required for Tier 1. Complete it to proceed toward Tier 2.'
+                    : 'Verify your phone to complete Tier 1. Tier upgrades require phone verification.'}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setShowPhoneModal(true)}
+                  className="ml-2 underline text-amber-100 hover:text-amber-50"
+                >
+                  Verify phone
+                </button>
+              </div>
+            )}
+
             <button
               type="button"
               onClick={handleVerifyBvn}
@@ -887,7 +904,10 @@ const KycCenter = () => {
             </p>
             {effectiveBvnStatus === 'verified' && (
               <p className="text-emerald-300 font-semibold">
-                BVN verified (****{effectiveLast4}). Tier 2 activated.
+                BVN verified (****{effectiveLast4}). <span className="text-slate-100">Next:</span>{' '}
+                {phoneVerified
+                  ? 'complete your address and upload documents to unlock Tier 2.'
+                  : 'verify your phone and complete your profile/documents to unlock Tier 2.'}
               </p>
             )}
             {effectiveBvnStatus === 'pending_review' && (

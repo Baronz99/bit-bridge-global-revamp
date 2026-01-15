@@ -18,7 +18,8 @@ class Tier3VerificationJob < ApplicationJob
       return kyc.update!(tier3_status: "rejected", tier3_error: "BVN must be verified before Tier 3")
     end
 
-    bvn = kyc.bvn_encrypted.to_s.gsub(/\D/, "")
+    raw_bvn = kyc.decrypted_bvn
+    bvn = raw_bvn.to_s.gsub(/\D/, "")
     if bvn.length != 11
       return kyc.update!(tier3_status: "rejected", tier3_error: "Verified BVN not available for Tier 3")
     end

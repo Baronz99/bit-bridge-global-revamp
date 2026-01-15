@@ -48,8 +48,14 @@ module Api
             return render json: { error: "BVN must be verified before Tier 3" }, status: :unprocessable_entity
           end
 
-          bvn = kyc.bvn_encrypted.to_s.gsub(/\D/, "")
-          if bvn.length != 11
+          unless kyc.bvn_identity_confirmed?
+            return render json: { error: "Verified BVN not available. Please re-verify BVN." },
+                          status: :unprocessable_entity
+          end
+
+          raw_bvn = kyc.decrypted_bvn
+          bvn = raw_bvn.to_s.gsub(/\D/, "")
+          unless bvn.length == 11
             return render json: { error: "Verified BVN not available. Please re-verify BVN." },
                           status: :unprocessable_entity
           end
