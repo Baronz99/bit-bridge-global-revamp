@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require "digest"
+
 module Api
   module V1
     module Kyc
@@ -8,6 +10,18 @@ module Api
 
         USER_DAILY_LIMIT = 3
         IP_DAILY_LIMIT = 10
+        NON_TRANSIENT_STATUSES = %w[mismatch locked pending_review].freeze
+        PROVIDER_BACKOFF_SECONDS = 120
+        ALLOWED_REASONS = %w[
+          bvn_in_use
+          watchlisted
+          provider_incomplete
+          profile_incomplete
+          name_mismatch
+          mismatch
+          provider_unavailable
+          locked_rate_limit
+        ].freeze
 
         def verify
           unless FeatureFlags.prembly?
@@ -40,6 +54,35 @@ module Api
 
           last4 = bvn[-4, 4]
           fingerprint = ::Kyc::BvnFingerprint.generate(bvn)
+          profile_fingerprint = build_profile_fingerprint(user.user_profile)
+
+          if cache_hit?(user_kyc, fingerprint, profile_fingerprint)
+            Rails.logger.info("[BVN] cache hit status=#{user_kyc.bvn_last_result_status} user_id=#{user.id}")
+            return render json: response_payload(
+              user,
+              user_kyc,
+              status: user_kyc.bvn_last_result_status,
+              reason: user_kyc.bvn_last_result_reason,
+              cached: true,
+              retryable: false
+            ), status: :ok
+          end
+
+          if transient_backoff?(user_kyc, fingerprint)
+            wait = backoff_remaining_seconds(user_kyc)
+            Rails.logger.info("[BVN] backoff active wait_seconds=#{wait} user_id=#{user.id}")
+            response.set_header("Retry-After", wait.to_s)
+            return render json: response_payload(
+              user,
+              user_kyc,
+              status: user_kyc.bvn_status,
+              reason: "provider_unavailable",
+              cached: true,
+              retryable: true,
+              message: "BVN verification temporarily unavailable. Please retry in #{wait}s.",
+              retry_after_seconds: wait
+            ), status: :service_unavailable
+          end
 
           user_kyc.assign_attributes(
             bvn_last4: last4,
@@ -52,6 +95,12 @@ module Api
 
           if bvn_in_use?(fingerprint, user.id)
             user_kyc.update!(bvn_status: "pending_review")
+            update_last_result!(
+              user_kyc,
+              status: "pending_review",
+              reason: "bvn_in_use",
+              profile_fingerprint: profile_fingerprint
+            )
             review = create_review(user, "bvn_in_use", "pending")
             log_attempt(user, ip_address, false, "pending_review")
             log_audit(user, "verification_attempt", "pending_review", ip_address, review_id: review&.id)
@@ -62,9 +111,24 @@ module Api
 
           result = ::Kyc::PremblyBvnVerification.new(bvn).call
           unless result[:ok]
-            handle_failed_attempt!(user, user_kyc, ip_address, "failed", result[:error])
-            return render json: { status: "error", message: "BVN verification is unavailable. Try again later." },
-                          status: :service_unavailable
+            update_last_result!(
+              user_kyc,
+              status: user_kyc.bvn_status,
+              reason: "provider_unavailable",
+              profile_fingerprint: profile_fingerprint
+            )
+            wait = PROVIDER_BACKOFF_SECONDS
+            response.set_header("Retry-After", wait.to_s)
+            return render json: response_payload(
+              user,
+              user_kyc,
+              status: user_kyc.bvn_status,
+              reason: "provider_unavailable",
+              cached: false,
+              retryable: true,
+              message: "BVN verification is unavailable. Try again later.",
+              retry_after_seconds: wait
+            ), status: :service_unavailable
           end
 
           outcome = resolve_match_outcome(user, result)
@@ -72,10 +136,29 @@ module Api
 
           if outcome[:status] == "mismatch"
             handle_failed_attempt!(user, user_kyc, ip_address, "mismatch", outcome[:reason])
+            user_kyc.reload
+            update_last_result!(
+              user_kyc,
+              status: user_kyc.bvn_status,
+              reason: outcome[:reason],
+              profile_fingerprint: profile_fingerprint
+            )
             refresh_tier!(user)
-            return render json: response_payload(user, user_kyc, status: user_kyc.bvn_status, reason: outcome[:reason]),
+            return render json: response_payload(
+              user,
+              user_kyc,
+              status: user_kyc.bvn_status,
+              reason: outcome[:reason]
+            ),
                           status: :ok
           end
+
+          update_last_result!(
+            user_kyc,
+            status: outcome[:status],
+            reason: outcome[:reason],
+            profile_fingerprint: profile_fingerprint
+          )
 
           log_attempt(user, ip_address, outcome[:status] == "verified", outcome[:status])
           log_audit(user, "verification_attempt", outcome[:status], ip_address, outcome.slice(:reason))
@@ -87,13 +170,31 @@ module Api
 
           refresh_tier!(user)
 
-          render json: response_payload(user, user_kyc, status: outcome[:status], reason: outcome[:reason]),
+          user_kyc.reload
+          update_last_result!(
+            user_kyc,
+            status: user_kyc.bvn_status,
+            reason: outcome[:reason],
+            profile_fingerprint: profile_fingerprint
+          )
+
+          render json: response_payload(user, user_kyc, status: user_kyc.bvn_status, reason: outcome[:reason]),
                  status: :ok
         end
 
         private
 
-        def response_payload(user, user_kyc, status:, reason: nil)
+        def response_payload(
+          user,
+          user_kyc,
+          status:,
+          reason: nil,
+          cached: false,
+          retryable: true,
+          message: nil,
+          retry_after_seconds: nil
+        )
+          normalized_reason = normalize_reason(status: status, reason: reason)
           {
             status: status,
             tier: user.kyc_level || "tier_0",
@@ -106,7 +207,14 @@ module Api
             match_score: user_kyc.bvn_match_score,
             prembly_reference: user_kyc.bvn_provider_reference,
             verified_at: user_kyc.bvn_verified_at,
-            reason: reason
+            last_result_status: user_kyc.bvn_last_result_status,
+            last_result_reason: user_kyc.bvn_last_result_reason,
+            last_checked_at: user_kyc.bvn_last_checked_at,
+            reason: normalized_reason,
+            cached: cached,
+            retryable: retryable,
+            message: message,
+            retry_after_seconds: retry_after_seconds
           }
         end
 
@@ -116,6 +224,67 @@ module Api
             bvn_last4: user_kyc.bvn_last4,
             locked_until: user_kyc.bvn_locked_until
           }
+        end
+
+        def build_profile_fingerprint(profile)
+          return nil unless profile
+
+          raw = [profile.first_name, profile.last_name, profile.date_of_birth]
+                .map { |value| value.to_s.strip.downcase }
+                .join("|")
+          pepper = ENV["KYC_FINGERPRINT_PEPPER"].to_s
+          pepper = Rails.application.secret_key_base if pepper.empty?
+          Digest::SHA256.hexdigest("#{pepper}|#{raw}")
+        end
+
+        def cache_hit?(user_kyc, fingerprint, profile_fingerprint)
+          return false unless user_kyc.bvn_fingerprint.present?
+          return false unless user_kyc.bvn_fingerprint == fingerprint
+          return false unless NON_TRANSIENT_STATUSES.include?(user_kyc.bvn_last_result_status.to_s)
+          return false unless user_kyc.bvn_last_profile_fingerprint.present?
+          user_kyc.bvn_last_profile_fingerprint == profile_fingerprint
+        end
+
+        def transient_backoff?(user_kyc, fingerprint)
+          return false unless user_kyc.bvn_fingerprint.present?
+          return false unless user_kyc.bvn_fingerprint == fingerprint
+          return false unless user_kyc.bvn_last_result_reason.to_s == "provider_unavailable"
+
+          last = user_kyc.bvn_last_checked_at
+          return false unless last
+
+          Time.current - last < PROVIDER_BACKOFF_SECONDS
+        end
+
+        def backoff_remaining_seconds(user_kyc)
+          last = user_kyc.bvn_last_checked_at
+          return 0 unless last
+
+          remaining = PROVIDER_BACKOFF_SECONDS - (Time.current - last)
+          remaining.positive? ? remaining.ceil : 0
+        end
+
+        def update_last_result!(user_kyc, status:, reason:, profile_fingerprint:)
+          normalized_reason = normalize_reason(status: status, reason: reason)
+          user_kyc.update!(
+            bvn_last_result_status: status,
+            bvn_last_result_reason: normalized_reason,
+            bvn_last_checked_at: Time.current,
+            bvn_last_profile_fingerprint: profile_fingerprint
+          )
+        end
+
+        def normalize_reason(status:, reason:)
+          key = reason.to_s.strip
+          return nil if key.empty?
+          return key if ALLOWED_REASONS.include?(key)
+
+          status_key = status.to_s
+          return "locked_rate_limit" if status_key == "locked"
+          return "mismatch" if status_key == "mismatch"
+          return "provider_incomplete" if status_key == "pending_review"
+
+          nil
         end
 
         def reset_attempt_window!(user_kyc)

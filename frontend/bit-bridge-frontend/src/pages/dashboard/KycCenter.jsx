@@ -312,6 +312,8 @@ const KycCenter = () => {
   const [bvnSubmitting, setBvnSubmitting] = React.useState(false)
   const [bvnResponse, setBvnResponse] = React.useState(null)
   const [bvnError, setBvnError] = React.useState('')
+  const [bvnRetryUntil, setBvnRetryUntil] = React.useState(null)
+  const [bvnNow, setBvnNow] = React.useState(Date.now())
 
   // Tier 3 (biometric) UI state
   const [showTier3Modal, setShowTier3Modal] = React.useState(false)
@@ -419,18 +421,28 @@ const KycCenter = () => {
     setBvnSubmitting(true)
     setBvnError('')
     setBvnResponse(null)
+    setBvnRetryUntil(null)
 
     try {
       const res = await client.post('/kyc/bvn/verify', { bvn: normalized })
-      setBvnResponse(res?.data || null)
+      const payload = res?.data || null
+      setBvnResponse(payload)
+      if (payload?.retry_after_seconds) {
+        setBvnRetryUntil(Date.now() + payload.retry_after_seconds * 1000)
+      }
       setBvnInput('')
       await dispatch(userProfile())
     } catch (error) {
+      const payload = error?.response?.data || null
       const message =
-        error?.response?.data?.message ||
-        error?.response?.data?.error ||
+        payload?.message ||
+        payload?.error ||
         'Unable to verify BVN right now.'
       setBvnError(message)
+      setBvnResponse(payload)
+      if (payload?.retry_after_seconds) {
+        setBvnRetryUntil(Date.now() + payload.retry_after_seconds * 1000)
+      }
     } finally {
       setBvnSubmitting(false)
     }
@@ -438,6 +450,12 @@ const KycCenter = () => {
 
   const effectiveBvnStatus = bvnResponse?.status || bvnStatus
   const effectiveLast4 = bvnResponse?.bvn_last4 || bvnLast4
+  const effectiveBvnReason = bvnResponse?.reason || userKyc?.bvn_last_result_reason || ''
+
+  const retrySecondsRemaining = bvnRetryUntil
+    ? Math.max(0, Math.ceil((bvnRetryUntil - bvnNow) / 1000))
+    : 0
+  const isRetryBackoff = retrySecondsRemaining > 0
 
   const bvnStatusLabel =
     effectiveBvnStatus === 'verified'
@@ -462,6 +480,13 @@ const KycCenter = () => {
       : effectiveBvnStatus === 'locked'
       ? 'text-rose-300'
       : 'text-slate-400'
+
+  React.useEffect(() => {
+    if (!bvnRetryUntil) return
+    if (retrySecondsRemaining <= 0) return
+    const timer = setInterval(() => setBvnNow(Date.now()), 1000)
+    return () => clearInterval(timer)
+  }, [bvnRetryUntil, retrySecondsRemaining])
 
   const openTier3 = async () => {
     setTier3Error('')
@@ -830,10 +855,22 @@ const KycCenter = () => {
             <button
               type="button"
               onClick={handleVerifyBvn}
-              disabled={bvnSubmitting || isBvnVerified}
+              disabled={
+                bvnSubmitting ||
+                isBvnVerified ||
+                isRetryBackoff ||
+                effectiveBvnStatus === 'pending_review' ||
+                effectiveBvnStatus === 'locked'
+              }
               className="inline-flex items-center px-4 py-2 rounded-xl bg-alt text-black text-xs font-semibold hover:brightness-110 transition disabled:opacity-60"
             >
-              {isBvnVerified ? 'BVN Verified' : bvnSubmitting ? 'Verifying...' : 'Confirm BVN'}
+              {isBvnVerified
+                ? 'BVN Verified'
+                : bvnSubmitting
+                ? 'Verifying...'
+                : isRetryBackoff
+                ? `Retry in ${retrySecondsRemaining}s`
+                : 'Confirm BVN'}
             </button>
           </div>
 
@@ -854,6 +891,13 @@ const KycCenter = () => {
             {effectiveBvnStatus === 'mismatch' && (
               <p className="text-rose-300">
                 BVN details do not match your profile. Check your name and date of birth, then retry.
+                <button
+                  type="button"
+                  onClick={goProfile}
+                  className="ml-2 underline text-rose-200 hover:text-rose-100"
+                >
+                  Update profile
+                </button>
               </p>
             )}
             {effectiveBvnStatus === 'locked' && (
@@ -864,6 +908,17 @@ const KycCenter = () => {
             {effectiveBvnStatus === 'failed' && (
               <p className="text-rose-300">
                 Provider unavailable. Please retry in a few minutes.
+                {isRetryBackoff && (
+                  <span className="ml-2 text-rose-200">Retry in {retrySecondsRemaining}s.</span>
+                )}
+              </p>
+            )}
+            {effectiveBvnReason === 'provider_unavailable' && effectiveBvnStatus !== 'failed' && (
+              <p className="text-rose-300">
+                Provider unavailable. Please retry in a few minutes.
+                {isRetryBackoff && (
+                  <span className="ml-2 text-rose-200">Retry in {retrySecondsRemaining}s.</span>
+                )}
               </p>
             )}
             {effectiveBvnStatus === 'unverified' && <p>Enter your BVN to begin verification.</p>}
