@@ -462,6 +462,11 @@ const KycCenter = () => {
   const isBvnPending = effectiveBvnStatus === 'pending'
   const isVerifyingBvn = bvnSubmitting
   const nextCheckSeconds = bvnResponse?.next_check_seconds
+  const requirements = bvnResponse?.requirements
+  const requirementMissing = Array.isArray(requirements?.missing) ? requirements.missing : []
+  const requirementSteps = Array.isArray(requirements?.next_steps) ? requirements.next_steps : []
+  const requirementTier = requirements?.tier_current
+  const tier2Ready = requirements?.checks?.tier2_ready === true
 
   const retrySecondsRemaining = bvnRetryUntil
     ? Math.max(0, Math.ceil((bvnRetryUntil - bvnNow) / 1000))
@@ -532,6 +537,21 @@ const KycCenter = () => {
     }, intervalMs)
     return () => clearInterval(timer)
   }, [effectiveBvnStatus, pollBvnStatus])
+
+  React.useEffect(() => {
+    const fetchInitialStatus = async () => {
+      try {
+        const res = await client.get('/kyc/bvn/status')
+        const payload = res?.data || null
+        if (payload) {
+          setBvnResponse(payload)
+        }
+      } catch (_) {
+        // ignore initial status failures
+      }
+    }
+    fetchInitialStatus()
+  }, [])
 
   const openTier3 = async () => {
     setTier3Error('')
@@ -958,12 +978,33 @@ const KycCenter = () => {
               Verification result
             </p>
             {effectiveBvnStatus === 'verified' && (
-              <p className="text-emerald-300 font-semibold">
-                BVN verified (****{effectiveLast4}). <span className="text-slate-100">Next:</span>{' '}
-                {phoneVerified
-                  ? 'complete your address and upload documents to unlock Tier 2.'
-                  : 'verify your phone and complete your profile/documents to unlock Tier 2.'}
-              </p>
+              <div className="text-emerald-300 font-semibold">
+                <div>
+                  BVN verified (****{effectiveLast4}).{' '}
+                  {!requirements && (
+                    <>
+                      <span className="text-slate-100">Next:</span>{' '}
+                      {phoneVerified
+                        ? 'complete your address and upload documents to unlock Tier 2.'
+                        : 'verify your phone and complete your profile/documents to unlock Tier 2.'}
+                    </>
+                  )}
+                </div>
+                {requirements && tier2Ready && (
+                  requirementTier === 'tier_2' || requirementTier === 'tier_3' ? (
+                    <div className="mt-2 text-slate-100">Tier 2 unlocked.</div>
+                  ) : (
+                    <div className="mt-2 text-slate-100">Tier 2 ready.</div>
+                  )
+                )}
+                {requirements && !tier2Ready && requirementSteps.length > 0 && (
+                  <ul className="mt-2 list-disc list-inside text-slate-200 font-normal">
+                    {requirementSteps.map((step, idx) => (
+                      <li key={`req-step-${idx}`}>{step}</li>
+                    ))}
+                  </ul>
+                )}
+              </div>
             )}
             {effectiveBvnStatus === 'pending_review' && (
               <p className="text-amber-200">

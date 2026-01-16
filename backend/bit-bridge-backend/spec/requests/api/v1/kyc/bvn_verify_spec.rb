@@ -27,6 +27,35 @@ RSpec.describe 'BVN verification caching', type: :request do
     allow(Kyc::PremblyBvnBasicValidation).to receive(:new).and_return(double(call: { ok: true }))
   end
 
+  def attach_docs!(profile)
+    id_file = Tempfile.new(['id_doc', '.txt'])
+    id_file.write('id-doc')
+    id_file.rewind
+    profile.id_document.attach(
+      io: id_file,
+      filename: 'id_doc.txt',
+      content_type: 'text/plain'
+    )
+
+    poa_file = Tempfile.new(['proof', '.txt'])
+    poa_file.write('proof')
+    poa_file.rewind
+    profile.proof_of_address.attach(
+      io: poa_file,
+      filename: 'proof.txt',
+      content_type: 'text/plain'
+    )
+  ensure
+    if id_file
+      id_file.close
+      id_file.unlink
+    end
+    if poa_file
+      poa_file.close
+      poa_file.unlink
+    end
+  end
+
   it 'returns cached mismatch without calling provider' do
     fingerprint = Kyc::BvnFingerprint.generate(bvn)
     profile_fp = profile_fingerprint(user.user_profile)
@@ -479,5 +508,39 @@ RSpec.describe 'BVN verification caching', type: :request do
     expect(response).to have_http_status(:ok)
     json = JSON.parse(response.body)
     expect(json['reason']).to eq('provider_incomplete')
+  end
+
+  describe 'requirements payload' do
+    before do
+      user.user_kyc.update!(bvn_status: 'verified', bvn_verified_at: Time.current)
+      user.user_profile.update!(
+        address_line1: '123 Main St',
+        city: 'Lagos',
+        state: 'LA'
+      )
+    end
+
+    it 'marks tier2_ready when address and docs are complete' do
+      attach_docs!(user.user_profile)
+
+      get '/api/v1/kyc/bvn/status', headers: headers
+
+      expect(response).to have_http_status(:ok)
+      json = JSON.parse(response.body)
+      requirements = json['requirements']
+      expect(requirements['checks']['tier2_ready']).to eq(true)
+      expect(requirements['missing']).to eq([])
+      expect(requirements['next_steps']).to eq([])
+    end
+
+    it 'flags missing documents with upload next step' do
+      get '/api/v1/kyc/bvn/status', headers: headers
+
+      expect(response).to have_http_status(:ok)
+      json = JSON.parse(response.body)
+      requirements = json['requirements']
+      expect(requirements['missing']).to include('documents')
+      expect(requirements['next_steps']).to include('Upload your ID document and proof of address.')
+    end
   end
 end

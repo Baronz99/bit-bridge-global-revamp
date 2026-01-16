@@ -279,6 +279,7 @@ module Api
             message: message,
             retry_after_seconds: retry_after_seconds
           }
+          payload[:requirements] = ::Kyc::RequirementsCalculator.new(user).call
           payload[:snapshot_present] = snapshot_present if snapshot_present
           if status.to_s == "pending" && next_check_seconds
             payload[:next_check_seconds] = next_check_seconds

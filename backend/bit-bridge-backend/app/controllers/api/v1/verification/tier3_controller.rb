@@ -32,42 +32,48 @@ module Api
           # Accept either param name, but both should still be base64/data-url strings.
           input = image_url.presence || image.presence
           if input.blank?
-            return render json: { error: "image or image_url is required" }, status: :unprocessable_entity
+            return render_with_requirements({ error: "image or image_url is required" }, :unprocessable_entity)
           end
 
           # Reject actual URLs (Prembly expects base64/data-url, and URLs cause confusion + failures)
           if input.match?(/\Ahttps?:\/\//i)
-            return render json: { error: "image must be a base64 string or data URL (not a remote URL)" },
-                          status: :unprocessable_entity
+            return render_with_requirements(
+              { error: "image must be a base64 string or data URL (not a remote URL)" },
+              :unprocessable_entity
+            )
           end
 
           kyc = current_user.user_kyc
-          return render json: { error: "KYC record not found" }, status: :unprocessable_entity if kyc.nil?
+          return render_with_requirements({ error: "KYC record not found" }, :unprocessable_entity) if kyc.nil?
 
           unless kyc.verified?
-            return render json: { error: "BVN must be verified before Tier 3" }, status: :unprocessable_entity
+            return render_with_requirements({ error: "BVN must be verified before Tier 3" }, :unprocessable_entity)
           end
 
           unless kyc.bvn_identity_confirmed?
-            return render json: { error: "Verified BVN not available. Please re-verify BVN." },
-                          status: :unprocessable_entity
+            return render_with_requirements(
+              { error: "Verified BVN not available. Please re-verify BVN." },
+              :unprocessable_entity
+            )
           end
 
           raw_bvn = kyc.decrypted_bvn
           bvn = raw_bvn.to_s.gsub(/\D/, "")
           unless bvn.length == 11
-            return render json: { error: "Verified BVN not available. Please re-verify BVN." },
-                          status: :unprocessable_entity
+            return render_with_requirements(
+              { error: "Verified BVN not available. Please re-verify BVN." },
+              :unprocessable_entity
+            )
           end
 
           # Lock to prevent double-enqueue under rapid clicks
           kyc.with_lock do
             # Don’t enqueue repeatedly
             if %w[pending processing verified].include?(kyc.tier3_status.to_s)
-              return render json: {
+              return render_with_requirements({
                 status: kyc.tier3_status,
                 message: "Tier 3 already #{kyc.tier3_status}"
-              }, status: :ok
+              }, :ok)
             end
 
             kyc.update!(
@@ -80,20 +86,27 @@ module Api
 
           Tier3VerificationJob.perform_later(current_user.id, input)
 
-          render json: { message: "Tier 3 submitted", status: "pending" }, status: :ok
+          render_with_requirements({ message: "Tier 3 submitted", status: "pending" }, :ok)
         rescue ActiveRecord::RecordInvalid => e
-          render json: { error: e.record.errors.full_messages.join(", ") }, status: :unprocessable_entity
+          render_with_requirements({ error: e.record.errors.full_messages.join(", ") }, :unprocessable_entity)
         rescue StandardError => e
           Rails.logger.error("[Tier3] start failed: #{e.class}: #{e.message}")
-          render json: { error: "Tier 3 could not be started" }, status: :internal_server_error
+          render_with_requirements({ error: "Tier 3 could not be started" }, :internal_server_error)
         end
 
         # GET /api/v1/verification/tier3/status
         def status
           kyc = current_user.user_kyc
-          return render json: { error: "KYC record not found" }, status: :unprocessable_entity if kyc.nil?
+          return render_with_requirements({ error: "KYC record not found" }, :unprocessable_entity) if kyc.nil?
 
-          render json: UserKycSerializer.new(kyc).as_json, status: :ok
+          render_with_requirements(UserKycSerializer.new(kyc).as_json, :ok)
+        end
+
+        private
+
+        def render_with_requirements(payload, status)
+          payload[:requirements] = ::Kyc::RequirementsCalculator.new(current_user).call
+          render json: payload, status: status
         end
       end
     end
