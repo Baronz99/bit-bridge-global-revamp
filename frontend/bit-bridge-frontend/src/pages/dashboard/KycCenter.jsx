@@ -461,17 +461,17 @@ const KycCenter = () => {
   const effectiveBvnReason = bvnResponse?.reason || userKyc?.bvn_last_result_reason || ''
   const isBvnPending = effectiveBvnStatus === 'pending'
   const isVerifyingBvn = bvnSubmitting
-  const bvnIsValid =
-    bvnInput.replace(/\D/g, '').length === 11 &&
-    !isRetryBackoff &&
-    !isBvnVerified &&
-    effectiveBvnStatus !== 'locked'
   const nextCheckSeconds = bvnResponse?.next_check_seconds
 
   const retrySecondsRemaining = bvnRetryUntil
     ? Math.max(0, Math.ceil((bvnRetryUntil - bvnNow) / 1000))
     : 0
   const isRetryBackoff = retrySecondsRemaining > 0
+  const bvnIsValid =
+    bvnInput.replace(/\D/g, '').length === 11 &&
+    !isRetryBackoff &&
+    !isBvnVerified &&
+    effectiveBvnStatus !== 'locked'
 
   const bvnStatusLabel =
     effectiveBvnStatus === 'verified'

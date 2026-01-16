@@ -8,7 +8,8 @@
     "dev:staging": "vite --mode staging",
     "build": "vite build",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "circular": "npx madge src --circular --extensions js,jsx"
   },
   "dependencies": {
     "@ant-design/icons": "^5.5.2",
