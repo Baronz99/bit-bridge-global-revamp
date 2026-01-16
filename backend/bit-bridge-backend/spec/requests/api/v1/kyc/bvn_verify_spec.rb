@@ -370,6 +370,21 @@ RSpec.describe 'BVN verification caching', type: :request do
     expect(json['next_check_seconds']).to be > 0
   end
 
+  it 'omits next_check_seconds when not pending' do
+    user.user_kyc.update!(
+      bvn_status: 'mismatch',
+      bvn_last_result_reason: 'mismatch',
+      bvn_retry_next_at: Time.current + 90
+    )
+
+    get '/api/v1/kyc/bvn/status', headers: headers
+
+    expect(response).to have_http_status(:ok)
+    json = JSON.parse(response.body)
+    expect(json['status']).to eq('mismatch')
+    expect(json.key?('next_check_seconds')).to eq(false)
+  end
+
   it 'normalizes mismatch reason fallback' do
     result = {
       ok: true,

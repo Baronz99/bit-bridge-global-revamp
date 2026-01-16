@@ -260,7 +260,9 @@ module Api
             retry_after_seconds: retry_after_seconds
           }
           payload[:snapshot_present] = snapshot_present if snapshot_present
-          payload[:next_check_seconds] = next_check_seconds if next_check_seconds
+          if status.to_s == "pending" && next_check_seconds
+            payload[:next_check_seconds] = next_check_seconds
+          end
           payload
         end
 
