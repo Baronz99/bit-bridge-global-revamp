@@ -24,6 +24,8 @@ module Api
           cached_mismatch
           cached_pending_review
           provider_unavailable
+          provider_unavailable_timeout
+          bvn_missing
           locked_rate_limit
         ].freeze
 
@@ -88,23 +90,26 @@ module Api
           if transient_backoff?(user_kyc, fingerprint) && !snapshot_available?(user_kyc, fingerprint)
             wait = backoff_remaining_seconds(user_kyc)
             Rails.logger.info("[BVN] backoff active wait_seconds=#{wait} user_id=#{user.id}")
+            ensure_bvn_identity!(user_kyc, bvn, last4, fingerprint)
+            user_kyc.update!(bvn_status: "pending") unless user_kyc.verified?
             update_last_result!(
               user_kyc,
               status: "failed",
               reason: "provider_unavailable",
               profile_fingerprint: profile_fingerprint
             )
+            enqueue_bvn_retry!(user_kyc, fingerprint)
             response.set_header("Retry-After", wait.to_s)
             return render json: response_payload(
               user,
               user_kyc,
-              status: "failed",
+              status: "pending",
               reason: "provider_unavailable",
               cached: false,
-              retryable: true,
-              message: "BVN verification temporarily unavailable. Please retry in #{wait}s.",
-              retry_after_seconds: wait
-            ), status: :service_unavailable
+              retryable: false,
+              message: "BVN verification pending. We'll update automatically.",
+              next_check_seconds: wait
+            ), status: :ok
           end
 
           register_attempt!(user_kyc, last4, fingerprint)
@@ -127,6 +132,8 @@ module Api
 
           result = ::Kyc::PremblyBvnVerification.new(bvn).call
           unless result[:ok]
+            ensure_bvn_identity!(user_kyc, bvn, last4, fingerprint)
+            user_kyc.update!(bvn_status: "pending") unless user_kyc.verified?
             update_last_result!(
               user_kyc,
               status: "failed",
@@ -135,16 +142,17 @@ module Api
             )
             wait = PROVIDER_BACKOFF_SECONDS
             response.set_header("Retry-After", wait.to_s)
+            enqueue_bvn_retry!(user_kyc, fingerprint)
             return render json: response_payload(
               user,
               user_kyc,
-              status: "failed",
+              status: "pending",
               reason: "provider_unavailable",
               cached: false,
-              retryable: true,
-              message: "BVN verification is unavailable. Try again later.",
-              retry_after_seconds: wait
-            ), status: :service_unavailable
+              retryable: false,
+              message: "BVN verification pending. We'll update automatically.",
+              next_check_seconds: wait
+            ), status: :ok
           end
 
           outcome = resolve_match_outcome(user, result)
@@ -199,6 +207,22 @@ module Api
                  status: :ok
         end
 
+        def status
+          user = current_user
+          user_kyc = user.user_kyc || user.build_user_kyc
+          next_check = pending_next_check_seconds(user_kyc)
+          render json: response_payload(
+            user,
+            user_kyc,
+            status: user_kyc.bvn_status,
+            reason: user_kyc.bvn_last_result_reason,
+            cached: false,
+            retryable: false,
+            snapshot_present: snapshot_presence(user_kyc),
+            next_check_seconds: next_check
+          ), status: :ok
+        end
+
         private
 
         def response_payload(
@@ -209,10 +233,12 @@ module Api
           cached: false,
           retryable: true,
           message: nil,
-          retry_after_seconds: nil
+          retry_after_seconds: nil,
+          next_check_seconds: nil,
+          snapshot_present: nil
         )
           normalized_reason = normalize_reason(status: status, reason: reason)
-          {
+          payload = {
             status: status,
             tier: user.kyc_level || "tier_0",
             bvn_last4: user_kyc.bvn_last4,
@@ -233,6 +259,9 @@ module Api
             message: message,
             retry_after_seconds: retry_after_seconds
           }
+          payload[:snapshot_present] = snapshot_present if snapshot_present
+          payload[:next_check_seconds] = next_check_seconds if next_check_seconds
+          payload
         end
 
         def locked_payload(user_kyc)
@@ -426,6 +455,8 @@ module Api
             "cached_mismatch"
           when "pending_review"
             "cached_pending_review"
+          when "pending"
+            "pending"
           when "locked"
             "locked"
           when "verified"
@@ -433,6 +464,46 @@ module Api
           else
             "cached_result"
           end
+        end
+
+        def ensure_bvn_identity!(user_kyc, bvn, last4, fingerprint)
+          updates = {}
+          updates[:bvn_last4] = last4 if user_kyc.bvn_last4.blank?
+          updates[:bvn_fingerprint] = fingerprint if user_kyc.bvn_fingerprint.blank?
+          updates[:bvn_encrypted] = bvn if user_kyc.bvn_encrypted.blank?
+          user_kyc.update!(updates) if updates.any?
+        end
+
+        def enqueue_bvn_retry!(user_kyc, fingerprint)
+          return unless user_kyc.bvn_status.to_s == "pending"
+          next_at = user_kyc.bvn_retry_next_at
+          return if next_at.present? && next_at > Time.current
+
+          user_kyc.update!(
+            bvn_retry_next_at: Time.current + PROVIDER_BACKOFF_SECONDS,
+            bvn_retry_attempt: user_kyc.bvn_retry_attempt.to_i
+          )
+          ::Kyc::BvnRetryJob.set(wait: PROVIDER_BACKOFF_SECONDS.seconds)
+                            .perform_later(user_kyc.id, fingerprint)
+        end
+
+        def snapshot_presence(user_kyc)
+          {
+            first_name: user_kyc.bvn_snapshot_first_name.present?,
+            last_name: user_kyc.bvn_snapshot_last_name.present?,
+            dob: user_kyc.bvn_snapshot_dob.present?,
+            expires_at: user_kyc.bvn_snapshot_expires_at.present?
+          }
+        end
+
+        def pending_next_check_seconds(user_kyc)
+          return nil unless user_kyc.bvn_status.to_s == "pending"
+
+          next_at = user_kyc.bvn_retry_next_at
+          return PROVIDER_BACKOFF_SECONDS unless next_at
+
+          remaining = next_at - Time.current
+          remaining.positive? ? remaining.ceil : 0
         end
 
         def reset_attempt_window!(user_kyc)

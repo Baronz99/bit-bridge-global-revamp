@@ -15,11 +15,14 @@ class KycReviewSerializer < ActiveModel::Serializer
              :bvn_last_result_status,
              :bvn_last_result_reason,
              :bvn_last_checked_at,
+             :bvn_retry_attempt,
+             :bvn_retry_next_at,
              :bvn_snapshot_first_name,
              :bvn_snapshot_last_name,
              :bvn_snapshot_dob,
              :bvn_snapshot_expires_at,
-             :bvn_last_profile_fingerprint
+             :bvn_last_profile_fingerprint,
+             :retry_events
 
   belongs_to :user
 
@@ -88,6 +91,14 @@ class KycReviewSerializer < ActiveModel::Serializer
     kyc_record&.bvn_last_checked_at
   end
 
+  def bvn_retry_attempt
+    kyc_record&.bvn_retry_attempt
+  end
+
+  def bvn_retry_next_at
+    kyc_record&.bvn_retry_next_at
+  end
+
   def bvn_snapshot_first_name
     kyc_record&.bvn_snapshot_first_name
   end
@@ -106,6 +117,25 @@ class KycReviewSerializer < ActiveModel::Serializer
 
   def bvn_last_profile_fingerprint
     kyc_record&.bvn_last_profile_fingerprint
+  end
+
+  def retry_events
+    kyc = kyc_record
+    return [] unless kyc
+
+    KycBvnRetryEvent.where(user_kyc_id: kyc.id)
+                    .order(created_at: :desc)
+                    .limit(10)
+                    .map do |event|
+      {
+        attempt_number: event.attempt_number,
+        status: event.status,
+        reason: event.reason,
+        next_wait_seconds: event.next_wait_seconds,
+        provider_reference: event.provider_reference,
+        created_at: event.created_at
+      }
+    end
   end
 
   def user

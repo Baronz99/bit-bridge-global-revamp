@@ -65,6 +65,31 @@ RSpec.describe 'Admin KYC reviews', type: :request do
       bvn_snapshot_dob: nil,
       bvn_snapshot_expires_at: nil
     )
+    pending_user = create(:user)
+    pending_user.create_user_profile!(
+      first_name: 'Pending',
+      last_name: 'User',
+      date_of_birth: Date.new(1995, 5, 5)
+    )
+    pending_user.create_user_kyc!(
+      bvn_status: 'pending',
+      bvn_last4: '2222',
+      bvn_last_result_status: 'failed',
+      bvn_last_result_reason: 'provider_unavailable',
+      bvn_last_checked_at: 1.hour.ago,
+      bvn_retry_attempt: 2,
+      bvn_retry_next_at: Time.current + 120
+    )
+    KycBvnRetryEvent.create!(
+      user_id: pending_user.id,
+      user_kyc_id: pending_user.user_kyc.id,
+      attempt_number: 2,
+      status: 'retry_scheduled',
+      reason: 'provider_unavailable',
+      next_wait_seconds: 120,
+      provider_reference: 'prembly-ref',
+      created_at: Time.current
+    )
 
     get '/api/v1/admin/kyc_reviews', params: { include_mismatch: true }, headers: headers
 
@@ -78,5 +103,13 @@ RSpec.describe 'Admin KYC reviews', type: :request do
     expect(mismatch_item['status']).to eq('mismatch')
     expect(data.index { |item| item['bvn_last4'] == '7890' })
       .to be < data.index { |item| item['bvn_last4'] == '1111' }
+
+    pending_item = data.find { |item| item['bvn_last4'] == '2222' }
+    expect(pending_item).to be_present
+    expect(pending_item['status']).to eq('pending')
+    expect(pending_item['bvn_retry_attempt']).to eq(2)
+    expect(pending_item['bvn_retry_next_at']).to be_present
+    expect(pending_item['retry_events']).to be_an(Array)
+    expect(pending_item['retry_events'].first['status']).to eq('retry_scheduled')
   end
 end

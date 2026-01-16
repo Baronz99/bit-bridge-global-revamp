@@ -11,9 +11,8 @@ const KycReviews = () => {
   const fetchReviews = async () => {
     setLoading(true)
     try {
-      const res = await client.get('/admin/kyc_reviews', {
-        params: statusFilter ? { status: statusFilter } : {},
-      })
+      const params = statusFilter ? { status: statusFilter, include_mismatch: true } : { include_mismatch: true }
+      const res = await client.get('/admin/kyc_reviews', { params })
       const data = res?.data?.data || []
       setReviews(Array.isArray(data) ? data : [])
     } catch (error) {

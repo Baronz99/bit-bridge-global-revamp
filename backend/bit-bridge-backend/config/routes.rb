@@ -66,6 +66,7 @@ Rails.application.routes.draw do
       # ✅ BVN verification (Prembly)
       namespace :kyc do
         post "bvn/verify", to: "bvn#verify"
+        get  "bvn/status", to: "bvn#status"
       end
 
       # ✅ Transaction PIN (single canonical routing)

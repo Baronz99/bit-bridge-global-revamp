@@ -434,7 +434,7 @@ const KycCenter = () => {
       if (payload?.retry_after_seconds) {
         setBvnRetryUntil(Date.now() + payload.retry_after_seconds * 1000)
       }
-      if (payload?.status === 'verified' || payload?.status === 'pending_review') {
+      if (payload?.status === 'verified' || payload?.status === 'pending_review' || payload?.status === 'pending') {
         setBvnInput('')
       }
       await dispatch(userProfile())
@@ -466,6 +466,8 @@ const KycCenter = () => {
   const bvnStatusLabel =
     effectiveBvnStatus === 'verified'
       ? 'Verified'
+      : effectiveBvnStatus === 'pending'
+      ? 'Pending'
       : effectiveBvnStatus === 'pending_review'
       ? 'Pending review'
       : effectiveBvnStatus === 'mismatch'
@@ -479,6 +481,8 @@ const KycCenter = () => {
   const bvnStatusClass =
     effectiveBvnStatus === 'verified'
       ? 'text-emerald-300'
+      : effectiveBvnStatus === 'pending'
+      ? 'text-amber-300'
       : effectiveBvnStatus === 'pending_review'
       ? 'text-amber-300'
       : effectiveBvnStatus === 'mismatch'
@@ -493,6 +497,31 @@ const KycCenter = () => {
     const timer = setInterval(() => setBvnNow(Date.now()), 1000)
     return () => clearInterval(timer)
   }, [bvnRetryUntil, retrySecondsRemaining])
+
+  const pollBvnStatus = React.useCallback(async () => {
+    try {
+      const res = await client.get('/kyc/bvn/status')
+      const payload = res?.data || null
+      if (payload) {
+        setBvnResponse(payload)
+        if (payload?.status && payload.status !== 'pending') {
+          setBvnRetryUntil(null)
+        }
+      }
+    } catch (_) {
+      // silent polling failure
+    }
+  }, [])
+
+  React.useEffect(() => {
+    if (effectiveBvnStatus !== 'pending') return
+    const intervalMs = 12000
+    pollBvnStatus()
+    const timer = setInterval(() => {
+      pollBvnStatus()
+    }, intervalMs)
+    return () => clearInterval(timer)
+  }, [effectiveBvnStatus, pollBvnStatus])
 
   const openTier3 = async () => {
     setTier3Error('')
@@ -913,6 +942,11 @@ const KycCenter = () => {
             {effectiveBvnStatus === 'pending_review' && (
               <p className="text-amber-200">
                 Submitted for review. You can re-check BVN if you updated your profile.
+              </p>
+            )}
+            {effectiveBvnStatus === 'pending' && (
+              <p className="text-amber-200">
+                BVN verification is pending. We'll update automatically once the provider is available.
               </p>
             )}
             {effectiveBvnStatus === 'mismatch' && (

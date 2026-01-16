@@ -15,14 +15,18 @@ module Api
 
           if truthy_param?(params[:include_mismatch])
             review_user_ids = reviews.map(&:user_id).compact
-            mismatches = UserKyc.where(bvn_status: 'mismatch')
-                                .where.not(user_id: review_user_ids)
-                                .where(
-                                  "bvn_snapshot_first_name IS NULL OR bvn_snapshot_last_name IS NULL OR bvn_snapshot_dob IS NULL OR bvn_snapshot_expires_at IS NULL OR bvn_last_result_reason = ?",
-                                  "provider_unavailable"
-                                )
+            mismatch_scope = UserKyc.where(bvn_status: "mismatch")
+                                    .where(
+                                      "bvn_snapshot_first_name IS NULL OR bvn_snapshot_last_name IS NULL OR bvn_snapshot_dob IS NULL OR bvn_snapshot_expires_at IS NULL OR bvn_last_result_reason = ?",
+                                      "provider_unavailable"
+                                    )
+            pending_scope = UserKyc.where(bvn_status: "pending")
 
-            reviews.concat(mismatches.includes(:user).to_a)
+            combined = UserKyc.where(id: pending_scope.select(:id))
+                              .or(UserKyc.where(id: mismatch_scope.select(:id)))
+                              .where.not(user_id: review_user_ids)
+
+            reviews.concat(combined.includes(:user).to_a)
           end
 
           reviews = reviews.each_with_index.sort_by do |item, idx|

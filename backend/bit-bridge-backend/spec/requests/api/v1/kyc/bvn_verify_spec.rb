@@ -3,6 +3,7 @@
 require 'rails_helper'
 
 RSpec.describe 'BVN verification caching', type: :request do
+  include ActiveJob::TestHelper
   let(:user) { create(:user) }
   let(:headers) { auth_headers(user) }
   let(:bvn) { '12345678901' }
@@ -284,19 +285,21 @@ RSpec.describe 'BVN verification caching', type: :request do
     before_attempts = user.user_kyc.bvn_failed_attempts_count
     expect(Kyc::PremblyBvnVerification).not_to receive(:new)
 
-    post '/api/v1/kyc/bvn/verify', params: { bvn: bvn }, headers: headers
+    expect do
+      post '/api/v1/kyc/bvn/verify', params: { bvn: bvn }, headers: headers
+    end.to have_enqueued_job(Kyc::BvnRetryJob)
 
-    expect(response).to have_http_status(:service_unavailable)
+    expect(response).to have_http_status(:ok)
     json = JSON.parse(response.body)
-    expect(json['status']).to eq('failed')
+    expect(json['status']).to eq('pending')
     expect(json['cached']).to eq(false)
-    expect(json['retryable']).to eq(true)
+    expect(json['retryable']).to eq(false)
     expect(json['reason']).to eq('provider_unavailable')
-    expect(json['message']).to match(/temporarily unavailable/i)
-    expect(json['retry_after_seconds']).to be_present
-    expect(json['retry_after_seconds']).to be > 0
+    expect(json['message']).to match(/pending/i)
+    expect(json['next_check_seconds']).to be_present
+    expect(json['next_check_seconds']).to be > 0
     expect(response.headers['Retry-After']).to be_present
-    expect(response.headers['Retry-After']).to eq(json['retry_after_seconds'].to_s)
+    expect(response.headers['Retry-After']).to eq(json['next_check_seconds'].to_s)
 
     user.user_kyc.reload
     expect(user.user_kyc.bvn_failed_attempts_count).to eq(before_attempts)
@@ -313,37 +316,58 @@ RSpec.describe 'BVN verification caching', type: :request do
     expect(Kyc::PremblyBvnVerification).to receive(:new).with(bvn)
       .and_return(double(call: result))
 
-    post '/api/v1/kyc/bvn/verify', params: { bvn: bvn }, headers: headers
+    expect do
+      post '/api/v1/kyc/bvn/verify', params: { bvn: bvn }, headers: headers
+    end.to have_enqueued_job(Kyc::BvnRetryJob)
 
-    expect(response).to have_http_status(:service_unavailable)
+    expect(response).to have_http_status(:ok)
     json = JSON.parse(response.body)
-    expect(json['status']).to eq('failed')
+    expect(json['status']).to eq('pending')
     expect(json['reason']).to eq('provider_unavailable')
-    expect(json['retryable']).to eq(true)
+    expect(json['retryable']).to eq(false)
 
     user.user_kyc.reload
-    expect(user.user_kyc.bvn_status).to eq('mismatch')
+    expect(user.user_kyc.bvn_status).to eq('pending')
     expect(user.user_kyc.bvn_last_result_status).to eq('failed')
     expect(user.user_kyc.bvn_last_result_reason).to eq('provider_unavailable')
   end
 
-  it 'normalizes provider errors into stable reasons' do
+  it 'queues pending retry when provider errors' do
     result = { ok: false, error: 'Timeout while connecting', status_code: 500 }
     expect(Kyc::PremblyBvnVerification).to receive(:new).with(bvn)
       .and_return(double(call: result))
 
     before_attempts = user.user_kyc.bvn_failed_attempts_count
-    post '/api/v1/kyc/bvn/verify', params: { bvn: bvn }, headers: headers
+    expect do
+      post '/api/v1/kyc/bvn/verify', params: { bvn: bvn }, headers: headers
+    end.to have_enqueued_job(Kyc::BvnRetryJob)
 
-    expect(response).to have_http_status(:service_unavailable)
+    expect(response).to have_http_status(:ok)
     json = JSON.parse(response.body)
     expect(json['reason']).to eq('provider_unavailable')
-    expect(json['retry_after_seconds']).to eq(120)
+    expect(json['status']).to eq('pending')
+    expect(json['next_check_seconds']).to eq(120)
     expect(response.headers['Retry-After']).to eq('120')
 
     user.user_kyc.reload
     expect(user.user_kyc.bvn_last_result_reason).to eq('provider_unavailable')
     expect(user.user_kyc.bvn_failed_attempts_count).to eq(before_attempts)
+  end
+
+  it 'returns next_check_seconds while pending' do
+    user.user_kyc.update!(
+      bvn_status: 'pending',
+      bvn_last_result_reason: 'provider_unavailable',
+      bvn_retry_next_at: Time.current + 90
+    )
+
+    get '/api/v1/kyc/bvn/status', headers: headers
+
+    expect(response).to have_http_status(:ok)
+    json = JSON.parse(response.body)
+    expect(json['status']).to eq('pending')
+    expect(json['next_check_seconds']).to be_present
+    expect(json['next_check_seconds']).to be > 0
   end
 
   it 'normalizes mismatch reason fallback' do

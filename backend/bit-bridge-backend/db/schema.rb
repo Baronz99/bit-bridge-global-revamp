@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[7.1].define(version: 2026_01_16_090100) do
+ActiveRecord::Schema[7.1].define(version: 2026_01_17_091500) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pgcrypto"
   enable_extension "plpgsql"
@@ -444,6 +444,19 @@ ActiveRecord::Schema[7.1].define(version: 2026_01_16_090100) do
     t.index ["user_id"], name: "index_kyc_audit_logs_on_user_id"
   end
 
+  create_table "kyc_bvn_retry_events", id: :uuid, default: -> { "gen_random_uuid()" }, force: :cascade do |t|
+    t.uuid "user_id", null: false
+    t.uuid "user_kyc_id", null: false
+    t.integer "attempt_number", null: false
+    t.string "status", null: false
+    t.string "reason"
+    t.integer "next_wait_seconds"
+    t.string "provider_reference"
+    t.datetime "created_at", null: false
+    t.index ["user_id"], name: "index_kyc_bvn_retry_events_on_user_id"
+    t.index ["user_kyc_id"], name: "index_kyc_bvn_retry_events_on_user_kyc_id"
+  end
+
   create_table "kyc_reviews", id: :uuid, default: -> { "gen_random_uuid()" }, force: :cascade do |t|
     t.uuid "user_id", null: false
     t.string "kyc_type", null: false
@@ -681,8 +694,12 @@ ActiveRecord::Schema[7.1].define(version: 2026_01_16_090100) do
     t.string "bvn_snapshot_reference"
     t.datetime "bvn_snapshot_captured_at"
     t.datetime "bvn_snapshot_expires_at"
+    t.integer "bvn_retry_attempt", default: 0, null: false
+    t.datetime "bvn_retry_next_at"
+    t.datetime "bvn_retry_locked_at"
     t.index ["bvn_encrypted"], name: "index_user_kycs_on_bvn_encrypted"
     t.index ["bvn_fingerprint"], name: "index_user_kycs_on_bvn_fingerprint"
+    t.index ["bvn_retry_locked_at"], name: "index_user_kycs_on_bvn_retry_locked_at"
     t.index ["bvn_snapshot_expires_at"], name: "index_user_kycs_on_bvn_snapshot_expires_at"
     t.index ["bvn_status"], name: "index_user_kycs_on_bvn_status"
     t.index ["user_id"], name: "index_user_kycs_on_user_id", unique: true
