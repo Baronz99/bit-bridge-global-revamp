@@ -202,7 +202,7 @@ module Kyc
       return key if %w[
         bvn_in_use watchlisted provider_incomplete profile_incomplete name_mismatch mismatch
         cached_mismatch cached_pending_review provider_unavailable locked_rate_limit
-        provider_unavailable_timeout bvn_missing
+        provider_unavailable_timeout bvn_missing bvn_invalid
       ].include?(key)
 
       status_key = status.to_s

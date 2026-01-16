@@ -412,6 +412,8 @@ const KycCenter = () => {
   }, [fetchTier3Status, resolveTier3UiStatus, stopTier3Polling, tier3SubmittedAt])
 
   const handleVerifyBvn = async () => {
+    const currentStatus = bvnResponse?.status || bvnStatus
+    if (currentStatus === 'pending') return
     const normalized = bvnInput.replace(/\D/g, '')
     if (!normalized) {
       setBvnError('Enter your BVN to continue.')
@@ -457,6 +459,14 @@ const KycCenter = () => {
   const effectiveBvnStatus = bvnResponse?.status || bvnStatus
   const effectiveLast4 = bvnResponse?.bvn_last4 || bvnLast4
   const effectiveBvnReason = bvnResponse?.reason || userKyc?.bvn_last_result_reason || ''
+  const isBvnPending = effectiveBvnStatus === 'pending'
+  const isVerifyingBvn = bvnSubmitting
+  const bvnIsValid =
+    bvnInput.replace(/\D/g, '').length === 11 &&
+    !isRetryBackoff &&
+    !isBvnVerified &&
+    effectiveBvnStatus !== 'locked'
+  const nextCheckSeconds = bvnResponse?.next_check_seconds
 
   const retrySecondsRemaining = bvnRetryUntil
     ? Math.max(0, Math.ceil((bvnRetryUntil - bvnNow) / 1000))
@@ -881,11 +891,23 @@ const KycCenter = () => {
               maxLength={11}
               value={bvnInput}
               onChange={(e) => setBvnInput(e.target.value.replace(/\D/g, '').slice(0, 11))}
-              className="w-full rounded-xl border border-slate-700 bg-slate-950/60 px-3 py-2 text-sm text-slate-100 outline-none focus:border-alt"
+              disabled={isBvnPending}
+              readOnly={isBvnPending}
+              className={[
+                'w-full rounded-xl border border-slate-700 bg-slate-950/60 px-3 py-2 text-sm text-slate-100 outline-none focus:border-alt',
+                isBvnPending ? 'opacity-60 cursor-not-allowed' : '',
+              ].join(' ')}
               placeholder="11-digit BVN"
               autoComplete="off"
             />
             {bvnError && <p className="text-xs text-rose-300">{bvnError}</p>}
+            {isBvnPending ? (
+              <p className="text-xs text-amber-200">
+                {nextCheckSeconds
+                  ? `Retrying in ${nextCheckSeconds}s.`
+                  : "Verification pending. We'll update automatically."}
+              </p>
+            ) : null}
 
             {!phoneVerified && !hasTier2 && (
               <div className="rounded-xl border border-amber-700/40 bg-amber-900/20 p-3 text-xs text-amber-200">
@@ -908,16 +930,20 @@ const KycCenter = () => {
               type="button"
               onClick={handleVerifyBvn}
               disabled={
-                bvnSubmitting ||
-                isBvnVerified ||
-                isRetryBackoff ||
-                effectiveBvnStatus === 'locked'
+                isBvnPending ||
+                isVerifyingBvn ||
+                !bvnIsValid
               }
-              className="inline-flex items-center px-4 py-2 rounded-xl bg-alt text-black text-xs font-semibold hover:brightness-110 transition disabled:opacity-60"
+              className={[
+                'inline-flex items-center px-4 py-2 rounded-xl bg-alt text-black text-xs font-semibold transition disabled:opacity-60 disabled:cursor-not-allowed',
+                isBvnPending ? '' : 'hover:brightness-110',
+              ].join(' ')}
             >
-              {isBvnVerified
+              {isBvnPending
+                ? 'Pending'
+                : isBvnVerified
                 ? 'BVN Verified'
-                : bvnSubmitting
+                : isVerifyingBvn
                 ? 'Verifying...'
                 : isRetryBackoff
                 ? `Retry in ${retrySecondsRemaining}s`

@@ -24,6 +24,7 @@ RSpec.describe 'BVN verification caching', type: :request do
       date_of_birth: Date.new(1990, 1, 1)
     )
     user.create_user_kyc!
+    allow(Kyc::PremblyBvnBasicValidation).to receive(:new).and_return(double(call: { ok: true }))
   end
 
   it 'returns cached mismatch without calling provider' do
@@ -352,6 +353,55 @@ RSpec.describe 'BVN verification caching', type: :request do
     user.user_kyc.reload
     expect(user.user_kyc.bvn_last_result_reason).to eq('provider_unavailable')
     expect(user.user_kyc.bvn_failed_attempts_count).to eq(before_attempts)
+  end
+
+  it 'does not enqueue duplicate retry jobs while pending' do
+    result = { ok: false, error: 'Timeout while connecting', status_code: 500 }
+    expect(Kyc::PremblyBvnVerification).to receive(:new).with(bvn).once
+      .and_return(double(call: result))
+
+    clear_enqueued_jobs
+
+    expect do
+      post '/api/v1/kyc/bvn/verify', params: { bvn: bvn }, headers: headers
+    end.to have_enqueued_job(Kyc::BvnRetryJob)
+
+    expect do
+      post '/api/v1/kyc/bvn/verify', params: { bvn: bvn }, headers: headers
+    end.not_to have_enqueued_job(Kyc::BvnRetryJob)
+
+    expect(enqueued_jobs.size).to eq(1)
+  end
+
+  it 'returns 422 when basic validation reports invalid BVN' do
+    allow(Kyc::PremblyBvnBasicValidation).to receive(:new).with(bvn)
+      .and_return(double(call: { ok: false, invalid: true, status_code: 400 }))
+    expect(Kyc::PremblyBvnVerification).not_to receive(:new)
+
+    expect do
+      post '/api/v1/kyc/bvn/verify', params: { bvn: bvn }, headers: headers
+    end.not_to have_enqueued_job(Kyc::BvnRetryJob)
+
+    expect(response).to have_http_status(:unprocessable_entity)
+    json = JSON.parse(response.body)
+    expect(json['reason']).to eq('bvn_invalid')
+  end
+
+  it 'returns pending when basic is ok and advance is unavailable' do
+    allow(Kyc::PremblyBvnBasicValidation).to receive(:new).with(bvn)
+      .and_return(double(call: { ok: true }))
+    result = { ok: false, error: 'Timeout', status_code: 500 }
+    allow(Kyc::PremblyBvnVerification).to receive(:new).with(bvn)
+      .and_return(double(call: result))
+
+    expect do
+      post '/api/v1/kyc/bvn/verify', params: { bvn: bvn }, headers: headers
+    end.to have_enqueued_job(Kyc::BvnRetryJob)
+
+    expect(response).to have_http_status(:ok)
+    json = JSON.parse(response.body)
+    expect(json['status']).to eq('pending')
+    expect(json['reason']).to eq('provider_unavailable')
   end
 
   it 'returns next_check_seconds while pending' do

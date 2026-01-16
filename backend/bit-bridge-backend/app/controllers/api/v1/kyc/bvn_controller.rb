@@ -21,6 +21,7 @@ module Api
           profile_incomplete
           name_mismatch
           mismatch
+          bvn_invalid
           cached_mismatch
           cached_pending_review
           provider_unavailable
@@ -130,29 +131,48 @@ module Api
                           status: :ok
           end
 
-          result = ::Kyc::PremblyBvnVerification.new(bvn).call
-          unless result[:ok]
-            ensure_bvn_identity!(user_kyc, bvn, last4, fingerprint)
-            user_kyc.update!(bvn_status: "pending") unless user_kyc.verified?
-            update_last_result!(
-              user_kyc,
-              status: "failed",
-              reason: "provider_unavailable",
-              profile_fingerprint: profile_fingerprint
-            )
+          basic = ::Kyc::PremblyBvnBasicValidation.new(bvn).call
+          unless basic[:ok]
+            if basic[:invalid]
+              update_last_result!(
+                user_kyc,
+                status: "failed",
+                reason: "bvn_invalid",
+                profile_fingerprint: profile_fingerprint
+              )
+              return render json: {
+                status: "error",
+                reason: "bvn_invalid",
+                message: "BVN is invalid. Check and try again."
+              }, status: :unprocessable_entity
+            end
+
             wait = PROVIDER_BACKOFF_SECONDS
             response.set_header("Retry-After", wait.to_s)
-            enqueue_bvn_retry!(user_kyc, fingerprint)
-            return render json: response_payload(
+            return handle_provider_unavailable!(
               user,
               user_kyc,
-              status: "pending",
-              reason: "provider_unavailable",
-              cached: false,
-              retryable: false,
-              message: "BVN verification pending. We'll update automatically.",
-              next_check_seconds: wait
-            ), status: :ok
+              profile_fingerprint,
+              bvn,
+              last4,
+              fingerprint,
+              wait
+            )
+          end
+
+          result = ::Kyc::PremblyBvnVerification.new(bvn).call
+          unless result[:ok]
+            wait = PROVIDER_BACKOFF_SECONDS
+            response.set_header("Retry-After", wait.to_s)
+            return handle_provider_unavailable!(
+              user,
+              user_kyc,
+              profile_fingerprint,
+              bvn,
+              last4,
+              fingerprint,
+              wait
+            )
           end
 
           outcome = resolve_match_outcome(user, result)
@@ -474,6 +494,36 @@ module Api
           updates[:bvn_fingerprint] = fingerprint if user_kyc.bvn_fingerprint.blank?
           updates[:bvn_encrypted] = bvn if user_kyc.bvn_encrypted.blank?
           user_kyc.update!(updates) if updates.any?
+        end
+
+        def handle_provider_unavailable!(
+          user,
+          user_kyc,
+          profile_fingerprint,
+          bvn,
+          last4,
+          fingerprint,
+          wait
+        )
+          ensure_bvn_identity!(user_kyc, bvn, last4, fingerprint)
+          user_kyc.update!(bvn_status: "pending") unless user_kyc.verified?
+          update_last_result!(
+            user_kyc,
+            status: "failed",
+            reason: "provider_unavailable",
+            profile_fingerprint: profile_fingerprint
+          )
+          enqueue_bvn_retry!(user_kyc, fingerprint)
+          render json: response_payload(
+            user,
+            user_kyc,
+            status: "pending",
+            reason: "provider_unavailable",
+            cached: false,
+            retryable: false,
+            message: "BVN verification pending. We'll update automatically.",
+            next_check_seconds: wait
+          ), status: :ok
         end
 
         def enqueue_bvn_retry!(user_kyc, fingerprint)
