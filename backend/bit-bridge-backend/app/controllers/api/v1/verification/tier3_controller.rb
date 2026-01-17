@@ -50,6 +50,22 @@ module Api
             return render_with_requirements({ error: "BVN must be verified before Tier 3" }, :unprocessable_entity)
           end
 
+          if kyc.tier3_status == "failed" &&
+              kyc.tier3_error.to_s.include?("[code=02]") &&
+              kyc.updated_at > 10.minutes.ago
+            retry_after = (kyc.updated_at + 10.minutes - Time.current).to_i
+            retry_after = 0 if retry_after.negative?
+            response.set_header("Retry-After", retry_after.to_s)
+            return render_with_requirements(
+              {
+                error: "Face liveness temporarily unavailable. Try again later.",
+                retry_after_seconds: retry_after,
+                status: "failed"
+              },
+              :too_many_requests
+            )
+          end
+
           unless kyc.bvn_identity_confirmed?
             return render_with_requirements(
               { error: "Verified BVN not available. Please re-verify BVN." },

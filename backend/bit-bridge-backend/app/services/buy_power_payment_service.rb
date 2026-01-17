@@ -4,26 +4,22 @@ require 'uri'
 class BuyPowerPaymentService
   include HTTParty
 
-  # base_uri Rails.env.production? ? 'https://api.buypower.ng/v2' : 'https://idev.buypower.ng/v2'
+  # Required env vars:
+  # - BUYPOWER_TOKEN
+  # - BUYPOWER_BASE_URL
+  # - BILLS_CONFIRMATION_MODE (optional)
   PROVIDER_OPEN_TIMEOUT = 5
   PROVIDER_READ_TIMEOUT = 15
   default_options.update(timeout: PROVIDER_READ_TIMEOUT, open_timeout: PROVIDER_OPEN_TIMEOUT)
-  base_uri 'https://idev.buypower.ng/v2'
+
   def initialize
-  base_url = ENV['BUYPOWER_BASE_URL'].presence ||
-             (Rails.env.production? ? 'https://api.buypower.ng/v2' : 'https://idev.buypower.ng/v2')
+    Config::Bills.validate!
+    self.class.base_uri(Config::Bills.base_url)
 
-  self.class.base_uri(base_url)
-
-  token = ENV['BUYPOWER_TOKEN'].presence ||
-          ENV['SECRET_TOKEN_PROD'].presence ||  # optional fallback
-          ENV['SECRET_TOKEN_DEV'].presence      # optional fallback
-
-  raise 'BuyPower token missing. Set BUYPOWER_TOKEN.' if token.blank?
-
-  @get_headers  = { 'Authorization' => "Bearer #{token}" }
-  @post_headers = { 'Authorization' => "Bearer #{token}" }
-end
+    token = Config::Bills.token
+    @get_headers  = { 'Authorization' => "Bearer #{token}" }
+    @post_headers = { 'Authorization' => "Bearer #{token}" }
+  end
 
 
   def process_payment(current_user, payment_processor_params)
