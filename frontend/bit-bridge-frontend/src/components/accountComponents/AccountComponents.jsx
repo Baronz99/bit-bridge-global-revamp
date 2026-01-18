@@ -1,12 +1,10 @@
-import React, { useCallback, useState } from 'react'
+import { useCallback } from 'react'
 
 const AccountNumbers = ({ accounts, generate, onView, showView = true }) => {
   //   const [accounts, setAccounts] = useState({
   //     savings: null,
   //     investment: null,
   //   })
-
-  const [loading, setLoading] = useState(false)
 
   const getAccountName = useCallback((account) => {
     if (account === 'anchor') return 'Anchor'
