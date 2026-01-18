@@ -1,10 +1,9 @@
 import { ShoppingCartOutlined } from '@ant-design/icons'
 import { Button } from 'antd'
 import PropTypes from 'prop-types'
-import { useState } from 'react'
 
-const CartButton = ({ text, children, onClick }) => {
-  const [size] = useState('large')
+const CartButton = ({ children, onClick }) => {
+  const size = 'large'
   return (
     <div>
       <Button
@@ -21,7 +20,6 @@ const CartButton = ({ text, children, onClick }) => {
 }
 
 CartButton.propTypes = {
-  text: PropTypes.string,
   children: PropTypes.node,
 }
 

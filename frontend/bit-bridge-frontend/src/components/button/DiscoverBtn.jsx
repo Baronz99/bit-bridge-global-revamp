@@ -1,4 +1,3 @@
-import React from 'react'
 import { NavLink } from 'react-router-dom'
 
 const DiscoverBtn = ({ link, btnText = 'Discover', onclick, type, className, disabled }) => (

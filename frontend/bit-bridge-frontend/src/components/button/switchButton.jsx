@@ -1,12 +1,9 @@
-import React, { useState } from 'react'
 import { Switch } from 'antd'
 import PropTypes from 'prop-types'
 // const onChange = checked => {
 //   console.log(`switch to ${checked}`);
 // };
 const SwitchButton = ({ onChange }) => {
-  const [checkInput, setCheckForminput] = useState(false)
-  //   console.log(checkInput)
   return <Switch className="bg-red-900 switch-button" onChange={onChange} />
   //   return (
   //     <input
