@@ -1,4 +1,4 @@
-import { NavLink, useLocation, useNavigate } from 'react-router-dom'
+import { NavLink, useNavigate } from 'react-router-dom'
 // import SearchField from '../serachField/SearchField'
 import Nav from '../nav/Nav'
 import {
@@ -20,8 +20,6 @@ import ClassicBtn from '../button/ClassicButton'
 
 const Header = () => {
   const [toggleNav, setToggle] = useState(false)
-  const { pathname } = useLocation()
-
   const inActive = `inactive text-alt`
 
   const navigate = useNavigate()
