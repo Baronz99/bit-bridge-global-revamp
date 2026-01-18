@@ -1,7 +1,7 @@
 import { Select, Space } from 'antd'
 import PropTypes from 'prop-types'
 
-const SelectInput = ({ options, placeholder, className, onChange, defaultValue }) => {
+const SelectInput = ({ options, placeholder, onChange, defaultValue }) => {
   return (
     <Space wrap>
       <Select
@@ -20,7 +20,6 @@ const SelectInput = ({ options, placeholder, className, onChange, defaultValue }
 SelectInput.propTypes = {
   options: PropTypes.array,
   onChange: PropTypes.func,
-  className: PropTypes.func,
   defaultValue: PropTypes.string,
 }
 export default SelectInput
