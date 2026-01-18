@@ -66,7 +66,7 @@ const AccountCreationWizard = ({ formData, setFormData, current, setCurrent, set
       })
   }
 
-  const accountCreation = (values) => {
+  const accountCreation = () => {
     dispatch(
       createDepositAccount({
         account: formData,
@@ -105,7 +105,7 @@ const AccountCreationWizard = ({ formData, setFormData, current, setCurrent, set
       }
 
       if (current === 2) {
-        accountCreation(values)
+        accountCreation()
         return
       }
       //   setCurrent((prev) => prev + 1)
