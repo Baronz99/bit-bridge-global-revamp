@@ -1,10 +1,4 @@
-import {
-  GiftOutlined,
-  LogoutOutlined,
-  SettingOutlined,
-  SwitcherOutlined,
-  UserOutlined,
-} from '@ant-design/icons'
+import { LogoutOutlined, SwitcherOutlined, UserOutlined } from '@ant-design/icons'
 import { Dropdown, message, Space } from 'antd'
 import { useDispatch } from 'react-redux'
 import { userLogout } from '../../redux/actions/auth'
