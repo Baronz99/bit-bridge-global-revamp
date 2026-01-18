@@ -1,5 +1,6 @@
 // src/pages/dashboard/KycCenter.jsx
 import React from 'react'
+import PropTypes from 'prop-types'
 import { useDispatch, useSelector } from 'react-redux'
 import PhoneVerifyModal from '../../components/PhoneVerifyModal'
 import SelfieCapture from '../../components/Kyc/SelfieCapture'
@@ -176,8 +177,8 @@ const TierCard = ({ state, title, body, hint, onPrimary, primaryLabel }) => {
   const isLocked = state === 'locked'
 
   const containerClass = [
-    'min-w-[240px] sm:min-w-0',
     'rounded-xl border p-3 transition',
+    'flex flex-col h-full',
     isCurrent
       ? 'border-alt bg-slate-950/90 shadow-[0_0_0_1px_rgba(250,204,21,0.25)]'
       : 'border-slate-700/80 bg-slate-950/80',
@@ -220,24 +221,37 @@ const TierCard = ({ state, title, body, hint, onPrimary, primaryLabel }) => {
         </span>
       </div>
 
-      <p className="text-slate-400 text-[11px] leading-relaxed line-clamp-3 md:line-clamp-none">
-        {body}
-      </p>
+      <div className="flex-1">
+        <p className="text-slate-400 text-[11px] leading-relaxed line-clamp-3 md:line-clamp-none">
+          {body}
+        </p>
+      </div>
 
       {isCurrent && typeof onPrimary === 'function' && primaryLabel ? (
-        <button
-          type="button"
-          onClick={onPrimary}
-          className="mt-3 inline-flex items-center px-3 py-1.5 rounded-lg bg-alt text-black text-xs font-semibold hover:brightness-110 transition"
-        >
-          {primaryLabel}
-        </button>
+        <div className="mt-auto pt-3">
+          <button
+            type="button"
+            onClick={onPrimary}
+            className="inline-flex items-center px-3 py-1.5 rounded-lg bg-alt text-black text-xs font-semibold hover:brightness-110 transition"
+          >
+            {primaryLabel}
+          </button>
+        </div>
       ) : null}
     </div>
   )
 }
 
-// Simple modal (no new dependencies; won’t break existing builds)
+TierCard.propTypes = {
+  state: PropTypes.string.isRequired,
+  title: PropTypes.string.isRequired,
+  body: PropTypes.string.isRequired,
+  hint: PropTypes.string.isRequired,
+  onPrimary: PropTypes.func,
+  primaryLabel: PropTypes.string,
+}
+
+// Simple modal (no new dependencies; won't break existing builds)
 const InlineModal = ({ open, title, children, onClose }) => {
   if (!open) return null
   return (
@@ -263,6 +277,13 @@ const InlineModal = ({ open, title, children, onClose }) => {
   )
 }
 
+InlineModal.propTypes = {
+  open: PropTypes.bool.isRequired,
+  title: PropTypes.string.isRequired,
+  children: PropTypes.node.isRequired,
+  onClose: PropTypes.func.isRequired,
+}
+
 // ---- helper: Tier 3 endpoint fallback (only fallback on 404) ----
 async function postTier3Start(payload) {
   const candidates = [
@@ -273,7 +294,6 @@ async function postTier3Start(payload) {
   let lastErr = null
   for (const url of candidates) {
     try {
-      // eslint-disable-next-line no-await-in-loop
       const res = await client.post(url, payload)
       return res
     } catch (e) {
@@ -383,7 +403,7 @@ const KycCenter = () => {
         stopTier3Polling()
       }
       return data
-    } catch (_) {
+    } catch {
       return null
     }
   }, [resolveTier3UiStatus, stopTier3Polling, tier3SubmittedAt])
@@ -458,12 +478,10 @@ const KycCenter = () => {
 
   const effectiveBvnStatus = bvnResponse?.status || bvnStatus
   const effectiveLast4 = bvnResponse?.bvn_last4 || bvnLast4
-  const effectiveBvnReason = bvnResponse?.reason || userKyc?.bvn_last_result_reason || ''
   const isBvnPending = effectiveBvnStatus === 'pending'
   const isVerifyingBvn = bvnSubmitting
   const nextCheckSeconds = bvnResponse?.next_check_seconds
   const requirements = bvnResponse?.requirements
-  const requirementMissing = Array.isArray(requirements?.missing) ? requirements.missing : []
   const requirementSteps = Array.isArray(requirements?.next_steps) ? requirements.next_steps : []
   const requirementTier = requirements?.tier_current
   const tier2Ready = requirements?.checks?.tier2_ready === true
@@ -523,7 +541,7 @@ const KycCenter = () => {
           setBvnRetryUntil(null)
         }
       }
-    } catch (_) {
+    } catch {
       // silent polling failure
     }
   }, [])
@@ -546,7 +564,7 @@ const KycCenter = () => {
         if (payload) {
           setBvnResponse(payload)
         }
-      } catch (_) {
+      } catch {
         // ignore initial status failures
       }
     }
@@ -693,48 +711,25 @@ const KycCenter = () => {
             <p className="text-slate-300">{kycInfo.description}</p>
 
             {/* Tier ladder */}
-            <div className="mt-3">
-              <div className="flex gap-3 overflow-x-auto pb-2 md:hidden">
-                {tierOrder.map((tKey) => {
-                  const state = getTierState(normalizedTierKey, tKey)
-                  const copy = tierCardCopy[tKey]
-                  const onPrimary = state === 'current' ? currentTierPrimary.action : undefined
-                  const primaryLabel = state === 'current' ? currentTierPrimary.label : undefined
+            <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 text-[11px]">
+              {tierOrder.map((tKey) => {
+                const state = getTierState(normalizedTierKey, tKey)
+                const copy = tierCardCopy[tKey]
+                const onPrimary = state === 'current' ? currentTierPrimary.action : undefined
+                const primaryLabel = state === 'current' ? currentTierPrimary.label : undefined
 
-                  return (
-                    <TierCard
-                      key={tKey}
-                      state={state}
-                      title={copy.title}
-                      body={copy.body}
-                      hint={copy.hint}
-                      onPrimary={onPrimary}
-                      primaryLabel={primaryLabel}
-                    />
-                  )
-                })}
-              </div>
-
-              <div className="hidden md:grid md:grid-cols-4 gap-3 text-[11px]">
-                {tierOrder.map((tKey) => {
-                  const state = getTierState(normalizedTierKey, tKey)
-                  const copy = tierCardCopy[tKey]
-                  const onPrimary = state === 'current' ? currentTierPrimary.action : undefined
-                  const primaryLabel = state === 'current' ? currentTierPrimary.label : undefined
-
-                  return (
-                    <TierCard
-                      key={tKey}
-                      state={state}
-                      title={copy.title}
-                      body={copy.body}
-                      hint={copy.hint}
-                      onPrimary={onPrimary}
-                      primaryLabel={primaryLabel}
-                    />
-                  )
-                })}
-              </div>
+                return (
+                  <TierCard
+                    key={tKey}
+                    state={state}
+                    title={copy.title}
+                    body={copy.body}
+                    hint={copy.hint}
+                    onPrimary={onPrimary}
+                    primaryLabel={primaryLabel}
+                  />
+                )
+              })}
             </div>
           </div>
         </div>
@@ -925,7 +920,7 @@ const KycCenter = () => {
               <p className="text-xs text-amber-200">
                 {nextCheckSeconds
                   ? `Retrying in ${nextCheckSeconds}s.`
-                  : "Verification pending. We'll update automatically."}
+                  : 'Verification pending. We will update automatically.'}
               </p>
             ) : null}
 
@@ -1013,7 +1008,7 @@ const KycCenter = () => {
             )}
             {effectiveBvnStatus === 'pending' && (
               <p className="text-amber-200">
-                BVN verification is pending. We'll update automatically once the provider is available.
+                BVN verification is pending. We will update automatically once the provider is available.
               </p>
             )}
             {effectiveBvnStatus === 'mismatch' && (
@@ -1088,7 +1083,7 @@ const KycCenter = () => {
             <div className="rounded-xl border border-slate-800 bg-slate-950/50 p-3 text-xs text-slate-300">
               BVN status: <span className="text-emerald-300 font-semibold">Verified</span> (****{effectiveLast4})
               <div className="text-[11px] text-slate-500 mt-1">
-                We’ll reuse your verified BVN evidence on file.
+                We will reuse your verified BVN evidence on file.
               </div>
             </div>
           ) : (

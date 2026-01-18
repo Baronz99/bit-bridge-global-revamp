@@ -50,7 +50,7 @@ const DashboardLayout = () => {
     return () => {
       document.removeEventListener('mousedown', closeNav)
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+     
   }, [])
 
   useEffect(() => {
