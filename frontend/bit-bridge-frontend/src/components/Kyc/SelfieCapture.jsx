@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 const dataUrlToBlob = (dataUrl) => {
   const [meta, content] = dataUrl.split(",");
@@ -96,7 +96,9 @@ const SelfieCapture = ({
         streamRef.current.getTracks()?.forEach((t) => t.stop());
         streamRef.current = null;
       }
-    } catch (_) {}
+    } catch {
+      // Ignore stop camera cleanup errors.
+    }
     setStarted(false);
   };
 
@@ -145,12 +147,11 @@ const SelfieCapture = ({
         let ok = false;
         for (let i = 0; i < 4; i++) {
           try {
-            // eslint-disable-next-line no-await-in-loop
+             
             await v.play();
             ok = true;
             break;
-          } catch (_) {
-            // eslint-disable-next-line no-await-in-loop
+          } catch {
             await new Promise((r) => setTimeout(r, 250));
           }
         }
@@ -229,7 +230,9 @@ const SelfieCapture = ({
         const dx = Math.abs(cx - sampleW / 2) / (sampleW / 2);
         const dy = Math.abs(cy - sampleH / 2) / (sampleH / 2);
         if (dx > 0.35 || dy > 0.35) return "Center your face in the frame.";
-      } catch (_) {}
+      } catch {
+        // Ignore face detection failures.
+      }
     }
 
     if (tooBlurry) return "Blurry. Hold steady, clean lens, and ensure your face is well-lit.";
@@ -274,7 +277,7 @@ const SelfieCapture = ({
 
     try {
       ctx.drawImage(video, sx, sy, side, side, 0, 0, out, out);
-    } catch (e) {
+    } catch {
       const msg = "Preview is blocked. Please retry and ensure camera permissions are enabled.";
       setQualityMsg(msg);
       onError?.(msg);
@@ -303,7 +306,7 @@ const SelfieCapture = ({
 
   useEffect(() => {
     return () => stopCamera();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+     
   }, []);
 
   return (
