@@ -1,8 +1,7 @@
-import { useNavigate } from 'react-router-dom'
 import NavButton from '../button/NavButton'
 import PropTypes from 'prop-types'
 
-const UtilityCard = ({ image, onClick, btnText, provider, title }) => {
+const UtilityCard = ({ onClick, btnText, provider, title }) => {
   const giftcardImage = provider.split(' ')[0].toLowerCase() || provider.split('-')[0].toLowerCase()
 
   return (
@@ -26,8 +25,6 @@ const UtilityCard = ({ image, onClick, btnText, provider, title }) => {
 }
 
 UtilityCard.propTypes = {
-  image: PropTypes.string,
-  id: PropTypes.string,
   title: PropTypes.string,
   provider: PropTypes.string,
   onClick: PropTypes.func,

@@ -1,9 +1,5 @@
 import PropTypes from 'prop-types'
-import { splitString } from '../../utils'
-
-const CableCard = ({ id, description, name, provider, image, onClick }) => {
-  const imgaeString = splitString(provider)
-
+const CableCard = ({ id, description, name, image, onClick }) => {
   return (
     <div
       onClick={onClick}
