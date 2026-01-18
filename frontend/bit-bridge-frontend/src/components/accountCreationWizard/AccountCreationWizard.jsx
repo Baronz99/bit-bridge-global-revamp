@@ -1,5 +1,5 @@
-import React, { useEffect, useState } from 'react'
-import { Form, message, Steps, Progress, Button, DatePicker } from 'antd'
+import { useEffect, useState } from 'react'
+import { Form, Steps, Progress, DatePicker } from 'antd'
 import { motion, AnimatePresence } from 'framer-motion'
 import './style.scss'
 import { useDispatch } from 'react-redux'
@@ -11,7 +11,6 @@ import {
 } from '../../redux/actions/account'
 import { toast } from 'react-toastify'
 import FormInput from '../formInput/FormInput'
-import ClickButton from '../button/Button'
 import AppButton from '../button/Button'
 import FormSelect from '../formSelect/FormSelect'
 import dayjs from 'dayjs'
@@ -21,7 +20,7 @@ const { Step } = Steps
 const AccountCreationWizard = ({ formData, setFormData, current, setCurrent, setIsAncorModal }) => {
   const [form] = Form.useForm()
   // const [formData, setFormData] = useState({})
-  const [accountDetails, setAccountDetails] = useState(null)
+  const [accountDetails] = useState(null)
 
   useEffect(() => {
     Object.values(formData).length > 0 && form.setFieldsValue(formData)
@@ -36,7 +35,7 @@ const AccountCreationWizard = ({ formData, setFormData, current, setCurrent, set
       })
     )
       .unwrap()
-      .then((res) => {
+      .then(() => {
         setCurrent((prev) => prev + 1)
         dispatch(getAccounts())
       })
@@ -55,7 +54,7 @@ const AccountCreationWizard = ({ formData, setFormData, current, setCurrent, set
       })
     )
       .unwrap()
-      .then((res) => {
+      .then(() => {
         setCurrent((prev) => prev + 1)
         dispatch(getAccounts())
       })
