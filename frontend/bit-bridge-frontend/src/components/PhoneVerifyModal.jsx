@@ -1,6 +1,6 @@
 // src/components/PhoneVerifyModal.jsx
 
-import React, { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useDispatch, useSelector } from 'react-redux'
 import { toast } from 'react-toastify'
 import { sendPhoneOtp, confirmPhoneOtp } from '../redux/actions/phoneVerification'
