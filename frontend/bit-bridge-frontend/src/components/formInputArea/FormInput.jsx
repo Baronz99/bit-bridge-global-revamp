@@ -7,7 +7,6 @@ const FormInputArea = ({
   onChange,
   name,
   className,
-  value,
 
   required = false,
   label,
@@ -37,7 +36,6 @@ FormInputArea.propTypes = {
   required: PropTypes.bool,
   className: PropTypes.string,
   label: PropTypes.string,
-  value: PropTypes.string,
   placeholder: PropTypes.string,
   onChange: PropTypes.func,
 }
