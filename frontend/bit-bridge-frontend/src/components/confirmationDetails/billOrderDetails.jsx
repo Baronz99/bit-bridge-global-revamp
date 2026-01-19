@@ -80,7 +80,9 @@ const BillOrderDetails = ({ purchaseOrder, applyCommission }) => {
               label={'Amount'}
               applyCommission={applyCommission}
               commission={
-                purchaseOrder?.bill_commission && nairaFormat(purchaseOrder?.bill_commission)
+                purchaseOrder?.bill_commission != null
+                  ? nairaFormat(Number(purchaseOrder?.bill_commission || 0))
+                  : null
               }
               value={nairaFormat(purchaseOrder?.amount ?? 0)}
             />
@@ -91,16 +93,21 @@ const BillOrderDetails = ({ purchaseOrder, applyCommission }) => {
             //     <p className="flex-1 border-b  border-gray-700 px-2">{nairaFormat(purchaseOrder?.service_charge)}</p>
             // </div>
 
-            <Detail label={'Service Charge'} value={nairaFormat(purchaseOrder?.service_charge)} />
+            <Detail
+              label={'Service Charge'}
+              value={nairaFormat(Number(purchaseOrder?.service_charge || 0))}
+            />
           )}
 
           {purchaseOrder?.amount && (
             <Detail
               label={'Total Payable Amount'}
-              value={nairaFormat(Number(purchaseOrder?.total_amount))}
+              value={nairaFormat(Number(purchaseOrder?.total_amount || 0))}
               applyCommission={applyCommission}
               commission={
-                purchaseOrder?.bill_commission && nairaFormat(purchaseOrder?.bill_commission)
+                purchaseOrder?.bill_commission != null
+                  ? nairaFormat(Number(purchaseOrder?.bill_commission || 0))
+                  : null
               }
             />
           )}

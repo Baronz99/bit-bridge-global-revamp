@@ -71,7 +71,9 @@ export const initializeMonifyPayment = createAsyncThunk(
 
       // NOTE: the backend response here is mostly the monnify payload
       // Keep toast minimal (avoid dumping huge objects)
-      toast('Payment initialized', { type: 'success' })
+      toast('Awaiting bank transfer. Complete the transfer using the account details shown.', {
+        type: 'info',
+      })
       return result
     } catch (error) {
       const message = getErrorMessage(error)

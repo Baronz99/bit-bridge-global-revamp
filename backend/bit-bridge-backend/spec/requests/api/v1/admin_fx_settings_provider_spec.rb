@@ -48,7 +48,7 @@ RSpec.describe 'Admin FX settings provider', type: :request do
     expect(body['message']).to match(/once per minute/i)
     expect(body['retry_after_seconds']).to be_present
     expect(body.dig('data', 'provider')).to be_present
-    expect(body.dig('data', 'provider', 'computed_rate')).to eq(741.0)
+    expect(body.dig('data', 'bridgecard_provider', 'computed_rate')).to eq(741.0)
   end
 
   it 'applies provider FX rate to base rate' do

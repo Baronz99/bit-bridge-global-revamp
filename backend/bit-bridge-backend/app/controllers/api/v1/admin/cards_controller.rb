@@ -8,6 +8,7 @@ module Api
         before_action :ensure_super_admin!
         before_action :ensure_bridge_cards_enabled!
         before_action :set_card
+        before_action :ensure_mock_debit_allowed!, only: %i[mock_debit]
         before_action :ensure_card_debug_enabled!, only: %i[
           mock_debit
           provider_details
@@ -19,12 +20,12 @@ module Api
         ]
 
         def mock_debit
+          return render json: { message: 'Mock debit is disabled in production.', data: { card_id: @card.id } },
+                        status: :forbidden if Rails.env.production? || Rails.env.staging?
           if Bridgecard::Config.debug_context[:livemode_expected]
             return render json: { message: 'Mock debit only allowed in sandbox', data: { card_id: @card.id } },
                           status: :unprocessable_entity
           end
-          return render json: { message: 'Mock debit is disabled in production.', data: { card_id: @card.id } },
-                        status: :forbidden if Rails.env.production? || Rails.env.staging?
           return render json: { message: 'Card provider id is missing.', data: { card_id: @card.id } },
                         status: :unprocessable_entity if @card.card_id.blank?
 
@@ -365,6 +366,13 @@ module Api
           return if FeatureFlags.bridge_cards?
 
           render json: { message: 'Bridge cards are disabled' }, status: :forbidden
+        end
+
+        def ensure_mock_debit_allowed!
+          return unless Rails.env.production? || Rails.env.staging?
+
+          render json: { message: 'Mock debit is disabled in production.', data: { card_id: @card.id } },
+                 status: :forbidden
         end
 
         def ensure_card_debug_enabled!

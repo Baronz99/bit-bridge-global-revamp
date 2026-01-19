@@ -58,7 +58,7 @@ module Api
       def confirm_bill_payment
         payment_method = bill_order_params[:payment_method]
 
-        use_commission = bill_order_params[:use_commission]
+        use_commission = ActiveModel::Type::Boolean.new.cast(bill_order_params[:use_commission])
 
         service = BuyPowerPaymentService.new
         service_response = service.confirm_subscription(@bill_order, payment_method, use_commission, request_id: request.request_id)

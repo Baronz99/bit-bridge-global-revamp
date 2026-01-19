@@ -7,7 +7,7 @@ RSpec.describe 'Bridgecard webhook', type: :request do
   let(:secret) { '00112233445566778899aabbccddeeff' }
   let(:user) { create(:user) }
   let!(:card) { Card.create!(user: user, card_id: 'card_123') }
-  let!(:wallet) { Wallet.create!(user: user, wallet_type: 'usd', currency: 'USD', balance_cents: 50_000) }
+  let!(:wallet) { Wallet.create!(user: user, wallet_type: 'usd', currency: 'USD', balance_cents: 200_000) }
 
   around do |example|
     original = ENV.to_h
@@ -20,7 +20,11 @@ RSpec.describe 'Bridgecard webhook', type: :request do
 
   def sign_payload(body)
     key = [secret].pack('H*')
-    OpenSSL::CMAC.new('AES', key).update(body).hexdigest
+    if defined?(OpenSSL::CMAC)
+      OpenSSL::CMAC.new('AES', key).update(body).hexdigest
+    else
+      OpenSSL::HMAC.hexdigest('SHA256', key, body)
+    end
   end
 
   def post_webhook(payload)

@@ -15,7 +15,7 @@ RSpec.describe 'Admin FX settings exchange rate provider', type: :request do
   end
 
   it 'refresh stores provider fields and returns payload' do
-    response = instance_double(
+    http_response = instance_double(
       HTTParty::Response,
       success?: true,
       code: 200,
@@ -26,7 +26,7 @@ RSpec.describe 'Admin FX settings exchange rate provider', type: :request do
         'time_last_update_utc' => 'Mon, 01 Jan 2026 00:00:00 +0000'
       }
     )
-    allow(HTTParty).to receive(:get).and_return(response)
+    allow(HTTParty).to receive(:get).and_return(http_response)
 
     post '/api/v1/admin/fx-settings/provider/refresh', headers: headers
 
@@ -98,7 +98,7 @@ RSpec.describe 'Admin FX settings exchange rate provider', type: :request do
   end
 
   it 'apply updates base rate and base_fx_rates' do
-    FxSetting.current.update!(provider_rates: { 'NGN' => 1500, 'EUR' => 0.9 })
+    FxSetting.current.update!(provider_updated_at: Time.current, provider_rates: { 'NGN' => 1500, 'EUR' => 0.9 })
 
     post '/api/v1/admin/fx-settings/provider/apply',
          params: { apply: { ngn_to_usd_base: true, currencies: ['EUR'] } },

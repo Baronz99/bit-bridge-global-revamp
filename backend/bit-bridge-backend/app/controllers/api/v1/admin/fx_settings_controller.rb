@@ -130,7 +130,15 @@ module Api
         end
 
         def apply_exchange_rate
-          apply = params[:apply].is_a?(Hash) ? params[:apply] : {}
+          apply_param = params[:apply]
+          apply =
+            if apply_param.respond_to?(:to_unsafe_h)
+              apply_param.to_unsafe_h
+            elsif apply_param.is_a?(Hash)
+              apply_param
+            else
+              {}
+            end
           currencies = Array(apply[:currencies]).map { |c| c.to_s.upcase }.uniq
           apply_ngn = apply[:ngn_to_usd_base] == true || apply[:ngn_to_usd_base].to_s == 'true'
           force_apply = apply[:force] == true || apply[:force].to_s == 'true'

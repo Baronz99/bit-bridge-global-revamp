@@ -7,7 +7,7 @@ export const dashboardServices = [
     label: 'Airtime & Data',
     description: 'Top up MTN, GLO, Airtel and 9mobile.',
     quickLabel: 'Buy airtime / data',
-    quickAction: { type: 'select', value: 'Top Up' },
+    quickAction: { type: 'navigate', to: '/dashboard/utilities/mobile-top-up' },
     cardAction: { type: 'navigate', to: '/dashboard/utilities/mobile-top-up' },
     card: {
       glowClass: 'bg-sky-500/10',
@@ -25,7 +25,7 @@ export const dashboardServices = [
     label: 'Electricity',
     description: 'Pay PHCN and major DISCOs in seconds.',
     quickLabel: 'Pay electricity',
-    quickAction: { type: 'select', value: 'Electric Bills' },
+    quickAction: { type: 'navigate', to: '/dashboard/utilities/buy-power' },
     cardAction: { type: 'navigate', to: '/dashboard/utilities/buy-power' },
     card: {
       glowClass: 'bg-amber-500/10',

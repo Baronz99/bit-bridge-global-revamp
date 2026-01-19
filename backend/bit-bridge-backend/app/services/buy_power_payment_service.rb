@@ -150,12 +150,12 @@ class BuyPowerPaymentService
 
         # update the order before transaction so you can update after transaction then check the previous transaction to ensure none was made at the same time
         wallet = user.wallet
-        amount = electric_bill_order[:total_amount]
+        amount = electric_bill_order[:total_amount].to_f
         use_commission = use_commission
 
 
         available_balance = wallet.balance.to_f
-        commission_balance = wallet.commission.to_f || 0
+        commission_balance = wallet.commission.to_f
 
         has_money = available_balance >= amount || (use_commission && (commission_balance + available_balance) >= amount)
 
@@ -225,6 +225,15 @@ class BuyPowerPaymentService
       Rails.logger.info("BuyPower vend request timeout #{request_tag} error=#{e.class}")
       return { status: 'pending', response: 'Payment pending...', code: 503 }
     rescue StandardError => e
+      if electric_bill_order&.status == 'completed' && electric_bill_order&.transaction_id.present?
+        Rails.logger.error(
+          "BuyPower confirm_subscription error after completion #{request_tag} status=#{electric_bill_order.status} error=#{e.class} message=#{e.message}"
+        )
+        return { response: electric_bill_order, status: 'success' }
+      end
+      Rails.logger.error(
+        "BuyPower confirm_subscription error #{request_tag} status=#{electric_bill_order&.status} error=#{e.class} message=#{e.message}"
+      )
       return { response: e.message.to_s, status: 'error' }
     end
   end

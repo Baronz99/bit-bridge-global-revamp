@@ -17,6 +17,8 @@ const cookieAuthEnabled = () =>
 const normalizeToken = (raw) => {
   if (!raw) return null
   const str = String(raw).trim()
+  const lower = str.toLowerCase()
+  if (!lower || lower === 'null' || lower === 'undefined') return null
   if (/^Bearer\s+/i.test(str)) return str.replace(/^Bearer\s+/i, '').trim()
   if (str.startsWith('ey')) return str.trim()
   return str.replace(/^"+|"+$/g, '').trim()
@@ -58,6 +60,13 @@ const getAccessToken = () => {
   if (!legacyStorageEnabled()) return null
 
   const raw = getFromStorage(TOKEN_KEY)
+  if (raw != null) {
+    const rawStr = String(raw).trim().toLowerCase()
+    if (!rawStr || rawStr === 'null' || rawStr === 'undefined') {
+      removeFromStorage(TOKEN_KEY)
+      return null
+    }
+  }
   const clean = normalizeToken(raw)
   if (clean) accessToken = clean
   return clean
@@ -77,6 +86,13 @@ const setRefreshToken = (token) => {
 const getRefreshToken = () => {
   if (!legacyStorageEnabled()) return null
   const raw = getFromStorage(REFRESH_TOKEN_KEY)
+  if (raw != null) {
+    const rawStr = String(raw).trim().toLowerCase()
+    if (!rawStr || rawStr === 'null' || rawStr === 'undefined') {
+      removeFromStorage(REFRESH_TOKEN_KEY)
+      return null
+    }
+  }
   return normalizeToken(raw)
 }
 

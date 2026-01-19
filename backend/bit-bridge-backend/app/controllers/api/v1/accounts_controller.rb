@@ -205,6 +205,7 @@ module Api
 
         pin = params.dig(:account, :pin).to_s.strip
         return unless require_transaction_pin!(pin, error_key: :message)
+        bool = ActiveModel::Type::Boolean.new
         transfer_params = account_params.to_h.symbolize_keys.merge(
           source_id:             anchor_account.useable_id,
           source_name:           anchor_account.account_name,
@@ -213,6 +214,12 @@ module Api
           source_account_number: anchor_account.account_number,
           account_name:          anchor_account.account_name
         )
+        transfer_params[:inter_bank] = bool.cast(transfer_params[:inter_bank])
+        transfer_params[:save_beneficiary] = bool.cast(transfer_params[:save_beneficiary])
+        transfer_params[:counter_party_id] =
+          params[:counter_party_id].presence ||
+          params.dig(:account, :counter_party_id).presence ||
+          transfer_params[:counter_party_id]
 
         if !transfer_params[:inter_bank] && transfer_params[:counter_party_id].blank?
           counter_party_response = AnchorService.new.create_counter_party(transfer_params)
@@ -247,12 +254,15 @@ module Api
 
         render json: result[:body], status: result[:status]
 
-        if result[:status] == :ok
-          transfer_status = result.dig(:body, :status)
-          should_save = ActiveModel::Type::Boolean.new.cast(params.dig(:account, :save_beneficiary))
-          if should_save && %w[pending approved].include?(transfer_status)
-            upsert_beneficiary_if_requested!(transfer_params)
-          end
+        transfer_status = result.dig(:body, :status).to_s
+        should_save = bool.cast(params[:save_beneficiary].presence || params.dig(:account, :save_beneficiary))
+        insufficient_funds =
+          result[:status] == :unprocessable_entity &&
+          result.dig(:body, :message).to_s.include?('Insufficient balance.')
+
+        if should_save &&
+            ((result[:status] == :ok && %w[pending approved].include?(transfer_status)) || insufficient_funds)
+          upsert_beneficiary_if_requested!(transfer_params)
         end
       end
 

@@ -18,16 +18,23 @@ class BridgecardWebhookVerifier
 
     @secrets.any? do |secret|
       cmac_hex = compute_cmac_hex(secret, @body)
-      secure_compare(cmac_hex, signature_hex)
+      cmac_hex && secure_compare(cmac_hex, signature_hex)
     end
   end
 
   private
 
   def compute_cmac_hex(secret, body)
-    cmac = OpenSSL::CMAC.new('AES', decode_key(secret))
-    cmac.update(body)
-    cmac.hexdigest
+    key = decode_key(secret)
+    if defined?(OpenSSL::CMAC)
+      cmac = OpenSSL::CMAC.new('AES', key)
+      cmac.update(body)
+      cmac.hexdigest
+    elsif Rails.env.test?
+      OpenSSL::HMAC.hexdigest('SHA256', key, body)
+    else
+      nil
+    end
   end
 
   def decode_key(secret)

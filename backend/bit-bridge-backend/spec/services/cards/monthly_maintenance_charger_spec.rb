@@ -3,9 +3,11 @@
 require 'rails_helper'
 
 RSpec.describe Cards::MonthlyMaintenanceCharger do
+  include ActiveSupport::Testing::TimeHelpers
+
   let(:user) { create(:user) }
   let(:wallet) { user.usd_wallet }
-  let(:card) { user.cards.create!(card_id: 'card_123', status: 'active') }
+  let!(:card) { user.cards.create!(card_id: 'card_123', status: 'active') }
 
   before do
     wallet.update!(balance_cents: 10_000)
@@ -14,14 +16,16 @@ RSpec.describe Cards::MonthlyMaintenanceCharger do
 
   it 'charges once per month per card' do
     time = Time.zone.parse('2026-01-15')
-    result = described_class.call(reference_time: time)
+    travel_to(time) do
+      result = described_class.call(reference_time: time)
 
-    expect(result[:charged]).to eq(1)
-    expect(
-      Transaction.where(unique_transaction_id: "card-maintenance-#{card.id}-2026-01").count
-    ).to eq(1)
+      expect(result[:charged]).to eq(1)
+      expect(
+        Transaction.where(unique_transaction_id: "card-maintenance-#{card.id}-2026-01").count
+      ).to eq(1)
 
-    result = described_class.call(reference_time: time)
-    expect(result[:charged]).to eq(0)
+      result = described_class.call(reference_time: time)
+      expect(result[:charged]).to eq(0)
+    end
   end
 end

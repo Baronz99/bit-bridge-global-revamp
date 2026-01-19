@@ -2,8 +2,8 @@ import { NavLink, useNavigate, useSearchParams } from 'react-router-dom'
 import { useDispatch, useSelector } from 'react-redux'
 import { SET_LOADING } from '../../redux/app'
 import { useEffect, useRef } from 'react'
-import { API_BASE_URL } from '../../api/config'
-import { cookieAuthEnabled, setAccessToken, setRefreshToken } from '../../auth/tokenStore'
+import { confirmEmail } from '../../api/auth'
+import { setAccessToken, setRefreshToken } from '../../auth/tokenStore'
 
 const ConfirmEmail = () => {
   const dispatch = useDispatch()
@@ -26,36 +26,21 @@ const ConfirmEmail = () => {
 
     dispatch(SET_LOADING(true))
 
-    fetch(`${API_BASE_URL}/confirmation?confirmation_token=${token}`, {
-      method: 'GET',
-      headers: {
-        Accept: 'application/json',
-      },
-      credentials: cookieAuthEnabled() ? 'include' : 'same-origin',
-    })
-      .then(async (res) => {
-        if (res.ok) {
-          // ✅ First call – confirmation succeeded
-          const data = await res.json()
+    confirmEmail(token)
+      .then((res) => {
+        const data = res?.data || {}
 
-          const accessToken = data.access_token
-          const refreshTokenFromBody = data.refresh_token
-          const refreshTokenFromHeader = res.headers.get('Bit-Refresh-Token')
-          const refreshToken = refreshTokenFromBody || refreshTokenFromHeader
+        const accessToken = data.access_token
+        const refreshTokenFromBody = data.refresh_token
+        const refreshTokenFromHeader = res?.headers?.['bit-refresh-token']
+        const refreshToken = refreshTokenFromBody || refreshTokenFromHeader
 
-          // Store tokens using your app’s real keys
-          if (accessToken) setAccessToken(accessToken)
-          if (refreshToken) setRefreshToken(refreshToken)
+        // Store tokens using your app??Ts real keys
+        if (accessToken) setAccessToken(accessToken)
+        if (refreshToken) setRefreshToken(refreshToken)
 
-          dispatch(SET_LOADING(false))
-          navigate('/confirmation-success')
-        } else {
-          // This will only fire if the *first* request fails
-          const body = await res.text()
-          console.error('Confirm error', res.status, body)
-          dispatch(SET_LOADING(false))
-          navigate('/confirmation-error')
-        }
+        dispatch(SET_LOADING(false))
+        navigate('/confirmation-success')
       })
       .catch((err) => {
         console.error('Network error while confirming', err)

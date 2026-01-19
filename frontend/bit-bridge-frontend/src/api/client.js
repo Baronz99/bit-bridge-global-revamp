@@ -42,10 +42,28 @@ const refreshAccessToken = async () => {
     throw new Error(`Refresh failed (${response.status})`)
   }
 
-  const result = await response.json()
-  if (result?.access_token) setAccessToken(result.access_token)
-  if (result?.refresh_token) setRefreshToken(result.refresh_token)
-  return result
+  const raw = (await response.text()).trim()
+  let parsed = null
+  try {
+    parsed = raw ? JSON.parse(raw) : null
+  } catch {
+    parsed = null
+  }
+
+  const parsedToken =
+    typeof parsed === 'string'
+      ? parsed
+      : parsed && (parsed.access_token || parsed.token || parsed.jwt)
+
+  const token = (parsedToken || raw || '').replace(/^"|"$/g, '') || null
+
+  if (token) setAccessToken(token)
+  if (parsed?.refresh_token) setRefreshToken(parsed.refresh_token)
+
+  return {
+    access_token: token,
+    refresh_token: parsed?.refresh_token,
+  }
 }
 
 /**
@@ -132,7 +150,11 @@ client.interceptors.response.use(
   async (error) => {
     const status = error?.response?.status
 
-    if (status === 401) {
+    const expired =
+      error?.response?.data?.message === 'Signature has expired' ||
+      error?.response?.data?.error === 'Signature has expired'
+
+    if (status === 401 || expired) {
       // Only force-login redirect if the user had a token (session expired / invalid token)
       const hadToken = !!getToken()
       const originalRequest = error?.config
@@ -145,7 +167,11 @@ client.interceptors.response.use(
               refreshPromise = null
             })
           }
-          await refreshPromise
+          const refreshed = await refreshPromise
+          if (refreshed?.access_token) {
+            originalRequest.headers = originalRequest.headers || {}
+            originalRequest.headers.Authorization = `Bearer ${refreshed.access_token}`
+          }
           return client.request(originalRequest)
         } catch {
           // fall through to logout handling

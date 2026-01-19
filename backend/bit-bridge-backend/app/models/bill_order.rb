@@ -33,7 +33,7 @@ class BillOrder < ApplicationRecord
 
   def apply_commission
     commission_balance = wallet.commission || 0
-    amount_to_pay = amount - commission_balance
+    amount_to_pay = amount.to_f - commission_balance.to_f
     # return if commission_amount <= 0
 
     new_amount = amount_to_pay.positive? ? amount_to_pay : 0
@@ -43,8 +43,8 @@ class BillOrder < ApplicationRecord
   end
 
   def bill_commission
-    commission_balance = wallet&.commission || 0
-    amount_to_pay = amount - commission_balance
+    commission_balance = wallet&.commission.to_f
+    amount_to_pay = amount.to_f - commission_balance
     new_amount = amount_to_pay.positive? ? amount_to_pay : 0
 
     %w[VTU DATA].include?(service_type) ? new_amount : nil
@@ -79,7 +79,7 @@ class BillOrder < ApplicationRecord
            else
              0.0
            end
-    self.units = amount * (rate / 1000)
+    self.units = amount.to_f * (rate / 1000)
   end
 
   def is_electricty?
@@ -89,7 +89,7 @@ class BillOrder < ApplicationRecord
   def commission
     return 0 if service_type == 'ELECTRICITY'
 
-    (amount * 0.01).round(2)
+    (amount.to_f * 0.01).round(2)
   end
 
   def reward_eligible?
@@ -103,12 +103,17 @@ class BillOrder < ApplicationRecord
   private
 
   def net_total
-    amount.to_i + calc_service_charge
+    amount.to_f + calc_service_charge.to_f
   end
 
   def save_commission
-    commission_percent = amount * 0.01
-    wallet.commission = use_commission ? @commission_balance : wallet.commission + commission_percent
+    commission_percent = amount.to_f * 0.01
+    wallet.commission =
+      if use_commission
+        @commission_balance.to_f
+      else
+        wallet.commission.to_f + commission_percent
+      end
     wallet.save
   end
 

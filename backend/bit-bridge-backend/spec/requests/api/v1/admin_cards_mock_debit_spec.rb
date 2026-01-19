@@ -41,6 +41,17 @@ RSpec.describe 'Admin card mock debit', type: :request do
       status: :ok,
       data: { transaction_reference: 'ref_123', card_id: card.card_id }
     )
+    allow(service).to receive(:fetch_card_transaction_by_id).and_return(
+      status: :ok,
+      ok: true,
+      data: {
+        'bridgecard_transaction_reference' => 'ref_123',
+        'status' => 'successful',
+        'card_transaction_type' => 'debit',
+        'amount' => 5.0,
+        'currency' => 'USD'
+      }
+    )
     allow(service).to receive(:get_card_transactions).and_return(
       status: :ok,
       data: [

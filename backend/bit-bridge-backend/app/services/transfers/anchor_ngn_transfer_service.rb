@@ -27,6 +27,10 @@ module Transfers
     def call
       return min_amount_error if @amount_ngn < MIN_AMOUNT
 
+      transfer_reference = @transfer_reference.presence || SecureRandom.uuid
+      existing = existing_transfer_response(transfer_reference)
+      return existing if existing
+
       fee_breakdown = Pricing::Engine.transfer_fee_breakdown_ngn(@amount_ngn)
       total_fee = fee_breakdown.fetch(:total_fee)
       total_debit = @amount_ngn + total_fee
@@ -35,11 +39,6 @@ module Transfers
       if available_balance < total_debit
         return insufficient_funds_error(total_fee, total_debit, available_balance, fee_breakdown)
       end
-
-      transfer_reference = @transfer_reference.presence || SecureRandom.uuid
-
-      existing = existing_transfer_response(transfer_reference)
-      return existing if existing
 
       principal_tx = nil
       fee_tx = nil
@@ -112,7 +111,7 @@ module Transfers
           available_balance: available_balance.to_f,
           amount: format_ngn(@amount_ngn, decimals: 0).to_i,
           fee: format_ngn(total_fee, decimals: 2).to_f,
-          fee_breakdown: serialize_fee_breakdown(fee_breakdown)
+          fee_breakdown: serialize_fee_breakdown(fee_breakdown).stringify_keys
         }
       }
     end

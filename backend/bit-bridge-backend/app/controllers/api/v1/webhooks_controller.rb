@@ -79,30 +79,72 @@ module Api
       end
 
       def monnify
-        data = JSON.parse(request.raw_post)
-        # Rails.logger.info("✅  Monnify webhook json post: #{data}")
+        data =
+          begin
+            JSON.parse(request.raw_post)
+          rescue JSON::ParserError => e
+            Rails.logger.warn("[MonnifyWebhook] invalid_json error=#{e.class}")
+            return head :ok
+          end
+        return head :ok unless data['eventType'] == 'SUCCESSFUL_TRANSACTION'
 
+        event_data = data['eventData'] || {}
+        return head :ok unless event_data['paymentStatus'].to_s.downcase == 'paid'
 
-        return unless data['eventType'] == 'SUCCESSFUL_TRANSACTION'
+        payment_reference =
+          event_data['paymentReference'].presence || event_data.dig('product', 'reference')
+        transaction_reference =
+          event_data['transactionReference'].presence || data['transactionReference'].presence
 
-        event_data = data['eventData']
-        transaction_reference = data['eventData']['product']['reference']
-        transaction_record = TransactionRecord.find_by(reference: transaction_reference)
+        reference = payment_reference.presence || transaction_reference
+        if reference.blank?
+          Rails.logger.warn('[MonnifyWebhook] missing reference')
+          return head :ok
+        end
+        Rails.logger.info("[MonnifyWebhook] start reference=#{reference} payment_status=#{event_data['paymentStatus']}")
 
-        reference_type = transaction_reference.split('-')[0]
+        transaction_record = TransactionRecord.find_by(reference: reference)
+        unless transaction_record
+          Rails.logger.warn("[MonnifyWebhook] record_not_found reference=#{reference}")
+          return Rails.env.production? ? head(:ok) : head(:not_found)
+        end
 
-        Rails.logger.info("✅  Monnify webhook reference post: #{transaction_reference}")
-
+        reference_type = reference.split('-')[0]
 
         case reference_type
-
         when 'bbg'
           handle_bills_confirmation(transaction_record)
         when 'fbg'
+          exchange = transaction_record.exchange
+          terminal_statuses = %w[approved completed success paid failed declined cancelled reversed expired]
+          exchange_status_before = exchange&.status.to_s
+          record_status_before = transaction_record.status.to_s
+          exchange_status = exchange_status_before.downcase
+          record_status = record_status_before.downcase
+          Rails.logger.info(
+            "[MonnifyWebhook] status_before reference=#{reference} record_status=#{record_status_before} exchange_status=#{exchange_status_before}"
+          )
+          if terminal_statuses.include?(exchange_status) || terminal_statuses.include?(record_status)
+            Rails.logger.info("[MonnifyWebhook] already_processed reference=#{reference} record_id=#{transaction_record.id}")
+            return head :ok
+          end
+
+          transaction_record.update(
+            status: transaction_record.status.presence || 'approved',
+            transaction_id: transaction_reference.presence || payment_reference
+          )
+          if exchange && !terminal_statuses.include?(exchange_status)
+            exchange.update(status: 'approved')
+          end
+          Rails.logger.info("[MonnifyWebhook] record_updated reference=#{reference} record_id=#{transaction_record.id}")
           handle_payment_confirmation(transaction_record)
+          Rails.logger.info(
+            "[MonnifyWebhook] status_after reference=#{reference} record_status=#{transaction_record.status} exchange_status=#{exchange&.status}"
+          )
+          Rails.logger.info("[MonnifyWebhook] confirmation_done reference=#{reference} record_id=#{transaction_record.id}")
+          Rails.logger.info("[MonnifyWebhook] payment_approved reference=#{reference} record_id=#{transaction_record.id}")
         else
           handleTransactionConfirmation(event_data)
-          # Rails.logger.warn("Unknown refernce type: #{reference_type}")
         end
 
         head :ok
