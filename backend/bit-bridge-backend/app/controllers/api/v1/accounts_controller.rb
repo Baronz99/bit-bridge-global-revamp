@@ -99,6 +99,16 @@ module Api
         else
           render json: { message: service_response[:message] }, status: :unprocessable_entity
         end
+      rescue RuntimeError => e
+        if e.message.to_s.include?('Missing ANCHOR_')
+          render json: {
+            message: 'Anchor is not configured. Showing empty bank list.',
+            warning: e.message.to_s,
+            data: []
+          }, status: :ok
+        else
+          raise
+        end
       end
 
       def beneficiaries

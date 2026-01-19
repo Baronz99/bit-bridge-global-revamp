@@ -47,8 +47,13 @@ module Api
 
       # POST /api/v1/transactions/initialize_transaction
       def initialize_transaction
-        initialize_payment = PaymentService.new
-        response = initialize_payment.init_transaction(transaction_params)
+        response =
+          begin
+            initialize_payment = PaymentService.new
+            initialize_payment.init_transaction(transaction_params)
+          rescue RuntimeError => e
+            { message: e.message.to_s }
+          end
 
         if response[:status] == :ok
           wallet = resolve_wallet_from_params(transaction_params)
@@ -75,7 +80,7 @@ module Api
             render json: { message: transaction.errors.full_messages.to_sentence }, status: :unprocessable_entity
           end
         else
-          render json: { message: response[:message] }, status: :bad_request
+          render json: { message: response[:message] }, status: :unprocessable_entity
         end
       end
 

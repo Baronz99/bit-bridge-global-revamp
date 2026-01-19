@@ -556,7 +556,7 @@ class AnchorService
     fallback = ENV['DEV_ANCHOR_BASE_URL'].to_s.strip
 
     return primary if primary.present?
-    raise_missing_anchor_env! if Rails.env.production?
+    raise RuntimeError, 'Missing ANCHOR_BASE_URL' if Rails.env.production?
 
     fallback.presence || SANDBOX_BASE_URL
   end

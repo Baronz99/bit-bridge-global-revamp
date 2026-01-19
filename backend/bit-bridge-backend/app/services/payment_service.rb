@@ -4,18 +4,52 @@ class PaymentService
   include HTTParty
 
   # Use Rails config first (config.x.monnify_base_url), then ENV, then default sandbox.
+  monnify_base_url =
+    begin
+      Rails.configuration.x.monnify_base_url
+    rescue KeyError
+      nil
+    end
   base_uri(
-    Rails.configuration.x.monnify_base_url ||
-    ENV['MONNIFY_BASE_URL'] ||
+    (monnify_base_url.is_a?(String) ? monnify_base_url.to_s.strip.presence : nil) ||
+    ENV['MONNIFY_BASE_URL'].to_s.strip.presence ||
     'https://sandbox.monnify.com'
   )
 
   def initialize
     # Prefer values from config.x, fall back to ENV to avoid breaking existing prod config.
     config         = Rails.configuration.x
-    secret_key     = config.monnify_secret_key    || ENV['MONNIFY_SECRET_KEY']
-    api_key        = config.monnify_api_key       || ENV['MONNIFY_API_KEY']
-    @contract_code = config.monnify_contract_code || ENV['MONNIFY_CONTRACT_CODE']
+    config_secret =
+      begin
+        value = config.monnify_secret_key
+        value.is_a?(String) ? value : nil
+      rescue KeyError
+        nil
+      end
+    config_api =
+      begin
+        value = config.monnify_api_key
+        value.is_a?(String) ? value : nil
+      rescue KeyError
+        nil
+      end
+    config_contract =
+      begin
+        value = config.monnify_contract_code
+        value.is_a?(String) ? value : nil
+      rescue KeyError
+        nil
+      end
+
+    secret_key     = (config_secret   || ENV['MONNIFY_SECRET_KEY']).to_s.strip
+    api_key        = (config_api      || ENV['MONNIFY_API_KEY']).to_s.strip
+    @contract_code = (config_contract || ENV['MONNIFY_CONTRACT_CODE']).to_s.strip
+
+    missing = []
+    missing << 'MONNIFY_API_KEY' if api_key.blank?
+    missing << 'MONNIFY_SECRET_KEY' if secret_key.blank?
+    missing << 'MONNIFY_CONTRACT_CODE' if @contract_code.blank?
+    raise RuntimeError, "Missing #{missing.join(', ')}" if missing.any?
 
     # If you ever need this later, it's still read here:
     ENV['MONNIFY_WALLET_ACCOUNT_NUMBER']
