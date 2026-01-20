@@ -31,6 +31,8 @@ class BuyPowerReconcileJob < ApplicationJob
     data = response[:response]&.dig('result', 'data') || response[:response]&.dig('data') || {}
     provider_status = data['status'].to_s.downcase
     message = data['message'].to_s.presence || response[:response]&.dig('message')
+    message = response[:response].to_s if message.blank?
+    limit_reached = message.to_s.downcase.include?('daily transaction count limit')
 
     order.with_lock do
       order.reload
@@ -59,6 +61,20 @@ class BuyPowerReconcileJob < ApplicationJob
           status: provider_status == 'refund' || provider_status == 'refunded' ? 'refunded' : 'failed'
         )
       else
+        if limit_reached
+          Rails.logger.warn(
+            "BuyPower reconcile failed bill_order_id=#{order.id} reason=#{message}"
+          )
+          service.send(
+            :handle_wallet_failure,
+            order,
+            'wallet',
+            message || 'Vend failed',
+            response[:response],
+            status: 'failed'
+          )
+          return
+        end
         order.update(status: 'processing', provider_response: response[:response]) if order.status != 'processing'
         self.class.set(wait: 10.minutes).perform_later(order.id)
       end

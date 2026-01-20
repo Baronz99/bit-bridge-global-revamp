@@ -256,6 +256,24 @@ class BuyPowerPaymentService
 
       provider_payload = provider_response_payload(response)
       provider_status = provider_status_from(response)
+      provider_message =
+        provider_payload&.dig('result', 'data', 'message') ||
+        provider_payload&.dig('data', 'message') ||
+        provider_payload&.dig('result', 'message') ||
+        provider_payload&.dig('message') ||
+        provider_payload&.dig('error')
+      if provider_message.to_s.downcase.include?('daily transaction count limit')
+        Rails.logger.warn(
+          "BuyPower wallet vend failed bill_order_id=#{electric_bill_order.id} reason=#{provider_message}"
+        )
+        return handle_wallet_failure(
+          electric_bill_order,
+          payment_method,
+          provider_message,
+          provider_payload,
+          status: 'failed'
+        )
+      end
       if %w[failed refund refunded reversed cancelled].include?(provider_status)
         return handle_wallet_failure(
           electric_bill_order,
@@ -491,6 +509,10 @@ end
   end
 
   def handle_wallet_failure(order, payment_method, message, provider_payload, status: 'failed')
+    if order&.status && BillOrder::TERMINAL_STATUSES.include?(order.status.to_s)
+      return { response: message, status: 'ignored' }
+    end
+
     wallet = order.user.wallet
     amount = order.total_amount.to_d
 

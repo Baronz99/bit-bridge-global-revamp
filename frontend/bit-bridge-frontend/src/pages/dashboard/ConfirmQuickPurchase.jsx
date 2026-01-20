@@ -7,22 +7,33 @@ import { getPurchaseOrder } from '../../redux/actions/purchasePower'
 import { getWallet } from '../../redux/actions/wallet'
 import BillOrderDetails from '../../components/confirmationDetails/billOrderDetails'
 import ClassicBtn from '../../components/button/ClassicButton'
+import useBillOrderPolling from '../../hooks/useBillOrderPolling'
 
 const ComfirmQuickPurchase = () => {
-  const { purchaseOrder, message } = useSelector((state) => state.purchase)
+  const { purchaseOrder } = useSelector((state) => state.purchase)
   const { id } = useParams()
   const navigate = useNavigate()
 
   const dispatch = useDispatch()
 
+  useBillOrderPolling({
+    queryId: id,
+    dispatch,
+    getPurchaseOrder,
+    status: purchaseOrder?.status,
+  })
+
   useEffect(() => {
-    dispatch(getPurchaseOrder(id))
     dispatch(getWallet())
   }, [])
 
+  const statusValue = String(purchaseOrder?.status || '').toLowerCase()
+  const isCompleted =
+    statusValue === 'completed' || statusValue === 'approved' || statusValue === 'success'
+
   return (
     <>
-      {message && (
+      {isCompleted && (
         <div className="bg-green-200 p-4 my-4">
           <p className="text-green-800 items-center flex gap-2 font-semibold text-center">
             <CheckCircleOutlined />
