@@ -22,7 +22,7 @@ Rails.application.config.middleware.insert_before 0, Rack::Cors do
 
 
     resource "/api/*",
-             headers: %w[Accept Authorization Content-Type Bit-Refresh-Token],
+             headers: %w[Accept Authorization Content-Type Bit-Refresh-Token Idempotency-Key],
              methods: %i[get post put patch delete options head],
              credentials: false
   end
