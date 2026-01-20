@@ -3,6 +3,9 @@
 require 'rails_helper'
 
 RSpec.describe BuyPowerReconcileJob, type: :job do
+  include ActiveJob::TestHelper
+  include ActiveSupport::Testing::TimeHelpers
+
   it 'is idempotent for successful reconciliation' do
     allow(Config::Bills).to receive(:validate!).and_return(true)
     allow(Config::Bills).to receive(:base_url).and_return('http://example.test')
@@ -103,5 +106,71 @@ RSpec.describe BuyPowerReconcileJob, type: :job do
     expect(entries.release.count).to eq(1)
     expect(entries.refund.count).to eq(1)
     expect(bill_order.reload.status).to eq('refunded')
+  end
+
+  it 're-enqueues when provider response is not ok and order is non-terminal' do
+    allow(Config::Bills).to receive(:validate!).and_return(true)
+    allow(Config::Bills).to receive(:base_url).and_return('http://example.test')
+    allow(Config::Bills).to receive(:token).and_return('token')
+
+    user = create(:user)
+    bill_order = BillOrder.create!(
+      user: user,
+      meter_number: '08012345678',
+      meter_type: 'PREPAID',
+      address: 'Test Address',
+      name: 'Test User',
+      tariff_class: 'A',
+      service_type: 'VTU',
+      email: user.email,
+      amount: 1000,
+      phone: '08012345678',
+      biller: 'MTN',
+      description: 'Airtime',
+      payment_type: 'online',
+      payment_method: 'wallet',
+      status: 'processing'
+    )
+
+    allow_any_instance_of(BuyPowerPaymentService).to receive(:re_query)
+      .and_return(status: :unprocessable_entity, response: 'error')
+
+    expect { described_class.perform_now(bill_order.id) }
+      .to have_enqueued_job(described_class)
+  end
+
+  it 'does not re-enqueue stale non-ok responses and marks reason' do
+    allow(Config::Bills).to receive(:validate!).and_return(true)
+    allow(Config::Bills).to receive(:base_url).and_return('http://example.test')
+    allow(Config::Bills).to receive(:token).and_return('token')
+
+    user = create(:user)
+    bill_order = BillOrder.create!(
+      user: user,
+      meter_number: '08012345678',
+      meter_type: 'PREPAID',
+      address: 'Test Address',
+      name: 'Test User',
+      tariff_class: 'A',
+      service_type: 'VTU',
+      email: user.email,
+      amount: 1000,
+      phone: '08012345678',
+      biller: 'MTN',
+      description: 'Airtime',
+      payment_type: 'online',
+      payment_method: 'wallet',
+      status: 'processing',
+      reason: nil
+    )
+    bill_order.update_columns(updated_at: 3.hours.ago)
+
+    allow_any_instance_of(BuyPowerPaymentService).to receive(:re_query)
+      .and_return(status: :unprocessable_entity, response: 'error')
+
+    expect { described_class.perform_now(bill_order.id) }
+      .not_to have_enqueued_job(described_class)
+
+    expect(bill_order.reload.reason).to include('Reconcile stalled')
   end
 end

@@ -14,7 +14,19 @@ class BuyPowerReconcileJob < ApplicationJob
     reference = order.provider_reference.presence || order.id
     response = service.re_query(reference)
 
-    return unless response[:status] == :ok
+    unless response[:status] == :ok
+      order.with_lock do
+        order.reload
+        return if TERMINAL_STATUSES.include?(order.status.to_s)
+        if order.updated_at < 2.hours.ago
+          Rails.logger.error("[reconcile] stale non-ok requery order=#{order.id} status=#{response[:status]}")
+          order.update(reason: "Reconcile stalled: #{response[:status]}") if order.reason.blank?
+          return
+        end
+        self.class.set(wait: 10.minutes).perform_later(order.id)
+      end
+      return
+    end
 
     data = response[:response]&.dig('result', 'data') || response[:response]&.dig('data') || {}
     provider_status = data['status'].to_s.downcase

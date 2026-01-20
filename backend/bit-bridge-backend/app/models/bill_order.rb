@@ -2,6 +2,7 @@
 
 class BillOrder < ApplicationRecord
   attr_accessor :demand_category, :use_commission, :commission_balance
+  TERMINAL_STATUSES = %w[completed failed refunded declined timedout].freeze
 
   belongs_to :user, optional: true
   has_one :wallet, through: :user
@@ -32,6 +33,7 @@ class BillOrder < ApplicationRecord
 
   validate :user_must_be_active
 
+  before_update :prevent_terminal_status_regression
   before_update :apply_commission, if: :is_commission?
 
   after_update :save_commission, if: :should_apply_commission?
@@ -125,6 +127,14 @@ class BillOrder < ApplicationRecord
         wallet.commission.to_f + commission_percent
       end
     wallet.save
+  end
+
+  def prevent_terminal_status_regression
+    return unless will_save_change_to_status?
+    return unless TERMINAL_STATUSES.include?(status_was.to_s)
+
+    errors.add(:status, 'is terminal and cannot be changed')
+    throw(:abort)
   end
 
   def create_reward_transaction
