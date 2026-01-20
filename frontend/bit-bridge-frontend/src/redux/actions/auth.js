@@ -3,7 +3,7 @@
 import { createAsyncThunk } from '@reduxjs/toolkit'
 import { toast } from 'react-toastify'
 import client, { clearToken } from '../../api/client'
-import { API_BASE_URL } from '../../api/config'
+import refreshClient from '../../api/refreshClient'
 import { signup as apiSignup, login as apiLogin } from '../../api/auth'
 import {
   TOKEN_KEY,
@@ -26,9 +26,6 @@ const ACCESS_TOKEN_KEY = TOKEN_KEY || 'bitglobal'
 const LAST_EMAIL_KEY = 'email'
 const RECENT_EMAILS_KEY = 'recent_emails'
 const MAX_RECENTS = 5
-
-const normalizeBaseUrl = (url) => (url ? (url.endsWith('/') ? url.slice(0, -1) : url) : '')
-const AUTH_BASE = normalizeBaseUrl(API_BASE_URL).replace(/\/api\/v1$/i, '')
 
 // -------------------------
 // Helpers
@@ -148,7 +145,7 @@ export const userLogin = createAsyncThunk(
   'login/user-login',
   async (data, { rejectWithValue }) => {
     try {
-      // 1) login (/login - Devise root)
+      // 1) login (/api/v1/login)
       const response = await apiLogin(data)
       const result = response.data
 
@@ -222,7 +219,7 @@ export const userLogin = createAsyncThunk(
 )
 
 // -------------------------
-// REFRESH TOKEN (POST /refresh)  (NOT /api/v1)
+// REFRESH TOKEN (POST /api/v1/refresh)
 // -------------------------
 export const refreshAccessToken = createAsyncThunk(
   'auth/refresh-token',
@@ -232,22 +229,12 @@ export const refreshAccessToken = createAsyncThunk(
       if (!refreshToken && !cookieAuthEnabled())
         return rejectWithValue({ message: 'No refresh token stored' })
 
-      const res = await fetch(`${AUTH_BASE}/refresh`, {
-        method: 'POST',
+      const res = await refreshClient.post('/refresh', null, {
         headers: {
-          Accept: 'application/json',
-          'Content-Type': 'application/json',
           ...(refreshToken ? { 'Bit-Refresh-Token': refreshToken } : {}),
         },
-        credentials: cookieAuthEnabled() ? 'include' : 'same-origin',
       })
-
-      if (!res.ok) {
-        const text = await res.text().catch(() => '')
-        throw new Error(text || 'Refresh failed')
-      }
-
-      const data = await res.json().catch(() => ({}))
+      const data = res?.data || {}
 
       const newAccessToken = data?.access_token || data?.token
       const newRefreshToken = data?.refresh_token
@@ -268,23 +255,16 @@ export const refreshAccessToken = createAsyncThunk(
 )
 
 // -------------------------
-// CONFIRMATION (GET /confirmation?confirmation_token=...)
+// CONFIRMATION (GET /api/v1/confirmation?confirmation_token=...)
 // -------------------------
 export const userConfirmation = createAsyncThunk(
   'user/user-confirmation',
   async (token, { rejectWithValue }) => {
     try {
-      const res = await fetch(
-        `${AUTH_BASE}/confirmation?confirmation_token=${encodeURIComponent(token)}`,
-        { headers: { Accept: 'application/json' } }
-      )
-
-      if (!res.ok) {
-        const text = await res.text().catch(() => '')
-        throw new Error(text || 'Confirmation failed')
-      }
-
-      const data = await res.json().catch(() => ({}))
+      const res = await client.get('/confirmation', {
+        params: { confirmation_token: token },
+      })
+      const data = res?.data || {}
       toast('Email Confirmed', { type: 'success' })
 
       if (data?.access_token) saveAccessToken(data.access_token)
@@ -416,19 +396,11 @@ export const userProfile = createAsyncThunk(
 )
 
 // -------------------------
-// LOGOUT (DELETE /logout)  (NOT /api/v1)
+// LOGOUT (DELETE /api/v1/logout)
 // -------------------------
 export const userLogout = createAsyncThunk('logout/user-logout', async (_, { rejectWithValue }) => {
   try {
-    await fetch(`${AUTH_BASE}/logout`, {
-      method: 'DELETE',
-      headers: {
-        Accept: 'application/json',
-        'Content-Type': 'application/json',
-        ...(getAccessToken() ? { Authorization: `Bearer ${getAccessToken()}` } : {}),
-      },
-      credentials: cookieAuthEnabled() ? 'include' : 'same-origin',
-    }).catch(() => {})
+    await client.delete('/logout').catch(() => {})
 
     clearAuthStorageLegacy()
     clearToken()

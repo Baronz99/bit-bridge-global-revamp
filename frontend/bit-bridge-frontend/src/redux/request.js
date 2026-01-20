@@ -1,12 +1,11 @@
 import client, { clearToken } from '../api/client'
-import { API_ROOT_URL } from '../api/config'
+import refreshClient from '../api/refreshClient'
 
 // NOTE: keep using your existing helper to avoid breaking other codepaths.
 // But we will sanitize token values because this repo stores JSON.stringify() tokens in some places.
 import { fetchToken } from '../hooks/localStorage'
 import {
   TOKEN_KEY,
-  cookieAuthEnabled,
   getRefreshToken,
   setAccessToken,
   setRefreshToken,
@@ -55,34 +54,19 @@ const request = async (url, options = {}) => {
   }
 
   /**
-   * Refresh token call is NOT under /api/v1 in your app (per auth.js),
-   * so we call API_BASE_URL + '/refresh' directly.
+   * Refresh token call lives under /api/v1.
    */
   const refreshAccessToken = async () => {
     const refreshToken = getRefreshTokenLegacy()
-    if (!refreshToken && !cookieAuthEnabled()) {
-      throw new Error('No refresh token stored')
-    }
+    if (!refreshToken) throw new Error('No refresh token stored')
 
-    // Ensure trailing slash behavior is safe
-    const base = API_ROOT_URL?.endsWith('/') ? API_ROOT_URL.slice(0, -1) : API_ROOT_URL
-
-    const response = await fetch(`${base}/refresh`, {
-      method: 'POST',
+    const response = await refreshClient.post('/refresh', null, {
       headers: {
-        Accept: 'application/json',
-        'Content-Type': 'application/json',
         // IMPORTANT: backend expects raw refresh token (not "Bearer ...") based on your auth.js
         ...(refreshToken ? { 'Bit-Refresh-Token': refreshToken } : {}),
       },
-      credentials: cookieAuthEnabled() ? 'include' : 'same-origin',
     })
-
-    if (!response.ok) {
-      throw new Error(`Refresh failed (${response.status})`)
-    }
-
-    const result = await response.json()
+    const result = response?.data || {}
 
     // Save new tokens (store raw strings, not JSON.stringify)
     if (result?.access_token) setAccessToken(result.access_token)

@@ -1,31 +1,29 @@
 # config/initializers/cors.rb
 
-# Frontends in production / staging, from ENV (comma-separated)
-ALLOWED_ORIGINS = ENV.fetch("FRONTEND_URL", "")
-                     .split(",")
-                     .map(&:strip)
-                     .reject(&:empty?)
-                     .freeze
-
-# Local development frontends #
-DEV_ORIGINS = [
-  "http://localhost:3000", # Rails / / React dev
-  "http://localhost:5173"  # Vite dev
+# Production frontends only
+ALLOWED_ORIGINS = [
+  "https://bitbridgeglobal.com",
+  "https://www.bitbridgeglobal.com"
 ].freeze
+
+# Local development frontends
+DEV_ORIGINS = [
+  "http://localhost:3000",
+  "http://localhost:5173"
+].freeze
+
+ORIGINS = (Rails.env.production? ? ALLOWED_ORIGINS : (ALLOWED_ORIGINS + DEV_ORIGINS)).freeze
 
 Rails.application.config.middleware.insert_before 0, Rack::Cors do
   allow do
     origins do |origin, _env|
-  next true if origin.nil?
-
-  allowed = (ALLOWED_ORIGINS + DEV_ORIGINS)
-  allowed.any? { |o| origin.start_with?(o) }
-end
+      origin.present? && ORIGINS.any? { |o| origin.start_with?(o) }
+    end
 
 
-    resource "*",
-             headers: :any,
+    resource "/api/*",
+             headers: %w[Accept Authorization Content-Type Bit-Refresh-Token],
              methods: %i[get post put patch delete options head],
-             credentials: true
+             credentials: false
   end
 end

@@ -47,6 +47,10 @@ Rails.application.routes.draw do
       post "bridgecard/webhook", to: "webhooks#bridgecard"
 
       post "/login", to: "sessions#create"
+      post "signup", to: "users/registrations#create"
+      post "refresh", to: "users/sessions#refresh"
+      delete "logout", to: "users/sessions#destroy"
+      get "confirmation", to: "users/confirmations#show"
 
       get "timeline", to: "timeline#index"
 
@@ -176,6 +180,7 @@ Rails.application.routes.draw do
           post :initialize_transaction
           post :create_user
           get  :user
+          get  :verify
         end
       end
 

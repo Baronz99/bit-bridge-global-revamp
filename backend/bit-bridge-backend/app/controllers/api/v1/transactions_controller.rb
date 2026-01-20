@@ -3,6 +3,7 @@
 module Api
   module V1
     class TransactionsController < ApplicationController
+      skip_before_action :authenticate_user!, only: :verify
       before_action :set_transaction, only: %i[show update destroy]
 
       def index
@@ -82,6 +83,42 @@ module Api
         else
           render json: { message: response[:message] }, status: :unprocessable_entity
         end
+      end
+
+      # GET /api/v1/transactions/verify?payment_reference=...
+      def verify
+        reference =
+          params[:payment_reference].presence ||
+          params[:reference].presence
+
+        if reference.blank?
+          return render json: { message: 'payment_reference is required' }, status: :bad_request
+        end
+
+        unless reference.match?(/\A(fbg|bbg)-\d+\z/)
+          return render json: { message: 'payment_reference is invalid' }, status: :bad_request
+        end
+
+        transaction_record = TransactionRecord.find_by(reference: reference)
+        unless transaction_record
+          return render json: { message: 'Transaction not found' }, status: :not_found
+        end
+
+        currency = transaction_record&.exchange&.wallet&.currency.presence || 'NGN'
+        status_value = transaction_record.status.to_s.strip.downcase
+        status_value = 'pending' if status_value.blank?
+        amount_value = transaction_record&.amount
+
+        render json: {
+          data: {
+            reference: transaction_record.reference,
+            status: status_value,
+            amount: amount_value,
+            currency: currency,
+            created_at: transaction_record.created_at,
+            updated_at: transaction_record.updated_at
+          }
+        }, status: :ok
       end
 
       # POST /api/v1/transactions

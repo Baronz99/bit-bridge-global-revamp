@@ -11,58 +11,54 @@ import {
   setRefreshToken,
   cookieAuthEnabled,
 } from '../auth/tokenStore'
+import refreshClient from './refreshClient'
 
 /**
  * Normalize base URL to avoid double slashes
  */
 const normalizeBaseUrl = (url) => (url ? url.replace(/\/+$/, '') : '')
-const stripApiV1Suffix = (url) => normalizeBaseUrl(url).replace(/\/api\/v1$/i, '')
-
-const ROOT_BASE_URL = stripApiV1Suffix(API_BASE_URL)
 
 let refreshPromise = null
 
 const refreshAccessToken = async () => {
   const refreshToken = getRefreshToken()
-  if (!refreshToken && !cookieAuthEnabled()) {
-    throw new Error('No refresh token stored')
-  }
+  if (!refreshToken && !cookieAuthEnabled()) return null
 
-  const response = await fetch(`${ROOT_BASE_URL}/refresh`, {
-    method: 'POST',
-    headers: {
-      Accept: 'application/json',
-      'Content-Type': 'application/json',
-      ...(refreshToken ? { 'Bit-Refresh-Token': refreshToken } : {}),
-    },
-    credentials: cookieAuthEnabled() ? 'include' : 'same-origin',
-  })
-
-  if (!response.ok) {
-    throw new Error(`Refresh failed (${response.status})`)
-  }
-
-  const raw = (await response.text()).trim()
-  let parsed = null
   try {
-    parsed = raw ? JSON.parse(raw) : null
+    const response = await refreshClient.post('/refresh', null, {
+      headers: {
+        ...(refreshToken ? { 'Bit-Refresh-Token': refreshToken } : {}),
+      },
+    })
+
+    const data = response?.data
+    let payload = data
+
+    if (typeof data === 'string') {
+      const trimmed = data.trim()
+      try {
+        payload = trimmed ? JSON.parse(trimmed) : ''
+      } catch {
+        payload = trimmed
+      }
+    }
+
+    const parsedToken =
+      typeof payload === 'string'
+        ? payload
+        : payload && (payload.access_token || payload.token || payload.jwt)
+
+    const token = (parsedToken || '').replace(/^"|"$/g, '') || null
+
+    if (token) setAccessToken(token)
+    if (payload?.refresh_token) setRefreshToken(payload.refresh_token)
+
+    return {
+      access_token: token,
+      refresh_token: payload?.refresh_token,
+    }
   } catch {
-    parsed = null
-  }
-
-  const parsedToken =
-    typeof parsed === 'string'
-      ? parsed
-      : parsed && (parsed.access_token || parsed.token || parsed.jwt)
-
-  const token = (parsedToken || raw || '').replace(/^"|"$/g, '') || null
-
-  if (token) setAccessToken(token)
-  if (parsed?.refresh_token) setRefreshToken(parsed.refresh_token)
-
-  return {
-    access_token: token,
-    refresh_token: parsed?.refresh_token,
+    return null
   }
 }
 
@@ -103,7 +99,7 @@ const client = axios.create({
     'Content-Type': 'application/json',
   },
   timeout: 60_000,
-  withCredentials: cookieAuthEnabled(),
+  withCredentials: false,
 })
 
 /**
@@ -181,6 +177,8 @@ client.interceptors.response.use(
           if (refreshed?.access_token) {
             originalRequest.headers = originalRequest.headers || {}
             originalRequest.headers.Authorization = `Bearer ${refreshed.access_token}`
+          } else {
+            throw new Error('Refresh failed')
           }
           return client.request(originalRequest)
         } catch {

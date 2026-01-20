@@ -16,17 +16,24 @@ const stripApiV1Suffix = (url) => {
 const MODE = import.meta.env.MODE
 
 /**
- * ✅ Use ONE root env var everywhere.
- * Set in .env.local or Netlify:
- * VITE_API_ROOT_URL=https://bitbridge-backend-prod-5f0b6abe68d7.herokuapp.com
- *
- * (Even if you mistakenly include /api/v1, this file will normalize it.)
+ * ✅ Use ONE base env var everywhere.
+ * Prefer:
+ * VITE_API_BASE_URL=https://bitbridgeglobal.com/api/v1
+ * (If you provide a root, we will append /api/v1.)
  */
+const forcedBaseRaw = stripTrailingSlash(import.meta.env.VITE_API_BASE_URL)
+const forcedBase =
+  forcedBaseRaw ? (forcedBaseRaw.match(/\/api\/v1$/i) ? forcedBaseRaw : `${forcedBaseRaw}/api/v1`) : ''
+
 const forcedRootRaw = stripTrailingSlash(import.meta.env.VITE_API_ROOT_URL)
 const forcedRoot = forcedRootRaw ? stripApiV1Suffix(forcedRootRaw) : ''
 
 // fallback logic
 let rootUrl = forcedRoot
+
+if (forcedBase) {
+  rootUrl = stripApiV1Suffix(forcedBase)
+}
 
 if (!rootUrl) {
   if (MODE === 'staging') {
@@ -47,4 +54,4 @@ rootUrl = stripApiV1Suffix(stripTrailingSlash(rootUrl))
 export const API_ROOT_URL = rootUrl
 
 // ✅ Export API v1 base (guaranteed single /api/v1)
-export const API_BASE_URL = `${rootUrl}/api/v1`
+export const API_BASE_URL = forcedBase || `${rootUrl}/api/v1`

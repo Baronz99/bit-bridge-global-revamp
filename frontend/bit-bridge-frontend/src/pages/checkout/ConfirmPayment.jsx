@@ -54,16 +54,16 @@ const ConfirmPayment = () => {
     const startedAt = Date.now()
     const fetchRecord = async () => {
       try {
-        const res = await client.get(`/transaction_records/${refId}`)
+        const res = await client.get('/transactions/verify', {
+          params: { payment_reference: refId },
+        })
         if (cancelled) return
         const record = res?.data?.data || null
         setTransactionRecord(record)
         setTransactionError('')
         setLastCheckedAt(new Date())
 
-        const displayStatus = String(
-          record?.exchange?.status || record?.status || ''
-        ).toLowerCase()
+        const displayStatus = String(record?.status || '').toLowerCase()
         if (TERMINAL_STATUSES.has(displayStatus)) {
           shouldPoll = false
           if (timeoutId) clearTimeout(timeoutId)
@@ -71,7 +71,9 @@ const ConfirmPayment = () => {
       } catch (err) {
         if (cancelled) return
         if (err?.response?.status === 404) {
+          setTransactionRecord(null)
           setTransactionError('')
+          setLastCheckedAt(new Date())
           return
         }
         if (err?.response?.status === 401) {
@@ -106,19 +108,15 @@ const ConfirmPayment = () => {
 
   const isWalletRef = refId?.startsWith('fbg')
   const activeRecord = isWalletRef ? transactionRecord : purchaseOrder
-  const displayStatus = String(
-    (isWalletRef ? activeRecord?.exchange?.status : null) ||
-      activeRecord?.status ||
-      ''
-  ).toLowerCase()
+  const displayStatus = String(activeRecord?.status || '').toLowerCase()
   const isSuccess = SUCCESS_STATUSES.has(displayStatus)
   const isProcessing =
-    PROCESSING_STATUSES.has(displayStatus) || displayStatus === 'pending'
+    PROCESSING_STATUSES.has(displayStatus) ||
+    displayStatus === 'pending' ||
+    (isWalletRef && !transactionRecord && !isSuccess)
   const isFailed = FAILED_STATUSES.has(displayStatus)
   const isUnknown = !isSuccess && !isFailed && !isProcessing
-  const hasPaymentReference = Boolean(
-    isWalletRef && transactionRecord?.transaction_id
-  )
+  const hasPaymentReference = Boolean(isWalletRef && transactionRecord?.reference)
   const handleBack = useCallback(() => {
     navigate('/dashboard/home')
   }, [navigate])
@@ -133,13 +131,17 @@ const ConfirmPayment = () => {
     if (!refId || !isWalletRef) return
     setTransactionError('')
     client
-      .get(`/transaction_records/${refId}`)
+      .get('/transactions/verify', { params: { payment_reference: refId } })
       .then((res) => {
         setTransactionRecord(res?.data?.data || null)
         setLastCheckedAt(new Date())
       })
       .catch((err) => {
-        if (err?.response?.status === 404) return
+        if (err?.response?.status === 404) {
+          setTransactionRecord(null)
+          setLastCheckedAt(new Date())
+          return
+        }
         if (err?.response?.status === 401) {
           setAuthExpired(true)
           setTransactionError('Session expired. Please log in to continue verification.')
@@ -161,7 +163,7 @@ const ConfirmPayment = () => {
 
       {/* https://bitbridgeglobal.com/app-redirect?paymentReference=bbg-1754300805 */}
 
-      {activeRecord && (
+      {(activeRecord || isWalletRef) && (
         <div
           className={`${
             isSuccess ? 'bg-green-200' : isFailed ? 'bg-red-200' : 'bg-slate-200'
@@ -229,15 +231,22 @@ const ConfirmPayment = () => {
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <Detail label="Amount" value={`₦${parseFloat(transactionRecord?.amount || 0).toLocaleString()}`} />
-                  <Detail label="Transaction ID" value={transactionRecord?.id || refId} />
-              <Detail label="Status" value={displayStatus} badge />
+                  <Detail
+                    label="Amount"
+                    value={
+                      transactionRecord?.amount != null
+                        ? `₦${parseFloat(transactionRecord.amount).toLocaleString()}`
+                        : '—'
+                    }
+                  />
+                  <Detail label="Transaction ID" value={transactionRecord?.reference || refId} />
+                  <Detail label="Status" value={displayStatus} badge />
                   <Detail
                     label="Created At"
                     value={
                       transactionRecord?.created_at
                         ? new Date(transactionRecord.created_at).toLocaleString()
-                        : ''
+                        : '—'
                     }
                   />
                   <Detail
@@ -245,7 +254,7 @@ const ConfirmPayment = () => {
                     value={
                       transactionRecord?.updated_at
                         ? new Date(transactionRecord.updated_at).toLocaleString()
-                        : ''
+                        : '—'
                     }
                   />
                   <Detail
@@ -296,20 +305,24 @@ const ConfirmPayment = () => {
                   </div>
                 )}
               </div>
-            ) : (
+            ) : authExpired ? null : (
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
-                <Detail label="Transaction ID" value={transactionRecord?.id || refId} />
+                <Detail label="Transaction ID" value={transactionRecord?.reference || refId} />
                 <Detail label="Status" value={displayStatus} badge />
                 <Detail
                   label="Amount"
-                  value={`₦${parseFloat(transactionRecord?.amount || 0).toLocaleString()}`}
+                  value={
+                    transactionRecord?.amount != null
+                      ? `₦${parseFloat(transactionRecord.amount).toLocaleString()}`
+                      : '—'
+                  }
                 />
                 <Detail
                   label="Created At"
                   value={
                     transactionRecord?.created_at
                       ? new Date(transactionRecord.created_at).toLocaleString()
-                      : ''
+                      : '—'
                   }
                 />
                 <Detail
@@ -317,20 +330,10 @@ const ConfirmPayment = () => {
                   value={
                     transactionRecord?.updated_at
                       ? new Date(transactionRecord.updated_at).toLocaleString()
-                      : ''
+                      : '—'
                   }
                 />
-                <Detail
-                  label="Bonus"
-                  value={`₦${parseFloat(transactionRecord?.bonus || 0).toLocaleString()}`}
-                />
-                <Detail label="Type" value={transactionRecord?.transaction_type} />
-                <Detail label="Coin Type" value={transactionRecord?.coin_type} />
-                <Detail label="Wallet ID" value={transactionRecord?.wallet_id} />
-                <Detail label="Bank" value={transactionRecord?.bank || 'N/A'} />
-                <Detail label="Bank Code" value={transactionRecord?.bank_code || 'N/A'} />
-                <Detail label="Sender" value={transactionRecord?.sender || 'N/A'} />
-                <Detail label="Address" value={transactionRecord?.address || 'N/A'} />
+                <Detail label="Currency" value={transactionRecord?.currency || '—'} />
               </div>
             )}
           </div>
