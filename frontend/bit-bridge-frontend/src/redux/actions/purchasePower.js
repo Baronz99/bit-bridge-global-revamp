@@ -4,7 +4,10 @@ import client from '../../api/client'
 import { nairaFormat } from '../../utils/nairaFormat'
 
 const getErrorMessage = (error) =>
-  error?.response?.data?.message || error?.message || 'Something went wrong'
+  error?.response?.data?.message ||
+  (error?.code === 'ERR_NETWORK' ? 'Network error. Please try again.' : null) ||
+  error?.message ||
+  'Something went wrong'
 
 export const createPurchaseOrder = createAsyncThunk(
   'purchase/purchase-power',
@@ -86,6 +89,10 @@ export const confirmPayment = createAsyncThunk(
   'data/buy-data-orders',
   async ({ queryId, data, payment_method, idempotency_key }, { rejectWithValue }) => {
     try {
+      if (!queryId) {
+        return rejectWithValue({ message: 'Missing bill order ID for confirmation' })
+      }
+
       const payload = data || {}
       if (!payload.payment_method && payment_method) payload.payment_method = payment_method
 
@@ -102,11 +109,11 @@ export const confirmPayment = createAsyncThunk(
         }
       }
 
-      const response = await client.patch(
-        `/bill_orders/${queryId}/confirm_bill_payment`,
-        { bill_order: payload },
-        { headers: idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : {} }
-      )
+      const response = await client.patch(`/bill_orders/${queryId}/confirm_bill_payment`, {
+        bill_order: payload,
+      }, {
+        headers: idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : {},
+      })
       return response.data
     } catch (error) {
       return rejectWithValue({ message: getErrorMessage(error) })

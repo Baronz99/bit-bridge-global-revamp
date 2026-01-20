@@ -14,9 +14,13 @@ import {
 import refreshClient from './refreshClient'
 
 /**
- * Normalize base URL to avoid double slashes
+ * Normalize base URL to avoid double slashes and ensure /api/v1 suffix
  */
-const normalizeBaseUrl = (url) => (url ? url.replace(/\/+$/, '') : '')
+const normalizeBaseUrl = (url) => {
+  const trimmed = url ? url.replace(/\/+$/, '') : ''
+  if (!trimmed) return ''
+  return /\/api\/v1$/i.test(trimmed) ? trimmed : `${trimmed}/api/v1`
+}
 
 let refreshPromise = null
 
@@ -154,6 +158,14 @@ const isPaymentVerificationPage = () => {
 client.interceptors.response.use(
   (res) => res,
   async (error) => {
+    if (!error?.response && import.meta.env.DEV) {
+      const base = error?.config?.baseURL || ''
+      const path = error?.config?.url || ''
+      const method = error?.config?.method || 'GET'
+      const fullUrl = `${base}${path}`
+      console.warn('[api] network error', { method, url: fullUrl, code: error?.code })
+    }
+
     const status = error?.response?.status
 
     const expired =
