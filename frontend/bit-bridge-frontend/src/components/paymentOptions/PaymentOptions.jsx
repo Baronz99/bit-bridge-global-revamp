@@ -10,6 +10,7 @@ import { SET_LOADING } from '../../redux/app'
 const PaymentOptions = ({ handleConfirmation, purchaseOrder, redirect_url }) => {
   const dispatch = useDispatch()
   const { user } = useSelector((state) => state.auth)
+  const { isLoading } = useSelector((state) => state.app)
 
   const scriptLoadedRef = useRef(false)
   const handleConfirmationRef = useRef(handleConfirmation)
@@ -105,6 +106,7 @@ const PaymentOptions = ({ handleConfirmation, purchaseOrder, redirect_url }) => 
         <div className="w-full">
           <button
             className="border-alt m-auto block max-w-sm w-full h-20 bg-alt rounded-lg  border px-4 py-2 shadow-md text-primary text-xl font-medium"
+            disabled={isLoading}
             onClick={() => handleConfirmation('wallet')}
           >
             Pay from Wallet
@@ -127,6 +129,7 @@ const PaymentOptions = ({ handleConfirmation, purchaseOrder, redirect_url }) => 
         <button
           type="button"
           onClick={payWithMonnify}
+          disabled={isLoading}
           className="border-alt m-auto block max-w-sm w-full h-20 bg-primary rounded-lg  border px-4 py-2 shadow-md text-alt font-medium text-xl"
         >
           Pay with Bank?

@@ -158,17 +158,31 @@ const Detail = ({
   commission,
 }) => {
   console.log(commission, applyCommission)
+  const normalized = String(value || '').toLowerCase()
+  const isSuccess = normalized === 'approved' || normalized === 'completed'
+  const isPending =
+    normalized === 'pending' ||
+    normalized === 'processing' ||
+    normalized === 'initialized'
+  const isFailed =
+    normalized === 'failed' ||
+    normalized === 'refunded' ||
+    normalized === 'declined' ||
+    normalized === 'timedout' ||
+    normalized === 'disputed'
   return (
     <div className={`${hidden ? 'hidden' : 'flex'} flex-col`}>
       <span className="text-gray-400 uppercase text-xs">{label}</span>
       {badge ? (
         <span
           className={`mt-1 inline-block px-2 py-1 rounded-md text-xs font-medium ${
-            value === 'approved' || value === 'completed'
+            isSuccess
               ? 'bg-green-600 text-white'
-              : value === 'pending'
+              : isPending
                 ? 'bg-yellow-600 text-white'
-                : 'bg-red-600 text-white'
+                : isFailed
+                  ? 'bg-red-600 text-white'
+                  : 'bg-slate-600 text-white'
           }`}
         >
           {value}

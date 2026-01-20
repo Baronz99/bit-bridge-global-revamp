@@ -120,7 +120,7 @@ class BuyPowerPaymentService
     end
   end
 
-  def confirm_subscription(electric_bill_order, payment_method = 'wallet', use_commission = false, request_id: nil)
+  def confirm_subscription(electric_bill_order, payment_method = 'wallet', use_commission = false, request_id: nil, idempotency_key: nil)
     body = {
       meter: electric_bill_order['meter_number'],
       amount: electric_bill_order['amount'],
@@ -141,107 +141,156 @@ class BuyPowerPaymentService
     request_tag = "request_id=#{request_id || 'unknown'} bill_order_id=#{electric_bill_order&.id || electric_bill_order&.dig('id')}"
     Rails.logger.info("BuyPower confirm_subscription start #{request_tag} payment_method=#{payment_method}")
 
-    user.with_lock do
-      response = nil
-      if payment_method == 'wallet'
+    response = nil
+    if payment_method == 'wallet'
+      raise 'user is inactive' unless electric_bill_order.user&.active
 
-        raise 'user is inactive' unless electric_bill_order.user&.active
+      wallet = user.wallet
+      amount = electric_bill_order[:total_amount].to_d
 
+      begin
+        ActiveRecord::Base.transaction do
+          wallet.lock!
+          electric_bill_order.lock!
 
-        # update the order before transaction so you can update after transaction then check the previous transaction to ensure none was made at the same time
-        wallet = user.wallet
-        amount = electric_bill_order[:total_amount].to_f
-        use_commission = use_commission
-
-
-        available_balance = wallet.balance.to_f
-        commission_balance = wallet.commission.to_f
-
-        has_money = available_balance >= amount || (use_commission && (commission_balance + available_balance) >= amount)
-
-        raise 'Insufficient funds' unless has_money
-
-        call_started_at = Process.clock_gettime(Process::CLOCK_MONOTONIC)
-        Rails.logger.info("BuyPower vend request start #{request_tag}")
-        response = self.class.post('/vend', headers: @post_headers, body: body, timeout: PROVIDER_READ_TIMEOUT, open_timeout: PROVIDER_OPEN_TIMEOUT)
-        call_duration_ms = ((Process.clock_gettime(Process::CLOCK_MONOTONIC) - call_started_at) * 1000).round
-        Rails.logger.info("BuyPower vend request finish #{request_tag} duration_ms=#{call_duration_ms} success=#{response&.success?}")
-
-      elsif payment_method == 'card'
-        call_started_at = Process.clock_gettime(Process::CLOCK_MONOTONIC)
-        Rails.logger.info("BuyPower vend request start #{request_tag}")
-        response = self.class.post('/vend', headers: @post_headers, body: body, timeout: PROVIDER_READ_TIMEOUT, open_timeout: PROVIDER_OPEN_TIMEOUT)
-        call_duration_ms = ((Process.clock_gettime(Process::CLOCK_MONOTONIC) - call_started_at) * 1000).round
-        Rails.logger.info("BuyPower vend request finish #{request_tag} duration_ms=#{call_duration_ms} success=#{response&.success?}")
-      else
-        raise 'no payment method selected'
-      end
-
-      unless response.respond_to?(:success?)
-        return { status: 'pending', response: 'Payment pending...' }
-      end
-
-      if response.success?
-
-        Rails.logger.info(
-  "BuyPower vend success #{request_tag} provider_txn_id=#{response&.dig('data','id')} units_present=#{!!response&.dig('data','units')} token_present=#{!!response&.dig('data','token')}"
-)
-
-
-        payment_method = payment_method
-        units = response&.dig('data', 'units')
-        token = response&.dig('data', 'token')
-        transaction_id = response&.dig('data', 'id')
-        message = response&.dig('message') || 'No error message'
-        if response&.dig('error')
-          electric_bill_order.update(status: 'disputed', payment_method: payment_method, reason: message)
-          raise response&.dig('message')
-
-        elsif electric_bill_order.update(status: 'completed', payment_method: payment_method, use_commission: use_commission,
-                                         units: units, token: token, transaction_id: transaction_id, reason: message)
-          unless electric_bill_order.update(status: 'completed', payment_method: payment_method,
-                                            use_commission: use_commission, units: units, token: token, transaction_id: transaction_id, reason: message)
-            electric_bill_order.update(status: 'disputed',
-                                       reason: electric_bill_order&.full_messages&.to_sentence || message)
-            raise electric_bill_order.full_messages.to_sentence
+          if idempotency_key.present? && electric_bill_order.idempotency_key.blank?
+            electric_bill_order.idempotency_key = idempotency_key
           end
-        end
-      else
-        error_message = response&.dig('message') || 'Upstream provider error'
-        if payment_method == 'card' || electric_bill_order.payment_type == 'online' || electric_bill_order.payment_method == 'card'
-          electric_bill_order.update(status: 'initialized', payment_method: payment_method, reason: "Vend failed: #{error_message}")
-          return { response: error_message, status: 'error' }
-        end
 
-        response&.dig('error')
-        code = response&.dig('responseCode')
-        electric_bill_order.update(status: 'declined', payment_method: payment_method, reason: error_message)
-        case code
-        when 400, 422, 409, 500, 501, 502, 503, 403
+          return { response: electric_bill_order, status: 'success' } if electric_bill_order.completed?
+          if electric_bill_order.processing? || electric_bill_order.pending?
+            return { response: electric_bill_order, status: 'pending' }
+          end
+
+          hold_total = wallet.active_hold_total.to_d
+          available_balance = wallet.balance.to_d - hold_total
+          commission_balance = wallet.commission.to_d
+          has_money = available_balance >= amount ||
+            (use_commission && (commission_balance + available_balance) >= amount)
+
+          raise 'Insufficient funds' unless has_money
+
+          WalletLedgerEntry.ensure_hold!(
+            wallet: wallet,
+            bill_order: electric_bill_order,
+            amount: amount,
+            reference: idempotency_key,
+            metadata: { request_id: request_id }
+          )
+
+          electric_bill_order.payment_method = payment_method
+          electric_bill_order.use_commission = use_commission
+          electric_bill_order.status = 'processing'
+          electric_bill_order.save!
         end
-        raise error_message
+      rescue ActiveRecord::RecordInvalid => e
+        Rails.logger.error("Update failed: #{e.record.errors.full_messages.join(', ')}")
+        return { status: 'error', message: e.record.errors.full_messages.to_sentence }
       end
 
-      return { response: electric_bill_order, status: 'success' }
-    rescue ActiveRecord::RecordInvalid => e
-      Rails.logger.error("Update failed: #{e.record.errors.full_messages.join(', ')}")
-      return { status: 'error', message: e.record.errors.full_messages.to_sentence }
-    rescue Timeout::Error, Net::OpenTimeout, Net::ReadTimeout => e
-      electric_bill_order.update(status: 'timedout', payment_method: payment_method)
-      Rails.logger.info("BuyPower vend request timeout #{request_tag} error=#{e.class}")
-      return { status: 'pending', response: 'Payment pending...', code: 503 }
-    rescue StandardError => e
-      if electric_bill_order&.status == 'completed' && electric_bill_order&.transaction_id.present?
-        Rails.logger.error(
-          "BuyPower confirm_subscription error after completion #{request_tag} status=#{electric_bill_order.status} error=#{e.class} message=#{e.message}"
+      call_started_at = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+      Rails.logger.info("BuyPower vend request start #{request_tag}")
+      response = self.class.post('/vend', headers: @post_headers, body: body, timeout: PROVIDER_READ_TIMEOUT, open_timeout: PROVIDER_OPEN_TIMEOUT)
+      call_duration_ms = ((Process.clock_gettime(Process::CLOCK_MONOTONIC) - call_started_at) * 1000).round
+      Rails.logger.info("BuyPower vend request finish #{request_tag} duration_ms=#{call_duration_ms} success=#{response&.success?}")
+    elsif payment_method == 'card'
+      call_started_at = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+      Rails.logger.info("BuyPower vend request start #{request_tag}")
+      response = self.class.post('/vend', headers: @post_headers, body: body, timeout: PROVIDER_READ_TIMEOUT, open_timeout: PROVIDER_OPEN_TIMEOUT)
+      call_duration_ms = ((Process.clock_gettime(Process::CLOCK_MONOTONIC) - call_started_at) * 1000).round
+      Rails.logger.info("BuyPower vend request finish #{request_tag} duration_ms=#{call_duration_ms} success=#{response&.success?}")
+    else
+      raise 'no payment method selected'
+    end
+
+    unless response.respond_to?(:success?)
+      enqueue_reconciliation(electric_bill_order)
+      return { status: 'pending', response: 'Payment pending...' }
+    end
+
+    if response.success?
+      Rails.logger.info(
+        "BuyPower vend success #{request_tag} provider_txn_id=#{response&.dig('data','id')} units_present=#{!!response&.dig('data','units')} token_present=#{!!response&.dig('data','token')}"
+      )
+
+      payment_method = payment_method
+      units = response&.dig('data', 'units')
+      token = response&.dig('data', 'token')
+      transaction_id = response&.dig('data', 'id')
+      message = response&.dig('message') || 'No error message'
+      provider_payload = provider_response_payload(response)
+
+      if response&.dig('error')
+        return handle_wallet_failure(
+          electric_bill_order,
+          payment_method,
+          message,
+          provider_payload,
+          status: 'failed'
         )
+      end
+
+      if payment_method == 'wallet'
+        return handle_wallet_success(
+          electric_bill_order,
+          payment_method,
+          use_commission,
+          units,
+          token,
+          transaction_id,
+          message,
+          provider_payload
+        )
+      end
+
+      if electric_bill_order.update(status: 'completed', payment_method: payment_method, use_commission: use_commission,
+                                    units: units, token: token, transaction_id: transaction_id, reason: message)
         return { response: electric_bill_order, status: 'success' }
       end
-      Rails.logger.error(
-        "BuyPower confirm_subscription error #{request_tag} status=#{electric_bill_order&.status} error=#{e.class} message=#{e.message}"
-      )
-      return { response: e.message.to_s, status: 'error' }
+    else
+      error_message = response&.dig('message') || 'Upstream provider error'
+      if payment_method == 'card' || electric_bill_order.payment_method == 'card'
+        electric_bill_order.update(status: 'initialized', payment_method: payment_method, reason: "Vend failed: #{error_message}")
+        return { response: error_message, status: 'error' }
+      end
+
+      provider_payload = provider_response_payload(response)
+      provider_status = provider_status_from(response)
+      if %w[failed refund refunded reversed cancelled].include?(provider_status)
+        return handle_wallet_failure(
+          electric_bill_order,
+          payment_method,
+          error_message,
+          provider_payload,
+          status: provider_status == 'refund' || provider_status == 'refunded' ? 'refunded' : 'failed'
+        )
+      end
+
+      electric_bill_order.update(status: 'processing', payment_method: payment_method, reason: error_message, provider_response: provider_payload)
+      enqueue_reconciliation(electric_bill_order)
+      return { status: 'pending', response: 'Payment processing...' }
     end
+
+    return { response: electric_bill_order, status: 'success' }
+  rescue ActiveRecord::RecordInvalid => e
+    Rails.logger.error("Update failed: #{e.record.errors.full_messages.join(', ')}")
+    return { status: 'error', message: e.record.errors.full_messages.to_sentence }
+  rescue Timeout::Error, Net::OpenTimeout, Net::ReadTimeout => e
+    electric_bill_order.update(status: 'processing', payment_method: payment_method)
+    Rails.logger.info("BuyPower vend request timeout #{request_tag} error=#{e.class}")
+    enqueue_reconciliation(electric_bill_order)
+    return { status: 'pending', response: 'Payment pending...', code: 503 }
+  rescue StandardError => e
+    if electric_bill_order&.status == 'completed' && electric_bill_order&.transaction_id.present?
+      Rails.logger.error(
+        "BuyPower confirm_subscription error after completion #{request_tag} status=#{electric_bill_order.status} error=#{e.class} message=#{e.message}"
+      )
+      return { response: electric_bill_order, status: 'success' }
+    end
+    Rails.logger.error(
+      "BuyPower confirm_subscription error #{request_tag} status=#{electric_bill_order&.status} error=#{e.class} message=#{e.message}"
+    )
+    return { response: e.message.to_s, status: 'error' }
   end
 
   def confirm_subscription_monnify(electric_bill_order, payment_method = 'wallet')
@@ -388,5 +437,96 @@ end
     { response: response, status: :ok }
   rescue StandardError => e
     { response: e.message.to_s, status: :unprocessable_entity }
+  end
+
+  private
+
+  def provider_response_payload(response)
+    return response.parsed_response if response.respond_to?(:parsed_response)
+    return response.to_h if response.respond_to?(:to_h)
+    response
+  end
+
+  def provider_status_from(response)
+    response&.dig('data', 'status')&.to_s&.downcase ||
+      response&.dig('status')&.to_s&.downcase ||
+      response&.dig('responseCode')&.to_s&.downcase
+  end
+
+  def handle_wallet_success(order, payment_method, use_commission, units, token, transaction_id, message, provider_payload)
+    wallet = order.user.wallet
+    amount = order.total_amount.to_d
+
+    ActiveRecord::Base.transaction do
+      wallet.lock!
+      WalletLedgerEntry.release_hold!(
+        wallet: wallet,
+        bill_order: order,
+        amount: amount,
+        reference: order.idempotency_key,
+        metadata: { provider_reference: transaction_id }
+      )
+      WalletLedgerEntry.record_debit!(
+        wallet: wallet,
+        bill_order: order,
+        amount: amount,
+        reference: order.idempotency_key,
+        metadata: { provider_reference: transaction_id }
+      )
+
+      order.update!(
+        status: 'completed',
+        payment_method: payment_method,
+        use_commission: use_commission,
+        units: units,
+        token: token,
+        transaction_id: transaction_id,
+        provider_reference: transaction_id,
+        provider_response: provider_payload,
+        reason: message
+      )
+    end
+
+    { response: order, status: 'success' }
+  end
+
+  def handle_wallet_failure(order, payment_method, message, provider_payload, status: 'failed')
+    wallet = order.user.wallet
+    amount = order.total_amount.to_d
+
+    ActiveRecord::Base.transaction do
+      wallet.lock!
+      WalletLedgerEntry.release_hold!(
+        wallet: wallet,
+        bill_order: order,
+        amount: amount,
+        reference: order.idempotency_key,
+        metadata: { provider_reference: order.provider_reference }
+      )
+      WalletLedgerEntry.record_refund!(
+        wallet: wallet,
+        bill_order: order,
+        amount: amount,
+        reference: order.idempotency_key,
+        metadata: { provider_reference: order.provider_reference }
+      )
+
+      order.update!(
+        status: status,
+        payment_method: payment_method,
+        provider_response: provider_payload,
+        reason: message
+      )
+    end
+
+    { response: message, status: 'error' }
+  end
+
+  def enqueue_reconciliation(order)
+    return unless order&.id
+
+    BuyPowerReconcileJob.set(wait: 2.minutes).perform_later(order.id)
+  rescue StandardError
+    nil
   end
 end

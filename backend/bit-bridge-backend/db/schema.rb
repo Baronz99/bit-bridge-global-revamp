@@ -150,7 +150,11 @@ ActiveRecord::Schema[7.1].define(version: 2026_01_17_091500) do
     t.string "description"
     t.boolean "use_commission"
     t.text "reason"
+    t.string "idempotency_key"
+    t.string "provider_reference"
+    t.jsonb "provider_response"
     t.index ["order_detail_id"], name: "index_bill_orders_on_order_detail_id"
+    t.index ["user_id", "idempotency_key"], name: "index_bill_orders_on_user_id_and_idempotency_key", unique: true, where: "(idempotency_key IS NOT NULL)"
     t.index ["user_id"], name: "index_bill_orders_on_user_id"
   end
 
@@ -775,6 +779,20 @@ ActiveRecord::Schema[7.1].define(version: 2026_01_17_091500) do
     t.index ["user_id"], name: "index_vendors_on_user_id"
   end
 
+  create_table "wallet_ledger_entries", id: :uuid, default: -> { "gen_random_uuid()" }, force: :cascade do |t|
+    t.uuid "wallet_id", null: false
+    t.uuid "bill_order_id", null: false
+    t.integer "entry_type", null: false
+    t.decimal "amount", null: false
+    t.string "reference"
+    t.jsonb "metadata", default: {}, null: false
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["bill_order_id", "entry_type"], name: "index_wallet_ledger_entries_on_bill_order_id_and_entry_type", unique: true, where: "(bill_order_id IS NOT NULL)"
+    t.index ["wallet_id", "bill_order_id", "entry_type"], name: "idx_unique_wallet_ledger_logical_entry", unique: true
+    t.index ["wallet_id", "entry_type"], name: "index_wallet_ledger_entries_on_wallet_id_and_entry_type"
+  end
+
   create_table "wallets", id: :uuid, default: -> { "gen_random_uuid()" }, force: :cascade do |t|
     t.uuid "user_id"
     t.datetime "created_at", null: false
@@ -829,5 +847,7 @@ ActiveRecord::Schema[7.1].define(version: 2026_01_17_091500) do
   add_foreign_key "transactions", "wallets"
   add_foreign_key "user_profiles", "users", on_delete: :nullify
   add_foreign_key "vendors", "users"
+  add_foreign_key "wallet_ledger_entries", "bill_orders"
+  add_foreign_key "wallet_ledger_entries", "wallets"
   add_foreign_key "wallets", "users", on_delete: :nullify
 end

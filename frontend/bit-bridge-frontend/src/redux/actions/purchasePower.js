@@ -84,11 +84,29 @@ export const getRescentPurchaseOrder = createAsyncThunk(
 
 export const confirmPayment = createAsyncThunk(
   'data/buy-data-orders',
-  async ({ queryId, data }, { rejectWithValue }) => {
+  async ({ queryId, data, payment_method, idempotency_key }, { rejectWithValue }) => {
     try {
-      const response = await client.patch(`/bill_orders/${queryId}/confirm_bill_payment`, {
-        bill_order: data,
-      })
+      const payload = data || {}
+      if (!payload.payment_method && payment_method) payload.payment_method = payment_method
+
+      let idempotencyKey = idempotency_key
+      if (!idempotencyKey) {
+        try {
+          const storageKey = `bill_order_idempotency:${queryId}`
+          idempotencyKey =
+            localStorage.getItem(storageKey) ||
+            (crypto?.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`)
+          localStorage.setItem(storageKey, idempotencyKey)
+        } catch {
+          idempotencyKey = idempotencyKey || `${Date.now()}-${Math.random()}`
+        }
+      }
+
+      const response = await client.patch(
+        `/bill_orders/${queryId}/confirm_bill_payment`,
+        { bill_order: payload },
+        { headers: idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : {} }
+      )
       return response.data
     } catch (error) {
       return rejectWithValue({ message: getErrorMessage(error) })

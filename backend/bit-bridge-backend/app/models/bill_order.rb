@@ -7,7 +7,17 @@ class BillOrder < ApplicationRecord
   has_one :wallet, through: :user
   has_one :transaction_record
 
-  enum :status, { initialized: 0, completed: 1, declined: 2, timedout: 3, disputed: 4 }
+  enum :status, {
+    initialized: 0,
+    completed: 1,
+    declined: 2,
+    timedout: 3,
+    disputed: 4,
+    processing: 5,
+    failed: 6,
+    refunded: 7,
+    pending: 8
+  }
   enum :meter_type, { PREPAID: 0, POSTPAID: 1 }
   enum :payment_type, { online: 0, B2B: 1 }
   enum :payment_method, { wallet: 0, card: 1 }

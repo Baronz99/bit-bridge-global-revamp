@@ -3,6 +3,7 @@
 class Wallet < ApplicationRecord
   belongs_to :user
   has_many :transactions, class_name: 'Transaction'
+  has_many :wallet_ledger_entries, dependent: :destroy
 
   # Bridge legacy relations (NGN-only behaviour)
   has_many :bill_orders, through: :user
@@ -23,6 +24,10 @@ class Wallet < ApplicationRecord
   # -------------------------
   def total_bills
     bill_orders.where(status: %w[completed timedout disputed], payment_method: 'wallet').sum(:total_amount)
+  end
+
+  def active_hold_total
+    WalletLedgerEntry.active_hold_total(id)
   end
 
   def total_commission

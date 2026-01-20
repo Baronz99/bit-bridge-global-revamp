@@ -59,11 +59,33 @@ module Api
         payment_method = bill_order_params[:payment_method]
 
         use_commission = ActiveModel::Type::Boolean.new.cast(bill_order_params[:use_commission])
+        idempotency_key = request.headers['Idempotency-Key'].to_s.strip
+
+        if idempotency_key.present?
+          existing = current_user.bill_orders.find_by(idempotency_key: idempotency_key)
+          if existing && existing.id != @bill_order.id
+            return render json: {
+              success: existing.completed?,
+              data: existing,
+              message: existing.completed? ? 'payment confirmed' : 'payment processing'
+            }, status: :ok
+          end
+        end
 
         service = BuyPowerPaymentService.new
-        service_response = service.confirm_subscription(@bill_order, payment_method, use_commission, request_id: request.request_id)
-        if service_response[:status] == 'success'
+        service_response =
+          service.confirm_subscription(
+            @bill_order,
+            payment_method,
+            use_commission,
+            request_id: request.request_id,
+            idempotency_key: idempotency_key
+          )
+        case service_response[:status]
+        when 'success'
           render json: { success: true, data: service_response[:response], message: 'payment confirmed' }, status: :ok
+        when 'pending'
+          render json: { success: false, status: 'pending', message: service_response[:response] }, status: :accepted
         else
           render json: { success: false, message: service_response[:response] }, status: :unprocessable_entity
         end
