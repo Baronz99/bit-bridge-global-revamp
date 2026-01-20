@@ -126,6 +126,7 @@ const BillOrderDetails = ({ purchaseOrder, applyCommission }) => {
             // </div>
             <Detail label={'Status'} value={purchaseOrder?.status} badge />
           )}
+          {purchaseOrder?.reason && <Detail label={'Reason'} value={purchaseOrder?.reason} />}
           {purchaseOrder?.id && (
             // <div className="gap-4 my-4 md:flex-row flex-col  flex">
             // <p className="w-60 px-2 md:w-60 font-semibold">Order ID</p>

@@ -113,7 +113,7 @@ module Api
 
         case reference_type
         when 'bbg'
-          handle_bills_confirmation(transaction_record)
+          handle_bills_confirmation(transaction_record, event_data)
         when 'fbg'
           exchange = transaction_record.exchange
           terminal_statuses = %w[approved completed success paid failed declined cancelled reversed expired]
@@ -267,11 +267,25 @@ module Api
 end
 
 
-      def handle_bills_confirmation(transaction_record)
-        payment_method = 'card'
+      def handle_bills_confirmation(transaction_record, event_data = {})
+        payment_channel =
+          event_data['paymentMethod'] ||
+          event_data['payment_method'] ||
+          event_data['paymentChannel'] ||
+          event_data['payment_channel'] ||
+          'monnify'
+        payment_channel = payment_channel.to_s.strip.downcase
         bill_order = transaction_record.bill_order
+        payment_method = bill_order&.payment_method == 'wallet' ? 'wallet' : 'card'
         payment_service = BuyPowerPaymentService.new
-        payment_service.confirm_subscription(bill_order, payment_method)
+        service_response = payment_service.confirm_subscription(bill_order, payment_method)
+        if service_response[:status] != 'success' && bill_order&.status == 'initialized'
+          reason = service_response[:response] || bill_order.reason
+          bill_order.update(status: 'failed', reason: reason.presence || bill_order.reason)
+          Rails.logger.warn(
+            "[MonnifyWebhook] vend_failed bill_order_id=#{bill_order.id} reference=#{transaction_record.reference} reason=#{reason} channel=#{payment_channel}"
+          )
+        end
 
         #  if service_response[:status] == "success"
         #   render json: {data: service_response[:response]}, status: :ok
