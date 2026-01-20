@@ -132,5 +132,42 @@ RSpec.describe BuyPowerPaymentService do
       expect(result[:status]).to eq('error')
       expect(result[:response]).to eq('Insufficient funds')
     end
+
+    it 'does not decline card/online orders when vend fails' do
+      allow(Config::Bills).to receive(:validate!).and_return(true)
+      allow(Config::Bills).to receive(:base_url).and_return('http://example.test')
+      allow(Config::Bills).to receive(:token).and_return('token')
+
+      response = { 'message' => 'Vend failed' }
+      def response.success?
+        false
+      end
+
+      allow(described_class).to receive(:post).and_return(response)
+
+      user = create(:user)
+      bill_order = BillOrder.create!(
+        user: user,
+        meter_number: '08012345678',
+        meter_type: 'PREPAID',
+        address: 'Test Address',
+        name: 'Test User',
+        tariff_class: 'A',
+        service_type: 'VTU',
+        email: user.email,
+        amount: 1000,
+        phone: '08012345678',
+        biller: 'MTN',
+        description: 'Airtime',
+        payment_type: 'online',
+        payment_method: 'card'
+      )
+
+      result = described_class.new.confirm_subscription(bill_order, 'card', false, request_id: 'spec')
+
+      expect(result[:status]).to eq('error')
+      expect(bill_order.reload.status).to eq('initialized')
+      expect(bill_order.reason).to include('Vend failed')
+    end
   end
 end

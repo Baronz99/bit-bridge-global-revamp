@@ -145,6 +145,16 @@ const isAuthPage = () => {
   )
 }
 
+const isPaymentVerificationPage = () => {
+  const p = window.location.pathname
+  return (
+    p.includes('/confirm-payment') ||
+    p.startsWith('/checkout') ||
+    p.startsWith('/confirmation-order') ||
+    p.startsWith('/app-redirect')
+  )
+}
+
 client.interceptors.response.use(
   (res) => res,
   async (error) => {
@@ -176,6 +186,11 @@ client.interceptors.response.use(
         } catch {
           // fall through to logout handling
         }
+      }
+
+      if (isPaymentVerificationPage()) {
+        console.info('[auth] suppressed logout on payment verification page')
+        return Promise.reject(error)
       }
 
       clearAuthStorage()

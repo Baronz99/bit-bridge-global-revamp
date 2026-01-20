@@ -6,6 +6,7 @@ import { useDispatch, useSelector } from 'react-redux'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { getRefOrder } from '../../redux/actions/purchasePower'
 import client from '../../api/client'
+import { getAccessToken } from '../../auth/tokenStore'
 
 const SUCCESS_STATUSES = new Set(['approved', 'completed', 'success', 'paid'])
 const FAILED_STATUSES = new Set(['failed', 'declined', 'cancelled', 'reversed', 'expired'])
@@ -30,6 +31,7 @@ const ConfirmPayment = () => {
   const [transactionError, setTransactionError] = useState('')
   const [lastCheckedAt, setLastCheckedAt] = useState(null)
   const [showDetails, setShowDetails] = useState(false)
+  const [authExpired, setAuthExpired] = useState(false)
   console.log(
     purchaseOrder?.status,
     purchaseOrder?.status == 'approved' || purchaseOrder?.status == 'completed'
@@ -37,6 +39,9 @@ const ConfirmPayment = () => {
 
   useEffect(() => {
     if (!refId) return
+    if (authExpired && getAccessToken()) {
+      setAuthExpired(false)
+    }
     const isWalletRef = refId.startsWith('fbg')
     if (!isWalletRef) {
       dispatch(getRefOrder(refId))
@@ -69,6 +74,13 @@ const ConfirmPayment = () => {
           setTransactionError('')
           return
         }
+        if (err?.response?.status === 401) {
+          shouldPoll = false
+          setAuthExpired(true)
+          setTransactionError('Session expired. Please log in to continue verification.')
+          if (timeoutId) clearTimeout(timeoutId)
+          return
+        }
         setTransactionError(err?.response?.data?.message || 'Unable to check transfer status')
       }
     }
@@ -90,7 +102,7 @@ const ConfirmPayment = () => {
       cancelled = true
       if (timeoutId) clearTimeout(timeoutId)
     }
-  }, [dispatch, refId])
+  }, [dispatch, refId, authExpired])
 
   const isWalletRef = refId?.startsWith('fbg')
   const activeRecord = isWalletRef ? transactionRecord : purchaseOrder
@@ -128,9 +140,15 @@ const ConfirmPayment = () => {
       })
       .catch((err) => {
         if (err?.response?.status === 404) return
+        if (err?.response?.status === 401) {
+          setAuthExpired(true)
+          setTransactionError('Session expired. Please log in to continue verification.')
+          return
+        }
         setTransactionError(err?.response?.data?.message || 'Unable to check transfer status')
       })
   }
+  const loginReturnTo = `${window.location.pathname}${window.location.search}`
 
   return (
     <div className="bg-gray-900 min-h-screen text-white p-6">
@@ -176,6 +194,17 @@ const ConfirmPayment = () => {
             {transactionError && (
               <p className="text-sm text-red-300 mb-3 text-center">{transactionError}</p>
             )}
+            {authExpired && (
+              <div className="text-center text-sm text-slate-200 mb-4">
+                <p className="mb-2">Session expired, please log in to continue verification.</p>
+                <a
+                  href={`/login?reason=session_expired&returnTo=${encodeURIComponent(loginReturnTo)}`}
+                  className="inline-flex items-center justify-center rounded-md bg-slate-700 px-3 py-2 text-xs font-semibold text-white hover:bg-slate-600"
+                >
+                  Log in to continue
+                </a>
+              </div>
+            )}
 
             <div className="flex items-center justify-between text-xs text-slate-300 mb-3">
               <span>
@@ -191,7 +220,7 @@ const ConfirmPayment = () => {
               </button>
             </div>
 
-            {isProcessing ? (
+            {isProcessing && !authExpired ? (
               <div className="text-sm">
                 <div className="flex justify-center items-center gap-2 my-4">
                   <span className="h-2 w-2 rounded-full bg-slate-400 animate-pulse" />

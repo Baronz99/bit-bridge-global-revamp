@@ -207,13 +207,19 @@ class BuyPowerPaymentService
           end
         end
       else
+        error_message = response&.dig('message') || 'Upstream provider error'
+        if payment_method == 'card' || electric_bill_order.payment_type == 'online' || electric_bill_order.payment_method == 'card'
+          electric_bill_order.update(status: 'initialized', payment_method: payment_method, reason: "Vend failed: #{error_message}")
+          return { response: error_message, status: 'error' }
+        end
+
         response&.dig('error')
         code = response&.dig('responseCode')
-        electric_bill_order.update(status: 'declined', payment_method: payment_method, reason: response&.dig('message'))
+        electric_bill_order.update(status: 'declined', payment_method: payment_method, reason: error_message)
         case code
         when 400, 422, 409, 500, 501, 502, 503, 403
         end
-        raise response&.dig('message') || 'Upstream provider error'
+        raise error_message
       end
 
       return { response: electric_bill_order, status: 'success' }
