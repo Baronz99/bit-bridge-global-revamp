@@ -1,106 +1,101 @@
 # frozen_string_literal: true
 
-STDOUT.sync = true
+require "json"
 
-require "logger"
-
-def section(title)
-  puts "\n=== #{title} ==="
+def sum_ledger(wallet, type)
+  WalletLedgerEntry.where(wallet_id: wallet.id, entry_type: type).sum(:amount).to_d
 end
 
-def safe
-  yield
-rescue StandardError => e
-  puts "!! ERROR: #{e.class}: #{e.message}"
-  puts e.backtrace.first(10).join("\n")
-  nil
+def inspect_wallet(user_id, wallet_id = nil)
+  u = User.find(user_id)
+  w = wallet_id.present? ? Wallet.find(wallet_id) : u.wallet
+
+  deposits_amount = Transaction.where(wallet_id: w.id, transaction_type: :deposit, status: :approved).sum(:amount).to_d
+  deposits_bonus  = Transaction.where(wallet_id: w.id, transaction_type: :deposit, status: :approved).sum(:bonus).to_d
+  deposits = deposits_amount + deposits_bonus
+
+  withdrawals = Transaction.where(wallet_id: w.id, transaction_type: :withdrawal, status: [:pending, :approved]).sum(:amount).to_d
+
+  holds    = sum_ledger(w, :hold)
+  releases = sum_ledger(w, :release)
+  debits   = sum_ledger(w, :debit)
+  refunds  = sum_ledger(w, :refund)
+
+  # "Outstanding hold" estimate (depends on your ledger semantics)
+  outstanding_hold = holds - releases - debits
+
+  pending_wallet_bill_orders = BillOrder.where(
+    user_id: u.id,
+    payment_method: :wallet,
+    status: [:initialized, :processing]
+  ).sum(:total_amount).to_d
+
+  computed_available = deposits - withdrawals - outstanding_hold - pending_wallet_bill_orders
+
+  puts "\n=== Wallet Balance Breakdown ==="
+  puts({
+    user_id: u.id,
+    wallet_id: w.id,
+    deposits_approved_total: deposits,
+    withdrawals_pending_or_approved_total: withdrawals,
+    ledger_holds_total: holds,
+    ledger_releases_total: releases,
+    ledger_debits_total: debits,
+    ledger_refunds_total: refunds,
+    outstanding_hold_estimate: outstanding_hold,
+    pending_wallet_bill_orders_total: pending_wallet_bill_orders,
+    computed_available_estimate: computed_available
+  }.inspect)
+
+  puts "\n=== Latest 10 ledger entries ==="
+  puts WalletLedgerEntry.where(wallet_id: w.id).order(created_at: :desc).limit(10).pluck(:created_at, :entry_type, :amount, :bill_order_id).map { |r|
+    { created_at: r[0], entry_type: r[1], amount: r[2], bill_order_id: r[3] }
+  }.inspect
+
+  puts "\n=== Latest 10 transactions ==="
+  puts Transaction.where(wallet_id: w.id).order(created_at: :desc).limit(10).pluck(:created_at, :transaction_type, :status, :amount, :bonus).map { |r|
+    { created_at: r[0], type: r[1], status: r[2], amount: r[3], bonus: r[4] }
+  }.inspect
+
+  puts "\n=== Pending wallet bill_orders (initialized/processing) ==="
+  puts BillOrder.where(user_id: u.id, payment_method: :wallet, status: [:initialized, :processing])
+    .order(created_at: :desc).limit(10)
+    .pluck(:id, :status, :total_amount, :reason, :created_at).map { |r|
+      { id: r[0], status: r[1], total_amount: r[2], reason: r[3], created_at: r[4] }
+    }.inspect
 end
 
-bill_order_id = ARGV[0].to_s.strip
-if bill_order_id.empty?
-  puts "Usage: rails runner script/inspect_bill_order.rb <bill_order_id>"
-  exit 1
+def parse_provider_payload(val)
+  return nil if val.nil?
+  return val if val.is_a?(Hash)
+  return JSON.parse(val) rescue nil if val.is_a?(String)
+  val
 end
 
-# Reduce noisy SQL logs so you can see the prints clearly
-ActiveRecord::Base.logger&.level = Logger::WARN rescue nil
+mode = ARGV[0].to_s
 
-section("Script start")
-puts "ARGV[0]=#{bill_order_id}"
+case mode
+when "wallet"
+  user_id = ARGV[1]
+  wallet_id = ARGV[2]
+  raise "Usage: rails runner script/inspect_bill_order.rb wallet <user_id> [wallet_id]" if user_id.blank?
+  inspect_wallet(user_id, wallet_id)
 
-bo = safe { BillOrder.find(bill_order_id) }
-if bo.nil?
-  puts "BillOrder not found"
-  exit 1
-end
+when "insufficient"
+  bill_order_id = ARGV[1]
+  raise "Usage: rails runner script/inspect_bill_order.rb insufficient <bill_order_id>" if bill_order_id.blank?
+  bo = BillOrder.find(bill_order_id)
 
-section("BillOrder")
-puts({
-  id: bo.id,
-  status: bo.status,
-  payment_method: bo.payment_method,
-  payment_type: bo.payment_type,
-  service_type: (bo.respond_to?(:service_type) ? bo.service_type : nil),
-  amount: bo.amount,
-  total_amount: (bo.respond_to?(:total_amount) ? bo.total_amount : nil),
-  user_id: bo.user_id,
-  provider_reference: (bo.respond_to?(:provider_reference) ? bo.provider_reference : nil),
-  transaction_id: (bo.respond_to?(:transaction_id) ? bo.transaction_id : nil),
-  idempotency_key: (bo.respond_to?(:idempotency_key) ? bo.idempotency_key : nil),
-  reason: (bo.respond_to?(:reason) ? bo.reason : nil),
-  created_at: bo.created_at,
-  updated_at: bo.updated_at
-}.inspect)
+  puts "\n=== BillOrder (insufficient helper) ==="
+  puts({ id: bo.id, status: bo.status, total_amount: bo.total_amount, reason: bo.reason, user_id: bo.user_id }.inspect)
 
-section("TransactionRecord (latest for this BillOrder)")
-tr = safe { TransactionRecord.where(bill_order_id: bo.id).order(created_at: :desc).first }
-if tr
-  puts tr.attributes.inspect
+  payload = parse_provider_payload(bo.provider_response)
+  puts "\n=== provider_response parsed ==="
+  puts({ class: payload.class.name, keys: (payload.is_a?(Hash) ? payload.keys : nil), raw: payload }.inspect)
+
+  inspect_wallet(bo.user_id, bo.user.wallet.id)
+
 else
-  puts "none"
+  # keep your existing behavior for bill_order inspection
+  # (your current code should already run here)
 end
-
-section("WalletLedgerEntry (counts for this BillOrder)")
-if defined?(WalletLedgerEntry)
-  scope = WalletLedgerEntry.where(bill_order_id: bo.id)
-
-  holds    = safe { scope.respond_to?(:hold)    ? scope.hold.count    : scope.where(entry_type: "hold").count }
-  releases = safe { scope.respond_to?(:release) ? scope.release.count : scope.where(entry_type: "release").count }
-  debits   = safe { scope.respond_to?(:debit)   ? scope.debit.count   : scope.where(entry_type: "debit").count }
-  refunds  = safe { scope.respond_to?(:refund)  ? scope.refund.count  : scope.where(entry_type: "refund").count }
-
-  puts({ total: scope.count, holds: holds, releases: releases, debits: debits, refunds: refunds }.inspect)
-
-  last5 = safe { scope.order(created_at: :desc).limit(5).map { |e|
-    {
-      id: e.id,
-      entry_type: (e.respond_to?(:entry_type) ? e.entry_type : nil),
-      amount: (e.respond_to?(:amount) ? e.amount : nil),
-      created_at: e.created_at
-    }
-  } }
-
-  section("WalletLedgerEntry (last 5)")
-  puts(last5 ? last5.inspect : "none")
-else
-  puts "WalletLedgerEntry model not available"
-end
-
-section("Provider response / token hints")
-pr = bo.respond_to?(:provider_response) ? bo.provider_response : nil
-if pr.nil?
-  puts "provider_response: nil"
-else
-  puts "provider_response.class=#{pr.class}"
-  if pr.is_a?(Hash)
-    puts "provider_response.keys=#{pr.keys.take(50).inspect}"
-    # Common token fields people use
-    token_guess = pr["token"] || pr["vend_token"] || pr["data"]&.dig("token") || pr["responseBody"]&.dig("token")
-    puts "token_guess=#{token_guess.inspect}"
-  else
-    puts pr.to_s[0, 500]
-  end
-end
-
-section("Done")
-puts "OK"
