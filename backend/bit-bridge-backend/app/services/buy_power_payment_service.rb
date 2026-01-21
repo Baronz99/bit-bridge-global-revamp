@@ -169,8 +169,7 @@ class BuyPowerPaymentService
             return { response: electric_bill_order, status: 'pending' }
           end
 
-          hold_total = wallet.active_hold_total.to_d
-          available_balance = wallet.balance.to_d - hold_total
+          available_balance = wallet.ledger_available_balance
           commission_balance = wallet.commission.to_d
           has_money = available_balance >= amount ||
             (use_commission && (commission_balance + available_balance) >= amount)
@@ -360,9 +359,10 @@ class BuyPowerPaymentService
     begin
       response = nil
       if payment_method == 'wallet'
+        wallet = electric_bill_order.user.wallet
+        available_balance = wallet.ledger_available_balance
 
-
-        raise 'Insufficient funds' unless electric_bill_order.user.wallet.balance > electric_bill_order[:usd_amount]
+        raise 'Insufficient funds' unless available_balance > electric_bill_order[:usd_amount].to_d
 
         # Timeout.timeout(120) do
         response = self.class.post('/vend', headers: @post_headers, body: body)

@@ -64,6 +64,40 @@ RSpec.describe Transfers::AnchorNgnTransferService do
     expect(result[:body][:message]).to match(/\d{1,3}(,\d{3})*\.\d{2}/)
   end
 
+  it 'considers ledger holds when deciding available funds' do
+    held_order = BillOrder.create!(
+      user: user,
+      meter_number: '08000000000',
+      meter_type: 'PREPAID',
+      address: 'Hold Address',
+      name: 'Hold User',
+      tariff_class: 'A',
+      service_type: 'VTU',
+      email: user.email,
+      amount: 1_000,
+      phone: '08000000000',
+      biller: 'MTN',
+      description: 'Hold',
+      payment_type: 'online',
+      payment_method: 'wallet',
+      status: 'processing'
+    )
+    WalletLedgerEntry.ensure_hold!(wallet: wallet, bill_order: held_order, amount: 49_000)
+
+    result = described_class.call(
+      user: user,
+      sender_wallet: wallet,
+      amount_ngn: 5_000,
+      bank_payload: bank_payload,
+      narration: 'Transfer'
+    )
+
+    expect(result[:status]).to eq(:unprocessable_entity)
+    expect(result[:body][:available_balance]).to eq(wallet.ledger_available_balance.to_f)
+    expect(result[:body][:message]).to include('Insufficient balance.')
+    expect(result[:body][:required_total]).to be > result[:body][:available_balance]
+  end
+
   it 'creates fee and principal debits then approves them on Anchor success' do
     anchor_service = instance_double(AnchorService)
     allow(AnchorService).to receive(:new).and_return(anchor_service)

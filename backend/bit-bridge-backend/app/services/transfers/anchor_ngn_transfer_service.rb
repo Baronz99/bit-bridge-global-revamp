@@ -34,7 +34,7 @@ module Transfers
       fee_breakdown = Pricing::Engine.transfer_fee_breakdown_ngn(@amount_ngn)
       total_fee = fee_breakdown.fetch(:total_fee)
       total_debit = @amount_ngn + total_fee
-      available_balance = @sender_wallet.balance.to_d
+      available_balance = @sender_wallet.ledger_available_balance
 
       if available_balance < total_debit
         return insufficient_funds_error(total_fee, total_debit, available_balance, fee_breakdown)

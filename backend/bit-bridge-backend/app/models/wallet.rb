@@ -78,6 +78,42 @@ end
     end
   end
 
+  def ledger_deposits_total
+    transactions
+      .where(transaction_type: :deposit, status: :approved)
+      .sum(Arel.sql('amount + COALESCE(bonus, 0)'))
+      .to_d
+  end
+
+  def ledger_withdrawals_total
+    transactions
+      .where(transaction_type: :withdrawal, status: %i[pending approved])
+      .sum(:amount)
+      .to_d
+  end
+
+  def ledger_holds_total
+    wallet_ledger_entries.holds.sum(:amount).to_d
+  end
+
+  def ledger_releases_total
+    wallet_ledger_entries.releases.sum(:amount).to_d
+  end
+
+  def ledger_debits_total
+    wallet_ledger_entries.where(entry_type: :debit).sum(:amount).to_d
+  end
+
+  def ledger_outstanding_hold
+    outstanding = ledger_holds_total - ledger_releases_total - ledger_debits_total
+    outstanding.positive? ? outstanding : BigDecimal('0')
+  end
+
+  def ledger_available_balance
+    available = ledger_deposits_total - ledger_withdrawals_total - ledger_outstanding_hold
+    available.negative? ? BigDecimal('0') : available
+  end
+
   # -------------------------
   # ✅ Stored-balance helpers (USD)
   # -------------------------

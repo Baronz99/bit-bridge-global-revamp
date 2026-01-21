@@ -190,7 +190,7 @@ class BillOrder < ApplicationRecord
   end
 
   def validate_order
-    return unless wallet.balance < net_total
+    return unless wallet.ledger_available_balance < net_total
 
     errors.add(:amount, 'insufficient balance')
   end

@@ -187,6 +187,63 @@ RSpec.describe BuyPowerPaymentService do
       expect(result[:response]).to eq('Insufficient funds')
     end
 
+    it 'blocks wallet purchase when ledger holds already use available balance' do
+      allow(Config::Bills).to receive(:validate!).and_return(true)
+      allow(Config::Bills).to receive(:base_url).and_return('http://example.test')
+      allow(Config::Bills).to receive(:token).and_return('token')
+
+      user = create(:user)
+      wallet = user.wallet
+      Transaction.create!(
+        wallet: wallet,
+        amount: 10_000,
+        bonus: 0,
+        status: :approved,
+        transaction_type: :deposit
+      )
+
+      other_bill_order = BillOrder.create!(
+        user: user,
+        meter_number: '08012345679',
+        meter_type: 'PREPAID',
+        address: 'Hold Address',
+        name: 'Hold User',
+        tariff_class: 'A',
+        service_type: 'VTU',
+        email: user.email,
+        amount: 9_000,
+        phone: '08012345670',
+        biller: 'MTN',
+        description: 'Airtime',
+        payment_type: 'online',
+        payment_method: 'wallet'
+      )
+
+      WalletLedgerEntry.ensure_hold!(wallet: wallet, bill_order: other_bill_order, amount: 9_000)
+
+      bill_order = BillOrder.create!(
+        user: user,
+        meter_number: '08012345678',
+        meter_type: 'PREPAID',
+        address: 'Test Address',
+        name: 'Test User',
+        tariff_class: 'A',
+        service_type: 'VTU',
+        email: user.email,
+        amount: 1_500,
+        phone: '08012345678',
+        biller: 'MTN',
+        description: 'Airtime',
+        payment_type: 'online',
+        payment_method: 'wallet'
+      )
+
+      result = described_class.new.confirm_subscription(bill_order, 'wallet', false, request_id: 'spec')
+      expect(result[:status]).to eq('error')
+      expect(result[:response]).to eq('Insufficient funds')
+      expect(bill_order.reload.status).to eq('initialized')
+    end
+
     it 'does not decline card/online orders when vend fails' do
       allow(Config::Bills).to receive(:validate!).and_return(true)
       allow(Config::Bills).to receive(:base_url).and_return('http://example.test')
