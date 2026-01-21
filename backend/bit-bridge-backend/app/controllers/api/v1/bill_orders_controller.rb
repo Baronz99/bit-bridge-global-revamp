@@ -24,6 +24,9 @@ module Api
         use_commission = params[:use_commission] || false
 
         if payment_method == 'card'
+          if @bill_order.payment_method != 'card' && @bill_order.initialized?
+            @bill_order.update(payment_method: :card)
+          end
 
           service = PaymentService.new
           service_response = service.init_transaction(@bill_order.attributes.symbolize_keys.merge({ type: 'bills',

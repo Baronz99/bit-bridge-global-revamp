@@ -276,6 +276,11 @@ end
           'monnify'
         payment_channel = payment_channel.to_s.strip.downcase
         bill_order = transaction_record.bill_order
+        if bill_order&.payment_method == 'wallet' &&
+             transaction_record.reference.to_s.start_with?('bbg-') &&
+             !BillOrder::TERMINAL_STATUSES.include?(bill_order.status.to_s)
+          bill_order.update(payment_method: 'card')
+        end
         payment_method = bill_order&.payment_method == 'wallet' ? 'wallet' : 'card'
         payment_service = BuyPowerPaymentService.new
         service_response = payment_service.confirm_subscription(bill_order, payment_method)

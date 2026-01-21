@@ -142,6 +142,13 @@ class BuyPowerPaymentService
     Rails.logger.info("BuyPower confirm_subscription start #{request_tag} payment_method=#{payment_method}")
 
     response = nil
+    if payment_method == 'wallet' && electric_bill_order.payment_method != 'wallet'
+      Rails.logger.warn(
+        "BuyPower confirm_subscription blocked wallet bill_order_id=#{electric_bill_order.id} payment_method=#{electric_bill_order.payment_method}"
+      )
+      return { status: 'error', message: 'Invalid payment method for wallet confirmation' }
+    end
+
     if payment_method == 'wallet'
       raise 'user is inactive' unless electric_bill_order.user&.active
 

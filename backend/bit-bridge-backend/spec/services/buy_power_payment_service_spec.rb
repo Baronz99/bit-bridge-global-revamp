@@ -318,6 +318,37 @@ RSpec.describe BuyPowerPaymentService do
       expect(WalletLedgerEntry.where(bill_order: bill_order).release.count).to eq(0)
     end
 
+    it 'does not run wallet ledger for non-wallet orders' do
+      allow(Config::Bills).to receive(:validate!).and_return(true)
+      allow(Config::Bills).to receive(:base_url).and_return('http://example.test')
+      allow(Config::Bills).to receive(:token).and_return('token')
+
+      user = create(:user)
+      bill_order = BillOrder.create!(
+        user: user,
+        meter_number: '08012345678',
+        meter_type: 'PREPAID',
+        address: 'Test Address',
+        name: 'Test User',
+        tariff_class: 'A',
+        service_type: 'VTU',
+        email: user.email,
+        amount: 1000,
+        phone: '08012345678',
+        biller: 'MTN',
+        description: 'Airtime',
+        payment_type: 'online',
+        payment_method: 'card'
+      )
+
+      expect(WalletLedgerEntry).not_to receive(:ensure_hold!)
+      expect(WalletLedgerEntry).not_to receive(:record_debit!)
+      expect(WalletLedgerEntry).not_to receive(:release_hold!)
+      expect(WalletLedgerEntry).not_to receive(:record_refund!)
+
+      described_class.new.confirm_subscription(bill_order, 'wallet', false, request_id: 'spec')
+    end
+
     it 'releases hold on provider refund response' do
       allow(Config::Bills).to receive(:validate!).and_return(true)
       allow(Config::Bills).to receive(:base_url).and_return('http://example.test')
