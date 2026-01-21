@@ -318,6 +318,103 @@ RSpec.describe BuyPowerPaymentService do
       expect(WalletLedgerEntry.where(bill_order: bill_order).release.count).to eq(0)
     end
 
+    it 'releases hold and marks failed on hard provider error' do
+      allow(Config::Bills).to receive(:validate!).and_return(true)
+      allow(Config::Bills).to receive(:base_url).and_return('http://example.test')
+      allow(Config::Bills).to receive(:token).and_return('token')
+
+      response = { 'error' => true, 'message' => 'Invalid Phone Number. Please Check.' }
+      def response.success?
+        false
+      end
+
+      allow(described_class).to receive(:post).and_return(response)
+
+      user = create(:user)
+      wallet = user.wallet
+      Transaction.create!(
+        wallet: wallet,
+        amount: 10_000,
+        bonus: 0,
+        status: :approved,
+        transaction_type: :deposit
+      )
+
+      bill_order = BillOrder.create!(
+        user: user,
+        meter_number: '08012345678',
+        meter_type: 'PREPAID',
+        address: 'Test Address',
+        name: 'Test User',
+        tariff_class: 'A',
+        service_type: 'VTU',
+        email: user.email,
+        amount: 1000,
+        phone: '08012345678',
+        biller: 'MTN',
+        description: 'Airtime',
+        payment_type: 'online',
+        payment_method: 'wallet'
+      )
+
+      result = described_class.new.confirm_subscription(bill_order, 'wallet', false, request_id: 'spec')
+
+      expect(result[:status]).to eq('error')
+      expect(bill_order.reload.status).to eq('failed')
+      expect(WalletLedgerEntry.where(bill_order: bill_order).hold.count).to eq(1)
+      expect(WalletLedgerEntry.where(bill_order: bill_order).release.count).to eq(1)
+      expect(WalletLedgerEntry.where(bill_order: bill_order).debit.count).to eq(0)
+      expect(WalletLedgerEntry.where(bill_order: bill_order).refund.count).to eq(0)
+    end
+
+    it 'does not duplicate ledger entries on retry after hard error' do
+      allow(Config::Bills).to receive(:validate!).and_return(true)
+      allow(Config::Bills).to receive(:base_url).and_return('http://example.test')
+      allow(Config::Bills).to receive(:token).and_return('token')
+
+      response = { 'error' => true, 'message' => 'Invalid Phone Number. Please Check.' }
+      def response.success?
+        false
+      end
+
+      allow(described_class).to receive(:post).and_return(response)
+
+      user = create(:user)
+      wallet = user.wallet
+      Transaction.create!(
+        wallet: wallet,
+        amount: 10_000,
+        bonus: 0,
+        status: :approved,
+        transaction_type: :deposit
+      )
+
+      bill_order = BillOrder.create!(
+        user: user,
+        meter_number: '08012345678',
+        meter_type: 'PREPAID',
+        address: 'Test Address',
+        name: 'Test User',
+        tariff_class: 'A',
+        service_type: 'VTU',
+        email: user.email,
+        amount: 1000,
+        phone: '08012345678',
+        biller: 'MTN',
+        description: 'Airtime',
+        payment_type: 'online',
+        payment_method: 'wallet'
+      )
+
+      described_class.new.confirm_subscription(bill_order, 'wallet', false, request_id: 'spec')
+      described_class.new.confirm_subscription(bill_order, 'wallet', false, request_id: 'spec')
+
+      expect(WalletLedgerEntry.where(bill_order: bill_order).hold.count).to eq(1)
+      expect(WalletLedgerEntry.where(bill_order: bill_order).release.count).to eq(1)
+      expect(WalletLedgerEntry.where(bill_order: bill_order).refund.count).to eq(0)
+      expect(WalletLedgerEntry.where(bill_order: bill_order).debit.count).to eq(0)
+    end
+
     it 'does not run wallet ledger for non-wallet orders' do
       allow(Config::Bills).to receive(:validate!).and_return(true)
       allow(Config::Bills).to receive(:base_url).and_return('http://example.test')

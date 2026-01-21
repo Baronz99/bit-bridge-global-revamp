@@ -263,6 +263,9 @@ class BuyPowerPaymentService
 
       provider_payload = provider_response_payload(response)
       provider_status = provider_status_from(response)
+      provider_error =
+        provider_payload&.dig('error') || provider_payload&.dig(:error) ||
+        provider_payload&.dig('errors') || provider_payload&.dig(:errors)
       provider_message =
         provider_payload&.dig('result', 'data', 'message') ||
         provider_payload&.dig('data', 'message') ||
@@ -281,13 +284,23 @@ class BuyPowerPaymentService
           status: 'failed'
         )
       end
+      if provider_error.present?
+        return handle_wallet_failure(
+          electric_bill_order,
+          payment_method,
+          provider_message.presence || error_message,
+          provider_payload,
+          status: 'failed'
+        )
+      end
       if %w[failed refund refunded reversed cancelled].include?(provider_status)
         return handle_wallet_failure(
           electric_bill_order,
           payment_method,
           error_message,
           provider_payload,
-          status: provider_status == 'refund' || provider_status == 'refunded' ? 'refunded' : 'failed'
+          status: provider_status == 'refund' || provider_status == 'refunded' ? 'refunded' : 'failed',
+          force_refund: %w[refund refunded reversed].include?(provider_status)
         )
       end
 
@@ -515,7 +528,7 @@ end
     { response: order, status: 'success' }
   end
 
-  def handle_wallet_failure(order, payment_method, message, provider_payload, status: 'failed')
+  def handle_wallet_failure(order, payment_method, message, provider_payload, status: 'failed', force_refund: false)
     if order&.status && BillOrder::TERMINAL_STATUSES.include?(order.status.to_s)
       return { response: message, status: 'ignored' }
     end
@@ -525,20 +538,27 @@ end
 
     ActiveRecord::Base.transaction do
       wallet.lock!
-      WalletLedgerEntry.release_hold!(
-        wallet: wallet,
-        bill_order: order,
-        amount: amount,
-        reference: order.idempotency_key,
-        metadata: { provider_reference: order.provider_reference }
-      )
-      WalletLedgerEntry.record_refund!(
-        wallet: wallet,
-        bill_order: order,
-        amount: amount,
-        reference: order.idempotency_key,
-        metadata: { provider_reference: order.provider_reference }
-      )
+      if WalletLedgerEntry.exists?(bill_order: order, entry_type: :hold) &&
+           !WalletLedgerEntry.exists?(bill_order: order, entry_type: :release)
+        WalletLedgerEntry.release_hold!(
+          wallet: wallet,
+          bill_order: order,
+          amount: amount,
+          reference: order.idempotency_key,
+          metadata: { provider_reference: order.provider_reference }
+        )
+      end
+
+      if (force_refund || WalletLedgerEntry.exists?(bill_order: order, entry_type: :debit)) &&
+           !WalletLedgerEntry.exists?(bill_order: order, entry_type: :refund)
+        WalletLedgerEntry.record_refund!(
+          wallet: wallet,
+          bill_order: order,
+          amount: amount,
+          reference: order.idempotency_key,
+          metadata: { provider_reference: order.provider_reference }
+        )
+      end
 
       order.update!(
         status: status,
