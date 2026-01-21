@@ -1,48 +1,20 @@
+def safe_count
+  yield
+rescue StandardError => e
+  warn("[inspect_bill_order] count failed: #{e.class}: #{e.message}")
+  nil
+end
+
 if defined?(WalletLedgerEntry)
   scope = WalletLedgerEntry.where(bill_order_id: bo.id)
 
-  holds_count =
-    if scope.respond_to?(:hold)
-      scope.hold.count
-    else
-      scope.where(entry_type: "hold").count
-    end
-rescue StandardError
-  holds_count = nil
-end
-
-  releases_count =
-    if scope.respond_to?(:release)
-      scope.release.count
-    else
-      scope.where(entry_type: "release").count
-    end
-rescue StandardError
-  releases_count = nil
-end
-
-  debits_count =
-    if scope.respond_to?(:debit)
-      scope.debit.count
-    else
-      scope.where(entry_type: "debit").count
-    end
-rescue StandardError
-  debits_count = nil
-end
-
-  refunds_count =
-    if scope.respond_to?(:refund)
-      scope.refund.count
-    else
-      scope.where(entry_type: "refund").count
-    end
-rescue StandardError
-  refunds_count = nil
-end
+  holds_count    = safe_count { scope.respond_to?(:hold)    ? scope.hold.count    : scope.where(entry_type: "hold").count }
+  releases_count = safe_count { scope.respond_to?(:release) ? scope.release.count : scope.where(entry_type: "release").count }
+  debits_count   = safe_count { scope.respond_to?(:debit)   ? scope.debit.count   : scope.where(entry_type: "debit").count }
+  refunds_count  = safe_count { scope.respond_to?(:refund)  ? scope.refund.count  : scope.where(entry_type: "refund").count }
 
   puts({
-    total: scope.count,
+    total: safe_count { scope.count },
     holds: holds_count,
     releases: releases_count,
     debits: debits_count,
