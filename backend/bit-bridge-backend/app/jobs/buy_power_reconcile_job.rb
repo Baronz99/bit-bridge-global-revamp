@@ -11,6 +11,44 @@ class BuyPowerReconcileJob < ApplicationJob
     return unless order.payment_method == 'wallet'
 
     service = BuyPowerPaymentService.new
+    provider_payload =
+      case order.provider_response
+      when String
+        JSON.parse(order.provider_response) rescue nil
+      else
+        order.provider_response
+      end
+    provider_error =
+      provider_payload&.dig('error') || provider_payload&.dig(:error) ||
+      provider_payload&.dig('errors') || provider_payload&.dig(:errors) ||
+      provider_payload&.dig('status').to_s.downcase == 'error' ||
+      provider_payload&.dig(:status).to_s.downcase == 'error'
+    if order.processing? && provider_error && order.provider_reference.blank?
+      reason_value = order.reason.to_s.strip
+      failure_message =
+        (reason_value.empty? ? nil : reason_value) ||
+        provider_payload&.dig('result', 'data', 'message') ||
+        provider_payload&.dig('data', 'message') ||
+        provider_payload&.dig('message') ||
+        provider_payload&.dig(:message) ||
+        'Vend failed'
+      begin
+        service.send(
+          :handle_wallet_failure,
+          order,
+          'wallet',
+          failure_message,
+          provider_payload,
+          status: 'failed'
+        )
+      rescue StandardError => e
+        Rails.logger.error(
+          "[BuyPowerReconcileJob] hard-error handler failed order=#{order.id} #{e.class}: #{e.message}"
+        )
+      end
+      return
+    end
+
     reference = order.provider_reference.presence || order.id
     response = service.re_query(reference)
 

@@ -1,9 +1,9 @@
 import { Form } from 'antd'
 import PropTypes from 'prop-types'
 
-import { useNavigate, useOutletContext } from 'react-router-dom'
+import { useLocation, useNavigate, useOutletContext } from 'react-router-dom'
 import { useDispatch, useSelector } from 'react-redux'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { toast } from 'react-toastify'
 import { CheckCircleOutlined } from '@ant-design/icons'
 
@@ -20,6 +20,8 @@ const DashboardCableForm = () => {
   const [loading, setLoading] = useState(false)
   const [message, setMessage] = useState()
   const [err, setErr] = useState()
+  const location = useLocation()
+  const appliedPrefillRef = useRef(false)
 
   const [value, setValue] = useState({
     tariff_class: '',
@@ -77,6 +79,37 @@ const DashboardCableForm = () => {
       dispatch(getPriceList({ service_type: selectedProvider?.service_type, provider: provider }))
     }
   }, [selectedProvider])
+
+  useEffect(() => {
+    if (appliedPrefillRef.current) return
+    const prefill = location.state?.prefill
+    if (!prefill) return
+
+    const nextValues = {
+      billersCode: prefill.billersCode,
+    }
+    const filtered = Object.fromEntries(
+      Object.entries(nextValues).filter(([, value]) => value != null && value !== '')
+    )
+    if (Object.keys(filtered).length > 0) {
+      form.setFieldsValue(filtered)
+    }
+    setValue((prev) => ({
+      ...prev,
+      tariff_class: prefill.tariff_class ?? prev.tariff_class,
+      amount: prefill.amount ?? prev.amount,
+      email: prefill.email ?? prev.email,
+    }))
+    appliedPrefillRef.current = true
+  }, [form, location.state])
+
+  useEffect(() => {
+    if (location.state?.focusField !== 'phone') return
+    setTimeout(() => {
+      const el = document.querySelector('input[name="billersCode"]')
+      if (el) el.focus()
+    }, 0)
+  }, [location.state])
 
   // const amount = Form.useWatch("amount", form);
 

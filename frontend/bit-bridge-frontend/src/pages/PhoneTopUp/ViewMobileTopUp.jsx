@@ -22,6 +22,7 @@ const ViewMobileTopUp = () => {
     billersCode: '',
     tariff_class: '',
     amount: '',
+    email: '',
   })
 
   const { mobileProviders, giftcards } = useSelector((state) => state.provision)
@@ -31,6 +32,7 @@ const ViewMobileTopUp = () => {
   const selectedProvider = mobileProviders?.find((item) => item.id === id)
 
   const sectionRef = useRef(null)
+  const appliedPrefillRef = useRef(false)
 
   const toView = () => {
     sectionRef.current.scrollIntoView({ behavior: 'smooth' })
@@ -42,6 +44,28 @@ const ViewMobileTopUp = () => {
       element.scrollIntoView({ behavior: 'smooth' })
     }
   }, [location])
+
+  useEffect(() => {
+    if (appliedPrefillRef.current) return
+    const prefill = location.state?.prefill
+    if (!prefill) return
+    setValue((prev) => ({
+      ...prev,
+      billersCode: prefill.billersCode ?? prev.billersCode,
+      tariff_class: prefill.tariff_class ?? prev.tariff_class,
+      amount: prefill.amount ?? prev.amount,
+      email: prefill.email ?? prev.email,
+    }))
+    appliedPrefillRef.current = true
+  }, [location.state])
+
+  useEffect(() => {
+    if (location.state?.focusField !== 'phone') return
+    setTimeout(() => {
+      const el = document.querySelector('input[name="biller"]')
+      if (el) el.focus()
+    }, 0)
+  }, [location.state])
 
   const handleSubmit = () => {
     if (

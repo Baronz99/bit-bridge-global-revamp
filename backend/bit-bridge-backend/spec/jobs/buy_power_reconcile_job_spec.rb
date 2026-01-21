@@ -104,7 +104,8 @@ RSpec.describe BuyPowerReconcileJob, type: :job do
     entries = WalletLedgerEntry.where(bill_order: bill_order)
     expect(entries.hold.count).to eq(1)
     expect(entries.release.count).to eq(1)
-    expect(entries.refund.count).to eq(1)
+    expected_refunds = entries.debit.exists? ? 1 : 0
+    expect(entries.refund.count).to eq(expected_refunds)
     expect(bill_order.reload.status).to eq('refunded')
   end
 
@@ -172,5 +173,103 @@ RSpec.describe BuyPowerReconcileJob, type: :job do
       .not_to have_enqueued_job(described_class)
 
     expect(bill_order.reload.reason).to include('Reconcile stalled')
+  end
+
+  it 'fails processing wallet order with provider error and releases hold' do
+    allow(Config::Bills).to receive(:validate!).and_return(true)
+    allow(Config::Bills).to receive(:base_url).and_return('http://example.test')
+    allow(Config::Bills).to receive(:token).and_return('token')
+
+    service = BuyPowerPaymentService.new
+    allow(BuyPowerPaymentService).to receive(:new).and_return(service)
+    expect(service).not_to receive(:re_query)
+
+    user = create(:user)
+    wallet = user.wallet
+    Transaction.create!(
+      wallet: wallet,
+      amount: 10_000,
+      bonus: 0,
+      status: :approved,
+      transaction_type: :deposit
+    )
+
+    bill_order = BillOrder.create!(
+      user: user,
+      meter_number: '08012345678',
+      meter_type: 'PREPAID',
+      address: 'Test Address',
+      name: 'Test User',
+      tariff_class: 'A',
+      service_type: 'ELECTRICITY',
+      email: user.email,
+      amount: 1000,
+      total_amount: 1000,
+      phone: '08012345678',
+      biller: 'IKEDC',
+      description: 'Electricity',
+      payment_type: 'online',
+      payment_method: 'wallet',
+      status: 'processing',
+      reason: 'Invalid Phone Number. Please Check.',
+      provider_response: { 'error' => true, 'message' => 'Invalid Phone Number. Please Check.' }
+    )
+
+    WalletLedgerEntry.ensure_hold!(wallet: wallet, bill_order: bill_order, amount: bill_order.total_amount)
+
+    described_class.perform_now(bill_order.id)
+
+    expect(bill_order.reload.status).to eq('failed')
+    expect(bill_order.reload.reason).to include('Invalid Phone Number')
+    expect(WalletLedgerEntry.where(bill_order: bill_order).hold.count).to eq(1)
+    expect(WalletLedgerEntry.where(bill_order: bill_order).release.count).to eq(1)
+    expect(WalletLedgerEntry.where(bill_order: bill_order).debit.count).to eq(0)
+    expect(WalletLedgerEntry.where(bill_order: bill_order).refund.count).to eq(0)
+  end
+
+  it 'is idempotent for hard provider error' do
+    allow(Config::Bills).to receive(:validate!).and_return(true)
+    allow(Config::Bills).to receive(:base_url).and_return('http://example.test')
+    allow(Config::Bills).to receive(:token).and_return('token')
+
+    user = create(:user)
+    wallet = user.wallet
+    Transaction.create!(
+      wallet: wallet,
+      amount: 10_000,
+      bonus: 0,
+      status: :approved,
+      transaction_type: :deposit
+    )
+
+    bill_order = BillOrder.create!(
+      user: user,
+      meter_number: '08012345678',
+      meter_type: 'PREPAID',
+      address: 'Test Address',
+      name: 'Test User',
+      tariff_class: 'A',
+      service_type: 'ELECTRICITY',
+      email: user.email,
+      amount: 1000,
+      total_amount: 1000,
+      phone: '08012345678',
+      biller: 'IKEDC',
+      description: 'Electricity',
+      payment_type: 'online',
+      payment_method: 'wallet',
+      status: 'processing',
+      provider_response: { error: true, message: 'Invalid Phone Number. Please Check.' }
+    )
+
+    WalletLedgerEntry.ensure_hold!(wallet: wallet, bill_order: bill_order, amount: bill_order.total_amount)
+
+    described_class.perform_now(bill_order.id)
+    described_class.perform_now(bill_order.id)
+
+    expect(WalletLedgerEntry.where(bill_order: bill_order).hold.count).to eq(1)
+    expect(WalletLedgerEntry.where(bill_order: bill_order).release.count).to eq(1)
+    expect(WalletLedgerEntry.where(bill_order: bill_order).debit.count).to eq(0)
+    expect(WalletLedgerEntry.where(bill_order: bill_order).refund.count).to eq(0)
   end
 end

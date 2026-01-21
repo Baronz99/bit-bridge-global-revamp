@@ -3,11 +3,11 @@ import PropTypes from 'prop-types'
 import FormSelect from '../../../compnents/formSelect/FormSelect'
 import FormInput from '../../../compnents/formInput/FormInput'
 import ClassicBtn from '../../../compnents/button/ClassicButton'
-import { useNavigate, useOutletContext } from 'react-router-dom'
+import { useLocation, useNavigate, useOutletContext } from 'react-router-dom'
 import { useDispatch } from 'react-redux'
 import { createPurchaseOrder } from '../../../redux/actions/purchasePower'
 import generateRequestId from '../../../utils/generateRequestID'
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { toast } from 'react-toastify'
 import { CheckCircleOutlined } from '@ant-design/icons'
 import { SET_LOADING } from '../../../redux/app'
@@ -20,6 +20,7 @@ const PowerForm = () => {
   generateRequestId()
 
   const navigate = useNavigate()
+  const location = useLocation()
   const dispatch = useDispatch()
 
   const handleFormSubmit = (values) => {
@@ -53,6 +54,36 @@ const PowerForm = () => {
     })
   }
   const [form] = Form.useForm()
+  const appliedPrefillRef = useRef(false)
+
+  useEffect(() => {
+    if (appliedPrefillRef.current) return
+    const prefill = location.state?.prefill
+    if (!prefill) return
+
+    const nextValues = {
+      amount: prefill.amount,
+      phone: prefill.phone,
+      meter_type: prefill.meter_type,
+      billersCode: prefill.billersCode,
+      email: prefill.email,
+    }
+    const filtered = Object.fromEntries(
+      Object.entries(nextValues).filter(([, value]) => value != null && value !== '')
+    )
+    if (Object.keys(filtered).length > 0) {
+      form.setFieldsValue(filtered)
+    }
+    appliedPrefillRef.current = true
+  }, [form, location.state])
+
+  useEffect(() => {
+    if (location.state?.focusField !== 'phone') return
+    setTimeout(() => {
+      const el = document.querySelector('input[name="phone"]')
+      if (el) el.focus()
+    }, 0)
+  }, [location.state])
 
   return (
     <>

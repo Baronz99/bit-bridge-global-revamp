@@ -1,9 +1,9 @@
 import { Form } from 'antd'
 import PropTypes from 'prop-types'
 
-import { useNavigate, useOutletContext } from 'react-router-dom'
+import { useLocation, useNavigate, useOutletContext } from 'react-router-dom'
 import { useDispatch, useSelector } from 'react-redux'
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { toast } from 'react-toastify'
 import { CheckCircleOutlined } from '@ant-design/icons'
 
@@ -21,6 +21,7 @@ const DashboardPowerForm = () => {
   const { user } = useSelector((state) => state.auth)
 
   const navigate = useNavigate()
+  const location = useLocation()
   const dispatch = useDispatch()
 
   const handleFormSubmit = (values) => {
@@ -56,6 +57,35 @@ const DashboardPowerForm = () => {
 
   console.log(biller)
   const [form] = Form.useForm()
+  const appliedPrefillRef = useRef(false)
+
+  useEffect(() => {
+    if (appliedPrefillRef.current) return
+    const prefill = location.state?.prefill
+    if (!prefill) return
+
+    const nextValues = {
+      amount: prefill.amount,
+      phone: prefill.phone,
+      meter_type: prefill.meter_type,
+      billersCode: prefill.billersCode,
+    }
+    const filtered = Object.fromEntries(
+      Object.entries(nextValues).filter(([, value]) => value != null && value !== '')
+    )
+    if (Object.keys(filtered).length > 0) {
+      form.setFieldsValue(filtered)
+    }
+    appliedPrefillRef.current = true
+  }, [form, location.state])
+
+  useEffect(() => {
+    if (location.state?.focusField !== 'phone') return
+    setTimeout(() => {
+      const el = document.querySelector('input[name="phone"]')
+      if (el) el.focus()
+    }, 0)
+  }, [location.state])
 
   return (
     <>

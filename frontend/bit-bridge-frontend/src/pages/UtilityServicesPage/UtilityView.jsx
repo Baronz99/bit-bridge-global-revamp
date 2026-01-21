@@ -23,6 +23,7 @@ const UtilityView = () => {
     amount: '',
     email: '',
   })
+  const appliedPrefillRef = useRef(false)
   const { utilities, giftcards } = useSelector((state) => state.provision)
   const { priceList } = useSelector((state) => state.billPurchase)
 
@@ -43,6 +44,28 @@ const UtilityView = () => {
       toView()
     }
   }, [location])
+
+  useEffect(() => {
+    if (appliedPrefillRef.current) return
+    const prefill = location.state?.prefill
+    if (!prefill) return
+    setValue((prev) => ({
+      ...prev,
+      billersCode: prefill.billersCode ?? prev.billersCode,
+      tariff_class: prefill.tariff_class ?? prev.tariff_class,
+      amount: prefill.amount ?? prev.amount,
+      email: prefill.email ?? prev.email,
+    }))
+    appliedPrefillRef.current = true
+  }, [location.state])
+
+  useEffect(() => {
+    if (location.state?.focusField !== 'phone') return
+    setTimeout(() => {
+      const el = document.querySelector('input[name="biller"]')
+      if (el) el.focus()
+    }, 0)
+  }, [location.state])
 
   useEffect(() => {
     if (selectedProvider) {

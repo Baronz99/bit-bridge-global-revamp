@@ -1,9 +1,58 @@
 import { nairaFormat } from '../../utils/nairaFormat'
 import PropTypes from 'prop-types'
 import { useSelector } from 'react-redux'
+import { useLocation, useNavigate, useParams } from 'react-router-dom'
 
 const BillOrderDetails = ({ purchaseOrder, applyCommission }) => {
   const { user } = useSelector((state) => state.auth)
+  const navigate = useNavigate()
+  const location = useLocation()
+  const { id } = useParams()
+
+  const normalizedStatus = String(purchaseOrder?.status || '').toLowerCase()
+  const isPhoneFailure =
+    normalizedStatus === 'failed' &&
+    /invalid phone|phone number/i.test(String(purchaseOrder?.reason || ''))
+
+  const prefill = {
+    billersCode: purchaseOrder?.meter_number || purchaseOrder?.billersCode || purchaseOrder?.phone,
+    phone: purchaseOrder?.phone || purchaseOrder?.phone_number,
+    meter_type: purchaseOrder?.meter_type,
+    email: purchaseOrder?.email,
+    amount: purchaseOrder?.amount,
+    tariff_class: purchaseOrder?.tariff_class,
+    name: purchaseOrder?.name,
+    address: purchaseOrder?.address,
+    biller: purchaseOrder?.biller,
+    service_type: purchaseOrder?.service_type,
+  }
+
+  const resolveEditRoute = () => {
+    if (!id || !purchaseOrder?.service_type) return null
+
+    const serviceType = String(purchaseOrder.service_type).toLowerCase()
+    const isDashboard = location.pathname.startsWith('/dashboard')
+
+    if (serviceType.includes('electricity')) {
+      return isDashboard ? `/dashboard/utilities/buy-power/${id}/powerform` : `/buy-power/${id}/payment-form`
+    }
+
+    if (serviceType.includes('vtu') || serviceType.includes('data')) {
+      return isDashboard ? `/dashboard/utilities/mobile-top-up/${id}/mobileform` : `/phone-top-up/${id}`
+    }
+
+    if (serviceType.includes('tv') || serviceType.includes('cable')) {
+      return isDashboard ? `/dashboard/utilities/cable/${id}/cableform` : `/utility-services/${id}`
+    }
+
+    return null
+  }
+
+  const handleUpdatePhone = () => {
+    const route = resolveEditRoute()
+    if (!route) return
+    navigate(route, { state: { prefill, focusField: 'phone', fromBillOrderId: purchaseOrder?.id } })
+  }
 
   const pickLabel = (type) => {
     switch (type) {
@@ -127,6 +176,21 @@ const BillOrderDetails = ({ purchaseOrder, applyCommission }) => {
             <Detail label={'Status'} value={purchaseOrder?.status} badge />
           )}
           {purchaseOrder?.reason && <Detail label={'Reason'} value={purchaseOrder?.reason} />}
+          {isPhoneFailure && resolveEditRoute() && (
+            <div className="flex flex-col sm:col-span-2">
+              <span className="text-gray-400 uppercase text-xs">Action</span>
+              <div className="mt-1 rounded-md border border-red-500/50 bg-red-900/20 p-3">
+                <p className="text-sm text-red-200">Payment failed due to invalid phone number.</p>
+                <button
+                  type="button"
+                  onClick={handleUpdatePhone}
+                  className="mt-2 inline-flex items-center rounded-md bg-red-600 px-3 py-1 text-xs font-semibold text-white"
+                >
+                  Update phone number
+                </button>
+              </div>
+            </div>
+          )}
           {purchaseOrder?.id && (
             // <div className="gap-4 my-4 md:flex-row flex-col  flex">
             // <p className="w-60 px-2 md:w-60 font-semibold">Order ID</p>
