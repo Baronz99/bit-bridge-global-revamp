@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 def safe_count
   yield
 rescue StandardError => e
@@ -5,21 +7,14 @@ rescue StandardError => e
   nil
 end
 
-if defined?(WalletLedgerEntry)
-  scope = WalletLedgerEntry.where(bill_order_id: bo.id)
+bill_order_id = ARGV[0].to_s.strip
+if bill_order_id.empty?
+  puts "Usage: rails runner script/inspect_bill_order.rb <bill_order_id>"
+  exit 1
+end
 
-  holds_count    = safe_count { scope.respond_to?(:hold)    ? scope.hold.count    : scope.where(entry_type: "hold").count }
-  releases_count = safe_count { scope.respond_to?(:release) ? scope.release.count : scope.where(entry_type: "release").count }
-  debits_count   = safe_count { scope.respond_to?(:debit)   ? scope.debit.count   : scope.where(entry_type: "debit").count }
-  refunds_count  = safe_count { scope.respond_to?(:refund)  ? scope.refund.count  : scope.where(entry_type: "refund").count }
-
-  puts({
-    total: safe_count { scope.count },
-    holds: holds_count,
-    releases: releases_count,
-    debits: debits_count,
-    refunds: refunds_count
-  }.inspect)
-else
-  puts("WalletLedgerEntry not defined")
+bo = BillOrder.find_by(id: bill_order_id)
+if bo.nil?
+  puts "BillOrder not found: #{bill_order_id}"
+  exit 1
 end
