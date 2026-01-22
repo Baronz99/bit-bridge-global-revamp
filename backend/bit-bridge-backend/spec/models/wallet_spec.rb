@@ -79,6 +79,22 @@ RSpec.describe Wallet, type: :model do
       expect(wallet.reload.ledger_available_balance).to eq(8_000.to_d)
     end
 
+    it 'reduces available balance by pending and approved withdrawals' do
+      Transaction.create!(
+        wallet: wallet,
+        amount: 3_000,
+        bonus: 0,
+        status: :pending,
+        transaction_type: :withdrawal,
+        address: 'withdrawal-spec'
+      )
+
+      expect(wallet.reload.ledger_available_balance).to eq(7_000.to_d)
+
+      wallet.transactions.update_all(status: :approved)
+      expect(wallet.reload.ledger_available_balance).to eq(7_000.to_d)
+    end
+
     it 'clamps outstanding holds per bill order so negatives never cancel positives' do
       long_release = build_bill_order(status: 'initialized')
       overcharged = build_bill_order(status: 'initialized')
@@ -112,7 +128,7 @@ RSpec.describe Wallet, type: :model do
         metadata: { 'source' => 'ledger_repair', 'subtype' => 'hold_invariant' }
       )
 
-      expect(wallet.reload.ledger_available_balance).to eq((10_000 + 500).to_d)
+      expect(wallet.reload.ledger_available_balance).to eq(10_000.to_d)
     end
   end
 

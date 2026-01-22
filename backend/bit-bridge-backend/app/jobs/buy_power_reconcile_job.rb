@@ -89,6 +89,7 @@ class BuyPowerReconcileJob < ApplicationJob
           message || 'Vend successful',
           response[:response]
         )
+        BillOrders::Finalizer.call(bill_order: order.reload)
       when 'failed', 'refund', 'refunded', 'reversed', 'cancelled'
         service.send(
           :handle_wallet_failure,

@@ -96,10 +96,6 @@ class Wallet < ApplicationRecord
       .to_d
   end
 
-  def ledger_real_credits_total
-    (ledger_deposits_total + ledger_refunds_total + ledger_real_credit_entries_total).to_d
-  end
-
   # ✅ Active holds are purely reservation, never include debits
   def ledger_active_hold
     ledger_outstanding_hold
@@ -116,9 +112,14 @@ class Wallet < ApplicationRecord
   end
 
   # ✅ Correct available balance
-  # deposits - withdrawals - debits + refunds - active_hold
+  # deposits + refunds - withdrawals - debits - active_hold
   def ledger_available_balance
-    available = ledger_real_credits_total - ledger_debits_total - ledger_outstanding_hold
+    available =
+      ledger_deposits_total +
+      ledger_refunds_total -
+      ledger_withdrawals_total -
+      ledger_debits_total -
+      ledger_outstanding_hold
     available.negative? ? BigDecimal('0') : available
   end
 

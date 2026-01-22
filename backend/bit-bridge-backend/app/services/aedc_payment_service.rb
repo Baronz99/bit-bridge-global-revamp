@@ -95,6 +95,7 @@ class AedcPaymentService
 
         electric_bill_order.update(status: 'completed', token: response['purchased_code'],
                                    transaction_id: response['content']['transactions']['transactionId'])
+        BillOrders::Finalizer.call(bill_order: electric_bill_order)
         { response: electric_bill_order, status: 'success' }
       else
         { response: response['response_description'], status: 'error' }

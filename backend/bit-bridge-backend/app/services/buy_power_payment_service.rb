@@ -516,6 +516,7 @@ end
         provider_response: provider_payload,
         reason: message
       )
+      BillOrders::Finalizer.call(bill_order: order)
     end
 
     { response: order, status: 'success' }
