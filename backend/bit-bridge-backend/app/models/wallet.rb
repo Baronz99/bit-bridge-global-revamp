@@ -9,15 +9,13 @@ class Wallet < ApplicationRecord
   has_many :bill_orders, through: :user
   has_many :order_details, through: :user
 
-  # IMPORTANT:
-  # We keep :usdt as a legacy enum value ONLY to avoid breaking existing DB rows.
-  # Production tunnel wallet is USD: :usd
   enum :wallet_type, { ngn: 0, usd: 2 }
 
   validates :wallet_type, presence: true, uniqueness: { scope: :user_id }
   validates :currency, presence: true
-
   validate :currency_matches_wallet_type
+
+  scope :for_api, -> { includes(:user, transactions: { proof_attachment: :blob }) }
 
   # -------------------------
   # Bridge (NGN) legacy methods
@@ -51,33 +49,14 @@ class Wallet < ApplicationRecord
   end
 
   def total_deposit
-  transactions
-    .where(transaction_type: 'deposit', status: 'approved')
-    .sum(Arel.sql("amount + COALESCE(bonus, 0)"))
-end
-
-
-  # -------------------------
-  # ✅ Unified balance API
-  # -------------------------
-  # For NGN: computed using legacy logic
-  # For USD: stored cents (balance_cents)
-  def balance
-    if ngn?
-      (total_deposit + user.total_sale) - (total_withdrawal + user.user_net_expense + total_bills)
-    else
-      cents_to_money(balance_cents)
-    end
+    transactions
+      .where(transaction_type: 'deposit', status: 'approved')
+      .sum(Arel.sql("amount + COALESCE(bonus, 0)"))
   end
 
-  def real_balance
-    if ngn?
-      (total_deposit + user.total_sale) - (total_real_withdrawal + user.user_net_expense + total_bills)
-    else
-      cents_to_money(balance_cents)
-    end
-  end
-
+  # -------------------------
+  # ✅ Ledger-based NGN balance (stable truth)
+  # -------------------------
   def ledger_deposits_total
     transactions
       .where(transaction_type: :deposit, status: :approved)
@@ -85,6 +64,7 @@ end
       .to_d
   end
 
+  # Pending withdrawals reduce *available* funds (keep as you had)
   def ledger_withdrawals_total
     transactions
       .where(transaction_type: :withdrawal, status: %i[pending approved])
@@ -104,39 +84,79 @@ end
     wallet_ledger_entries.where(entry_type: :debit).sum(:amount).to_d
   end
 
+  def ledger_refunds_total
+    wallet_ledger_entries.where(entry_type: :refund).sum(:amount).to_d
+  end
+
+  # ✅ Active holds are purely reservation, never include debits
+  def ledger_active_hold
+    active = ledger_holds_total - ledger_releases_total
+    active.positive? ? active : BigDecimal('0')
+  end
+
   def ledger_outstanding_hold
     outstanding = ledger_holds_total - ledger_releases_total - ledger_debits_total
     outstanding.positive? ? outstanding : BigDecimal('0')
   end
 
+  # ✅ Correct available balance
+  # deposits - withdrawals - debits + refunds - active_hold
   def ledger_available_balance
-    available = ledger_deposits_total - ledger_withdrawals_total - ledger_outstanding_hold
+    available =
+      ledger_deposits_total -
+      ledger_withdrawals_total -
+      ledger_debits_total +
+      ledger_refunds_total -
+      ledger_active_hold
+
     available.negative? ? BigDecimal('0') : available
+  end
+
+  # -------------------------
+  # ✅ Unified balance API
+  # -------------------------
+  # NGN: ledger-derived stable balance
+  # USD: stored cents
+  def balance
+    if ngn?
+      ledger_available_balance
+    else
+      cents_to_money(balance_cents)
+    end
+  end
+
+  # If you still want an "accounting view" that ignores holds/pending withdrawals:
+  def real_balance
+    if ngn?
+      ledger_available_balance
+    else
+      cents_to_money(balance_cents)
+    end
   end
 
   # -------------------------
   # ✅ Stored-balance helpers (USD)
   # -------------------------
   def credit_cents!(cents)
-  cents = cents.to_i
-  raise ArgumentError, 'Amount must be positive' unless cents.positive?
+    cents = cents.to_i
+    raise ArgumentError, 'Amount must be positive' unless cents.positive?
 
-  with_lock do
-    self.balance_cents = balance_cents.to_i + cents
-    save!
+    with_lock do
+      self.balance_cents = balance_cents.to_i + cents
+      save!
+    end
   end
-end
 
   def debit_cents!(cents)
-  cents = cents.to_i
-  raise ArgumentError, 'Amount must be positive' unless cents.positive?
+    cents = cents.to_i
+    raise ArgumentError, 'Amount must be positive' unless cents.positive?
 
-  with_lock do
-    raise ArgumentError, 'Insufficient balance' if balance_cents.to_i < cents
-    self.balance_cents = balance_cents.to_i - cents
-    save!
+    with_lock do
+      raise ArgumentError, 'Insufficient balance' if balance_cents.to_i < cents
+      self.balance_cents = balance_cents.to_i - cents
+      save!
+    end
   end
-end
 
   def cents_to_money(cents)
     (cents.to_i / 100.0).round(2)
@@ -145,10 +165,12 @@ end
   def money_to_cents(amount)
     (BigDecimal(amount.to_s) * 100).to_i
   end
-end
 
-def currency_matches_wallet_type
-  expected = usd? ? 'USD' : 'NGN'
-  return if currency.to_s.upcase == expected
-  errors.add(:currency, "must be #{expected} for #{wallet_type}")
+  private
+
+  def currency_matches_wallet_type
+    expected = usd? ? 'USD' : 'NGN'
+    return if currency.to_s.upcase == expected
+    errors.add(:currency, "must be #{expected} for #{wallet_type}")
+  end
 end

@@ -58,6 +58,8 @@ expired = []
 skipped = []
 
 candidates.find_each do |bo|
+  next if bo.metadata&.[]('source') == 'anchor_transfer'
+
   hold_sum    = WalletLedgerEntry.where(bill_order_id: bo.id, entry_type: :hold).sum(:amount).to_d
   release_sum = WalletLedgerEntry.where(bill_order_id: bo.id, entry_type: :release).sum(:amount).to_d
   debit_sum   = WalletLedgerEntry.where(bill_order_id: bo.id, entry_type: :debit).sum(:amount).to_d

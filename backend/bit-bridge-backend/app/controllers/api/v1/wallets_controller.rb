@@ -17,9 +17,9 @@ module Api
       def index
         wallets =
           if current_user&.admin || current_user&.role == 'super_admin'
-            Wallet.all
+            Wallet.for_api
           else
-            current_user.wallets
+            current_user.wallets.for_api
           end
         render json: wallets
       end
@@ -41,9 +41,10 @@ module Api
       # }
       def user
         bridge = current_user.ngn_wallet
+        bridge = current_user.wallets.for_api.find(bridge.id) if bridge
 
         # do not auto-create USD unless already present (optional)
-        tunnel = current_user.wallets.find_by(wallet_type: :usd)
+        tunnel = current_user.wallets.for_api.find_by(wallet_type: :usd)
 
         wallets = [bridge, tunnel].compact
 
@@ -60,6 +61,7 @@ module Api
       # POST /api/v1/wallets/tunnel/activate
       def activate_tunnel
         usd_wallet = current_user.usd_wallet
+        usd_wallet = current_user.wallets.for_api.find(usd_wallet.id)
 
         render json: {
           message: 'Tunnel wallet activated',
@@ -131,8 +133,8 @@ module Api
         end
 
         # Re-fetch to ensure updated balances/transactions reflected
-        ngn_wallet.reload
-        usd_wallet.reload
+        ngn_wallet = current_user.wallets.for_api.find(ngn_wallet.id)
+        usd_wallet = current_user.wallets.for_api.find(usd_wallet.id)
 
         render json: {
           message: 'Conversion successful',
@@ -215,8 +217,8 @@ module Api
           )
         end
 
-        ngn_wallet.reload
-        usd_wallet.reload
+        ngn_wallet = current_user.wallets.for_api.find(ngn_wallet.id)
+        usd_wallet = current_user.wallets.for_api.find(usd_wallet.id)
 
         render json: {
           message: 'Conversion successful',
@@ -289,8 +291,8 @@ module Api
           )
         end
 
-        sender_wallet.reload
-        recipient_wallet.reload
+        sender_wallet = current_user.wallets.for_api.find(sender_wallet.id)
+        recipient_wallet = recipient_user.wallets.for_api.find(recipient_wallet.id)
 
         render json: {
           message: 'Transfer successful',
@@ -304,6 +306,7 @@ module Api
       def create
         wallet = Wallet.new(wallet_params)
         if wallet.save
+          wallet = Wallet.for_api.find(wallet.id)
           render json: wallet, status: :created, location: wallet
         else
           render json: wallet.errors, status: :unprocessable_entity
@@ -326,7 +329,7 @@ module Api
       private
 
       def set_wallet
-        @wallet = Wallet.find(params[:id])
+        @wallet = Wallet.for_api.find(params[:id])
       end
 
       def wallet_params

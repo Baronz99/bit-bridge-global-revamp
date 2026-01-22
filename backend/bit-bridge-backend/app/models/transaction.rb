@@ -26,11 +26,13 @@ class Transaction < ApplicationRecord
   before_save :check_method_payment
 
   def validate_transaction_on_create
+    return if ledger_hold_reserved?
     return unless (amount > wallet.balance) && status != 'declined'
     errors.add(:amount, 'insufficient balance')
   end
 
   def validate_transaction_on_update
+    return if ledger_hold_reserved?
     return unless (amount > wallet.real_balance) && status != 'declined'
     errors.add(:amount, 'insufficient balance')
   end
@@ -75,5 +77,9 @@ class Transaction < ApplicationRecord
 
   def withdrawal_status_pending_or_approved?
     transaction_type == 'withdrawal' && %w[approved pending].include?(status)
+  end
+ 
+  def ledger_hold_reserved?
+    metadata.is_a?(Hash) && metadata['ledger_hold_reserved'].present?
   end
 end

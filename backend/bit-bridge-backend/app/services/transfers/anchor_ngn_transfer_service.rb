@@ -28,15 +28,28 @@ module Transfers
       return min_amount_error if @amount_ngn < MIN_AMOUNT
 
       transfer_reference = @transfer_reference.presence || SecureRandom.uuid
-      existing = existing_transfer_response(transfer_reference)
-      return existing if existing
-
       fee_breakdown = Pricing::Engine.transfer_fee_breakdown_ngn(@amount_ngn)
       total_fee = fee_breakdown.fetch(:total_fee)
       total_debit = @amount_ngn + total_fee
-      available_balance = @sender_wallet.ledger_available_balance
+      transfer_order = ensure_transfer_bill_order(transfer_reference, total_debit)
 
+      return existing_transfer_response(transfer_reference) if transfer_hold_exists?(transfer_order)
+
+      available_balance = @sender_wallet.ledger_available_balance
       if available_balance < total_debit
+        return insufficient_funds_error(total_fee, total_debit, available_balance, fee_breakdown)
+      end
+
+      begin
+        WalletLedgerEntry.ensure_hold!(
+          wallet: @sender_wallet,
+          bill_order: transfer_order,
+          amount: total_debit,
+          reference: "anchor-transfer-hold/#{transfer_reference}",
+          metadata: { transfer_reference: transfer_reference }
+        )
+      rescue ActiveRecord::RecordInvalid
+        available_balance = @sender_wallet.ledger_available_balance
         return insufficient_funds_error(total_fee, total_debit, available_balance, fee_breakdown)
       end
 
@@ -54,9 +67,11 @@ module Transfers
       if anchor_response[:status] == :ok
         finalize_success!(principal_tx, fee_tx, anchor_response, transfer_reference)
       else
+        release_hold!(transfer_reference, total_debit, transfer_order)
         finalize_failure!(principal_tx, fee_tx, anchor_response[:message], transfer_reference)
       end
     rescue ActiveRecord::RecordInvalid => e
+      release_hold!(transfer_reference, total_debit, transfer_order)
       { status: :unprocessable_entity, body: { message: e.record.errors.full_messages.to_sentence } }
     end
 
@@ -160,7 +175,8 @@ module Transfers
         metadata: {
           subtype: 'principal',
           provider: 'anchor',
-          transfer_reference: transfer_reference
+          transfer_reference: transfer_reference,
+          ledger_hold_reserved: true
         }
       )
     end
@@ -177,7 +193,8 @@ module Transfers
           subtype: 'fee',
           provider: 'anchor',
           transfer_reference: transfer_reference,
-          fee_breakdown: serialize_fee_breakdown(fee_breakdown)
+          fee_breakdown: serialize_fee_breakdown(fee_breakdown),
+          ledger_hold_reserved: true
         }
       )
     end
@@ -299,6 +316,51 @@ module Transfers
                     .where("metadata ->> 'transfer_reference' = ?", transfer_reference)
                     .where("metadata ->> 'subtype' = ?", 'reversal')
                     .exists?
+    end
+
+    def transfer_hold_exists?(bill_order)
+      return false if bill_order.blank?
+
+      WalletLedgerEntry.holds
+                        .where(wallet_id: @sender_wallet.id, bill_order_id: bill_order.id)
+                        .exists?
+    end
+
+    def ensure_transfer_bill_order(transfer_reference, total_debit)
+      BillOrder.find_or_create_by!(user: @user, meter_number: transfer_reference) do |order|
+        order.meter_type = 'PREPAID'
+        order.address = 'Anchor transfer hold'
+        order.name = 'Anchor transfer'
+        order.tariff_class = 'A'
+        order.service_type = 'OTHER'
+        order.email = @user.email
+        order.amount = total_debit
+        order.phone = '0000000000'
+        order.biller = 'Anchor'
+        order.description = 'Anchor NGN transfer hold'
+        order.payment_type = 'online'
+        order.payment_method = 'wallet'
+        order.status = 'processing'
+      end.tap do |order|
+        order.update!(amount: total_debit) if order.amount != total_debit
+        metadata = (order.metadata.is_a?(Hash) ? order.metadata.dup : {})
+        metadata['source'] = 'anchor_transfer'
+        metadata['transfer_reference'] = transfer_reference
+        order.update!(metadata: metadata) if metadata != order.metadata
+      end
+    end
+
+    def release_hold!(transfer_reference, amount, bill_order = nil)
+      order = bill_order.presence || BillOrder.find_by(user: @user, meter_number: transfer_reference)
+      return if order.blank? || !transfer_hold_exists?(order)
+
+      WalletLedgerEntry.release_hold!(
+        wallet: @sender_wallet,
+        bill_order: order,
+        amount: amount,
+        reference: "anchor-transfer-release/#{transfer_reference}",
+        metadata: { transfer_reference: transfer_reference }
+      )
     end
 
     def find_transfer_tx(transfer_reference, subtype)

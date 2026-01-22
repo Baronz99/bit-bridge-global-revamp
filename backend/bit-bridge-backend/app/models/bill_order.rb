@@ -26,6 +26,14 @@ class BillOrder < ApplicationRecord
   validates :amount, presence: true
   # validate :validate_order, if: -> { persisted? && wallet_payment? }
 
+  def metadata
+    provider_response || {}
+  end
+
+  def metadata=(value)
+    self.provider_response = value
+  end
+
 
   before_save :calculate_total
   # before_save :set_usd_conversion
