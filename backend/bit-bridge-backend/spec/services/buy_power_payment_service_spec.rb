@@ -52,7 +52,7 @@ RSpec.describe BuyPowerPaymentService do
       expect(result[:status]).to eq('success')
       expect(bill_order.reload.status).to eq('completed')
       expect(WalletLedgerEntry.where(bill_order: bill_order).hold.count).to eq(1)
-      expect(WalletLedgerEntry.where(bill_order: bill_order).release.count).to eq(1)
+      expect(WalletLedgerEntry.where(bill_order: bill_order).release.count).to eq(0)
       expect(WalletLedgerEntry.where(bill_order: bill_order).debit.count).to eq(1)
     end
 
@@ -422,6 +422,49 @@ RSpec.describe BuyPowerPaymentService do
       expect(WalletLedgerEntry.where(bill_order: bill_order).release.count).to eq(1)
       expect(WalletLedgerEntry.where(bill_order: bill_order).debit.count).to eq(0)
       expect(WalletLedgerEntry.where(bill_order: bill_order).refund.count).to eq(0)
+    end
+
+    it 'skips releasing the hold if a debit already exists' do
+      allow(Config::Bills).to receive(:validate!).and_return(true)
+      allow(Config::Bills).to receive(:base_url).and_return('http://example.test')
+      allow(Config::Bills).to receive(:token).and_return('token')
+
+      user = create(:user)
+      wallet = user.wallet
+      Transaction.create!(
+        wallet: wallet,
+        amount: 10_000,
+        bonus: 0,
+        status: :approved,
+        transaction_type: :deposit
+      )
+
+      bill_order = BillOrder.create!(
+        user: user,
+        meter_number: '08012345678',
+        meter_type: 'PREPAID',
+        address: 'Test Address',
+        name: 'Test User',
+        tariff_class: 'A',
+        service_type: 'VTU',
+        email: user.email,
+        amount: 1_000,
+        phone: '08012345678',
+        biller: 'MTN',
+        description: 'Airtime',
+        payment_type: 'online',
+        payment_method: 'wallet'
+      )
+
+      WalletLedgerEntry.ensure_hold!(wallet: wallet, bill_order: bill_order, amount: 1_000)
+      WalletLedgerEntry.record_debit!(wallet: wallet, bill_order: bill_order, amount: 1_000)
+
+      service = described_class.new
+      result = service.send(:handle_wallet_failure, bill_order, 'wallet', 'provider error', {}, status: 'failed')
+
+      expect(result[:status]).to eq('error')
+      expect(WalletLedgerEntry.where(bill_order: bill_order, entry_type: :release)).to be_empty
+      expect(WalletLedgerEntry.where(bill_order: bill_order, entry_type: :debit).count).to eq(1)
     end
 
     it 'does not duplicate ledger entries on retry after hard error' do

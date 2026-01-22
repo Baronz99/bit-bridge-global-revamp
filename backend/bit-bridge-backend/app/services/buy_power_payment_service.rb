@@ -497,13 +497,6 @@ end
 
     ActiveRecord::Base.transaction do
       wallet.lock!
-      WalletLedgerEntry.release_hold!(
-        wallet: wallet,
-        bill_order: order,
-        amount: amount,
-        reference: order.idempotency_key,
-        metadata: { provider_reference: transaction_id }
-      )
       WalletLedgerEntry.record_debit!(
         wallet: wallet,
         bill_order: order,
@@ -538,16 +531,13 @@ end
 
     ActiveRecord::Base.transaction do
       wallet.lock!
-      if WalletLedgerEntry.exists?(bill_order: order, entry_type: :hold) &&
-           !WalletLedgerEntry.exists?(bill_order: order, entry_type: :release)
-        WalletLedgerEntry.release_hold!(
-          wallet: wallet,
-          bill_order: order,
-          amount: amount,
-          reference: order.idempotency_key,
-          metadata: { provider_reference: order.provider_reference }
-        )
-      end
+      safe_release_hold!(
+        wallet: wallet,
+        bill_order: order,
+        amount: amount,
+        reference: order.idempotency_key,
+        metadata: { provider_reference: order.provider_reference }
+      )
 
       if (force_refund || WalletLedgerEntry.exists?(bill_order: order, entry_type: :debit)) &&
            !WalletLedgerEntry.exists?(bill_order: order, entry_type: :refund)
@@ -577,5 +567,19 @@ end
     BuyPowerReconcileJob.set(wait: 2.minutes).perform_later(order.id)
   rescue StandardError
     nil
+  end
+
+  def safe_release_hold!(wallet:, bill_order:, amount:, reference:, metadata:)
+    return unless WalletLedgerEntry.exists?(bill_order: bill_order, entry_type: :hold)
+    return if WalletLedgerEntry.exists?(bill_order: bill_order, entry_type: :release)
+    return if WalletLedgerEntry.debit_exists?(wallet: wallet, bill_order: bill_order)
+
+    WalletLedgerEntry.release_hold!(
+      wallet: wallet,
+      bill_order: bill_order,
+      amount: amount,
+      reference: reference,
+      metadata: metadata
+    )
   end
 end

@@ -64,17 +64,55 @@ RSpec.describe Wallet, type: :model do
       expect(wallet.ledger_available_balance).to eq(10_000.to_d)
     end
 
-    it 'reduces balance when holds exist and restores after release/debit' do
-      bill_order = build_bill_order(status: 'initialized')
+    it 'reduces balance when holds exist and reclaims funds after release or debit' do
+      cancelled_order = build_bill_order(status: 'initialized')
+      success_order = build_bill_order(status: 'initialized')
 
-      WalletLedgerEntry.ensure_hold!(wallet: wallet, bill_order: bill_order, amount: 2_000)
+      WalletLedgerEntry.ensure_hold!(wallet: wallet, bill_order: cancelled_order, amount: 2_000)
       expect(wallet.reload.ledger_available_balance).to eq(8_000.to_d)
 
-      WalletLedgerEntry.release_hold!(wallet: wallet, bill_order: bill_order, amount: 2_000)
+      WalletLedgerEntry.release_hold!(wallet: wallet, bill_order: cancelled_order, amount: 2_000)
       expect(wallet.reload.ledger_available_balance).to eq(10_000.to_d)
 
-      WalletLedgerEntry.record_debit!(wallet: wallet, bill_order: bill_order, amount: 2_000)
+      WalletLedgerEntry.ensure_hold!(wallet: wallet, bill_order: success_order, amount: 2_000)
+      WalletLedgerEntry.record_debit!(wallet: wallet, bill_order: success_order, amount: 2_000)
       expect(wallet.reload.ledger_available_balance).to eq(8_000.to_d)
+    end
+
+    it 'clamps outstanding holds per bill order so negatives never cancel positives' do
+      long_release = build_bill_order(status: 'initialized')
+      overcharged = build_bill_order(status: 'initialized')
+
+      WalletLedgerEntry.ensure_hold!(wallet: wallet, bill_order: long_release, amount: 2_000)
+      WalletLedgerEntry.release_hold!(wallet: wallet, bill_order: long_release, amount: 2_500)
+      WalletLedgerEntry.ensure_hold!(wallet: wallet, bill_order: overcharged, amount: 1_500)
+      WalletLedgerEntry.record_debit!(wallet: wallet, bill_order: overcharged, amount: 200)
+
+      expect(wallet.reload.ledger_outstanding_hold).to eq(1_300.to_d)
+    end
+
+    it 'ignores repair credits when calculating available balance' do
+      funded_order = build_bill_order(status: 'failed')
+      WalletLedgerEntry.create!(
+        wallet: wallet,
+        bill_order: funded_order,
+        entry_type: :credit,
+        amount: 500,
+        reference: 'funded-credit',
+        metadata: { 'source' => 'external_funding' }
+      )
+
+      repair_order = build_bill_order(status: 'failed')
+      WalletLedgerEntry.create!(
+        wallet: wallet,
+        bill_order: repair_order,
+        entry_type: :credit,
+        amount: 700,
+        reference: 'repair-credit',
+        metadata: { 'source' => 'ledger_repair', 'subtype' => 'hold_invariant' }
+      )
+
+      expect(wallet.reload.ledger_available_balance).to eq((10_000 + 500).to_d)
     end
   end
 

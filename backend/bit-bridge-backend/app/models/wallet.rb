@@ -88,28 +88,58 @@ class Wallet < ApplicationRecord
     wallet_ledger_entries.where(entry_type: :refund).sum(:amount).to_d
   end
 
+  def ledger_real_credit_entries_total
+    wallet_ledger_entries
+      .credits
+      .where("metadata ->> 'source' IS NULL OR metadata ->> 'source' != ?", 'ledger_repair')
+      .sum(:amount)
+      .to_d
+  end
+
+  def ledger_real_credits_total
+    (ledger_deposits_total + ledger_refunds_total + ledger_real_credit_entries_total).to_d
+  end
+
   # ✅ Active holds are purely reservation, never include debits
   def ledger_active_hold
-    active = ledger_holds_total - ledger_releases_total
-    active.positive? ? active : BigDecimal('0')
+    ledger_outstanding_hold
   end
 
   def ledger_outstanding_hold
-    outstanding = ledger_holds_total - ledger_releases_total - ledger_debits_total
-    outstanding.positive? ? outstanding : BigDecimal('0')
+    totals = ledger_bill_hold_totals
+    outstanding = totals.values.sum do |value|
+      delta = value[:hold] - value[:release] - value[:debit]
+      delta.positive? ? delta : BigDecimal('0')
+    end
+
+    outstanding.to_d
   end
 
   # ✅ Correct available balance
   # deposits - withdrawals - debits + refunds - active_hold
   def ledger_available_balance
-    available =
-      ledger_deposits_total -
-      ledger_withdrawals_total -
-      ledger_debits_total +
-      ledger_refunds_total -
-      ledger_active_hold
-
+    available = ledger_real_credits_total - ledger_debits_total - ledger_outstanding_hold
     available.negative? ? BigDecimal('0') : available
+  end
+
+  def ledger_bill_entry_sums
+    wallet_ledger_entries
+      .where.not(bill_order_id: nil)
+      .group(:bill_order_id, :entry_type)
+      .sum(:amount)
+  end
+
+  def ledger_bill_hold_totals
+    ledger_bill_entry_sums.each_with_object(Hash.new { |memo, key| memo[key] = { hold: BigDecimal('0'), release: BigDecimal('0'), debit: BigDecimal('0') } }) do |((bill_order_id, entry_type), amount), memo|
+      type =
+        if entry_type.is_a?(String)
+          entry_type.to_sym
+        else
+          WalletLedgerEntry.entry_types.key(entry_type)&.to_sym
+        end
+      next unless %i[hold release debit].include?(type)
+      memo[bill_order_id][type] = amount.to_d
+    end
   end
 
   # -------------------------
