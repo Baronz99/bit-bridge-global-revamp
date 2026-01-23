@@ -9,6 +9,9 @@ class RewardTransaction < ApplicationRecord
   validates :amount, presence: true, numericality: { greater_than: 0 }
   validates :reward_rate, presence: true
   validates :currency, presence: true
+  validates :bill_order_id, presence: true, if: -> { service_type.in?(%w[VTU DATA POWER CABLE]) }
+# ^ adjust list to whatever your real service_types are
+
 
   scope :earned_sum, ->(user_id) { where(user_id: user_id, status: :earned).sum(:amount) }
   scope :redeemed_sum, ->(user_id) { where(user_id: user_id, status: :redeemed).sum(:amount) }
