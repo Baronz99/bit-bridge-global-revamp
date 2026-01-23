@@ -3,6 +3,7 @@ class AddUniqueIndexToRewardTransactionsLegacyBonus < ActiveRecord::Migration[7.
     add_index :reward_transactions,
               [:user_id, :service_type, :source_label],
               unique: true,
-              name: "index_reward_txns_on_user_service_source_label"
+              where: "service_type = 'legacy_bonus'",
+              name: "index_reward_txns_legacy_bonus_unique"
   end
 end
