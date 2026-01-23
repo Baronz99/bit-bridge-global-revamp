@@ -317,7 +317,7 @@ Rails.application.routes.draw do
         get 'cards/:id/provider-transactions', to: 'cards#provider_transactions'
         get 'cards/:id/provider-transaction', to: 'cards#provider_transaction'
         get 'cards/:id/provider-transaction-status', to: 'cards#provider_transaction_status'
-        resources :users, only: [] do
+        resources :users, only: [:index] do
           post :reveal, on: :member
         end
       end
