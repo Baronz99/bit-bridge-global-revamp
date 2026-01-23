@@ -6,6 +6,8 @@ module Api
   module V1
     class BillOrdersController < ApplicationController
       before_action :set_bill_order, only: %i[show update destroy initialize_confirm_payment confirm_bill_payment]
+      before_action :disable_client_cache, only: %i[initialize_confirm_payment]
+      after_action :strip_cache_validators, only: %i[initialize_confirm_payment]
 
       # GET /bill_orders
       def index
@@ -149,6 +151,19 @@ module Api
       end
 
       private
+
+      def disable_client_cache
+        expires_now
+        response.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
+        response.headers['Pragma'] = 'no-cache'
+        response.headers['Expires'] = '0'
+        response.cache_control.clear
+      end
+
+      def strip_cache_validators
+        response.headers.delete('ETag')
+        response.headers.delete('Last-Modified')
+      end
 
       # Use callbacks to share common setup or constraints between actions.
       def set_bill_order

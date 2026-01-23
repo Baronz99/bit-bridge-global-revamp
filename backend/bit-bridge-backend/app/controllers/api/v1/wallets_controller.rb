@@ -4,6 +4,8 @@ module Api
   module V1
     class WalletsController < ApplicationController
       before_action :set_wallet, only: %i[show update destroy]
+      before_action :disable_client_cache, only: %i[user]
+      after_action :strip_cache_validators, only: %i[user]
       before_action :ensure_tier2!,
                     only: %i[
                       activate_tunnel
@@ -327,6 +329,19 @@ module Api
       end
 
       private
+
+      def disable_client_cache
+        expires_now
+        response.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
+        response.headers['Pragma'] = 'no-cache'
+        response.headers['Expires'] = '0'
+        response.cache_control.clear
+      end
+
+      def strip_cache_validators
+        response.headers.delete('ETag')
+        response.headers.delete('Last-Modified')
+      end
 
       def set_wallet
         @wallet = Wallet.for_api.find(params[:id])

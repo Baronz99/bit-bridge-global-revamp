@@ -48,18 +48,26 @@ RSpec.describe 'BillOrders wallet idempotency', type: :request do
     )
 
     headers = auth_headers(user).merge('Idempotency-Key' => 'idem-1')
+    headers['Idempotency-Key'] ||= SecureRandom.uuid
     params = { bill_order: { payment_method: 'wallet', use_commission: false } }
 
     patch "/api/v1/bill_orders/#{bill_order.id}/confirm_bill_payment", params: params, headers: headers
     expect(response).to have_http_status(:ok)
 
+    entries_after_first = WalletLedgerEntry.where(bill_order: bill_order)
+    debit_amount = entries_after_first.debit.first&.amount
+    expect(entries_after_first.debit.count).to eq(1)
+
     patch "/api/v1/bill_orders/#{bill_order.id}/confirm_bill_payment", params: params, headers: headers
     expect(response).to have_http_status(:ok)
 
     entries = WalletLedgerEntry.where(bill_order: bill_order)
-    expect(entries.count).to eq(3)
-    expect(entries.hold.count).to eq(1)
-    expect(entries.release.count).to eq(1)
+    expect(entries.count).to eq(2)
     expect(entries.debit.count).to eq(1)
+    expect(entries.debit.first&.amount).to eq(debit_amount)
+    expect(entries.hold.count).to eq(1)
+    expect(entries.debit.count).to eq(1)
+    expect(entries.release.count).to eq(0)
+    expect(entries.refund.count).to eq(0)
   end
 end

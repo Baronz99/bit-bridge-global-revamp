@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require_relative 'boot'
+require_relative '../lib/strip_dynamic_validators_middleware'
 
 require 'rails/all'
 
@@ -34,6 +35,7 @@ module BitBridgeBackend
     config.api_only = true
     config.middleware.use ActionDispatch::Cookies
     config.middleware.use Rack::Attack
+    config.middleware.insert_before Rack::ETag, StripDynamicValidatorsMiddleware
     config.autoload_paths << Rails.root.join('app/services')
     config.autoload_paths << Rails.root.join('app/lib')
 
