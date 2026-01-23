@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[7.1].define(version: 2026_01_17_091500) do
+ActiveRecord::Schema[7.1].define(version: 2026_01_23_020000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pgcrypto"
   enable_extension "plpgsql"
@@ -153,6 +153,8 @@ ActiveRecord::Schema[7.1].define(version: 2026_01_17_091500) do
     t.string "idempotency_key"
     t.string "provider_reference"
     t.jsonb "provider_response"
+    t.decimal "reward_applied", precision: 15, scale: 2, default: "0.0", null: false
+    t.decimal "wallet_amount_charged", precision: 15, scale: 2, default: "0.0", null: false
     t.index ["order_detail_id"], name: "index_bill_orders_on_order_detail_id"
     t.index ["user_id", "idempotency_key"], name: "index_bill_orders_on_user_id_and_idempotency_key", unique: true, where: "(idempotency_key IS NOT NULL)"
     t.index ["user_id"], name: "index_bill_orders_on_user_id"
@@ -590,6 +592,7 @@ ActiveRecord::Schema[7.1].define(version: 2026_01_17_091500) do
     t.datetime "updated_at", null: false
     t.index ["bill_order_id"], name: "index_reward_transactions_on_bill_order_id"
     t.index ["earned_at"], name: "index_reward_transactions_on_earned_at"
+    t.index ["user_id", "service_type", "source_label"], name: "index_reward_txns_legacy_bonus_unique", unique: true, where: "((service_type)::text = 'legacy_bonus'::text)"
     t.index ["user_id"], name: "index_reward_transactions_on_user_id"
   end
 
@@ -781,7 +784,7 @@ ActiveRecord::Schema[7.1].define(version: 2026_01_17_091500) do
 
   create_table "wallet_ledger_entries", id: :uuid, default: -> { "gen_random_uuid()" }, force: :cascade do |t|
     t.uuid "wallet_id", null: false
-    t.uuid "bill_order_id", null: false
+    t.uuid "bill_order_id"
     t.integer "entry_type", null: false
     t.decimal "amount", null: false
     t.string "reference"
