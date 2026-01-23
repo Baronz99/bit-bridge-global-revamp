@@ -12,7 +12,14 @@ DEV_ORIGINS = [
   "http://localhost:5173"
 ].freeze
 
-ORIGINS = (Rails.env.production? ? ALLOWED_ORIGINS : (ALLOWED_ORIGINS + DEV_ORIGINS)).freeze
+DEV_ORIGINS_ENABLED = ActiveModel::Type::Boolean.new.cast(ENV['ALLOW_DEV_ORIGINS'])
+
+ORIGINS =
+  if Rails.env.production?
+    (ALLOWED_ORIGINS + (DEV_ORIGINS_ENABLED ? DEV_ORIGINS : [])).freeze
+  else
+    (ALLOWED_ORIGINS + DEV_ORIGINS).freeze
+  end
 
 Rails.application.config.middleware.insert_before 0, Rack::Cors do
   allow do

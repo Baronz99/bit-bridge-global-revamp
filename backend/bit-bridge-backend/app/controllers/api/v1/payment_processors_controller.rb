@@ -189,7 +189,16 @@ end
 
       def query_transaction
         service = BuyPowerPaymentService.new
+        previous_status = @bill_order&.status
         response_service = service.re_query(@bill_order[:id])
+        resulting_status = @bill_order&.reload&.status
+
+        log_admin_audit_transaction_query(
+          bill_order: @bill_order,
+          previous_status: previous_status,
+          resulting_status: resulting_status,
+          provider_response: safe_provider_response(response_service[:response])
+        )
 
         if response_service[:status] == :ok
           data = response_service[:response]&.dig('result', 'data') || response_service[:response]&.dig('data')
@@ -215,6 +224,42 @@ end
         return if @bill_order.present?
 
         render json: { message: 'Not found' }, status: :unprocessable_entity
+      end
+
+      def safe_provider_response(response)
+        payload =
+          if response.respond_to?(:parsed_response)
+            response.parsed_response
+          elsif response.respond_to?(:to_h)
+            response.to_h
+          else
+            response
+          end
+
+        return payload unless payload.is_a?(Hash)
+
+        payload.slice('data', 'result', 'message', 'status', 'responseCode', 'error')
+      end
+
+      def log_admin_audit_transaction_query(bill_order:, previous_status:, resulting_status:, provider_response:)
+        return unless current_user
+
+        AdminAuditEvent.create!(
+          admin_user_id: current_user.id,
+          target_user_id: bill_order&.user_id,
+          action: 'transaction_query',
+          ip: request.remote_ip.to_s,
+          user_agent: request.user_agent.to_s,
+          metadata: {
+            transaction_id: bill_order&.id,
+            provider_reference: bill_order&.provider_reference || bill_order&.transaction_id,
+            previous_status: previous_status,
+            resulting_status: resulting_status,
+            provider_response: provider_response
+          }
+        )
+      rescue StandardError
+        nil
       end
     end
   end
