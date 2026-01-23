@@ -9,14 +9,14 @@ class AddWalletLedgerIdempotencyIndexes < ActiveRecord::Migration[7.1]
   end
 
   def down
-    remove_index :wallet_ledger_entries, name: 'idx_wallet_ledger_unique_bill_order_entry_partial' if index_exists?(:wallet_ledger_entries, name: 'idx_wallet_ledger_unique_bill_order_entry_partial')
-    remove_index :wallet_ledger_entries, name: 'idx_wallet_ledger_unique_reference_entry' if index_exists?(:wallet_ledger_entries, name: 'idx_wallet_ledger_unique_reference_entry')
+    remove_index :wallet_ledger_entries, name: 'idx_wallet_ledger_unique_bill_order_entry_partial' if index_exists?(:wallet_ledger_entries, nil, name: 'idx_wallet_ledger_unique_bill_order_entry_partial')
+    remove_index :wallet_ledger_entries, name: 'idx_wallet_ledger_unique_reference_entry' if index_exists?(:wallet_ledger_entries, nil, name: 'idx_wallet_ledger_unique_reference_entry')
   end
 
   private
 
   def add_bill_order_entry_index
-    return if index_exists?(:wallet_ledger_entries, name: 'idx_wallet_ledger_unique_bill_order_entry_partial')
+    return if index_exists?(:wallet_ledger_entries, nil, name: 'idx_wallet_ledger_unique_bill_order_entry_partial')
 
     if duplicates_for_bill_order_index?
       say 'Skipping wallet_ledger_entries bill_order idempotency index due to duplicates. See runbook query.', true
@@ -32,7 +32,7 @@ class AddWalletLedgerIdempotencyIndexes < ActiveRecord::Migration[7.1]
   end
 
   def add_reference_entry_index
-    return if index_exists?(:wallet_ledger_entries, name: 'idx_wallet_ledger_unique_reference_entry')
+    return if index_exists?(:wallet_ledger_entries, nil, name: 'idx_wallet_ledger_unique_reference_entry')
 
     if duplicates_for_reference_index?
       say 'Skipping wallet_ledger_entries reference idempotency index due to duplicates. See runbook query.', true
