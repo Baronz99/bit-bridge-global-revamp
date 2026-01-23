@@ -9,12 +9,11 @@ namespace :rewards do
     Transaction.where('bonus > 0').find_each(batch_size: 500) do |tx|
       stats[:scanned] += 1
       reference = "legacy_bonus/tx/#{tx.id}"
-      exists = RewardTransaction.where(
-        user_id: tx.wallet.user_id,
-        bill_order_id: nil,
-        status: :earned,
-        metadata: { 'source' => 'legacy_bonus', 'reference' => reference }
-      ).exists?
+      exists = RewardTransaction
+               .where(user_id: tx.wallet.user_id, bill_order_id: nil, status: :earned)
+               .where("reward_transactions.metadata ->> 'source' = ?", 'legacy_bonus')
+               .where("reward_transactions.metadata ->> 'reference' = ?", reference)
+               .exists?
       if exists
         stats[:skipped_existing] += 1
         next
@@ -27,7 +26,7 @@ namespace :rewards do
           amount: tx.bonus.to_d,
           source_amount: tx.amount.to_d,
           reward_rate: 0,
-          currency: 'NGN',
+          currency: tx.wallet.currency,
           service_type: 'legacy_bonus',
           source_label: 'legacy_bonus',
           status: :earned,
@@ -35,7 +34,8 @@ namespace :rewards do
           metadata: {
             'source' => 'legacy_bonus',
             'reference' => reference,
-            'transaction_id' => tx.id
+            'tx_id' => tx.id,
+            'wallet_id' => tx.wallet_id
           }
         )
         stats[:created] += 1
