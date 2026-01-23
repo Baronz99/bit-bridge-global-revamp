@@ -496,14 +496,8 @@ end
     amount = order.total_amount.to_d
 
     ActiveRecord::Base.transaction do
-      wallet.lock!
-      WalletLedgerEntry.record_debit!(
-        wallet: wallet,
-        bill_order: order,
-        amount: amount,
-        reference: order.idempotency_key,
-        metadata: { provider_reference: transaction_id }
-      )
+        wallet.lock!
+        BillOrders::Finalizer.call(bill_order: order)
 
       order.update!(
         status: 'completed',

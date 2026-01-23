@@ -13,7 +13,10 @@ class WalletSerializer < ActiveModel::Serializer
              :withdrawn,
              :total_deposit,
              :active_hold_total,
-             :outstanding_hold
+             :outstanding_hold,
+             :wallet_balance,
+             :reward_balance,
+             :can_use_rewards
 
   has_one :user
   has_many :transactions
@@ -56,5 +59,17 @@ class WalletSerializer < ActiveModel::Serializer
 
   def outstanding_hold
     object.ledger_outstanding_hold.to_f
+  end
+
+  def wallet_balance
+    object.ledger_available_balance.to_f
+  end
+
+  def reward_balance
+    RewardTransaction.available_sum_for(object.user_id).to_f
+  end
+
+  def can_use_rewards
+    false
   end
 end

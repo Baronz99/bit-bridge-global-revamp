@@ -95,6 +95,18 @@ RSpec.describe Wallet, type: :model do
       expect(wallet.reload.ledger_available_balance).to eq(7_000.to_d)
     end
 
+    it 'does not include deposit bonuses in ledger deposits' do
+      Transaction.create!(
+        wallet: wallet,
+        amount: 1_000,
+        bonus: 500,
+        status: :approved,
+        transaction_type: :deposit
+      )
+
+      expect(wallet.reload.ledger_available_balance).to eq(11_000.to_d)
+    end
+
     it 'clamps outstanding holds per bill order so negatives never cancel positives' do
       long_release = build_bill_order(status: 'initialized')
       overcharged = build_bill_order(status: 'initialized')

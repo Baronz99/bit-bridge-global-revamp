@@ -60,7 +60,7 @@ class Wallet < ApplicationRecord
   def ledger_deposits_total
     transactions
       .where(transaction_type: :deposit, status: :approved)
-      .sum(Arel.sql('amount + COALESCE(bonus, 0)'))
+      .sum(:amount)
       .to_d
   end
 

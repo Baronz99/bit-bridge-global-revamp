@@ -46,6 +46,13 @@ RSpec.describe BillOrders::Finalizer, type: :service do
     expect(debit.amount).to eq(order.total_amount.to_d)
   end
 
+  it 'does not create a debit for non-wallet payment methods' do
+    order = build_bill_order(status: 'completed', amount: 1_000)
+    order.update!(payment_method: :card)
+    described_class.call(bill_order: order)
+    expect(WalletLedgerEntry.where(bill_order: order, entry_type: :debit)).to be_empty
+  end
+
   it 'is idempotent when called twice' do
     order = build_bill_order(amount: 1_500)
     described_class.call(bill_order: order)
