@@ -6,14 +6,18 @@ namespace :rewards do
     dry_run = ENV.fetch('DRY_RUN', '1') != '0'
     stats = { scanned: 0, created: 0, skipped_existing: 0, errors: 0 }
 
-    Transaction.where('bonus > 0').find_each(batch_size: 500) do |tx|
+    Transaction.where('bonus > 0')
+               .includes(:wallet)
+               .find_each(batch_size: 500) do |tx|
       stats[:scanned] += 1
       reference = "legacy_bonus/tx/#{tx.id}"
-      exists = RewardTransaction
-               .where(user_id: tx.wallet.user_id, bill_order_id: nil, status: :earned)
-               .where("reward_transactions.metadata ->> 'source' = ?", 'legacy_bonus')
-               .where("reward_transactions.metadata ->> 'reference' = ?", reference)
-               .exists?
+      exists = RewardTransaction.where(
+        user_id: tx.wallet.user_id,
+        bill_order_id: nil,
+        status: :earned,
+        service_type: 'legacy_bonus',
+        source_label: reference
+      ).exists?
       if exists
         stats[:skipped_existing] += 1
         next
@@ -28,15 +32,11 @@ namespace :rewards do
           reward_rate: 0,
           currency: tx.wallet.currency,
           service_type: 'legacy_bonus',
-          source_label: 'legacy_bonus',
+          source_label: reference,
           status: :earned,
           earned_at: tx.created_at,
-          metadata: {
-            'source' => 'legacy_bonus',
-            'reference' => reference,
-            'tx_id' => tx.id,
-            'wallet_id' => tx.wallet_id
-          }
+          created_at: Time.current,
+          updated_at: Time.current
         )
         stats[:created] += 1
       end
