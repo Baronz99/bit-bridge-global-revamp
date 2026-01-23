@@ -54,7 +54,7 @@ class Transaction < ApplicationRecord
   end
 
   def email
-    user.email
+    user&.email || wallet&.user&.email
   end
 
   def set_coupon_bonus
