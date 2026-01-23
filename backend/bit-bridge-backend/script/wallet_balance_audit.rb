@@ -17,6 +17,7 @@ Wallet.find_each do |w|
   rel    = sums["release"].to_d
   debit  = sums["debit"].to_d
   refund = sums["refund"].to_d
+  adjustment = sums["adjustment"].to_d
 
   outstanding = hold - rel - debit # can be negative/positive
   lab = w.ledger_available_balance.to_d
@@ -32,6 +33,7 @@ Wallet.find_each do |w|
       release: rel,
       debit: debit,
       refund: refund,
+      adjustment: adjustment,
       outstanding_raw: outstanding
     }
   end
@@ -39,3 +41,25 @@ end
 
 puts "SUSPICIOUS COUNT: #{rows.size}"
 rows.first(50).each { |r| puts r.inspect }
+
+drift = []
+Wallet.where(wallet_type: :ngn).find_each do |w|
+  deposits = w.ledger_deposits_total.to_d
+  refunds = w.ledger_refunds_total.to_d
+  adjustments = w.respond_to?(:ledger_adjustments_total) ? w.ledger_adjustments_total.to_d : 0.to_d
+  debits = w.ledger_debits_total.to_d
+
+  next unless debits > (deposits + refunds + adjustments)
+
+  drift << {
+    wallet_id: w.id,
+    user_id: w.user_id,
+    deposits: deposits.to_f,
+    refunds: refunds.to_f,
+    adjustments: adjustments.to_f,
+    debits: debits.to_f
+  }
+end
+
+puts "DRIFT COUNT: #{drift.size}"
+drift.first(50).each { |r| puts r.inspect }

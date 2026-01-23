@@ -88,10 +88,15 @@ class Wallet < ApplicationRecord
     wallet_ledger_entries.where(entry_type: :refund).sum(:amount).to_d
   end
 
+  def ledger_adjustments_total
+    wallet_ledger_entries.where(entry_type: :adjustment).sum(:amount).to_d
+  end
+
   # deposits + refunds - withdrawals - debits (no hold clamp)
   def ledger_raw_balance
     ledger_deposits_total +
-      ledger_refunds_total -
+      ledger_refunds_total +
+      ledger_adjustments_total -
       ledger_withdrawals_total -
       ledger_debits_total
   end
@@ -124,7 +129,8 @@ class Wallet < ApplicationRecord
   def ledger_available_balance
     available =
       ledger_deposits_total +
-      ledger_refunds_total -
+      ledger_refunds_total +
+      ledger_adjustments_total -
       ledger_withdrawals_total -
       ledger_debits_total -
       ledger_outstanding_hold

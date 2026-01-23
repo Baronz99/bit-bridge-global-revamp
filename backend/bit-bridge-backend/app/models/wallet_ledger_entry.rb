@@ -10,7 +10,8 @@ class WalletLedgerEntry < ApplicationRecord
     debit: 2,
     refund: 3,
     commission: 4,
-    credit: 5
+    credit: 5,
+    adjustment: 6
   }
 
   validates :amount, presence: true
@@ -19,6 +20,7 @@ class WalletLedgerEntry < ApplicationRecord
   scope :holds, -> { where(entry_type: :hold) }
   scope :releases, -> { where(entry_type: :release) }
   scope :credits, -> { where(entry_type: :credit) }
+  scope :adjustments, -> { where(entry_type: :adjustment) }
 
   def self.active_hold_total(wallet_id)
     hold_sum = holds.where(wallet_id: wallet_id).sum(:amount)
@@ -107,6 +109,17 @@ class WalletLedgerEntry < ApplicationRecord
     find_by!(wallet: wallet, bill_order: bill_order, entry_type: :credit, reference: reference)
   end
 
+  def self.record_adjustment!(wallet:, amount:, reference:, metadata: {})
+    raise ArgumentError, 'reference is required' if reference.to_s.strip.empty?
+    amount = amount.to_d
+    find_or_create_by!(wallet: wallet, entry_type: :adjustment, reference: reference) do |entry|
+      entry.amount = amount
+      entry.metadata = metadata
+    end
+  rescue ActiveRecord::RecordNotUnique
+    find_by!(wallet: wallet, entry_type: :adjustment, reference: reference)
+  end
+
   def self.debit_exists?(wallet:, bill_order:)
     exists?(wallet: wallet, bill_order: bill_order, entry_type: :debit)
   end
@@ -133,6 +146,6 @@ class WalletLedgerEntry < ApplicationRecord
   private
 
   def bill_order_required?
-    entry_type.to_s != 'credit'
+    !%w[credit adjustment].include?(entry_type.to_s)
   end
 end

@@ -39,6 +39,8 @@ RSpec.describe Wallet, type: :model do
 
   describe 'ledger-derived balances' do
     before do
+      wallet.transactions.delete_all
+      wallet.wallet_ledger_entries.delete_all
       deposit
     end
 
@@ -141,6 +143,55 @@ RSpec.describe Wallet, type: :model do
       )
 
       expect(wallet.reload.ledger_available_balance).to eq(10_000.to_d)
+    end
+
+    it 'restores negative raw balance to zero after an adjustment' do
+      Transaction.create!(
+        wallet: wallet,
+        amount: 12_000,
+        status: :approved,
+        transaction_type: :withdrawal,
+        address: 'ledger-reset',
+        metadata: { 'ledger_hold_reserved' => true }
+      )
+
+      expect(wallet.reload.ledger_raw_balance).to eq((-2_000).to_d)
+      expect(wallet.reload.ledger_available_balance).to eq(0.to_d)
+
+      WalletLedgerEntry.record_adjustment!(
+        wallet: wallet,
+        amount: 2_000,
+        reference: "neg_reset:spec:#{wallet.id}"
+      )
+
+      expect(wallet.reload.ledger_raw_balance).to eq(0.to_d)
+      expect(wallet.reload.ledger_available_balance).to eq(0.to_d)
+    end
+
+    it 'subtracts withdrawals from ledger balances' do
+      Transaction.create!(
+        wallet: wallet,
+        amount: 4_000,
+        status: :approved,
+        transaction_type: :withdrawal,
+        address: 'test',
+        metadata: { 'ledger_hold_reserved' => true }
+      )
+
+      expect(wallet.reload.ledger_raw_balance).to eq(6_000.to_d)
+      expect(wallet.reload.ledger_available_balance).to eq(6_000.to_d)
+    end
+
+    it 'adds refunds to ledger balances' do
+      refunded_order = build_bill_order(status: 'failed')
+      WalletLedgerEntry.record_refund!(
+        wallet: wallet,
+        bill_order: refunded_order,
+        amount: 1_500,
+        reference: "refund:spec:#{wallet.id}"
+      )
+
+      expect(wallet.reload.ledger_raw_balance).to eq(11_500.to_d)
     end
   end
 
