@@ -16,13 +16,11 @@ ORIGINS = (Rails.env.production? ? ALLOWED_ORIGINS : (ALLOWED_ORIGINS + DEV_ORIG
 
 Rails.application.config.middleware.insert_before 0, Rack::Cors do
   allow do
-    origins do |origin, _env|
-      origin.present? && ORIGINS.any? { |o| origin.start_with?(o) }
-    end
+    origins(*ORIGINS)
 
 
     resource "/api/*",
-             headers: %w[Accept Authorization Content-Type Bit-Refresh-Token Idempotency-Key],
+             headers: :any,
              methods: %i[get post put patch delete options head],
              credentials: false
   end
