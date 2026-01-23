@@ -82,4 +82,20 @@ RSpec.describe WalletLedgerEntry, type: :model do
       expect(WalletLedgerEntry.where(wallet: wallet, bill_order: bill_order, entry_type: :debit)).to be_empty
     end
   end
+
+  describe 'bill_order validation' do
+    let(:user) { create(:user) }
+    let(:wallet) { user.wallet }
+
+    it 'allows credit without a bill_order' do
+      entry = WalletLedgerEntry.new(wallet: wallet, bill_order: nil, entry_type: :credit, amount: 100)
+      expect(entry).to be_valid
+    end
+
+    it 'requires bill_order for debit' do
+      entry = WalletLedgerEntry.new(wallet: wallet, bill_order: nil, entry_type: :debit, amount: 100)
+      expect(entry).not_to be_valid
+      expect(entry.errors[:bill_order]).to include("can't be blank")
+    end
+  end
 end

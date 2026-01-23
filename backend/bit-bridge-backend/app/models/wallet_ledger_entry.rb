@@ -2,7 +2,7 @@
 
 class WalletLedgerEntry < ApplicationRecord
   belongs_to :wallet
-  belongs_to :bill_order
+  belongs_to :bill_order, optional: true
 
   enum :entry_type, {
     hold: 0,
@@ -14,6 +14,7 @@ class WalletLedgerEntry < ApplicationRecord
   }
 
   validates :amount, presence: true
+  validates :bill_order, presence: true, if: :bill_order_required?
 
   scope :holds, -> { where(entry_type: :hold) }
   scope :releases, -> { where(entry_type: :release) }
@@ -100,5 +101,11 @@ class WalletLedgerEntry < ApplicationRecord
     entry = new(wallet: wallet, bill_order: bill_order)
     entry.errors.add(:base, message)
     raise ActiveRecord::RecordInvalid, entry
+  end
+
+  private
+
+  def bill_order_required?
+    entry_type.to_s != 'credit'
   end
 end
