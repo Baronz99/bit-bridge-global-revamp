@@ -24,6 +24,13 @@ RSpec.describe WalletLedgerEntry, type: :model do
       payment_method: 'wallet'
     )
 
+    Transaction.create!(
+      wallet: wallet,
+      transaction_type: :deposit,
+      status: :approved,
+      amount: 2_000
+    )
+
     WalletLedgerEntry.ensure_hold!(wallet: wallet, bill_order: bill_order, amount: 1000)
     WalletLedgerEntry.ensure_hold!(wallet: wallet, bill_order: bill_order, amount: 1000)
     expect(WalletLedgerEntry.where(wallet: wallet, bill_order: bill_order, entry_type: :hold).count).to eq(1)
@@ -40,6 +47,14 @@ RSpec.describe WalletLedgerEntry, type: :model do
   describe 'ledger invariants' do
     let(:user) { create(:user) }
     let(:wallet) { user.wallet }
+    let!(:deposit) do
+      Transaction.create!(
+        wallet: wallet,
+        transaction_type: :deposit,
+        status: :approved,
+        amount: 2_000
+      )
+    end
     let(:bill_order) do
       BillOrder.create!(
         user: user,
@@ -80,6 +95,31 @@ RSpec.describe WalletLedgerEntry, type: :model do
       end.to raise_error(ActiveRecord::RecordInvalid)
 
       expect(WalletLedgerEntry.where(wallet: wallet, bill_order: bill_order, entry_type: :debit)).to be_empty
+    end
+
+    it 'blocks debit when raw ledger balance is insufficient' do
+      Transaction.create!(
+        wallet: wallet,
+        transaction_type: :withdrawal,
+        status: :approved,
+        amount: 1_800,
+        address: 'Test withdrawal'
+      )
+      WalletLedgerEntry.ensure_hold!(wallet: wallet, bill_order: bill_order, amount: 1_000)
+
+      expect do
+        WalletLedgerEntry.record_debit!(wallet: wallet, bill_order: bill_order, amount: 1_000)
+      end.to raise_error(ActiveRecord::RecordInvalid)
+    end
+
+    it 'is idempotent for debit creation' do
+      WalletLedgerEntry.ensure_hold!(wallet: wallet, bill_order: bill_order, amount: 1_000)
+      entry = WalletLedgerEntry.record_debit!(wallet: wallet, bill_order: bill_order, amount: 1_000)
+
+      expect do
+        WalletLedgerEntry.record_debit!(wallet: wallet, bill_order: bill_order, amount: 1_000)
+      end.not_to change { WalletLedgerEntry.where(wallet: wallet, bill_order: bill_order, entry_type: :debit).count }
+      expect(WalletLedgerEntry.find_by(wallet: wallet, bill_order: bill_order, entry_type: :debit).id).to eq(entry.id)
     end
   end
 

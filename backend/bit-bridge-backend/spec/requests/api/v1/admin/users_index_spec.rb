@@ -71,4 +71,42 @@ RSpec.describe 'Admin Users index with NGN balance', type: :request do
 
     expect(queries).to be < 25
   end
+
+  it 'exposes negative raw balance for admin reporting' do
+    user = create(:user)
+    admin.update!(admin_auth_time: Time.current)
+
+    bill_order = BillOrder.create!(
+      user: user,
+      meter_number: 'neg-raw',
+      meter_type: 'PREPAID',
+      address: 'Test',
+      name: 'Negative Raw',
+      tariff_class: 'A',
+      service_type: 'VTU',
+      email: user.email,
+      amount: 1000,
+      phone: '0800',
+      biller: 'MTN',
+      description: 'Ledger negative',
+      payment_type: 'online',
+      payment_method: 'wallet'
+    )
+
+    create_deposit(user.wallet, 500)
+    WalletLedgerEntry.create!(
+      wallet: user.wallet,
+      bill_order: bill_order,
+      entry_type: :debit,
+      amount: 1000
+    )
+
+    get '/api/v1/admin/users', headers: headers
+
+    expect(response).to have_http_status(:ok)
+    data = JSON.parse(response.body)['data']
+    row = data.find { |u| u['id'] == user.id }
+    expect(row['ngn_wallet_balance']).to eq(0.0)
+    expect(row['ngn_wallet_raw_balance']).to eq(-500.0)
+  end
 end

@@ -88,6 +88,14 @@ class Wallet < ApplicationRecord
     wallet_ledger_entries.where(entry_type: :refund).sum(:amount).to_d
   end
 
+  # deposits + refunds - withdrawals - debits (no hold clamp)
+  def ledger_raw_balance
+    ledger_deposits_total +
+      ledger_refunds_total -
+      ledger_withdrawals_total -
+      ledger_debits_total
+  end
+
   def ledger_real_credit_entries_total
     wallet_ledger_entries
       .credits

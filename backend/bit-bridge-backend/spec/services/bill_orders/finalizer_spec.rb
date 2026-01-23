@@ -15,8 +15,8 @@ RSpec.describe BillOrders::Finalizer, type: :service do
     )
   end
 
-  def build_bill_order(status: 'completed', amount: 1_000)
-    BillOrder.create!(
+  def build_bill_order(status: 'completed', amount: 1_000, with_hold: true)
+    order = BillOrder.create!(
       user: user,
       meter_number: SecureRandom.hex(6),
       meter_type: 'PREPAID',
@@ -34,6 +34,10 @@ RSpec.describe BillOrders::Finalizer, type: :service do
       payment_method: 'wallet',
       status: status
     )
+    if with_hold
+      WalletLedgerEntry.ensure_hold!(wallet: wallet, bill_order: order, amount: amount)
+    end
+    order
   end
 
   it 'creates a debit once when a completed bill_order is finalized' do
@@ -47,7 +51,7 @@ RSpec.describe BillOrders::Finalizer, type: :service do
   end
 
   it 'does not create a debit for non-wallet payment methods' do
-    order = build_bill_order(status: 'completed', amount: 1_000)
+    order = build_bill_order(status: 'completed', amount: 1_000, with_hold: false)
     order.update!(payment_method: :card)
     described_class.call(bill_order: order)
     expect(WalletLedgerEntry.where(bill_order: order, entry_type: :debit)).to be_empty

@@ -60,6 +60,24 @@ class WalletLedgerEntry < ApplicationRecord
       raise_invariant_violation!(wallet: wallet, bill_order: bill_order, message: 'Cannot record debit after hold was released')
     end
 
+    amount = amount.to_d
+    totals = ledger_totals(wallet: wallet, bill_order: bill_order)
+    hold_total = totals[:hold]
+    release_total = totals[:release]
+    debit_total = totals[:debit]
+    if hold_total.positive?
+      outstanding = hold_total - release_total - debit_total
+      if outstanding <= 0
+        raise_invariant_violation!(wallet: wallet, bill_order: bill_order, message: 'Cannot record debit without an outstanding hold')
+      end
+      if amount > outstanding
+        raise_invariant_violation!(wallet: wallet, bill_order: bill_order, message: 'Debit amount exceeds outstanding hold')
+      end
+    end
+    if wallet.respond_to?(:ledger_raw_balance) && wallet.ledger_raw_balance < amount
+      raise_invariant_violation!(wallet: wallet, bill_order: bill_order, message: 'Insufficient ledger balance for debit')
+    end
+
     find_or_create_by!(wallet: wallet, bill_order: bill_order, entry_type: :debit) do |entry|
       entry.amount = amount
       entry.reference = reference
@@ -101,6 +119,15 @@ class WalletLedgerEntry < ApplicationRecord
     entry = new(wallet: wallet, bill_order: bill_order)
     entry.errors.add(:base, message)
     raise ActiveRecord::RecordInvalid, entry
+  end
+
+  def self.ledger_totals(wallet:, bill_order:)
+    totals = where(wallet: wallet, bill_order: bill_order).group(:entry_type).sum(:amount)
+    {
+      hold: BigDecimal((totals['hold'] || 0).to_s),
+      release: BigDecimal((totals['release'] || 0).to_s),
+      debit: BigDecimal((totals['debit'] || 0).to_s)
+    }
   end
 
   private

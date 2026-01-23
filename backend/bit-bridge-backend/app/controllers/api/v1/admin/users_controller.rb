@@ -24,7 +24,8 @@ module Api
               email: user.email,
               created_at: user.created_at,
               active: user.active,
-              ngn_wallet_balance: user.wallet ? balances[user.wallet.id] : nil
+              ngn_wallet_balance: user.wallet ? balances[user.wallet.id][:available] : nil,
+              ngn_wallet_raw_balance: user.wallet ? balances[user.wallet.id][:raw] : nil
             }
           end
 
@@ -146,13 +147,16 @@ module Api
           end
 
           wallet_ids.index_with do |wid|
-            available =
+            raw =
               deposits[wid].to_d +
               refunds[wid].to_d -
               withdrawals[wid].to_d -
-              debits[wid].to_d -
-              outstanding_per_wallet[wid].to_d
-            available.positive? ? available.to_f : 0.0
+              debits[wid].to_d
+            available = raw - outstanding_per_wallet[wid].to_d
+            {
+              available: available.positive? ? available.to_f : 0.0,
+              raw: raw.to_f
+            }
           end
         end
       end
