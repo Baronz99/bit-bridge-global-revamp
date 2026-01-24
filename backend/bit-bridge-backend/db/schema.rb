@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[7.1].define(version: 2026_01_23_020000) do
+ActiveRecord::Schema[7.1].define(version: 2026_01_24_014500) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pgcrypto"
   enable_extension "plpgsql"
@@ -155,6 +155,7 @@ ActiveRecord::Schema[7.1].define(version: 2026_01_23_020000) do
     t.jsonb "provider_response"
     t.decimal "reward_applied", precision: 15, scale: 2, default: "0.0", null: false
     t.decimal "wallet_amount_charged", precision: 15, scale: 2, default: "0.0", null: false
+    t.decimal "commission_used", precision: 18, scale: 2, default: "0.0", null: false
     t.index ["order_detail_id"], name: "index_bill_orders_on_order_detail_id"
     t.index ["user_id", "idempotency_key"], name: "index_bill_orders_on_user_id_and_idempotency_key", unique: true, where: "(idempotency_key IS NOT NULL)"
     t.index ["user_id"], name: "index_bill_orders_on_user_id"
@@ -793,6 +794,8 @@ ActiveRecord::Schema[7.1].define(version: 2026_01_23_020000) do
     t.datetime "updated_at", null: false
     t.index ["bill_order_id", "entry_type"], name: "index_wallet_ledger_entries_on_bill_order_id_and_entry_type", unique: true, where: "(bill_order_id IS NOT NULL)"
     t.index ["wallet_id", "bill_order_id", "entry_type"], name: "idx_unique_wallet_ledger_logical_entry", unique: true
+    t.index ["wallet_id", "bill_order_id", "entry_type"], name: "idx_wallet_ledger_unique_bill_order_entry_partial", unique: true, where: "(bill_order_id IS NOT NULL)"
+    t.index ["wallet_id", "entry_type", "reference"], name: "idx_wallet_ledger_unique_reference_entry", unique: true, where: "(reference IS NOT NULL)"
     t.index ["wallet_id", "entry_type"], name: "index_wallet_ledger_entries_on_wallet_id_and_entry_type"
   end
 

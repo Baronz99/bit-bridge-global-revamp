@@ -34,10 +34,20 @@ module BillOrders
     def ensure_debit!
       return if WalletLedgerEntry.debit_exists?(wallet: wallet, bill_order: bill_order)
 
+      hold_amount = WalletLedgerEntry
+        .where(wallet: wallet, bill_order: bill_order, entry_type: :hold)
+        .order(created_at: :desc)
+        .limit(1)
+        .pick(:amount)
+
+      debit_amount = hold_amount.present? ? hold_amount.to_d : amount.to_d
+      # Skip 0-amount debits to avoid double-side effects and ledger noise.
+      return if debit_amount <= 0
+
       WalletLedgerEntry.record_debit!(
         wallet: wallet,
         bill_order: bill_order,
-        amount: amount,
+        amount: debit_amount,
         reference: debit_reference,
         metadata: {
           'source' => 'bill_order_finalize',

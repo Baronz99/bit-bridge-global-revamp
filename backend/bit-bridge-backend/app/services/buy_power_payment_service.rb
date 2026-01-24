@@ -152,13 +152,21 @@ class BuyPowerPaymentService
     if payment_method == 'wallet'
       raise 'user is inactive' unless electric_bill_order.user&.active
 
-      wallet = user.wallet
-      amount = electric_bill_order[:total_amount].to_d
+        wallet = user.wallet
+        amount = electric_bill_order[:total_amount].to_d
+        commission_balance = wallet.commission.to_d
+        bonus_used =
+          if use_commission && %w[VTU DATA].include?(electric_bill_order.service_type)
+            [commission_balance, amount].min
+          else
+            0.to_d
+          end
+        wallet_debit = amount - bonus_used
 
-      begin
-        ActiveRecord::Base.transaction do
-          wallet.lock!
-          electric_bill_order.lock!
+        begin
+          ActiveRecord::Base.transaction do
+            wallet.lock!
+            electric_bill_order.lock!
 
           if idempotency_key.present? && electric_bill_order.idempotency_key.blank?
             electric_bill_order.idempotency_key = idempotency_key
@@ -169,26 +177,28 @@ class BuyPowerPaymentService
             return { response: electric_bill_order, status: 'pending' }
           end
 
-          available_balance = wallet.ledger_available_balance
-          commission_balance = wallet.commission.to_d
-          has_money = available_balance >= amount ||
-            (use_commission && (commission_balance + available_balance) >= amount)
+            available_balance = wallet.ledger_available_balance
+            has_money = wallet_debit <= 0 || available_balance >= wallet_debit
 
-          raise 'Insufficient funds' unless has_money
+            raise 'Insufficient funds' unless has_money
 
-          WalletLedgerEntry.ensure_hold!(
-            wallet: wallet,
-            bill_order: electric_bill_order,
-            amount: amount,
-            reference: idempotency_key,
-            metadata: { request_id: request_id }
-          )
+            # Avoid 0-amount holds that would create misleading ledger entries.
+            if wallet_debit.positive?
+              WalletLedgerEntry.ensure_hold!(
+                wallet: wallet,
+                bill_order: electric_bill_order,
+                amount: wallet_debit,
+                reference: idempotency_key,
+                metadata: { request_id: request_id }
+              )
+            end
 
-          electric_bill_order.payment_method = payment_method
-          electric_bill_order.use_commission = use_commission
-          electric_bill_order.status = 'processing'
-          electric_bill_order.save!
-        end
+            electric_bill_order.payment_method = payment_method
+            electric_bill_order.use_commission = use_commission
+            electric_bill_order.commission_used = bonus_used
+            electric_bill_order.status = 'processing'
+            electric_bill_order.save!
+          end
       rescue ActiveRecord::RecordInvalid => e
         Rails.logger.error("Update failed: #{e.record.errors.full_messages.join(', ')}")
         return { status: 'error', message: e.record.errors.full_messages.to_sentence }
@@ -491,27 +501,33 @@ end
       response&.dig('responseCode')&.to_s&.downcase
   end
 
-  def handle_wallet_success(order, payment_method, use_commission, units, token, transaction_id, message, provider_payload)
-    wallet = order.user.wallet
-    amount = order.total_amount.to_d
+    def handle_wallet_success(order, payment_method, use_commission, units, token, transaction_id, message, provider_payload)
+      wallet = order.user.wallet
+      amount = order.total_amount.to_d
+      bonus_used = order.commission_used.to_d
+      if bonus_used <= 0 && use_commission && %w[VTU DATA].include?(order.service_type)
+        commission_balance = wallet.commission.to_d
+        bonus_used = [commission_balance, amount].min
+      end
 
-    ActiveRecord::Base.transaction do
+      ActiveRecord::Base.transaction do
         wallet.lock!
-        BillOrders::Finalizer.call(bill_order: order)
 
-      order.update!(
-        status: 'completed',
-        payment_method: payment_method,
-        use_commission: use_commission,
-        units: units,
-        token: token,
-        transaction_id: transaction_id,
-        provider_reference: transaction_id,
-        provider_response: provider_payload,
-        reason: message
-      )
-      BillOrders::Finalizer.call(bill_order: order)
-    end
+        order.update!(
+          status: 'completed',
+          payment_method: payment_method,
+          use_commission: use_commission,
+          commission_used: bonus_used,
+          units: units,
+          token: token,
+          transaction_id: transaction_id,
+          provider_reference: transaction_id,
+          provider_response: provider_payload,
+          reason: message
+        )
+
+        BillOrders::Finalizer.call(bill_order: order)
+      end
 
     { response: order, status: 'success' }
   end

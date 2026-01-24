@@ -65,6 +65,109 @@ RSpec.describe BillOrders::Finalizer, type: :service do
     end.not_to change { WalletLedgerEntry.where(bill_order: order, entry_type: :debit).count }
   end
 
+  it 'applies commission to reduce wallet debit and remains idempotent' do
+    user2 = create(:user)
+    wallet2 = user2.wallet
+    wallet2.update!(commission: 19)
+
+    Transaction.create!(
+      wallet: wallet2,
+      amount: 200,
+      bonus: 0,
+      status: :approved,
+      transaction_type: :deposit
+    )
+
+    order = BillOrder.create!(
+      user: user2,
+      meter_number: SecureRandom.hex(6),
+      meter_type: 'PREPAID',
+      address: 'Test',
+      name: 'Finalize Bonus',
+      tariff_class: 'A',
+      service_type: 'VTU',
+      email: user2.email,
+      amount: 100,
+      total_amount: 100,
+      phone: '08000000000',
+      biller: 'MTN',
+      description: 'Finalize',
+      payment_type: 'online',
+      payment_method: 'wallet',
+      status: :processing
+    )
+
+    WalletLedgerEntry.ensure_hold!(wallet: wallet2, bill_order: order, amount: 81)
+
+    order.update!(
+      status: 'completed',
+      payment_method: 'wallet',
+      use_commission: true,
+      commission_used: 19,
+      transaction_id: SecureRandom.hex(6)
+    )
+
+    expect do
+      described_class.call(bill_order: order)
+    end.to change { WalletLedgerEntry.where(bill_order: order, entry_type: :debit).count }.by(1)
+
+    expect(wallet2.reload.balance).to eq(119.to_d)
+    expect(wallet2.commission.to_d).to eq(0.to_d)
+    expect(order.reload.commission_used.to_d).to eq(19.to_d)
+
+    expect do
+      described_class.call(bill_order: order)
+    end.not_to change { wallet2.reload.balance }
+  end
+
+  it 'skips debit when commission covers the full amount' do
+    user3 = create(:user)
+    wallet3 = user3.wallet
+    wallet3.update!(commission: 50)
+
+    Transaction.create!(
+      wallet: wallet3,
+      amount: 200,
+      bonus: 0,
+      status: :approved,
+      transaction_type: :deposit
+    )
+
+    order = BillOrder.create!(
+      user: user3,
+      meter_number: SecureRandom.hex(6),
+      meter_type: 'PREPAID',
+      address: 'Test',
+      name: 'Finalize Bonus Full',
+      tariff_class: 'A',
+      service_type: 'VTU',
+      email: user3.email,
+      amount: 40,
+      total_amount: 40,
+      phone: '08000000000',
+      biller: 'MTN',
+      description: 'Finalize',
+      payment_type: 'online',
+      payment_method: 'wallet',
+      status: :processing
+    )
+
+    order.update!(
+      status: 'completed',
+      payment_method: 'wallet',
+      use_commission: true,
+      commission_used: 40,
+      transaction_id: SecureRandom.hex(6)
+    )
+
+    expect do
+      described_class.call(bill_order: order)
+    end.not_to change { WalletLedgerEntry.where(bill_order: order, entry_type: :debit).count }
+
+    expect(wallet3.reload.balance).to eq(200.to_d)
+    expect(wallet3.commission.to_d).to eq(10.to_d)
+  end
+
   it 'does nothing for non-completed orders' do
     order = build_bill_order(status: 'processing')
     described_class.call(bill_order: order)

@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import nairaFormat from '../../utils/nairaFormat'
 import PropTypes from 'prop-types'
 import { useSelector } from 'react-redux'
@@ -8,6 +9,7 @@ const BillOrderDetails = ({ purchaseOrder, applyCommission, paymentBreakdown, de
   const navigate = useNavigate()
   const location = useLocation()
   const { id } = useParams()
+  const [showBreakdown, setShowBreakdown] = useState(false)
 
   const normalizedStatus = String(purchaseOrder?.status || '').toLowerCase()
   const isPhoneFailure =
@@ -29,6 +31,7 @@ const BillOrderDetails = ({ purchaseOrder, applyCommission, paymentBreakdown, de
   const amountValue = Number(purchaseOrder?.amount) || 0
   const serviceChargeValue = Number(purchaseOrder?.service_charge) || 0
   const totalAmountValue = Number(purchaseOrder?.total_amount) || 0
+  const totalToPayNow = Number(paymentBreakdown?.totalDebit) || totalAmountValue
   const commissionValue =
     purchaseOrder?.bill_commission != null ? Number(purchaseOrder?.bill_commission) || 0 : null
 
@@ -126,36 +129,20 @@ const BillOrderDetails = ({ purchaseOrder, applyCommission, paymentBreakdown, de
           )}
 
           {purchaseOrder?.amount && (
-            // <div className="gap-4 my-4 md:flex-row flex-col  flex">
-            //     <p className="w-60 md:w-60 border-b  border-gray-700 px-2 font-semibold">Amount</p>
-            //     <p className="flex-1 border-b  border-gray-700 px-2">{nairaFormat(purchaseOrder?.amount ?? 0)}</p>
-            // </div>
-            <Detail
-              label={'Amount'}
-              applyCommission={applyCommission}
-              commission={commissionValue != null ? nairaFormat(commissionValue) : null}
-              value={nairaFormat(amountValue)}
-            />
+            <div className="flex flex-col">
+              <span className="text-gray-400 uppercase text-xs">Total to pay now (after bonus)</span>
+              <span className="mt-1 text-xl font-semibold text-white">
+                {nairaFormat(totalToPayNow)}
+              </span>
+              {applyCommission && (
+                <span className="text-[11px] text-gray-500 mt-1">
+                  Original amount: {nairaFormat(amountValue)}
+                </span>
+              )}
+            </div>
           )}
-          {purchaseOrder?.amount && (
-            // <div className="gap-4 my-4 md:flex-row flex-col  flex">
-            //     <p className="w-60 md:w-60 border-b  border-gray-700 px-2 font-semibold">Service Charge</p>
-            //     <p className="flex-1 border-b  border-gray-700 px-2">{nairaFormat(purchaseOrder?.service_charge)}</p>
-            // </div>
-
-            <Detail
-              label={'Service Charge'}
-              value={nairaFormat(serviceChargeValue)}
-            />
-          )}
-
-          {purchaseOrder?.amount && (
-            <Detail
-              label={'Total Payable Amount'}
-              value={nairaFormat(totalAmountValue)}
-              applyCommission={applyCommission}
-              commission={commissionValue != null ? nairaFormat(commissionValue) : null}
-            />
+          {purchaseOrder?.amount && serviceChargeValue > 0 && (
+            <Detail label={'Fees'} value={nairaFormat(serviceChargeValue)} />
           )}
           {purchaseOrder?.transaction_id && (
             // <div className="gap-4 my-4 md:flex-row flex-col flex">
@@ -205,52 +192,54 @@ const BillOrderDetails = ({ purchaseOrder, applyCommission, paymentBreakdown, de
 
       {paymentBreakdown && (
         <div className="bg-gray-800 rounded-2xl shadow-xl p-6 w-full max-w-7xl mx-auto">
-          <h3 className="text-lg font-semibold mb-4 text-center">Payment breakdown</h3>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
-            <div className="flex flex-col gap-2">
-              <BreakdownRow label="Amount" value={nairaFormat(paymentBreakdown.amount, 'ngn')} />
-              <BreakdownRow
-                label="Bonus applied"
-                value={`- ${nairaFormat(paymentBreakdown.bonusApplied, 'ngn')}`}
-                muted={!paymentBreakdown.applyBonus}
-              />
-              <BreakdownRow
-                label="Wallet debit now"
-                value={nairaFormat(paymentBreakdown.walletDebit, 'ngn')}
-                strong
-              />
-              {paymentBreakdown.serviceCharge > 0 && (
-                <BreakdownRow
-                  label="Service charge"
-                  value={nairaFormat(paymentBreakdown.serviceCharge, 'ngn')}
-                />
-              )}
-              <BreakdownRow
-                label="Total debit"
-                value={nairaFormat(paymentBreakdown.totalDebit, 'ngn')}
-                strong
-              />
-            </div>
-            <div className="flex flex-col gap-2">
-              <BreakdownRow
-                label="Wallet balance"
-                value={nairaFormat(paymentBreakdown.walletBalance, 'ngn')}
-              />
-              <BreakdownRow
-                label="Wallet balance (after)"
-                value={nairaFormat(paymentBreakdown.walletAfter, 'ngn')}
-                strong
-              />
-              <BreakdownRow
-                label="Bonus balance"
-                value={nairaFormat(paymentBreakdown.bonusBalance, 'ngn')}
-              />
-              <BreakdownRow
-                label="Bonus balance (after)"
-                value={nairaFormat(paymentBreakdown.bonusAfter, 'ngn')}
-              />
-            </div>
+          <div className="flex items-center justify-between">
+            <h3 className="text-lg font-semibold">Payment breakdown</h3>
+            <button
+              type="button"
+              onClick={() => setShowBreakdown((prev) => !prev)}
+              className="text-xs text-gray-300 hover:text-white transition"
+            >
+              {showBreakdown ? 'Hide breakdown' : 'See breakdown'}
+            </button>
           </div>
+
+          {showBreakdown && (
+            <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+              <div className="flex flex-col gap-2">
+                <BreakdownRow
+                  label="Subtotal"
+                  value={nairaFormat(paymentBreakdown.amount, 'ngn')}
+                />
+                <BreakdownRow
+                  label="Bonus applied"
+                  value={`- ${nairaFormat(paymentBreakdown.bonusApplied, 'ngn')}`}
+                  muted={!paymentBreakdown.applyBonus}
+                />
+                {paymentBreakdown.serviceCharge > 0 && (
+                  <BreakdownRow
+                    label="Fees"
+                    value={nairaFormat(paymentBreakdown.serviceCharge, 'ngn')}
+                  />
+                )}
+                <BreakdownRow
+                  label="Total charged"
+                  value={nairaFormat(paymentBreakdown.totalDebit, 'ngn')}
+                  strong
+                />
+              </div>
+              <div className="flex flex-col gap-2">
+                <BreakdownRow
+                  label="Wallet after"
+                  value={nairaFormat(paymentBreakdown.walletAfter, 'ngn')}
+                  strong
+                />
+                <BreakdownRow
+                  label="Bonus after"
+                  value={nairaFormat(paymentBreakdown.bonusAfter, 'ngn')}
+                />
+              </div>
+            </div>
+          )}
         </div>
       )}
 

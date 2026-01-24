@@ -130,7 +130,7 @@ class BillOrder < ApplicationRecord
     commission_percent = amount.to_f * 0.01
     wallet.commission =
       if use_commission
-        @commission_balance.to_f
+        [wallet.commission.to_d - commission_used.to_d, 0.to_d].max
       else
         wallet.commission.to_f + commission_percent
       end

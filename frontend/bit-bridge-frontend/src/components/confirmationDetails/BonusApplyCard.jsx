@@ -38,23 +38,17 @@ const BonusApplyCard = ({
           <p className="text-lg font-semibold text-white">{nairaFormat(safeBonus, 'ngn')}</p>
           <p className="text-[11px] text-gray-500">Not withdrawable · Airtime/Data only.</p>
         </div>
-        <div className="pt-1">
-          <p className="text-xs uppercase tracking-[0.2em] text-gray-400">
-            Lifetime rewards earned (history)
-          </p>
-          <p className="text-sm font-semibold text-gray-200">{nairaFormat(safeLifetime, 'ngn')}</p>
-          <p className="text-[11px] text-gray-500">Progress/history, not spendable.</p>
-        </div>
+        <p className="text-[11px] text-gray-500">
+          Rewards earned (history): {nairaFormat(safeLifetime, 'ngn')} · Not spendable
+        </p>
         {!canApply && <p className="text-xs text-red-300">No bonus available.</p>}
-        {applyBonus && canApply && (
-          <div className="text-xs text-emerald-300 space-y-1">
-            <p className="text-sm text-white font-semibold">
-              You’ll pay {nairaFormat(walletDebit, 'ngn')} from wallet
-            </p>
-            <p>Bonus applied: {nairaFormat(bonusApplied, 'ngn')}</p>
-            <p>Remaining bonus: {nairaFormat(bonusRemaining, 'ngn')}</p>
-          </div>
-        )}
+        <div className="text-xs text-emerald-300 space-y-1">
+          <p className="text-sm text-white font-semibold">
+            You’ll pay {nairaFormat(walletDebit, 'ngn')} from wallet
+          </p>
+          <p>Bonus applied: {nairaFormat(bonusApplied, 'ngn')}</p>
+          <p>Remaining bonus: {nairaFormat(bonusRemaining, 'ngn')}</p>
+        </div>
       </div>
 
       <div className="flex items-center gap-3">
