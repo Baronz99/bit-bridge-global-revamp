@@ -103,9 +103,11 @@ module Kyc
     def normalize_image_input(value)
       str = value.to_s.strip
       raise StandardError, "image is required" if str.empty?
+      raise StandardError, "image payload too large" if str.length > 2_000_000
 
-      # If it's an http(s) URL, allow it as-is (Prembly supports URL input)
-      return str if str.start_with?("http://", "https://")
+      if str.start_with?("http://", "https://")
+        raise StandardError, "image must be a base64 string or data URL (not a remote URL)"
+      end
 
       # data:image/jpeg;base64,....
       if str.include?("base64,")

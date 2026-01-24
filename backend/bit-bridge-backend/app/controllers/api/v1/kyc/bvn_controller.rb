@@ -32,7 +32,7 @@ module Api
 
         def verify
           unless FeatureFlags.prembly?
-            raise StandardError, "PREMBLY is disabled"
+            return render json: { error: "PREMBLY is disabled" }, status: :service_unavailable
           end
 
           bvn = params[:bvn].to_s.gsub(/\s+/, "")

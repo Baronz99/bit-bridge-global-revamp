@@ -6,26 +6,49 @@ module Api
       class Tier3Controller < ApplicationController
         before_action :authenticate_user!
 
+        MAX_IMAGE_LENGTH = 2_000_000
+
         # POST /api/v1/verification/tier3/liveness
         # Body: { image: "<base64 or data-url>" }
         def liveness
-          Rails.logger.warn("[Tier3] liveness image_len=#{params[:image].to_s.length}")
+          unless FeatureFlags.prembly?
+            return render_with_requirements({ error: "PREMBLY is disabled" }, :service_unavailable)
+          end
 
           image = params[:image].to_s.strip
+          input_type = image_input_type(image)
+          Rails.logger.info(
+            "[Tier3] liveness user_id=#{current_user&.id} input_type=#{input_type} image_len=#{image.length}"
+          )
           if image.blank?
-            return render json: { error: "image is required" }, status: :unprocessable_entity
+            return render_with_requirements({ error: "image is required" }, :unprocessable_entity)
+          end
+
+          if image.length > MAX_IMAGE_LENGTH
+            return render_with_requirements({ error: "image payload too large" }, :payload_too_large)
+          end
+
+          if image.match?(/\Ahttps?:\/\//i)
+            return render_with_requirements(
+              { error: "image must be a base64 string or data URL (not a remote URL)" },
+              :unprocessable_entity
+            )
           end
 
           result = ::Kyc::PremblyTier3Biometrics.new.liveness_check(image)
-          render json: result, status: :ok
+          render_with_requirements(result, :ok)
         rescue StandardError => e
           Rails.logger.error("[Tier3] liveness failed: #{e.class}: #{e.message}")
-          render json: { error: "Tier 3 liveness failed" }, status: :internal_server_error
+          render_with_requirements({ error: "Tier 3 liveness failed" }, :internal_server_error)
         end
 
         # POST /api/v1/verification/tier3/start
         # Body: { image: "<base64 or data-url>" } OR { image_url: "<base64 or data-url>" }
         def start
+          unless FeatureFlags.prembly?
+            return render_with_requirements({ error: "PREMBLY is disabled" }, :service_unavailable)
+          end
+
           image     = params[:image].to_s.strip
           image_url = params[:image_url].to_s.strip
 
@@ -33,6 +56,10 @@ module Api
           input = image_url.presence || image.presence
           if input.blank?
             return render_with_requirements({ error: "image or image_url is required" }, :unprocessable_entity)
+          end
+
+          if input.length > MAX_IMAGE_LENGTH
+            return render_with_requirements({ error: "image payload too large" }, :payload_too_large)
           end
 
           # Reject actual URLs (Prembly expects base64/data-url, and URLs cause confusion + failures)
@@ -123,6 +150,13 @@ module Api
         def render_with_requirements(payload, status)
           payload[:requirements] = ::Kyc::RequirementsCalculator.new(current_user).call
           render json: payload, status: status
+        end
+
+        def image_input_type(value)
+          return "blank" if value.blank?
+          return "data_url" if value.start_with?("data:")
+
+          "base64"
         end
       end
     end

@@ -6,6 +6,18 @@ RSpec.describe 'Tier3 start', type: :request do
   let(:user) { create(:user) }
   let(:headers) { auth_headers(user) }
 
+  around do |example|
+    old = ENV['ENABLE_PREMBLY']
+    ENV['ENABLE_PREMBLY'] = 'true'
+    example.run
+  ensure
+    if old.nil?
+      ENV.delete('ENABLE_PREMBLY')
+    else
+      ENV['ENABLE_PREMBLY'] = old
+    end
+  end
+
   before do
     user.create_user_profile!(
       first_name: 'Test',

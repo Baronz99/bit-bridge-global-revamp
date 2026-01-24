@@ -8,6 +8,18 @@ RSpec.describe 'BVN verification caching', type: :request do
   let(:headers) { auth_headers(user) }
   let(:bvn) { '12345678901' }
 
+  around do |example|
+    old = ENV['ENABLE_PREMBLY']
+    ENV['ENABLE_PREMBLY'] = 'true'
+    example.run
+  ensure
+    if old.nil?
+      ENV.delete('ENABLE_PREMBLY')
+    else
+      ENV['ENABLE_PREMBLY'] = old
+    end
+  end
+
   def profile_fingerprint(profile)
     raw = [profile.first_name, profile.last_name, profile.date_of_birth]
           .map { |value| value.to_s.strip.downcase }
