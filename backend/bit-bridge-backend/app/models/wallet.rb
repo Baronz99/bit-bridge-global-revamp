@@ -16,6 +16,7 @@ class Wallet < ApplicationRecord
   validate :currency_matches_wallet_type
   validate :validate_money_scale
 
+  before_validation :normalize_currency
   before_save :normalize_money_fields
 
   scope :for_api, -> { includes(:user, transactions: { proof_attachment: :blob }) }
@@ -232,6 +233,12 @@ class Wallet < ApplicationRecord
     expected = usd? ? 'USD' : 'NGN'
     return if currency.to_s.upcase == expected
     errors.add(:currency, "must be #{expected} for #{wallet_type}")
+  end
+
+  def normalize_currency
+    return unless currency.present?
+
+    self.currency = currency.to_s.strip.upcase
   end
 
   def normalize_money_fields

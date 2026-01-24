@@ -205,4 +205,16 @@ RSpec.describe Wallet, type: :model do
       expect(usd_wallet.real_balance).to eq(expected)
     end
   end
+
+  describe 'currency normalization' do
+    it 'normalizes currency to uppercase and strips whitespace' do
+      new_user = create(:user)
+      Wallet.where(user_id: new_user.id).delete_all
+
+      new_wallet = Wallet.new(user: new_user, wallet_type: :ngn, currency: ' ngn ')
+      new_wallet.validate
+
+      expect(new_wallet.currency).to eq('NGN')
+    end
+  end
 end

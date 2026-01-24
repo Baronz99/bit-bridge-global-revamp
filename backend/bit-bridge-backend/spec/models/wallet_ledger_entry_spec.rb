@@ -144,4 +144,84 @@ RSpec.describe WalletLedgerEntry, type: :model do
       expect(entry.errors[:amount]).to include('must have at most 2 decimal places')
     end
   end
+
+  describe 'amount_cents for NGN entries' do
+    let(:user) { create(:user) }
+    let(:wallet) { user.wallet }
+
+    def build_bill_order(amount: 1_000)
+      BillOrder.create!(
+        user: user,
+        meter_number: SecureRandom.hex(6),
+        meter_type: 'PREPAID',
+        address: 'Test',
+        name: 'Ledger Amount Cents',
+        tariff_class: 'A',
+        service_type: 'VTU',
+        email: user.email,
+        amount: amount,
+        total_amount: amount,
+        phone: '08000000000',
+        biller: 'MTN',
+        description: 'Ledger cents',
+        payment_type: 'online',
+        payment_method: 'wallet',
+        status: 'initialized'
+      )
+    end
+
+    def expected_cents(amount)
+      (BigDecimal(amount.to_s).round(2) * 100).to_i
+    end
+
+    it 'writes amount_cents for credit, hold, release, debit, refund, and adjustment' do
+      Transaction.create!(
+        wallet: wallet,
+        transaction_type: :deposit,
+        status: :approved,
+        amount: 10_000
+      )
+
+      [100, 100.55, 0.01].each do |amount|
+        credit_order = build_bill_order(amount: amount)
+        credit = WalletLedgerEntry.create!(
+          wallet: wallet,
+          bill_order: credit_order,
+          entry_type: :credit,
+          amount: amount,
+          reference: "credit-#{amount}-#{SecureRandom.hex(4)}"
+        )
+        expect(credit.amount_cents).to eq(expected_cents(amount))
+        expect(credit.amount.to_d).to eq(Money.from_cents(credit.amount_cents, 'NGN').to_d)
+
+        hold_order = build_bill_order(amount: amount)
+        hold = WalletLedgerEntry.ensure_hold!(wallet: wallet, bill_order: hold_order, amount: amount)
+        expect(hold.amount_cents).to eq(expected_cents(amount))
+        expect(hold.amount.to_d).to eq(Money.from_cents(hold.amount_cents, 'NGN').to_d)
+
+        release = WalletLedgerEntry.release_hold!(wallet: wallet, bill_order: hold_order, amount: amount)
+        expect(release.amount_cents).to eq(expected_cents(amount))
+        expect(release.amount.to_d).to eq(Money.from_cents(release.amount_cents, 'NGN').to_d)
+
+        debit_order = build_bill_order(amount: amount)
+        WalletLedgerEntry.ensure_hold!(wallet: wallet, bill_order: debit_order, amount: amount)
+        debit = WalletLedgerEntry.record_debit!(wallet: wallet, bill_order: debit_order, amount: amount)
+        expect(debit.amount_cents).to eq(expected_cents(amount))
+        expect(debit.amount.to_d).to eq(Money.from_cents(debit.amount_cents, 'NGN').to_d)
+
+        refund_order = build_bill_order(amount: amount)
+        refund = WalletLedgerEntry.record_refund!(wallet: wallet, bill_order: refund_order, amount: amount)
+        expect(refund.amount_cents).to eq(expected_cents(amount))
+        expect(refund.amount.to_d).to eq(Money.from_cents(refund.amount_cents, 'NGN').to_d)
+
+        adjustment = WalletLedgerEntry.record_adjustment!(
+          wallet: wallet,
+          amount: amount,
+          reference: "adjust-#{amount}-#{SecureRandom.hex(4)}"
+        )
+        expect(adjustment.amount_cents).to eq(expected_cents(amount))
+        expect(adjustment.amount.to_d).to eq(Money.from_cents(adjustment.amount_cents, 'NGN').to_d)
+      end
+    end
+  end
 end
