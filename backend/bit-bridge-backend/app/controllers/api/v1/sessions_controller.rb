@@ -23,6 +23,13 @@ module Api
         # ✅ Generate a Devise-JWT compatible token
         access_token, _payload = Warden::JWTAuth::UserEncoder.new.call(user, :user, nil)
 
+        if user.admin?
+          user.update_columns(
+            admin_auth_time: Time.current,
+            admin_role: user.admin_role.presence || user[:admin_role]
+          )
+        end
+
         render json: {
           token: access_token,
           user: {

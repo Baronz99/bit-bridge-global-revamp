@@ -3,6 +3,7 @@ import { useDispatch, useSelector } from 'react-redux'
 import { getUsers } from '../../../redux/actions/user'
 import Loading from '../../../components/loader/Loading'
 import dateFormater from '../../../utils/dateFormat'
+import nairaFormat from '../../../utils/nairaFormat'
 import { NavLink } from 'react-router-dom'
 import { SearchOutlined, UserOutlined } from '@ant-design/icons'
 
@@ -77,6 +78,7 @@ const Users = () => {
               <tr className="text-left text-slate-400 border-b border-slate-800">
                 <th className="py-2 px-3">Email</th>
                 <th className="py-2 px-3">Role</th>
+                <th className="py-2 px-3 hidden md:table-cell">NGN Balance</th>
                 <th className="py-2 px-3 hidden md:table-cell">Registered</th>
                 <th className="py-2 px-3 text-right">Action</th>
               </tr>
@@ -113,6 +115,12 @@ const Users = () => {
                       }`}
                     >
                       {item?.role}
+                    </td>
+
+                    <td className="whitespace-nowrap py-2 px-3 text-slate-300 hidden md:table-cell">
+                      {item?.ngn_wallet_balance != null
+                        ? nairaFormat(Number(item.ngn_wallet_balance) || 0)
+                        : '—'}
                     </td>
 
                     <td className="whitespace-nowrap py-2 px-3 text-slate-300 hidden md:table-cell">
