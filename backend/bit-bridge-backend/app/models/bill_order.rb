@@ -36,10 +36,12 @@ class BillOrder < ApplicationRecord
 
 
   before_save :calculate_total
+  before_save :normalize_money_fields
   # before_save :set_usd_conversion
   # before_save :cal_unit, if: :is_electricty?
 
   validate :user_must_be_active
+  validate :validate_money_scale
 
   before_update :prevent_terminal_status_regression
   before_update :apply_commission, if: :is_commission?
@@ -170,6 +172,32 @@ class BillOrder < ApplicationRecord
 
   def calculate_total
     self.total_amount = net_total
+  end
+
+  def normalize_money_fields
+    self.amount = MoneyScale.normalize(amount)
+    self.total_amount = MoneyScale.normalize(total_amount)
+    self.service_charge = MoneyScale.normalize(service_charge)
+    self.commission_used = MoneyScale.normalize(commission_used)
+    self.amount_cents = Money.to_cents(amount, 'NGN')
+    self.total_amount_cents = Money.to_cents(total_amount, 'NGN')
+    self.service_charge_cents = Money.to_cents(service_charge, 'NGN')
+    self.commission_used_cents = Money.to_cents(commission_used, 'NGN')
+  end
+
+  def validate_money_scale
+    {
+      amount: amount,
+      total_amount: total_amount,
+      service_charge: service_charge,
+      commission_used: commission_used
+    }.each do |field, value|
+      raw_value = read_attribute_before_type_cast(field)
+      check_value = raw_value.nil? ? value : raw_value
+      next if MoneyScale.valid_scale?(check_value)
+
+      errors.add(field, 'must have at most 2 decimal places')
+    end
   end
 
   def should_apply_commission?

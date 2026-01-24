@@ -7,8 +7,15 @@ const getErrorMessage = (error) =>
 
 export const getUsers = createAsyncThunk('users/get-users', async (_, { rejectWithValue }) => {
   try {
-    const response = await client.get('/admin/users')
-    return response.data
+    const response = await client.get('/users')
+    const payload = response?.data
+    const users =
+      payload?.data?.users ??
+      payload?.users ??
+      payload?.data?.data ??
+      payload?.data ??
+      []
+    return { data: Array.isArray(users) ? users : [] }
   } catch (error) {
     return rejectWithValue({ message: getErrorMessage(error) })
   }

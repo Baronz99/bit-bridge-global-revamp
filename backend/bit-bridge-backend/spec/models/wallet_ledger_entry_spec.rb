@@ -137,5 +137,11 @@ RSpec.describe WalletLedgerEntry, type: :model do
       expect(entry).not_to be_valid
       expect(entry.errors[:bill_order]).to include("can't be blank")
     end
+
+    it 'rejects amounts with more than 2 decimal places' do
+      entry = WalletLedgerEntry.new(wallet: wallet, bill_order: nil, entry_type: :credit, amount: 1.001)
+      expect(entry).not_to be_valid
+      expect(entry.errors[:amount]).to include('must have at most 2 decimal places')
+    end
   end
 end

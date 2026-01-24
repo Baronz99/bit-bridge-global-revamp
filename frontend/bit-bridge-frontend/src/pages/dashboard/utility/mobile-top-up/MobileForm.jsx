@@ -39,6 +39,11 @@ const DashboardMobileForm = () => {
   const navigate = useNavigate()
   const dispatch = useDispatch()
 
+  const normalizeAmount = (raw) => {
+    const num = Number(raw)
+    return Number.isFinite(num) ? Math.round(num * 100) / 100 : raw
+  }
+
   const handleFormSubmit = (values) => {
     setLoading(true)
 
@@ -46,6 +51,7 @@ const DashboardMobileForm = () => {
     const data = {
       ...values,
       ...value,
+      amount: normalizeAmount(value.amount ?? values.amount),
       biller: selectedProvider.product.provider.toUpperCase(),
       service_type: selectedProvider.service_type,
       skip: true,
@@ -160,7 +166,8 @@ const DashboardMobileForm = () => {
 
                   <div className="flex flex-col gap-0">
                     <FormInput
-                      type="nubmer"
+                      type="number"
+                      step="0.01"
                       // value={value}
                       onChange={(input) => {
                         setValue({ ...value, amount: input })

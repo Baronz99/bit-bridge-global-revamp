@@ -23,13 +23,21 @@ const DataForm = () => {
   const location = useLocation()
   const dispatch = useDispatch()
 
+  const normalizeAmount = (raw) => {
+    const num = Number(raw)
+    return Number.isFinite(num) ? Math.round(num * 100) / 100 : raw
+  }
+
   const handleFormSubmit = (values) => {
     setLoading(true)
     dispatch(SET_LOADING(true))
 
+    const normalizedAmount = normalizeAmount(values.amount)
+
     dispatch(
       createPurchaseOrder({
         ...values,
+        amount: normalizedAmount,
         biller,
         service_type: 'Electricity',
         request_id: generateRequestId(),
@@ -147,7 +155,8 @@ const DataForm = () => {
               className={'w-full whiteBg'}
               label={'Amount'}
               placeholder={'Enter Amount'}
-              type="Number"
+              type="number"
+              step="0.01"
               name={'amount'}
             />
           </div>

@@ -81,7 +81,8 @@ const ProvisionDetails = ({
 
               <div className="flex flex-col gap-0">
                 <FormInput
-                  type="nubmer"
+                  type="number"
+                  step="0.01"
                   // value={value}
                   onChange={(input) => {
                     setValue({ ...value, amount: input })

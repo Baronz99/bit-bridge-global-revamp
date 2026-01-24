@@ -35,6 +35,31 @@ const Users = () => {
     )
   })
 
+  const getNgnBalance = (item) => {
+    const wallets = Array.isArray(item?.wallets) ? item.wallets : []
+    const ngnWallet =
+      wallets.find(
+        (wallet) =>
+          wallet?.wallet_type === 'ngn' ||
+          wallet?.wallet_type === 0 ||
+          String(wallet?.wallet_type) === '0'
+      ) ||
+      wallets.find((wallet) => String(wallet?.currency).toUpperCase() === 'NGN') ||
+      item?.wallet
+
+    if (!ngnWallet) return ''
+
+    const balance =
+      ngnWallet?.wallet_balance ??
+      ngnWallet?.available_balance ??
+      ngnWallet?.balance ??
+      ''
+
+    if (balance === '' || balance == null) return ''
+
+    return nairaFormat(Number(balance) || 0)
+  }
+
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 p-6 overflow-y-auto">
       {/* Header + search */}
@@ -118,9 +143,7 @@ const Users = () => {
                     </td>
 
                     <td className="whitespace-nowrap py-2 px-3 text-slate-300 hidden md:table-cell">
-                      {item?.ngn_wallet_balance != null
-                        ? nairaFormat(Number(item.ngn_wallet_balance) || 0)
-                        : '—'}
+                      {getNgnBalance(item)}
                     </td>
 
                     <td className="whitespace-nowrap py-2 px-3 text-slate-300 hidden md:table-cell">

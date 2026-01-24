@@ -34,13 +34,18 @@ module BillOrders
     def ensure_debit!
       return if WalletLedgerEntry.debit_exists?(wallet: wallet, bill_order: bill_order)
 
-      hold_amount = WalletLedgerEntry
+      hold_amount_cents, hold_amount = WalletLedgerEntry
         .where(wallet: wallet, bill_order: bill_order, entry_type: :hold)
         .order(created_at: :desc)
         .limit(1)
-        .pick(:amount)
+        .pick(:amount_cents, :amount)
 
-      debit_amount = hold_amount.present? ? hold_amount.to_d : amount.to_d
+      debit_amount =
+        if cents_ledger_enabled? && hold_amount_cents.present?
+          Money.from_cents(hold_amount_cents, wallet.currency).to_d
+        else
+          hold_amount.present? ? hold_amount.to_d : amount.to_d
+        end
       # Skip 0-amount debits to avoid double-side effects and ledger noise.
       return if debit_amount <= 0
 
@@ -58,6 +63,10 @@ module BillOrders
 
     def amount
       (bill_order.total_amount.presence || bill_order.amount).to_d
+    end
+
+    def cents_ledger_enabled?
+      ENV.fetch('USE_NGN_CENTS_LEDGER', '0') == '1' && wallet&.currency.to_s.upcase == 'NGN'
     end
 
     def debit_reference

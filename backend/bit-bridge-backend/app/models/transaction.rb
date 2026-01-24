@@ -21,9 +21,11 @@ class Transaction < ApplicationRecord
 
   validates :address, presence: true, if: :withdrawal?
   validates :amount, presence: true, numericality: { greater_than: 0 }
+  validate :validate_money_scale
 
   before_save :set_coupon_bonus, if: :coupon?
   before_save :check_method_payment
+  before_save :normalize_money_fields
 
   def validate_transaction_on_create
     return if ledger_hold_reserved?
@@ -59,6 +61,26 @@ class Transaction < ApplicationRecord
 
   def set_coupon_bonus
     self.bonus = amount * 0.05
+  end
+
+  def normalize_money_fields
+    self.amount = MoneyScale.normalize(amount)
+    self.bonus = MoneyScale.normalize(bonus)
+    self.amount_cents = Money.to_cents(amount, wallet&.currency)
+    self.bonus_cents = Money.to_cents(bonus, wallet&.currency)
+  end
+
+  def validate_money_scale
+    {
+      amount: amount,
+      bonus: bonus
+    }.each do |field, value|
+      raw_value = read_attribute_before_type_cast(field)
+      check_value = raw_value.nil? ? value : raw_value
+      next if MoneyScale.valid_scale?(check_value)
+
+      errors.add(field, 'must have at most 2 decimal places')
+    end
   end
 
   def coupon?

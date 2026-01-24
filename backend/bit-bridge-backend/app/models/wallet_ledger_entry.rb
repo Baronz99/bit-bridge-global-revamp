@@ -16,6 +16,10 @@ class WalletLedgerEntry < ApplicationRecord
 
   validates :amount, presence: true
   validates :bill_order, presence: true, if: :bill_order_required?
+  validate :validate_money_scale
+
+  before_save :normalize_money_fields
+  after_commit :warn_missing_amount_cents, on: :create
 
   scope :holds, -> { where(entry_type: :hold) }
   scope :releases, -> { where(entry_type: :release) }
@@ -147,5 +151,26 @@ class WalletLedgerEntry < ApplicationRecord
 
   def bill_order_required?
     !%w[credit adjustment].include?(entry_type.to_s)
+  end
+
+  def normalize_money_fields
+    self.amount = MoneyScale.normalize(amount)
+    self.amount_cents = Money.to_cents(amount, wallet&.currency)
+  end
+
+  def validate_money_scale
+    raw_value = read_attribute_before_type_cast(:amount)
+    check_value = raw_value.nil? ? amount : raw_value
+    return if MoneyScale.valid_scale?(check_value)
+
+    errors.add(:amount, 'must have at most 2 decimal places')
+  end
+
+  def warn_missing_amount_cents
+    return unless ENV.fetch('USE_NGN_CENTS_LEDGER', '0') == '1'
+    return unless wallet&.currency.to_s.upcase == 'NGN'
+    return if amount_cents.present?
+
+    Rails.logger.warn("WalletLedgerEntry missing amount_cents id=#{id} wallet_id=#{wallet_id} entry_type=#{entry_type}")
   end
 end

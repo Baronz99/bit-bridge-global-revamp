@@ -14,6 +14,9 @@ class Wallet < ApplicationRecord
   validates :wallet_type, presence: true, uniqueness: { scope: :user_id }
   validates :currency, presence: true
   validate :currency_matches_wallet_type
+  validate :validate_money_scale
+
+  before_save :normalize_money_fields
 
   scope :for_api, -> { includes(:user, transactions: { proof_attachment: :blob }) }
 
@@ -58,38 +61,40 @@ class Wallet < ApplicationRecord
   # ✅ Ledger-based NGN balance (stable truth)
   # -------------------------
   def ledger_deposits_total
-    transactions
-      .where(transaction_type: :deposit, status: :approved)
-      .sum(:amount)
-      .to_d
+    sum_money(
+      transactions.where(transaction_type: :deposit, status: :approved),
+      cents_column: :amount_cents,
+      decimal_column: :amount
+    )
   end
 
   # Pending withdrawals reduce *available* funds (keep as you had)
   def ledger_withdrawals_total
-    transactions
-      .where(transaction_type: :withdrawal, status: %i[pending approved])
-      .sum(:amount)
-      .to_d
+    sum_money(
+      transactions.where(transaction_type: :withdrawal, status: %i[pending approved]),
+      cents_column: :amount_cents,
+      decimal_column: :amount
+    )
   end
 
   def ledger_holds_total
-    wallet_ledger_entries.holds.sum(:amount).to_d
+    sum_money(wallet_ledger_entries.holds, cents_column: :amount_cents, decimal_column: :amount)
   end
 
   def ledger_releases_total
-    wallet_ledger_entries.releases.sum(:amount).to_d
+    sum_money(wallet_ledger_entries.releases, cents_column: :amount_cents, decimal_column: :amount)
   end
 
   def ledger_debits_total
-    wallet_ledger_entries.where(entry_type: :debit).sum(:amount).to_d
+    sum_money(wallet_ledger_entries.where(entry_type: :debit), cents_column: :amount_cents, decimal_column: :amount)
   end
 
   def ledger_refunds_total
-    wallet_ledger_entries.where(entry_type: :refund).sum(:amount).to_d
+    sum_money(wallet_ledger_entries.where(entry_type: :refund), cents_column: :amount_cents, decimal_column: :amount)
   end
 
   def ledger_adjustments_total
-    wallet_ledger_entries.where(entry_type: :adjustment).sum(:amount).to_d
+    sum_money(wallet_ledger_entries.where(entry_type: :adjustment), cents_column: :amount_cents, decimal_column: :amount)
   end
 
   # deposits + refunds - withdrawals - debits (no hold clamp)
@@ -102,11 +107,13 @@ class Wallet < ApplicationRecord
   end
 
   def ledger_real_credit_entries_total
-    wallet_ledger_entries
-      .credits
-      .where("metadata ->> 'source' IS NULL OR metadata ->> 'source' != ?", 'ledger_repair')
-      .sum(:amount)
-      .to_d
+    sum_money(
+      wallet_ledger_entries
+        .credits
+        .where("metadata ->> 'source' IS NULL OR metadata ->> 'source' != ?", 'ledger_repair'),
+      cents_column: :amount_cents,
+      decimal_column: :amount
+    )
   end
 
   # ✅ Active holds are purely reservation, never include debits
@@ -138,10 +145,18 @@ class Wallet < ApplicationRecord
   end
 
   def ledger_bill_entry_sums
-    wallet_ledger_entries
-      .where.not(bill_order_id: nil)
-      .group(:bill_order_id, :entry_type)
-      .sum(:amount)
+    if ngn_cents_ledger_enabled?
+      wallet_ledger_entries
+        .where.not(bill_order_id: nil)
+        .group(:bill_order_id, :entry_type)
+        .sum(Arel.sql("COALESCE(amount_cents, (ROUND(amount, 2) * 100)::bigint)"))
+        .transform_values { |cents| Money.from_cents(cents, currency).to_d }
+    else
+      wallet_ledger_entries
+        .where.not(bill_order_id: nil)
+        .group(:bill_order_id, :entry_type)
+        .sum(:amount)
+    end
   end
 
   def ledger_bill_hold_totals
@@ -217,5 +232,31 @@ class Wallet < ApplicationRecord
     expected = usd? ? 'USD' : 'NGN'
     return if currency.to_s.upcase == expected
     errors.add(:currency, "must be #{expected} for #{wallet_type}")
+  end
+
+  def normalize_money_fields
+    self.commission = MoneyScale.normalize(commission)
+    self.commission_cents = Money.to_cents(commission, currency)
+  end
+
+  def validate_money_scale
+    raw_value = read_attribute_before_type_cast(:commission)
+    check_value = raw_value.nil? ? commission : raw_value
+    return if MoneyScale.valid_scale?(check_value)
+
+    errors.add(:commission, 'must have at most 2 decimal places')
+  end
+
+  def ngn_cents_ledger_enabled?
+    ngn? && ENV.fetch('USE_NGN_CENTS_LEDGER', '0') == '1'
+  end
+
+  def sum_money(scope, cents_column:, decimal_column:)
+    return scope.sum(decimal_column).to_d unless ngn_cents_ledger_enabled?
+
+    cents = scope.sum(
+      Arel.sql("COALESCE(#{cents_column}, (ROUND(#{decimal_column}, 2) * 100)::bigint)")
+    )
+    Money.from_cents(cents, currency).to_d
   end
 end

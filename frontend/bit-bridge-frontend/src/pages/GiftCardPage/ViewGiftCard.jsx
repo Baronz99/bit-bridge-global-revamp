@@ -88,7 +88,7 @@ const ViewGiftCard = () => {
 
               <div className="flex flex-col gap-0">
                 <FormSelect
-                  type="nubmer"
+                  type="number"
                   value={value}
                   onChange={(input) => {
                     setValue(input)

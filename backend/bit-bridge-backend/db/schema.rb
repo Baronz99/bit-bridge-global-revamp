@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[7.1].define(version: 2026_01_24_014500) do
+ActiveRecord::Schema[7.1].define(version: 2026_01_24_121000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pgcrypto"
   enable_extension "plpgsql"
@@ -126,8 +126,8 @@ ActiveRecord::Schema[7.1].define(version: 2026_01_24_014500) do
   create_table "bill_orders", id: :uuid, default: -> { "gen_random_uuid()" }, force: :cascade do |t|
     t.integer "status", default: 0
     t.string "meter_number"
-    t.decimal "amount"
-    t.decimal "total_amount"
+    t.decimal "amount", precision: 18, scale: 2
+    t.decimal "total_amount", precision: 18, scale: 2
     t.integer "meter_type", default: 0
     t.string "phone"
     t.string "biller"
@@ -146,7 +146,7 @@ ActiveRecord::Schema[7.1].define(version: 2026_01_24_014500) do
     t.uuid "user_id"
     t.decimal "usd_amount"
     t.integer "payment_method", default: 0
-    t.decimal "service_charge", default: "0.0"
+    t.decimal "service_charge", precision: 18, scale: 2, default: "0.0"
     t.string "description"
     t.boolean "use_commission"
     t.text "reason"
@@ -156,6 +156,10 @@ ActiveRecord::Schema[7.1].define(version: 2026_01_24_014500) do
     t.decimal "reward_applied", precision: 15, scale: 2, default: "0.0", null: false
     t.decimal "wallet_amount_charged", precision: 15, scale: 2, default: "0.0", null: false
     t.decimal "commission_used", precision: 18, scale: 2, default: "0.0", null: false
+    t.bigint "amount_cents"
+    t.bigint "total_amount_cents"
+    t.bigint "service_charge_cents"
+    t.bigint "commission_used_cents"
     t.index ["order_detail_id"], name: "index_bill_orders_on_order_detail_id"
     t.index ["user_id", "idempotency_key"], name: "index_bill_orders_on_user_id_and_idempotency_key", unique: true, where: "(idempotency_key IS NOT NULL)"
     t.index ["user_id"], name: "index_bill_orders_on_user_id"
@@ -644,7 +648,7 @@ ActiveRecord::Schema[7.1].define(version: 2026_01_24_014500) do
 
   create_table "transactions", id: :uuid, default: -> { "gen_random_uuid()" }, force: :cascade do |t|
     t.integer "status", default: 0
-    t.decimal "amount"
+    t.decimal "amount", precision: 18, scale: 2
     t.string "address"
     t.integer "transaction_type", default: 0
     t.uuid "wallet_id", null: false
@@ -652,7 +656,7 @@ ActiveRecord::Schema[7.1].define(version: 2026_01_24_014500) do
     t.datetime "updated_at", null: false
     t.integer "coin_type", default: 0
     t.string "bank"
-    t.decimal "bonus", default: "0.0"
+    t.decimal "bonus", precision: 18, scale: 2, default: "0.0"
     t.string "account_name"
     t.string "bank_code"
     t.uuid "account_id"
@@ -660,6 +664,8 @@ ActiveRecord::Schema[7.1].define(version: 2026_01_24_014500) do
     t.string "transfer_id"
     t.string "bridge_card_id"
     t.jsonb "metadata", default: {}, null: false
+    t.bigint "amount_cents"
+    t.bigint "bonus_cents"
     t.index ["account_id"], name: "index_transactions_on_account_id"
     t.index ["bridge_card_id"], name: "index_transactions_on_bridge_card_id"
     t.index ["transfer_id"], name: "index_transactions_on_transfer_id", unique: true
@@ -787,11 +793,12 @@ ActiveRecord::Schema[7.1].define(version: 2026_01_24_014500) do
     t.uuid "wallet_id", null: false
     t.uuid "bill_order_id"
     t.integer "entry_type", null: false
-    t.decimal "amount", null: false
+    t.decimal "amount", precision: 18, scale: 2, null: false
     t.string "reference"
     t.jsonb "metadata", default: {}, null: false
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
+    t.bigint "amount_cents"
     t.index ["bill_order_id", "entry_type"], name: "index_wallet_ledger_entries_on_bill_order_id_and_entry_type", unique: true, where: "(bill_order_id IS NOT NULL)"
     t.index ["wallet_id", "bill_order_id", "entry_type"], name: "idx_unique_wallet_ledger_logical_entry", unique: true
     t.index ["wallet_id", "bill_order_id", "entry_type"], name: "idx_wallet_ledger_unique_bill_order_entry_partial", unique: true, where: "(bill_order_id IS NOT NULL)"
@@ -804,9 +811,10 @@ ActiveRecord::Schema[7.1].define(version: 2026_01_24_014500) do
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
     t.integer "wallet_type", default: 0
-    t.decimal "commission"
+    t.decimal "commission", precision: 18, scale: 2
     t.string "currency", default: "NGN", null: false
     t.integer "balance_cents", default: 0, null: false
+    t.bigint "commission_cents"
     t.index ["user_id", "currency"], name: "index_wallets_on_user_id_and_currency"
     t.index ["user_id", "wallet_type"], name: "index_wallets_on_user_id_and_wallet_type", unique: true
     t.index ["user_id"], name: "index_wallets_on_user_id"
