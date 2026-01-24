@@ -6,7 +6,7 @@ import BreadCrunbs from '../../../components/Breadcrumbs/BreadCrunbs'
 import AppModal from '../../../components/modal/Modal'
 import ClickButton from '../../../components/button/Button'
 import { toast } from 'react-toastify'
-import { nairaFormat } from '../../../utils/nairaFormat'
+import nairaFormat from '../../../utils/nairaFormat'
 import { getBillOrders } from '../../../redux/actions/billOrders'
 
 const Purchases = () => {

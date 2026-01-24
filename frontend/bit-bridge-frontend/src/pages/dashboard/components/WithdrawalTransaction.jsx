@@ -1,7 +1,7 @@
 import { useEffect } from 'react'
 import { useDispatch, useSelector } from 'react-redux'
 import dateFormater from '../../../utils/dateFormat'
-import { nairaFormat } from '../../../utils/nairaFormat'
+import nairaFormat from '../../../utils/nairaFormat'
 import statusStyle from '../../../utils/statusStyle'
 import { getUserTransactions } from '../../../redux/actions/transaction'
 

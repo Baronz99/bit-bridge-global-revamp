@@ -7,7 +7,7 @@ import {
   resolveAccountName,
 } from '../../redux/actions/account'
 import AppButton from '../button/Button'
-import { nairaFormat } from '../../utils/nairaFormat'
+import nairaFormat from '../../utils/nairaFormat'
 import { toast } from 'react-toastify'
 import { needsTier2Access, withTier2MissingDetails } from '../../utils/kycGate'
 import { getWallet, sendMoneyToUser } from '../../redux/actions/wallet'

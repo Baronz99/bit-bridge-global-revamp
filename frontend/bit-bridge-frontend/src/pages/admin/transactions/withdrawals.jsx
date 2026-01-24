@@ -7,7 +7,7 @@ import ClickButton from '../../../components/button/Button'
 import { toast } from 'react-toastify'
 import dateFormater from '../../../utils/dateFormat'
 import statusStyle from '../../../utils/statusStyle'
-import { nairaFormat } from '../../../utils/nairaFormat'
+import nairaFormat from '../../../utils/nairaFormat'
 // import OptionDropDown from '../../../compnents/optionDropDown/OPtionDropDown'
 
 const AdminWithdrawalTransactions = () => {

@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { toast } from 'react-toastify'
 import ShadowValue from '../../components/ShadowValue'
-import { nairaFormat } from '../../utils/nairaFormat'
+import nairaFormat from '../../utils/nairaFormat'
 import { getReceipt } from '../../api/receipts'
 
 const usdFormat = (n) => {

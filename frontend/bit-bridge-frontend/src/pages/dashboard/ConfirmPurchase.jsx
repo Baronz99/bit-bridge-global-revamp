@@ -6,7 +6,7 @@ import { getPurchaseOrder } from '../../redux/actions/purchasePower'
 import { getWallet } from '../../redux/actions/wallet'
 import BillOrderDetails from '../../components/confirmationDetails/billOrderDetails'
 import ClassicBtn from '../../components/button/ClassicButton'
-import { nairaFormat } from '../../utils/nairaFormat'
+import nairaFormat from '../../utils/nairaFormat'
 import useBillOrderPolling from '../../hooks/useBillOrderPolling'
 
 const DashboardComfirmPurchase = () => {

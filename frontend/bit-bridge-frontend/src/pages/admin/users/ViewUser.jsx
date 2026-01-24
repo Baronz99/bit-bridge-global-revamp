@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useDispatch, useSelector } from 'react-redux'
 import { NavLink, useLocation, useNavigate, useParams } from 'react-router-dom'
-import { nairaFormat } from '../../../utils/nairaFormat'
+import nairaFormat from '../../../utils/nairaFormat'
 
 import './styles.scss'
 

@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { useDispatch, useSelector } from 'react-redux'
 import { useParams } from 'react-router-dom'
 import { getOrder } from '../../../redux/actions/order'
-import { nairaFormat } from '../../../utils/nairaFormat'
+import nairaFormat from '../../../utils/nairaFormat'
 // import ClassicBtn from '../../../compnents/button/ClassicButton'
 import AppModal from '../../../components/modal/Modal'
 

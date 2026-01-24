@@ -2,7 +2,7 @@ import { useEffect } from 'react'
 import { useDispatch, useSelector } from 'react-redux'
 import { getUserOrders } from '../../../redux/actions/order'
 import dateFormater from '../../../utils/dateFormat'
-import { nairaFormat } from '../../../utils/nairaFormat'
+import nairaFormat from '../../../utils/nairaFormat'
 import Loading from '../../../components/loader/Loading'
 
 const OrderTransact = () => {

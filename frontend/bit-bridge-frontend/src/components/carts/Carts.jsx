@@ -5,7 +5,7 @@ import { useDispatch } from 'react-redux'
 import { DeleteOutlined } from '@ant-design/icons'
 import { DELETE_CART } from '../../redux/app'
 import { splitString } from '../../utils'
-import { nairaFormat } from '../../utils/nairaFormat'
+import nairaFormat from '../../utils/nairaFormat'
 
 const Carts = ({ items }) => {
   const navigate = useNavigate()

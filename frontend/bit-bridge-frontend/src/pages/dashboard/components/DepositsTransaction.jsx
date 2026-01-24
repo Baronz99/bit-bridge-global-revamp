@@ -3,7 +3,7 @@ import { NavLink } from 'react-router-dom'
 import { useDispatch, useSelector } from 'react-redux'
 
 import dateFormater from '../../../utils/dateFormat'
-import { nairaFormat } from '../../../utils/nairaFormat'
+import nairaFormat from '../../../utils/nairaFormat'
 import { getUserTransactions } from '../../../redux/actions/transaction'
 import statusStyle from '../../../utils/statusStyle'
 

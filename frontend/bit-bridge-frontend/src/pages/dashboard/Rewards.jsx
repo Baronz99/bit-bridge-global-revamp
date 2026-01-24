@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import { FireOutlined, GiftOutlined, ThunderboltOutlined, TrophyOutlined } from '@ant-design/icons'
 import client from '../../api/client'
-import { nairaFormat } from '../../utils/nairaFormat'
+import nairaFormat from '../../utils/nairaFormat'
 
 const Rewards = () => {
   const [summary, setSummary] = useState(null)
@@ -91,9 +91,12 @@ const Rewards = () => {
 
           <div className="rewards-balance rounded-2xl border px-5 py-4 text-center w-full sm:w-auto">
             <p className="rewards-kicker text-xs uppercase tracking-[0.25em]">
-              Total rewards
+              Total rewards earned (lifetime)
             </p>
             <p className="text-2xl font-semibold mt-2">{nairaFormat(totalEarned)}</p>
+            <p className="rewards-muted text-[11px] mt-1">
+              This is progress/history, not spendable.
+            </p>
             <div className="rewards-level mt-3 flex items-center justify-center gap-2 text-[10px] uppercase tracking-[0.2em]">
               <TrophyOutlined />
               Level {level}

@@ -1,16 +1,20 @@
 const nairaFormat = (amount, currency = 'NGN') => {
+  const numericAmount = Number(amount)
+  const safeAmount = Number.isFinite(numericAmount) ? numericAmount : 0
+  const cur = (currency || 'NGN').toUpperCase()
+
   try {
     const curr = new Intl.NumberFormat('en-NG', {
       style: 'currency',
-      currency: currency,
+      currency: cur,
       currencyDisplay: 'narrowSymbol',
     })
 
-    return curr.format(amount)
+    return curr.format(safeAmount)
   } catch (error) {
-    console.error(`Invalid currency code: ${currency}. Defaulting to NGN.`)
-    return `${currency?.toUpperCase()} ${amount?.toFixed(2) ?? '0.00'}`
+    console.error(`Invalid currency code: ${cur}. Defaulting to NGN.`)
+    return `${cur} ${safeAmount.toFixed(2)}`
   }
 }
 
-export { nairaFormat }
+export default nairaFormat

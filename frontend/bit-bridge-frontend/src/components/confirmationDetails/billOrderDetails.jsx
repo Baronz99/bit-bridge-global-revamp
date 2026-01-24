@@ -1,9 +1,9 @@
-import { nairaFormat } from '../../utils/nairaFormat'
+import nairaFormat from '../../utils/nairaFormat'
 import PropTypes from 'prop-types'
 import { useSelector } from 'react-redux'
 import { useLocation, useNavigate, useParams } from 'react-router-dom'
 
-const BillOrderDetails = ({ purchaseOrder, applyCommission }) => {
+const BillOrderDetails = ({ purchaseOrder, applyCommission, paymentBreakdown, debugBonusFlow }) => {
   const { user } = useSelector((state) => state.auth)
   const navigate = useNavigate()
   const location = useLocation()
@@ -26,6 +26,11 @@ const BillOrderDetails = ({ purchaseOrder, applyCommission }) => {
     biller: purchaseOrder?.biller,
     service_type: purchaseOrder?.service_type,
   }
+  const amountValue = Number(purchaseOrder?.amount) || 0
+  const serviceChargeValue = Number(purchaseOrder?.service_charge) || 0
+  const totalAmountValue = Number(purchaseOrder?.total_amount) || 0
+  const commissionValue =
+    purchaseOrder?.bill_commission != null ? Number(purchaseOrder?.bill_commission) || 0 : null
 
   const resolveEditRoute = () => {
     if (!id || !purchaseOrder?.service_type) return null
@@ -70,8 +75,8 @@ const BillOrderDetails = ({ purchaseOrder, applyCommission }) => {
   }
 
   return (
-    <div className="bg-gray-900 text-white  flex items-center justify-center p-6 mt-4">
-      <div className="bg-gray-800 rounded-2xl shadow-xl p-6 w-full max-w-7xl">
+    <div className="bg-gray-900 text-white flex flex-col gap-4 p-6 mt-4">
+      <div className="bg-gray-800 rounded-2xl shadow-xl p-6 w-full max-w-7xl mx-auto">
         <h2 className="text-2xl font-semibold mb-4 text-center">Billing Transaction</h2>
         <h2>
           {purchaseOrder?.token && (
@@ -128,12 +133,8 @@ const BillOrderDetails = ({ purchaseOrder, applyCommission }) => {
             <Detail
               label={'Amount'}
               applyCommission={applyCommission}
-              commission={
-                purchaseOrder?.bill_commission != null
-                  ? nairaFormat(Number(purchaseOrder?.bill_commission || 0))
-                  : null
-              }
-              value={nairaFormat(purchaseOrder?.amount ?? 0)}
+              commission={commissionValue != null ? nairaFormat(commissionValue) : null}
+              value={nairaFormat(amountValue)}
             />
           )}
           {purchaseOrder?.amount && (
@@ -144,20 +145,16 @@ const BillOrderDetails = ({ purchaseOrder, applyCommission }) => {
 
             <Detail
               label={'Service Charge'}
-              value={nairaFormat(Number(purchaseOrder?.service_charge || 0))}
+              value={nairaFormat(serviceChargeValue)}
             />
           )}
 
           {purchaseOrder?.amount && (
             <Detail
               label={'Total Payable Amount'}
-              value={nairaFormat(Number(purchaseOrder?.total_amount || 0))}
+              value={nairaFormat(totalAmountValue)}
               applyCommission={applyCommission}
-              commission={
-                purchaseOrder?.bill_commission != null
-                  ? nairaFormat(Number(purchaseOrder?.bill_commission || 0))
-                  : null
-              }
+              commission={commissionValue != null ? nairaFormat(commissionValue) : null}
             />
           )}
           {purchaseOrder?.transaction_id && (
@@ -205,6 +202,68 @@ const BillOrderDetails = ({ purchaseOrder, applyCommission }) => {
           )}
         </div>
       </div>
+
+      {paymentBreakdown && (
+        <div className="bg-gray-800 rounded-2xl shadow-xl p-6 w-full max-w-7xl mx-auto">
+          <h3 className="text-lg font-semibold mb-4 text-center">Payment breakdown</h3>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+            <div className="flex flex-col gap-2">
+              <BreakdownRow label="Amount" value={nairaFormat(paymentBreakdown.amount, 'ngn')} />
+              <BreakdownRow
+                label="Bonus applied"
+                value={`- ${nairaFormat(paymentBreakdown.bonusApplied, 'ngn')}`}
+                muted={!paymentBreakdown.applyBonus}
+              />
+              <BreakdownRow
+                label="Wallet debit now"
+                value={nairaFormat(paymentBreakdown.walletDebit, 'ngn')}
+                strong
+              />
+              {paymentBreakdown.serviceCharge > 0 && (
+                <BreakdownRow
+                  label="Service charge"
+                  value={nairaFormat(paymentBreakdown.serviceCharge, 'ngn')}
+                />
+              )}
+              <BreakdownRow
+                label="Total debit"
+                value={nairaFormat(paymentBreakdown.totalDebit, 'ngn')}
+                strong
+              />
+            </div>
+            <div className="flex flex-col gap-2">
+              <BreakdownRow
+                label="Wallet balance"
+                value={nairaFormat(paymentBreakdown.walletBalance, 'ngn')}
+              />
+              <BreakdownRow
+                label="Wallet balance (after)"
+                value={nairaFormat(paymentBreakdown.walletAfter, 'ngn')}
+                strong
+              />
+              <BreakdownRow
+                label="Bonus balance"
+                value={nairaFormat(paymentBreakdown.bonusBalance, 'ngn')}
+              />
+              <BreakdownRow
+                label="Bonus balance (after)"
+                value={nairaFormat(paymentBreakdown.bonusAfter, 'ngn')}
+              />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {debugBonusFlow && paymentBreakdown && (
+        <div className="bg-gray-900 border border-gray-800 rounded-xl p-4 text-xs text-gray-300 w-full max-w-7xl mx-auto">
+          <p className="text-[11px] uppercase tracking-[0.2em] text-gray-400 mb-2">
+            Bonus flow debug
+          </p>
+          <pre className="whitespace-pre-wrap">
+            {JSON.stringify(paymentBreakdown.debug, null, 2)}
+          </pre>
+        </div>
+      )}
     </div>
   )
 }
@@ -212,6 +271,8 @@ const BillOrderDetails = ({ purchaseOrder, applyCommission }) => {
 BillOrderDetails.propTypes = {
   purchaseOrder: PropTypes.object,
   applyCommission: PropTypes.bool,
+  paymentBreakdown: PropTypes.object,
+  debugBonusFlow: PropTypes.bool,
 }
 
 const Detail = ({
@@ -264,10 +325,24 @@ const Detail = ({
 
 Detail.propTypes = {
   label: PropTypes.string,
-  value: PropTypes.string,
+  value: PropTypes.oneOfType([PropTypes.string, PropTypes.number]),
   badge: PropTypes.bool,
   hidden: PropTypes.bool,
   applyCommission: PropTypes.bool,
+}
+
+const BreakdownRow = ({ label, value, strong = false, muted = false }) => (
+  <div className="flex items-center justify-between gap-3">
+    <span className={`text-gray-400 ${muted ? 'opacity-60' : ''}`}>{label}</span>
+    <span className={`${strong ? 'font-semibold text-white' : 'text-gray-200'}`}>{value}</span>
+  </div>
+)
+
+BreakdownRow.propTypes = {
+  label: PropTypes.string,
+  value: PropTypes.string,
+  strong: PropTypes.bool,
+  muted: PropTypes.bool,
 }
 
 export default BillOrderDetails

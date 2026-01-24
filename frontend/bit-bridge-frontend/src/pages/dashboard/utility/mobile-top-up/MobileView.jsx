@@ -3,7 +3,7 @@ import { useDispatch, useSelector } from 'react-redux'
 import { useEffect } from 'react'
 import { getProvisions } from '../../../../redux/actions/provision'
 import { splitString } from '../../../../utils'
-import { nairaFormat } from '../../../../utils/nairaFormat'
+import nairaFormat from '../../../../utils/nairaFormat'
 
 const MobileView = () => {
   const navigate = useNavigate()

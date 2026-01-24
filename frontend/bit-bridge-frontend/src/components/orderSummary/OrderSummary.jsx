@@ -1,6 +1,6 @@
 import { DeleteTwoTone } from '@ant-design/icons'
 import { useDispatch } from 'react-redux'
-import { nairaFormat } from '../../utils/nairaFormat'
+import nairaFormat from '../../utils/nairaFormat'
 import { DELETE_CART } from '../../redux/app'
 import { splitString } from '../../utils'
 import PropTypes from 'prop-types'

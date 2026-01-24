@@ -1,7 +1,7 @@
 // src/pages/dashboard/index.jsx
 
 import { TrophyOutlined, EyeInvisibleOutlined, EyeOutlined } from '@ant-design/icons'
-import { nairaFormat } from '../../utils/nairaFormat'
+import nairaFormat from '../../utils/nairaFormat'
 import './style.scss'
 import NavButton from '../../components/button/NavButton'
 import { useEffect, useState } from 'react'
@@ -290,14 +290,17 @@ const handleGenerate = (i, data = {}) => {
 
             <div className="inline-flex items-center gap-2 text-xs text-slate-300">
               <TrophyOutlined className="text-yellow-500" />
-              <span>
-                Commission earned:{' '}
-                <span className="font-semibold text-emerald-400">
-                  <ShadowValue>
-                    {nairaFormat(bridgeWallet?.commission ?? 0, 'ngn')}
-                  </ShadowValue>
+              <div className="flex flex-col">
+                <span>
+                  Bonus balance (spendable):{' '}
+                  <span className="font-semibold text-emerald-400">
+                    <ShadowValue>
+                      {nairaFormat(bridgeWallet?.commission ?? 0, 'ngn')}
+                    </ShadowValue>
+                  </span>
                 </span>
-              </span>
+                <span className="text-[10px] text-slate-500">Cashback from airtime/data</span>
+              </div>
             </div>
 
             {/* 🔒 Hide mode toggle */}

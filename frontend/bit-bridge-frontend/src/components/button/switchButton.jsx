@@ -3,8 +3,15 @@ import PropTypes from 'prop-types'
 // const onChange = checked => {
 //   console.log(`switch to ${checked}`);
 // };
-const SwitchButton = ({ onChange }) => {
-  return <Switch className="bg-red-900 switch-button" onChange={onChange} />
+const SwitchButton = ({ onChange, checked, disabled, className }) => {
+  return (
+    <Switch
+      className={`bg-red-900 switch-button ${className || ''}`}
+      onChange={onChange}
+      checked={checked}
+      disabled={disabled}
+    />
+  )
   //   return (
   //     <input
   //       className="h-10 w-10"
@@ -21,8 +28,11 @@ const SwitchButton = ({ onChange }) => {
   //   )
 }
 
-SwitchButton.propType = {
+SwitchButton.propTypes = {
   onChange: PropTypes.func,
+  checked: PropTypes.bool,
+  disabled: PropTypes.bool,
+  className: PropTypes.string,
 }
 
 export default SwitchButton

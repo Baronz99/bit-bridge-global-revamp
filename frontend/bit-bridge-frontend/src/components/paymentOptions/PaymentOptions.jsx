@@ -7,7 +7,7 @@ import { useEffect, useRef } from 'react'
 import { initiatePurchaseOrder } from '../../redux/actions/purchasePower'
 import { SET_LOADING } from '../../redux/app'
 
-const PaymentOptions = ({ handleConfirmation, purchaseOrder, redirect_url }) => {
+const PaymentOptions = ({ handleConfirmation, purchaseOrder, redirect_url, disableWalletPay }) => {
   const dispatch = useDispatch()
   const { user } = useSelector((state) => state.auth)
   const { isLoading } = useSelector((state) => state.app)
@@ -106,11 +106,16 @@ const PaymentOptions = ({ handleConfirmation, purchaseOrder, redirect_url }) => 
         <div className="w-full">
           <button
             className="border-alt m-auto block max-w-sm w-full h-20 bg-alt rounded-lg  border px-4 py-2 shadow-md text-primary text-xl font-medium"
-            disabled={isLoading}
+            disabled={isLoading || disableWalletPay}
             onClick={() => handleConfirmation('wallet')}
           >
             Pay from Wallet
           </button>
+          {disableWalletPay && (
+            <p className="text-xs text-red-400 mt-2 text-center">
+              Insufficient wallet balance for this purchase.
+            </p>
+          )}
         </div>
       ) : (
         <p className="text-center font-medium text-primary  text-lg">
@@ -142,5 +147,6 @@ PaymentOptions.propTypes = {
   handleConfirmation: PropTypes.func,
   purchaseOrder: PropTypes.object,
   redirect_url: PropTypes.string,
+  disableWalletPay: PropTypes.bool,
 }
 export default PaymentOptions

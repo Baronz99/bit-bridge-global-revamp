@@ -2,7 +2,7 @@ import Header from '../../components/header/Header'
 import { useDispatch, useSelector } from 'react-redux'
 import { createOrder } from '../../redux/actions/order'
 import { toast } from 'react-toastify'
-import { nairaFormat } from '../../utils/nairaFormat'
+import nairaFormat from '../../utils/nairaFormat'
 import { useEffect, useState } from 'react'
 import { GET_CART } from '../../redux/app'
 import { getWallet } from '../../redux/actions/wallet'
@@ -18,7 +18,8 @@ const PaymentMenthod = () => {
   const [alertText, setAlertText] = useState(false)
   const [convertedTotal, setConvertedTotal] = useState(0)
 
-  const { wallet } = useSelector((state) => state.wallet)
+  const { data: walletData } = useSelector((state) => state.wallet)
+  const wallet = walletData?.tunnel || walletData?.bridge || null
   const { user, loading } = useSelector((state) => state.auth)
 
   useEffect(() => {

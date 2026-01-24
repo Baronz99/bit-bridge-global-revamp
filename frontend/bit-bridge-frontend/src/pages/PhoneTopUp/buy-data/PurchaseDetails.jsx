@@ -15,9 +15,11 @@ const PurchaseDataDetails = () => {
   const [id, toView] = useOutletContext()
   const { user } = useSelector((state) => state.auth)
 
+  const totalAmount = Number(purchaseOrder?.total_amount) || 0
+
   const componentProps = {
     email: purchaseOrder?.email ?? user?.emal,
-    amount: purchaseOrder?.total_amount * 100,
+    amount: totalAmount * 100,
 
     publicKey: publicKey,
     text: 'Pay From Bank',

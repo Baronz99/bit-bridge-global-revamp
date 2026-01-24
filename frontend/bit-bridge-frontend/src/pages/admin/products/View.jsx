@@ -11,7 +11,7 @@ import ButtonCall from '../../../components/button/ButtonCall'
 import AppModal from '../../../components/modal/Modal'
 import AddProvision from '../../../components/addProvision/AddProvision'
 import { fetchProduct, updateProduct } from '../../../redux/actions/product'
-import { nairaFormat } from '../../../utils/nairaFormat'
+import nairaFormat from '../../../utils/nairaFormat'
 import EditProvision from '../../../components/addProvision/EditProvision'
 
 const ViewProduct = () => {

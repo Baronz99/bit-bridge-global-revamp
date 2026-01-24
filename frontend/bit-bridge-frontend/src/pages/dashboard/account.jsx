@@ -1,5 +1,5 @@
 import { TransactionOutlined, WalletOutlined } from '@ant-design/icons'
-import { nairaFormat } from '../../utils/nairaFormat'
+import nairaFormat from '../../utils/nairaFormat'
 import AppModal from '../../components/modal/Modal'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import AddFund from '../../components/addFund/AddFund'

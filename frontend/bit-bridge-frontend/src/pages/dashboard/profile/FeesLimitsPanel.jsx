@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import client from '../../../api/client'
-import { nairaFormat } from '../../../utils/nairaFormat'
+import nairaFormat from '../../../utils/nairaFormat'
 
 const Section = ({ title, subtitle, children }) => (
   <div className="rounded-2xl border border-white/10 bg-white/5 backdrop-blur p-4 md:p-5">

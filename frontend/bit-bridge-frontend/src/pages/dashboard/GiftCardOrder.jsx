@@ -1,5 +1,5 @@
 import { useEffect } from 'react'
-import { nairaFormat } from '../../utils/nairaFormat'
+import nairaFormat from '../../utils/nairaFormat'
 import { useDispatch, useSelector } from 'react-redux'
 import { SET_LOADING } from '../../redux/app'
 import { getUserCardTokens, updateCardToken } from '../../redux/actions/orderToken'

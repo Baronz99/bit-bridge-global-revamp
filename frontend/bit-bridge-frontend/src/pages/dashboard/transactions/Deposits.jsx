@@ -1,6 +1,6 @@
 import { useDispatch, useSelector } from 'react-redux'
 import dateFormater from '../../../utils/dateFormat'
-import { nairaFormat } from '../../../utils/nairaFormat'
+import nairaFormat from '../../../utils/nairaFormat'
 import { useEffect, useMemo, useState } from 'react'
 import { NavLink, useOutletContext } from 'react-router-dom'
 import { getUserTransactions } from '../../../redux/actions/transaction'
