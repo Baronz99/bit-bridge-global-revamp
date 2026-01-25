@@ -4,7 +4,10 @@ module Api
   module V1
     class ReceiptsController < ApplicationController
       def show
-        reference = params[:reference].to_s.strip
+        reference =
+          params[:reference].presence ||
+          params[:id].presence
+        reference = reference.to_s.strip
         return render json: { message: 'Receipt reference is required.' }, status: :bad_request if reference.blank?
 
         receipt = resolve_receipt(reference)
