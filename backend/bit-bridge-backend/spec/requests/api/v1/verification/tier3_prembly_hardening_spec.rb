@@ -90,6 +90,42 @@ RSpec.describe 'Tier3 Prembly hardening', type: :request do
       expect(json['status']).to eq('pending').or(eq('processing')).or(eq('verified'))
     end
 
+    it 'rejects liveness when BVN is not verified' do
+      user.create_user_profile!(
+        first_name: 'Test',
+        last_name: 'User',
+        date_of_birth: Date.new(1990, 1, 1)
+      )
+      user.create_user_kyc!(bvn_status: 'unverified')
+
+      post '/api/v1/verification/tier3/liveness',
+           params: { image: 'data:image/jpeg;base64,ZmFrZQ==' },
+           headers: headers
+
+      expect(response).to have_http_status(:unprocessable_entity)
+      json = JSON.parse(response.body)
+      expect(json['error']).to match(/BVN must be verified/i)
+      expect(json['requirements']).to be_present
+    end
+
+    it 'rejects liveness when bvn_status is verified but bvn_verified_at is missing' do
+      user.create_user_profile!(
+        first_name: 'Test',
+        last_name: 'User',
+        date_of_birth: Date.new(1990, 1, 1)
+      )
+      user.create_user_kyc!(bvn_status: 'verified', bvn_verified_at: nil)
+
+      post '/api/v1/verification/tier3/liveness',
+           params: { image: 'data:image/jpeg;base64,ZmFrZQ==' },
+           headers: headers
+
+      expect(response).to have_http_status(:unprocessable_entity)
+      json = JSON.parse(response.body)
+      expect(json['error']).to match(/BVN must be verified/i)
+      expect(json['requirements']).to be_present
+    end
+
     it 'rejects remote URLs for liveness' do
       setup_verified_kyc!
       post '/api/v1/verification/tier3/liveness',

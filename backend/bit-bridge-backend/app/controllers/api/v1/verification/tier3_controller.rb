@@ -35,6 +35,11 @@ module Api
             )
           end
 
+          kyc = current_user.user_kyc
+          unless kyc&.verified?
+            return render_with_requirements({ error: "BVN must be verified before Tier 3" }, :unprocessable_entity)
+          end
+
           result = ::Kyc::PremblyTier3Biometrics.new.liveness_check(image)
           render_with_requirements(result, :ok)
         rescue StandardError => e
