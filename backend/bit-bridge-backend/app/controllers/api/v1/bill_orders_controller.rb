@@ -41,7 +41,8 @@ module Api
             transaction_record = TransactionRecord.new(
               bill_order_id: @bill_order.id,
               reference: payment_reference,
-              status: 'pending'
+              status: 'pending',
+              event_type: 'bill_order.checkout_init'
             )
 
             if transaction_record.save

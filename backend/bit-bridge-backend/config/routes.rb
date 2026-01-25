@@ -290,6 +290,7 @@ Rails.application.routes.draw do
         resources :kyc_reviews, only: %i[index update]
         get 'pricing-spec', to: 'pricing_spec#show'
         get 'ops/health', to: 'ops#health'
+        resources :transaction_records, only: [:index]
         resource :fx_settings, path: 'fx-settings', only: %i[show update] do
           post :refresh_provider
           post :apply_provider

@@ -70,7 +70,8 @@ module Api
             transaction_record = TransactionRecord.new(
               exchange_id: transaction.id,
               reference: response[:response]['responseBody']['paymentReference'],
-              status: 'pending'
+              status: 'pending',
+              event_type: 'checkout.init'
             )
 
             if transaction_record.save

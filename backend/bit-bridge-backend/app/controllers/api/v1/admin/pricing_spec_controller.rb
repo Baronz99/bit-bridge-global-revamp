@@ -65,11 +65,6 @@ module Api
 
         private
 
-        def ensure_super_admin!
-          return if current_user&.super_admin?
-
-          render json: { message: 'Not authorized' }, status: :forbidden
-        end
       end
     end
   end

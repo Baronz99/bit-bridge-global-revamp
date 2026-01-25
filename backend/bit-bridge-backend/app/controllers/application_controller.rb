@@ -110,4 +110,10 @@ class ApplicationController < ActionController::API
       message: message || "Complete Tier 2 verification to use this feature."
     }, status: :forbidden
   end
+
+  def ensure_super_admin!
+    return if current_user&.super_admin?
+
+    render json: { message: 'Not authorized' }, status: :forbidden
+  end
 end

@@ -220,7 +220,8 @@ module Transfers
         account_number: @bank_payload[:account_number],
         bank_code: @bank_payload[:bank_code],
         bank: @bank_payload[:bank],
-        amount: @amount_ngn
+        amount: @amount_ngn,
+        event_type: 'anchor.transfer.create'
       )
     end
 

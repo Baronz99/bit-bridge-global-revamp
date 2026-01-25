@@ -356,12 +356,6 @@ module Api
 
         private
 
-        def ensure_super_admin!
-          return if current_user&.super_admin?
-
-          render json: { message: 'Not authorized' }, status: :forbidden
-        end
-
         def ensure_bridge_cards_enabled!
           return if FeatureFlags.bridge_cards?
 

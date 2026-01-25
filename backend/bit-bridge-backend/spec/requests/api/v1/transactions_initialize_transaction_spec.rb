@@ -59,5 +59,6 @@ RSpec.describe 'Transactions initialize transaction', type: :request do
     record = TransactionRecord.find_by(reference: 'fbg-123')
     expect(record).to be_present
     expect(record.status).to eq('pending')
+    expect(record.event_type).to eq('checkout.init')
   end
 end

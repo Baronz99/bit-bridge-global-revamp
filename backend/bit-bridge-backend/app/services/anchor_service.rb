@@ -471,8 +471,13 @@ class AnchorService
     reference =   data.dig('attributes', 'payment', 'paymentReference')
 
     transaction_record = TransactionRecord.find_by(reference: reference)
-    return transaction_record.exchange if transaction_record&.exchange.present?
-    return transaction_record.exchange if transaction_record.present?
+    if transaction_record.present?
+      if transaction_record.event_type != 'anchor.webhook.payment.settled'
+        transaction_record.update(event_type: 'anchor.webhook.payment.settled')
+      end
+      return transaction_record.exchange if transaction_record&.exchange.present?
+      return transaction_record.exchange
+    end
 
 
     Rails.logger.info("✅  Anchor webhook data: ========================  #{amount} #{sender_name}")
@@ -504,7 +509,11 @@ class AnchorService
     }
 
 
-    transaction_record = TransactionRecord.create!(reference: reference, status: status)
+    transaction_record = TransactionRecord.create!(
+      reference: reference,
+      status: status,
+      event_type: 'anchor.webhook.payment.settled'
+    )
 
     transaction = Transaction.new(transaction_params)
     transaction.save!

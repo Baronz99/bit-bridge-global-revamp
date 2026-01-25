@@ -40,6 +40,7 @@ RSpec.describe 'BillOrders checkout init', type: :request do
     record = TransactionRecord.find_by(reference: 'bbg-123')
     expect(record).to be_present
     expect(record.status).to eq('pending')
+    expect(record.event_type).to eq('bill_order.checkout_init')
   end
 
   it 'does not change payment_method once processing' do

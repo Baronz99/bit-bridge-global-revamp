@@ -90,6 +90,9 @@ module Api
 
         event_data = data['eventData'] || {}
         return head :ok unless event_data['paymentStatus'].to_s.downcase == 'paid'
+        event_name = data['eventType'].to_s
+        monnify_event_type =
+          event_name.present? ? "monnify.webhook.#{event_name.downcase}" : 'monnify.webhook'
 
         payment_reference =
           event_data['paymentReference'].presence || event_data.dig('product', 'reference')
@@ -112,12 +115,18 @@ module Api
             Rails.logger.warn("[MonnifyWebhook] record_not_found reference=#{reference}")
             return Rails.env.production? ? head(:ok) : head(:not_found)
           end
+          if transaction_record.event_type != monnify_event_type
+            transaction_record.update(event_type: monnify_event_type)
+          end
           handle_bills_confirmation(transaction_record, event_data)
         when 'fbg'
           transaction_record = TransactionRecord.find_by(reference: reference)
           unless transaction_record
             Rails.logger.warn("[MonnifyWebhook] record_not_found reference=#{reference}")
             return Rails.env.production? ? head(:ok) : head(:not_found)
+          end
+          if transaction_record.event_type != monnify_event_type
+            transaction_record.update(event_type: monnify_event_type)
           end
           exchange = transaction_record.exchange
           terminal_statuses = %w[approved completed success paid failed declined cancelled reversed expired]
@@ -148,7 +157,12 @@ module Api
           Rails.logger.info("[MonnifyWebhook] confirmation_done reference=#{reference} record_id=#{transaction_record.id}")
           Rails.logger.info("[MonnifyWebhook] payment_approved reference=#{reference} record_id=#{transaction_record.id}")
         else
-          result = handleTransactionConfirmation(event_data, reference: reference, transaction_reference: transaction_reference)
+          result = handleTransactionConfirmation(
+            event_data,
+            reference: reference,
+            transaction_reference: transaction_reference,
+            event_type: monnify_event_type
+          )
           return head(result) if result.is_a?(Symbol)
         end
 
@@ -233,13 +247,19 @@ module Api
         ENV['ALLOW_ANCHOR_UNSIGNED_WEBHOOKS'].to_s == 'true'
       end
 
-      def handleTransactionConfirmation(event_data, reference:, transaction_reference: nil)
+      def handleTransactionConfirmation(event_data, reference:, transaction_reference: nil, event_type: nil)
   transaction_record = TransactionRecord.find_by(reference: reference)
   if transaction_record&.exchange.present?
+    if event_type.present? && transaction_record.event_type != event_type
+      transaction_record.update(event_type: event_type)
+    end
     Rails.logger.info("[MonnifyWebhook] already_processed reference=#{reference} record_id=#{transaction_record.id}")
     return
   end
   if transaction_record.present?
+    if event_type.present? && transaction_record.event_type != event_type
+      transaction_record.update(event_type: event_type)
+    end
     Rails.logger.info("[MonnifyWebhook] record_exists_without_exchange reference=#{reference} record_id=#{transaction_record.id}")
     return
   end
@@ -294,7 +314,8 @@ module Api
       TransactionRecord.create!(
         reference: reference,
         status: 'pending',
-        transaction_id: transaction_reference.presence || reference
+        transaction_id: transaction_reference.presence || reference,
+        event_type: event_type.presence || 'monnify.webhook'
       )
     rescue ActiveRecord::RecordNotUnique
       existing = TransactionRecord.find_by(reference: reference)

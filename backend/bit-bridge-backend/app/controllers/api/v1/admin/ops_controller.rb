@@ -19,12 +19,6 @@ module Api
 
         private
 
-        def ensure_super_admin!
-          return if current_user&.super_admin?
-
-          render json: { message: 'Not authorized' }, status: :forbidden
-        end
-
         def anchor_health
           last_event_at = AnchorWebhookEvent.order(created_at: :desc).limit(1).pick(:created_at)
           pending = pending_anchor_transfers

@@ -49,6 +49,9 @@ RSpec.describe 'Monnify webhook', type: :request do
     end.not_to change(Transaction, :count)
 
     expect(response).to have_http_status(:ok)
+    record = TransactionRecord.find_by(reference: 'mon-123')
+    expect(record).to be_present
+    expect(record.event_type).to start_with('monnify.webhook')
   end
 
   it 'does not create deposits when payment status is pending' do

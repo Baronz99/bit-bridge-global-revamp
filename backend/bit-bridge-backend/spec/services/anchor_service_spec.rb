@@ -67,6 +67,33 @@ RSpec.describe AnchorService do
     expect(scale).to eq('kobo')
   end
 
+  it 'sets anchor webhook event_type on payment settled' do
+    account = Account.create!(user: user, useable_id: 'acc_999')
+    user.ngn_wallet
+    payload = {
+      'attributes' => {
+        'payment' => {
+          'settlementAccount' => { 'accountId' => account.useable_id },
+          'amount' => '1500',
+          'currency' => 'NGN',
+          'virtualNuban' => { 'accountNumber' => '0123456789', 'accountName' => 'Receiver' },
+          'narration' => 'Test',
+          'counterParty' => {
+            'accountNumber' => '1234567890',
+            'accountName' => 'Sender',
+            'bank' => { 'name' => 'Test Bank' }
+          },
+          'paymentReference' => 'anchor-ref-1'
+        }
+      }
+    }
+
+    service.fund_deposit_account(payload)
+    record = TransactionRecord.find_by(reference: 'anchor-ref-1')
+    expect(record).to be_present
+    expect(record.event_type).to start_with('anchor.webhook')
+  end
+
   it 'keeps naira amounts when configured' do
     ENV['ANCHOR_AMOUNT_SCALE'] = 'naira'
     amount, scale = service.send(:normalize_anchor_amount, '1050', 'NGN')
