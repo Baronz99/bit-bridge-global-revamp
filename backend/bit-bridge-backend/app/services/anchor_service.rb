@@ -260,6 +260,12 @@ class AnchorService
 
     raise response['message'] || 'bad request' unless response.success?
 
+    transaction_record = TransactionRecord.find_by(reference: transfer_id)
+    return transaction_record.exchange if transaction_record&.exchange.present?
+    return transaction_record.exchange if transaction_record.present?
+
+    transaction_record = TransactionRecord.create!(reference: transfer_id, status: 'pending')
+
     receipient_id = response&.dig('relationships', 'account', 'data', 'id')
     raw_amount = response&.dig('attributes', 'amount')
     currency = response&.dig('attributes', 'currency') || 'NGN'
@@ -290,9 +296,25 @@ class AnchorService
       }
     }
 
-
     transaction = Transaction.new(transaction_params)
-    raise transaction.errors.full_messages.to_sentence unless transaction.persisted?
+    transaction.save!
+
+    transaction_record.update!(
+      exchange: transaction,
+      status: 'approved',
+      description: 'Anchor inbound transfer',
+      customer_name: sender,
+      reference: transfer_id,
+      account_number: address,
+      bank_code: bank,
+      bank: bank,
+      amount: amount,
+      transaction_id: transfer_id
+    )
+
+    transaction
+  rescue ActiveRecord::RecordNotUnique
+    TransactionRecord.find_by(reference: transfer_id)&.exchange
   rescue StandardError => e
     puts e.message
   end

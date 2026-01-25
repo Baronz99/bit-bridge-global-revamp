@@ -65,7 +65,7 @@ module Transfers
       anchor_response = AnchorService.new.initiate_transfer(anchor_request_payload(transfer_reference))
 
       if anchor_response[:status] == :ok
-        finalize_success!(principal_tx, fee_tx, anchor_response, transfer_reference)
+        finalize_success!(principal_tx, fee_tx, anchor_response, transfer_reference, transfer_order, total_debit)
       else
         release_hold!(transfer_reference, total_debit, transfer_order)
         finalize_failure!(principal_tx, fee_tx, anchor_response[:message], transfer_reference)
@@ -220,7 +220,7 @@ module Transfers
       )
     end
 
-    def finalize_success!(principal_tx, fee_tx, anchor_response, transfer_reference)
+    def finalize_success!(principal_tx, fee_tx, anchor_response, transfer_reference, transfer_order, total_debit)
       provider_reference = anchor_response.dig(:data, :transfer_id)
       provider_status = anchor_response.dig(:data, :status).to_s.downcase
       status = provider_status == 'pending' ? 'pending' : 'approved'
@@ -243,7 +243,17 @@ module Transfers
       )
 
       total_fee = fee_tx.amount.to_d
-      total_debit = principal_tx.amount.to_d + total_fee
+      total_debit = total_debit.to_d
+
+      if transfer_order.present?
+        WalletLedgerEntry.record_debit!(
+          wallet: @sender_wallet,
+          bill_order: transfer_order,
+          amount: total_debit,
+          reference: "anchor-transfer-debit/#{transfer_reference}",
+          metadata: { 'source' => 'anchor_transfer', 'transfer_reference' => transfer_reference }
+        )
+      end
 
       {
         status: :ok,
@@ -353,6 +363,8 @@ module Transfers
     def release_hold!(transfer_reference, amount, bill_order = nil)
       order = bill_order.presence || BillOrder.find_by(user: @user, meter_number: transfer_reference)
       return if order.blank? || !transfer_hold_exists?(order)
+      return if WalletLedgerEntry.debit_exists?(wallet: @sender_wallet, bill_order: order)
+      return if WalletLedgerEntry.release_exists?(wallet: @sender_wallet, bill_order: order)
 
       WalletLedgerEntry.release_hold!(
         wallet: @sender_wallet,

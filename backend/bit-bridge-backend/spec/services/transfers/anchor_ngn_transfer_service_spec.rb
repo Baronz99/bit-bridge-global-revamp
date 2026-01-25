@@ -105,13 +105,15 @@ RSpec.describe Transfers::AnchorNgnTransferService do
       status: :ok,
       data: { transfer_id: 'tr_123', status: 'pending' }
     )
+    transfer_reference = 'ref-success-1'
 
     result = described_class.call(
       user: user,
       sender_wallet: wallet,
       amount_ngn: 10_000,
       bank_payload: bank_payload,
-      narration: 'Transfer'
+      narration: 'Transfer',
+      transfer_reference: transfer_reference
     )
 
     expect(result[:status]).to eq(:ok)
@@ -127,6 +129,14 @@ RSpec.describe Transfers::AnchorNgnTransferService do
     expect(principal.transfer_id).to eq('tr_123')
     expect(principal.unique_transaction_id).to include(':principal')
     expect(fee.unique_transaction_id).to include(':fee')
+
+    order = BillOrder.find_by(meter_number: transfer_reference)
+    expect(order).to be_present
+
+    debit = WalletLedgerEntry.find_by(wallet: wallet, bill_order: order, entry_type: :debit)
+    expect(debit).to be_present
+    expect(debit.amount.to_d).to eq(principal.amount.to_d + fee.amount.to_d)
+    expect(wallet.ledger_outstanding_hold).to eq(0.to_d)
   end
 
   it 'marks transfers failed and creates reversals on Anchor failure (idempotent)' do
