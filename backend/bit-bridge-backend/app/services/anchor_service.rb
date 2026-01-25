@@ -470,6 +470,10 @@ class AnchorService
     sender_bank = data.dig('attributes', 'payment', 'counterParty', 'bank', 'name')
     reference =   data.dig('attributes', 'payment', 'paymentReference')
 
+    transaction_record = TransactionRecord.find_by(reference: reference)
+    return transaction_record.exchange if transaction_record&.exchange.present?
+    return transaction_record.exchange if transaction_record.present?
+
 
     Rails.logger.info("✅  Anchor webhook data: ========================  #{amount} #{sender_name}")
 
@@ -500,9 +504,10 @@ class AnchorService
     }
 
 
-    transaction = Transaction.new(transaction_params)
+    transaction_record = TransactionRecord.create!(reference: reference, status: status)
 
-    raise transaction.errors.full_messages.to_sentence unless transaction.save
+    transaction = Transaction.new(transaction_params)
+    transaction.save!
 
     Rails.logger.info("✅ Transaction saved successfully #{transaction.id}")
 
@@ -510,7 +515,8 @@ class AnchorService
 
 
 
-    transaction.create_transaction_record!(
+    transaction_record.update!(
+      exchange: transaction,
       status: status,
       description: description,
       customer_name: receiver_account_name,

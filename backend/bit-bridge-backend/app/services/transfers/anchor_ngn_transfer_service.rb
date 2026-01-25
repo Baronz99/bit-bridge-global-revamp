@@ -18,13 +18,14 @@ module Transfers
     def initialize(user:, sender_wallet:, amount_ngn:, bank_payload:, narration:, transfer_reference: nil)
       @user = user
       @sender_wallet = sender_wallet
-      @amount_ngn = BigDecimal(amount_ngn.to_s)
+      @amount_ngn = parse_amount(amount_ngn)
       @bank_payload = bank_payload
       @narration = narration
       @transfer_reference = transfer_reference
     end
 
     def call
+      return invalid_amount_error if @amount_ngn.nil? || @amount_ngn <= 0
       return min_amount_error if @amount_ngn < MIN_AMOUNT
 
       transfer_reference = @transfer_reference.presence || SecureRandom.uuid
@@ -32,6 +33,10 @@ module Transfers
       total_fee = fee_breakdown.fetch(:total_fee)
       total_debit = @amount_ngn + total_fee
       transfer_order = ensure_transfer_bill_order(transfer_reference, total_debit)
+
+      existing_principal = find_transfer_tx(transfer_reference, 'principal')
+      existing_fee = find_transfer_tx(transfer_reference, 'fee')
+      return existing_transfer_response(transfer_reference) if existing_principal.present? || existing_fee.present?
 
       return existing_transfer_response(transfer_reference) if transfer_hold_exists?(transfer_order)
 
@@ -110,6 +115,13 @@ module Transfers
       {
         status: :unprocessable_entity,
         body: { message: 'Minimum transfer amount is 150.', min_amount: MIN_AMOUNT }
+      }
+    end
+
+    def invalid_amount_error
+      {
+        status: :unprocessable_entity,
+        body: { message: 'Invalid transfer amount.' }
       }
     end
 
@@ -450,6 +462,12 @@ module Transfers
       whole, decimal = value.split('.', 2)
       delimited = whole.to_s.reverse.gsub(/(\d{3})(?=\d)/, '\\1,').reverse
       decimal ? "#{delimited}.#{decimal}" : delimited
+    end
+
+    def parse_amount(amount)
+      BigDecimal(amount.to_s)
+    rescue ArgumentError, TypeError
+      nil
     end
   end
 end

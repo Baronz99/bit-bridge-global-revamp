@@ -177,4 +177,57 @@ RSpec.describe Transfers::AnchorNgnTransferService do
 
     expect(wallet.transactions.where("metadata ->> 'subtype' = ?", 'reversal').count).to eq(2)
   end
+
+  it 'finalizes success idempotently when retried' do
+    anchor_service = instance_double(AnchorService)
+    allow(AnchorService).to receive(:new).and_return(anchor_service)
+    allow(anchor_service).to receive(:initiate_transfer).and_return(
+      status: :ok,
+      data: { transfer_id: 'tr_456', status: 'pending' }
+    )
+
+    transfer_reference = 'ref-success-idem'
+    starting_available = wallet.ledger_available_balance
+
+    result = described_class.call(
+      user: user,
+      sender_wallet: wallet,
+      amount_ngn: 10_000,
+      bank_payload: bank_payload,
+      narration: 'Transfer',
+      transfer_reference: transfer_reference
+    )
+
+    expect(result[:status]).to eq(:ok)
+
+    principal = wallet.transactions.where("metadata ->> 'subtype' = ?", 'principal').last
+    fee = wallet.transactions.where("metadata ->> 'subtype' = ?", 'fee').last
+    order = BillOrder.find_by(meter_number: transfer_reference)
+    total_debit = principal.amount.to_d + fee.amount.to_d
+    balance_after_first = wallet.ledger_available_balance
+
+    expect(order).to be_present
+
+    service = described_class.new(
+      user: user,
+      sender_wallet: wallet,
+      amount_ngn: 10_000,
+      bank_payload: bank_payload,
+      narration: 'Transfer',
+      transfer_reference: transfer_reference
+    )
+
+    anchor_response = { data: { transfer_id: 'tr_456', status: 'pending' } }
+    service.send(:finalize_success!, principal, fee, anchor_response, transfer_reference, order, total_debit)
+
+    debits = WalletLedgerEntry.where(wallet: wallet, bill_order: order, entry_type: :debit)
+    expect(debits.count).to eq(1)
+    expect(wallet.ledger_outstanding_hold).to eq(0.to_d)
+    expect(wallet.ledger_available_balance).to eq(balance_after_first)
+
+    principal_dupes = wallet.transactions.where(unique_transaction_id: "#{transfer_reference}:principal")
+    fee_dupes = wallet.transactions.where(unique_transaction_id: "#{transfer_reference}:fee")
+    expect(principal_dupes.count).to eq(1)
+    expect(fee_dupes.count).to eq(1)
+  end
 end

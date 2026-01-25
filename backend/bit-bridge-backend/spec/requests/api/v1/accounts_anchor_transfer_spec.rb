@@ -56,6 +56,16 @@ RSpec.describe 'Anchor NGN transfers', type: :request do
     expect(body['min_amount']).to eq(150)
   end
 
+  it 'rejects malformed amount with 422 and does not create transactions' do
+    expect do
+      post_transfer('junk')
+    end.not_to change(Transaction, :count)
+
+    expect(response).to have_http_status(:unprocessable_entity)
+    body = JSON.parse(response.body)
+    expect(body['message']).to eq('amount must be greater than 0')
+  end
+
   it 'returns insufficient funds payload when balance is too low' do
     post_transfer(100_000)
 

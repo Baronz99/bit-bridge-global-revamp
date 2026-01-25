@@ -82,17 +82,25 @@ module Ledger
     def handle_success(wallet, bill_order, amount)
       return if WalletLedgerEntry.debit_exists?(wallet: wallet, bill_order: bill_order)
       return if WalletLedgerEntry.release_exists?(wallet: wallet, bill_order: bill_order)
+      return if wallet.respond_to?(:ledger_raw_balance) && wallet.ledger_raw_balance < amount
 
       reference = "reconcile/debit/#{bill_order.id}"
       created_entry = nil
       if commit
-        created_entry = WalletLedgerEntry.record_debit!(
-          wallet: wallet,
-          bill_order: bill_order,
-          amount: amount,
-          reference: reference,
-          metadata: { 'source' => 'ledger_repair', 'subtype' => 'hold_invariant', 'kind' => 'reconcile_processing' }
-        )
+        begin
+          created_entry = WalletLedgerEntry.record_debit!(
+            wallet: wallet,
+            bill_order: bill_order,
+            amount: amount,
+            reference: reference,
+            metadata: { 'source' => 'ledger_repair', 'subtype' => 'hold_invariant', 'kind' => 'reconcile_processing' }
+          )
+        rescue ActiveRecord::RecordInvalid => e
+          Rails.logger.warn(
+            "[processing_hold_reconcile] debit_failed order=#{bill_order.id} reason=#{e.record.errors.full_messages.to_sentence}"
+          )
+          created_entry = nil
+        end
       end
       actions[:reconciled_success] << { bill_order_id: bill_order.id, amount: amount.to_d, created: commit && created_entry.present? }
     end

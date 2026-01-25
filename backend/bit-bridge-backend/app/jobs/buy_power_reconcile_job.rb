@@ -90,6 +90,7 @@ class BuyPowerReconcileJob < ApplicationJob
           response[:response]
         )
         BillOrders::Finalizer.call(bill_order: order.reload)
+        ensure_reconcile_release!(order)
       when 'failed', 'refund', 'refunded', 'reversed', 'cancelled'
         service.send(
           :handle_wallet_failure,
@@ -117,6 +118,34 @@ class BuyPowerReconcileJob < ApplicationJob
         order.update(status: 'processing', provider_response: response[:response]) if order.status != 'processing'
         self.class.set(wait: 10.minutes).perform_later(order.id)
       end
+    end
+  end
+
+  private
+
+  def ensure_reconcile_release!(order)
+    wallet = order.user&.wallet
+    return unless wallet
+    return unless WalletLedgerEntry.exists?(bill_order: order, entry_type: :hold)
+    return if WalletLedgerEntry.exists?(bill_order: order, entry_type: :release)
+
+    amount_cents, amount = WalletLedgerEntry
+                            .where(wallet: wallet, bill_order: order, entry_type: :hold)
+                            .order(created_at: :desc)
+                            .limit(1)
+                            .pick(:amount_cents, :amount)
+
+    release_amount =
+      if amount_cents.present?
+        Money.from_cents(amount_cents, wallet.currency).to_d
+      else
+        amount.present? ? amount.to_d : order.total_amount.presence || order.amount
+      end
+
+    WalletLedgerEntry.find_or_create_by!(wallet: wallet, bill_order: order, entry_type: :release) do |entry|
+      entry.amount = release_amount.to_d
+      entry.reference = order.idempotency_key
+      entry.metadata = { 'source' => 'buy_power_reconcile_success', 'provider_reference' => order.provider_reference }
     end
   end
 end

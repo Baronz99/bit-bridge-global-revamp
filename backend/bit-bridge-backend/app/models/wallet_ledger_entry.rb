@@ -80,7 +80,8 @@ class WalletLedgerEntry < ApplicationRecord
         raise_invariant_violation!(wallet: wallet, bill_order: bill_order, message: 'Debit amount exceeds outstanding hold')
       end
     end
-    if wallet.respond_to?(:ledger_raw_balance) && wallet.ledger_raw_balance < amount
+    if wallet.respond_to?(:ledger_raw_balance) && wallet.ledger_raw_balance < amount &&
+        metadata.to_h['source'].to_s != 'anchor_transfer'
       raise_invariant_violation!(wallet: wallet, bill_order: bill_order, message: 'Insufficient ledger balance for debit')
     end
 

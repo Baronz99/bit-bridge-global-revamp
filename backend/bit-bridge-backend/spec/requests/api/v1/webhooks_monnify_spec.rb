@@ -9,18 +9,15 @@ RSpec.describe 'Monnify webhook', type: :request do
          headers: { 'CONTENT_TYPE' => 'application/json' }
   end
 
-  it 'does not create duplicate deposits for repeated references' do
-    user = create(:user)
-    user.ngn_wallet
-
-    payload = {
+  def build_payload(user_id:, overrides: {})
+    {
       eventType: 'SUCCESSFUL_TRANSACTION',
       eventData: {
         paymentStatus: 'PAID',
         paymentReference: 'mon-123',
         transactionReference: 'tx-123',
         currencyCode: 'NGN',
-        product: { reference: user.id },
+        product: { reference: user_id },
         paymentSourceInformation: [
           {
             amountPaid: 15000,
@@ -31,7 +28,14 @@ RSpec.describe 'Monnify webhook', type: :request do
           }
         ]
       }
-    }
+    }.deep_merge(overrides)
+  end
+
+  it 'does not create duplicate deposits for repeated references' do
+    user = create(:user)
+    user.ngn_wallet
+
+    payload = build_payload(user_id: user.id)
 
     expect do
       post_webhook(payload)
@@ -45,6 +49,76 @@ RSpec.describe 'Monnify webhook', type: :request do
     end.not_to change(Transaction, :count)
 
     expect(response).to have_http_status(:ok)
+  end
+
+  it 'does not create deposits when payment status is pending' do
+    user = create(:user)
+    wallet = user.ngn_wallet
+    starting_total = wallet.ledger_deposits_total
+    payload = build_payload(user_id: user.id, overrides: { eventData: { paymentStatus: 'PENDING' } })
+
+    starting_tx = Transaction.count
+    starting_records = TransactionRecord.count
+    post_webhook(payload)
+
+    expect(response).to have_http_status(:ok)
+    expect(Transaction.count).to eq(starting_tx)
+    expect(TransactionRecord.count).to eq(starting_records)
+    expect(wallet.reload.ledger_deposits_total).to eq(starting_total)
+  end
+
+  it 'does not create deposits when payment status is failed or cancelled' do
+    user = create(:user)
+    wallet = user.ngn_wallet
+    starting_total = wallet.ledger_deposits_total
+
+    %w[FAILED CANCELLED].each do |status|
+      payload = build_payload(user_id: user.id, overrides: { eventData: { paymentStatus: status } })
+
+      starting_tx = Transaction.count
+      starting_records = TransactionRecord.count
+      post_webhook(payload)
+      expect(response).to have_http_status(:ok)
+      expect(Transaction.count).to eq(starting_tx)
+      expect(TransactionRecord.count).to eq(starting_records)
+      expect(wallet.reload.ledger_deposits_total).to eq(starting_total)
+    end
+  end
+
+  it 'does not create deposits when required references are missing' do
+    user = create(:user)
+    wallet = user.ngn_wallet
+    starting_total = wallet.ledger_deposits_total
+    payload = build_payload(
+      user_id: user.id,
+      overrides: { eventData: { paymentReference: nil, transactionReference: nil, product: { reference: nil } } }
+    )
+
+    starting_tx = Transaction.count
+    starting_records = TransactionRecord.count
+    post_webhook(payload)
+    expect(response).to have_http_status(:ok)
+    expect(Transaction.count).to eq(starting_tx)
+    expect(TransactionRecord.count).to eq(starting_records)
+    expect(wallet.reload.ledger_deposits_total).to eq(starting_total)
+  end
+
+  it 'returns 4xx and does not create deposits when amount is malformed' do
+    user = create(:user)
+    wallet = user.ngn_wallet
+    starting_total = wallet.ledger_deposits_total
+    payload = build_payload(
+      user_id: user.id,
+      overrides: { eventData: { paymentSourceInformation: [{ amountPaid: 'junk' }] } }
+    )
+
+    starting_tx = Transaction.count
+    starting_records = TransactionRecord.count
+    post_webhook(payload)
+    expect(response).to have_http_status(:unprocessable_entity)
+    expect(Transaction.count).to eq(starting_tx)
+    expect(TransactionRecord.count).to eq(starting_records)
+    expect(wallet.reload.ledger_deposits_total).to eq(starting_total)
   end
 
   it 'normalizes monnify kobo amounts' do

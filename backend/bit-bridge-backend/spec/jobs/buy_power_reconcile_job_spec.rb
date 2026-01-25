@@ -40,6 +40,7 @@ RSpec.describe BuyPowerReconcileJob, type: :job do
     )
 
     WalletLedgerEntry.ensure_hold!(wallet: wallet, bill_order: bill_order, amount: 1000)
+    starting_available = wallet.ledger_available_balance
 
     requery_response = {
       'data' => { 'status' => 'SUCCESS', 'units' => '1', 'token' => 'abc', 'id' => 'txn_1' },
@@ -55,6 +56,7 @@ RSpec.describe BuyPowerReconcileJob, type: :job do
     expect(entries.release.count).to eq(1)
     expect(entries.debit.count).to eq(1)
     expect(bill_order.reload.status).to eq('completed')
+    expect(wallet.reload.ledger_available_balance).to eq(starting_available)
   end
 
   it 'does not double-refund on repeated reconciliation' do

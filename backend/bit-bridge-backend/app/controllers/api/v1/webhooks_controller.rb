@@ -148,7 +148,8 @@ module Api
           Rails.logger.info("[MonnifyWebhook] confirmation_done reference=#{reference} record_id=#{transaction_record.id}")
           Rails.logger.info("[MonnifyWebhook] payment_approved reference=#{reference} record_id=#{transaction_record.id}")
         else
-          handleTransactionConfirmation(event_data, reference: reference, transaction_reference: transaction_reference)
+          result = handleTransactionConfirmation(event_data, reference: reference, transaction_reference: transaction_reference)
+          return head(result) if result.is_a?(Symbol)
         end
 
         head :ok
@@ -261,10 +262,20 @@ module Api
   raw_amount = payment_info['amountPaid']
   currency = event_data['currencyCode'] || event_data['currency'] || 'NGN'
   amount, scale = normalize_monnify_amount(raw_amount, currency)
+  parsed_amount =
+    begin
+      amount.is_a?(BigDecimal) ? amount : BigDecimal(amount.to_s)
+    rescue ArgumentError
+      nil
+    end
+  if parsed_amount.nil? || parsed_amount <= 0
+    Rails.logger.warn("[MonnifyWebhook] invalid_amount reference=#{reference} raw_amount=#{raw_amount}")
+    return :unprocessable_entity
+  end
 
   transaction_params = {
     wallet_id: user.wallet.id,
-    amount: amount,
+    amount: parsed_amount,
     address: payment_info['accountNumber'],
     account_name: payment_info['accountName'],
     bank_code: payment_info['bankCode'],
@@ -303,7 +314,7 @@ module Api
       account_number: payment_info['accountNumber'],
       bank_code: payment_info['bankCode'],
       bank: payment_info['bankName'],
-      amount: amount
+      amount: parsed_amount
     )
     # ✅ Log only minimal identifiers
     Rails.logger.info("✅ Monnify deposit saved id=#{transaction.id} user_id=#{user.id} amount=#{transaction.amount}")
