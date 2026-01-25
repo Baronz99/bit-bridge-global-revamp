@@ -82,15 +82,23 @@ module Api
         amount_ngn = extract_amount_ngn
         raw_pin = extract_transaction_pin
         amount_in_expected = FxDesk::Money.ngn(amount_ngn)
-        fx_quote = fetch_fx_quote('ngn_to_usd', expected_amount: amount_in_expected, tolerance: 1)
-        return if fx_quote == :invalid
-
-        quote_data =
-          if fx_quote
-            quote_from_record(fx_quote)
-          else
-            FxDesk::Pricing.new.quote_ngn_to_usd(amount_ngn)
+        fx_quote = nil
+        quote_data = nil
+        token_present = extract_quote_token.present?
+        if token_present
+          ActiveRecord::Base.transaction do
+            fx_quote = fetch_fx_quote('ngn_to_usd', expected_amount: amount_in_expected, tolerance: 1, lock: true)
+            return if fx_quote == :invalid
+            quote_data = quote_from_record(fx_quote)
+            if fx_quote.executed_at.present?
+              render_conversion_replay(current_user.ngn_wallet, current_user.usd_wallet, quote_data, fx_quote)
+              return
+            end
           end
+          return if performed?
+        else
+          quote_data = FxDesk::Pricing.new.quote_ngn_to_usd(amount_ngn)
+        end
 
         amount_in = quote_data[:amount_in].to_d
         amount_out = quote_data[:amount_out].to_d
@@ -111,14 +119,25 @@ module Api
         usd_cents = usd_wallet.money_to_cents(amount_out)
         return render json: { message: 'conversion failed' }, status: :unprocessable_entity if usd_cents <= 0
 
+        execution_reference = fx_quote.present? ? SecureRandom.uuid : nil
+
         ActiveRecord::Base.transaction do
+          if fx_quote
+            fx_quote = FxQuote.lock('FOR UPDATE').find(fx_quote.id)
+            if fx_quote.executed_at.present?
+              render_conversion_replay(ngn_wallet, usd_wallet, quote_data, fx_quote)
+              raise ActiveRecord::Rollback
+            end
+          end
+
           # Record NGN withdrawal transaction (legacy structure)
           ngn_wallet.transactions.create!(
             transaction_type: 'withdrawal',
             status: 'approved',
             amount: amount_in,
             coin_type: 'bank',
-            address: 'Tunnel Conversion (NGN -> USD)'
+            address: 'Tunnel Conversion (NGN -> USD)',
+            metadata: fx_quote.present? ? { fx_quote_token: fx_quote.token, fx_execution_reference: execution_reference } : {}
           )
 
           # Credit USD stored balance
@@ -130,9 +149,16 @@ module Api
             status: 'approved',
             amount: amount_out,
             coin_type: 'bank',
-            address: 'Tunnel Conversion (NGN -> USD)'
+            address: 'Tunnel Conversion (NGN -> USD)',
+            metadata: fx_quote.present? ? { fx_quote_token: fx_quote.token, fx_execution_reference: execution_reference } : {}
+          )
+
+          fx_quote&.update!(
+            executed_at: Time.current,
+            execution_reference: execution_reference
           )
         end
+        return if performed?
 
         # Re-fetch to ensure updated balances/transactions reflected
         ngn_wallet = current_user.wallets.for_api.find(ngn_wallet.id)
@@ -172,15 +198,23 @@ module Api
         amount_usd = extract_amount_usd
         raw_pin = extract_transaction_pin
         amount_in_expected = FxDesk::Money.usd(amount_usd)
-        fx_quote = fetch_fx_quote('usd_to_ngn', expected_amount: amount_in_expected, tolerance: 0.01)
-        return if fx_quote == :invalid
-
-        quote_data =
-          if fx_quote
-            quote_from_record(fx_quote)
-          else
-            FxDesk::Pricing.new.quote_usd_to_ngn(amount_usd)
+        fx_quote = nil
+        quote_data = nil
+        token_present = extract_quote_token.present?
+        if token_present
+          ActiveRecord::Base.transaction do
+            fx_quote = fetch_fx_quote('usd_to_ngn', expected_amount: amount_in_expected, tolerance: 0.01, lock: true)
+            return if fx_quote == :invalid
+            quote_data = quote_from_record(fx_quote)
+            if fx_quote.executed_at.present?
+              render_conversion_replay(current_user.ngn_wallet, current_user.usd_wallet, quote_data, fx_quote)
+              return
+            end
           end
+          return if performed?
+        else
+          quote_data = FxDesk::Pricing.new.quote_usd_to_ngn(amount_usd)
+        end
 
         amount_in = quote_data[:amount_in].to_d
         amount_out = quote_data[:amount_out].to_d
@@ -196,14 +230,25 @@ module Api
         usd_cents = usd_wallet.money_to_cents(amount_in)
         return render json: { message: 'conversion failed' }, status: :unprocessable_entity if usd_cents <= 0
 
+        execution_reference = fx_quote.present? ? SecureRandom.uuid : nil
+
         ActiveRecord::Base.transaction do
+          if fx_quote
+            fx_quote = FxQuote.lock('FOR UPDATE').find(fx_quote.id)
+            if fx_quote.executed_at.present?
+              render_conversion_replay(ngn_wallet, usd_wallet, quote_data, fx_quote)
+              raise ActiveRecord::Rollback
+            end
+          end
+
           # Record USD withdrawal transaction
           usd_wallet.transactions.create!(
             transaction_type: 'withdrawal',
             status: 'approved',
             amount: amount_in,
             coin_type: 'bank',
-            address: 'Tunnel Conversion (USD -> NGN)'
+            address: 'Tunnel Conversion (USD -> NGN)',
+            metadata: fx_quote.present? ? { fx_quote_token: fx_quote.token, fx_execution_reference: execution_reference } : {}
           )
 
           # Debit USD stored balance
@@ -215,9 +260,16 @@ module Api
             status: 'approved',
             amount: amount_out,
             coin_type: 'bank',
-            address: 'Tunnel Conversion (USD -> NGN)'
+            address: 'Tunnel Conversion (USD -> NGN)',
+            metadata: fx_quote.present? ? { fx_quote_token: fx_quote.token, fx_execution_reference: execution_reference } : {}
+          )
+
+          fx_quote&.update!(
+            executed_at: Time.current,
+            execution_reference: execution_reference
           )
         end
+        return if performed?
 
         ngn_wallet = current_user.wallets.for_api.find(ngn_wallet.id)
         usd_wallet = current_user.wallets.for_api.find(usd_wallet.id)
@@ -357,11 +409,13 @@ module Api
           ''
       end
 
-      def fetch_fx_quote(direction, expected_amount: nil, tolerance: 0)
+      def fetch_fx_quote(direction, expected_amount: nil, tolerance: 0, lock: false)
         token = extract_quote_token
         return nil if token.blank?
 
-        quote = FxQuote.valid_token(token).find_by(user_id: current_user.id)
+        scope = FxQuote.valid_token(token).where(user_id: current_user.id)
+        scope = scope.lock('FOR UPDATE') if lock
+        quote = scope.find_by(user_id: current_user.id)
         if quote.blank? || quote.direction != direction
           render json: { message: 'Invalid or expired quote', errors: { quote_token: 'invalid' } },
                  status: :unprocessable_entity
@@ -379,6 +433,21 @@ module Api
         end
 
         quote
+      end
+
+      def render_conversion_replay(ngn_wallet, usd_wallet, quote_data, fx_quote)
+        ngn_wallet = current_user.wallets.for_api.find(ngn_wallet.id)
+        usd_wallet = current_user.wallets.for_api.find(usd_wallet.id)
+
+        render json: {
+          message: 'Conversion already processed',
+          data: {
+            ngn_wallet: WalletSerializer.new(ngn_wallet).as_json,
+            usd_wallet: WalletSerializer.new(usd_wallet).as_json,
+            quote: serialize_quote(quote_data).merge(quote_token: fx_quote&.token),
+            replayed: true
+          }
+        }, status: :ok
       end
 
       def quote_from_record(record)

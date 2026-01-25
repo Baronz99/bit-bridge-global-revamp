@@ -385,6 +385,8 @@ ActiveRecord::Schema[7.1].define(version: 2026_01_24_121000) do
     t.decimal "amount_in_raw", precision: 24, scale: 12
     t.decimal "amount_after_fee_raw", precision: 24, scale: 12
     t.decimal "amount_out_raw", precision: 24, scale: 12
+    t.datetime "executed_at"
+    t.string "execution_reference"
     t.index ["expires_at"], name: "index_fx_quotes_on_expires_at"
     t.index ["token"], name: "index_fx_quotes_on_token", unique: true
     t.index ["user_id"], name: "index_fx_quotes_on_user_id"

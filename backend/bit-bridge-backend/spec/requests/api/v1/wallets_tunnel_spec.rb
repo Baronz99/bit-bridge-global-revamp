@@ -130,4 +130,59 @@ RSpec.describe 'Tunnel conversions', type: :request do
     quote_payload = body.dig('data', 'quote') || {}
     expect(quote_payload['amount_in']).to eq(5_000.0)
   end
+
+  it 'executes conversion only once per quote token' do
+    fx_quote = FxQuote.create!(
+      user: user,
+      direction: 'ngn_to_usd',
+      base_rate: 1500,
+      markup: 75,
+      execution_rate: 1575,
+      base_rate_raw: 1500,
+      markup_raw: 75,
+      execution_rate_raw: 1575,
+      fee_amount: 100,
+      fee_amount_raw: 100,
+      fee_currency: 'NGN',
+      amount_in: 10_000,
+      amount_in_raw: 10_000,
+      amount_after_fee: 9_900,
+      amount_after_fee_raw: 9_900,
+      amount_out: 6.25,
+      amount_out_raw: 6.25,
+      expires_at: 5.minutes.from_now
+    )
+
+    post '/api/v1/wallets/tunnel/convert',
+         params: {
+           amount_ngn: 10_000,
+           transaction_pin: '1234',
+           quote_token: fx_quote.token
+         },
+         headers: auth_headers(user)
+
+    expect(response).to have_http_status(:ok)
+    fx_quote.reload
+    expect(fx_quote.executed_at).to be_present
+    expect(fx_quote.execution_reference).to be_present
+
+    transaction_count = Transaction.count
+    ngn_balance = user.ngn_wallet.balance.to_d
+    usd_balance = user.usd_wallet.balance.to_d
+
+    post '/api/v1/wallets/tunnel/convert',
+         params: {
+           amount_ngn: 10_000,
+           transaction_pin: '1234',
+           quote_token: fx_quote.token
+         },
+         headers: auth_headers(user)
+
+    expect(response).to have_http_status(:ok)
+    body = JSON.parse(response.body)
+    expect(body.dig('data', 'replayed')).to eq(true)
+    expect(Transaction.count).to eq(transaction_count)
+    expect(user.ngn_wallet.reload.balance.to_d).to eq(ngn_balance)
+    expect(user.usd_wallet.reload.balance.to_d).to eq(usd_balance)
+  end
 end
