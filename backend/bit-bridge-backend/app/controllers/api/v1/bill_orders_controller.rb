@@ -38,7 +38,11 @@ module Api
           payment_reference = service_response&.dig(:response, 'responseBody', 'paymentReference')
 
           if status == :ok && payment_reference.present?
-            transaction_record = TransactionRecord.new(bill_order_id: @bill_order.id, reference: payment_reference)
+            transaction_record = TransactionRecord.new(
+              bill_order_id: @bill_order.id,
+              reference: payment_reference,
+              status: 'pending'
+            )
 
             if transaction_record.save
 

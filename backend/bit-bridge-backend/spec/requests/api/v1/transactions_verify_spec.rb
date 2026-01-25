@@ -43,6 +43,54 @@ RSpec.describe 'Transactions verify', type: :request do
       expect(body['data']['status']).to eq('approved')
     end
 
+    it 'returns pending when record status is pending' do
+      user = create(:user)
+      wallet = user.ngn_wallet
+      transaction = Transaction.create!(
+        wallet: wallet,
+        amount: 1000,
+        transaction_type: :deposit,
+        status: :approved,
+        coin_type: :bank
+      )
+      record = TransactionRecord.create!(
+        exchange: transaction,
+        reference: 'fbg-456',
+        status: 'pending',
+        amount: 1000
+      )
+
+      get '/api/v1/transactions/verify', params: { payment_reference: record.reference }
+
+      expect(response).to have_http_status(:ok)
+      body = JSON.parse(response.body)
+      expect(body['data']['status']).to eq('pending')
+    end
+
+    it 'defaults to pending when record status is nil' do
+      user = create(:user)
+      wallet = user.ngn_wallet
+      transaction = Transaction.create!(
+        wallet: wallet,
+        amount: 1000,
+        transaction_type: :deposit,
+        status: :approved,
+        coin_type: :bank
+      )
+      record = TransactionRecord.create!(
+        exchange: transaction,
+        reference: 'fbg-789',
+        status: nil,
+        amount: 1000
+      )
+
+      get '/api/v1/transactions/verify', params: { payment_reference: record.reference }
+
+      expect(response).to have_http_status(:ok)
+      body = JSON.parse(response.body)
+      expect(body['data']['status']).to eq('pending')
+    end
+
     it 'returns 404 when no record is found' do
       get '/api/v1/transactions/verify', params: { payment_reference: 'fbg-999999' }
 

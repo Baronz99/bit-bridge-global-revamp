@@ -37,6 +37,9 @@ RSpec.describe 'BillOrders checkout init', type: :request do
 
     expect(response).to have_http_status(:ok)
     expect(bill_order.reload.payment_method).to eq('card')
+    record = TransactionRecord.find_by(reference: 'bbg-123')
+    expect(record).to be_present
+    expect(record.status).to eq('pending')
   end
 
   it 'does not change payment_method once processing' do

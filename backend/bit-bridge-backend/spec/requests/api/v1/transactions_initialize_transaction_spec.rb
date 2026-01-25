@@ -33,4 +33,31 @@ RSpec.describe 'Transactions initialize transaction', type: :request do
     body = JSON.parse(response.body)
     expect(body['message']).to match(/Missing MONNIFY_/)
   end
+
+  it 'creates a pending transaction record on success' do
+    service_response = {
+      status: :ok,
+      response: { 'responseBody' => { 'paymentReference' => 'fbg-123' } }
+    }
+    service_double = instance_double(PaymentService, init_transaction: service_response)
+    allow(PaymentService).to receive(:new).and_return(service_double)
+
+    post '/api/v1/transactions/initialize_transaction',
+         params: {
+           transaction: {
+             amount: 1000,
+             transaction_type: 'deposit',
+             customer_name: 'Test User',
+             email: 'test@example.com',
+             description: 'Test payment',
+             payment_purpose: 'wallet_topup'
+           }
+         },
+         headers: headers
+
+    expect(response).to have_http_status(:ok)
+    record = TransactionRecord.find_by(reference: 'fbg-123')
+    expect(record).to be_present
+    expect(record.status).to eq('pending')
+  end
 end

@@ -69,7 +69,8 @@ module Api
           if transaction.persisted?
             transaction_record = TransactionRecord.new(
               exchange_id: transaction.id,
-              reference: response[:response]['responseBody']['paymentReference']
+              reference: response[:response]['responseBody']['paymentReference'],
+              status: 'pending'
             )
 
             if transaction_record.save
