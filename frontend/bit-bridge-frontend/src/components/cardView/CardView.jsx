@@ -1622,13 +1622,17 @@ const setPin = (nextPin) => {
                             <span>{entry.created_at ? new Date(entry.created_at).toLocaleString() : ''}</span>
                           </div>
                           <div className="mt-2 text-[11px]">
-                            <button
-                              type="button"
-                              onClick={() => navigate(`/dashboard/receipt/${entry.id}`)}
-                              className="text-indigo-300 hover:text-indigo-200"
-                            >
-                              View receipt
-                            </button>
+                            {entry?.reference ? (
+                              <button
+                                type="button"
+                                onClick={() => navigate(`/dashboard/receipt/${entry.reference}`)}
+                                className="text-indigo-300 hover:text-indigo-200"
+                              >
+                                View receipt
+                              </button>
+                            ) : (
+                              <span className="text-slate-500">Receipt unavailable</span>
+                            )}
                           </div>
                           {entry?.decline_reason === 'insufficient_balance' && (
                             <div className="mt-2 rounded-md border border-amber-500/30 bg-amber-500/10 px-2 py-1 text-[11px] text-amber-200">

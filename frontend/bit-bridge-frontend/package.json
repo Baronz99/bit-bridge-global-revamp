@@ -8,6 +8,7 @@
     "dev:staging": "vite --mode staging",
     "build": "vite build",
     "lint": "eslint .",
+    "lint:receipt": "eslint src/pages/dashboard/Receipt.jsx src/api/receipts.js",
     "preview": "vite preview",
     "circular": "npx madge src --circular --extensions js,jsx"
   },

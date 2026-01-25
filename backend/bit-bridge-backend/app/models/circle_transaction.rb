@@ -3,6 +3,7 @@
 class CircleTransaction < ApplicationRecord
   belongs_to :circle
   belongs_to :user
+  belongs_to :wallet_transaction, class_name: 'Transaction', optional: true
 
   # Optional tag to link a transaction to an activity/goal
   belongs_to :circle_activity, optional: true

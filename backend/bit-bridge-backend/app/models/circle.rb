@@ -22,7 +22,11 @@ class Circle < ApplicationRecord
     description: nil,
     reference: nil,
     metadata: {},
-    circle_activity: nil
+    circle_activity: nil,
+    idempotency_key: nil,
+    request_id: nil,
+    event_type: nil,
+    wallet_transaction_id: nil
   )
     raise ArgumentError, 'amount_cents must be > 0' unless amount_cents.to_i > 0
 
@@ -37,6 +41,10 @@ class Circle < ApplicationRecord
           kind: kind,
           description: description,
           reference: reference,
+          idempotency_key: idempotency_key,
+          request_id: request_id,
+          event_type: event_type,
+          wallet_transaction_id: wallet_transaction_id,
           metadata: metadata,
           circle_activity: circle_activity
         )

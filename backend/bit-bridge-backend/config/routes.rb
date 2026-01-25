@@ -182,6 +182,9 @@ Rails.application.routes.draw do
           get  :user
           get  :verify
         end
+        member do
+          get :receipt
+        end
       end
 
       resources :receipts, only: [:show]
@@ -262,6 +265,8 @@ Rails.application.routes.draw do
           post :fund
           post :withdraw
           get  :timeline, to: "circles/timeline#index"
+          get  :audit, to: "circle_audits#show", constraints: ->(req) { req.format == :json }
+          get  :audit, to: "circle_audits#csv", constraints: ->(req) { req.format == :csv }
           get  :audit_summary
           get  :export_csv
         end

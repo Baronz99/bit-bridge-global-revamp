@@ -134,12 +134,16 @@ const Orders = () => {
                       </td>
 
                       <td className="whitespace-nowrap border-b border-slate-800 px-3 py-3 text-xs md:text-sm text-center">
-                        <NavLink
-                          to={`/dashboard/receipt/${item?.id}`}
-                          className="text-indigo-300 hover:text-indigo-200"
-                        >
-                          View
-                        </NavLink>
+                        {item?.transaction_id ? (
+                          <NavLink
+                            to={`/dashboard/receipt/${item.transaction_id}`}
+                            className="text-indigo-300 hover:text-indigo-200"
+                          >
+                            View receipt
+                          </NavLink>
+                        ) : (
+                          <span className="text-slate-500 text-xs">Receipt unavailable</span>
+                        )}
                       </td>
                     </tr>
                   ))

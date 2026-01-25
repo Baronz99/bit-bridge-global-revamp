@@ -115,12 +115,16 @@ const Deposits = () => {
                           {dateFormater(item?.created_at)}
                         </td>
                         <td className="relative whitespace-nowrap border-b border-gray-200 py-3 pr-4 pl-3 text-center text-sm sm:pr-8 lg:pr-8">
-                          <NavLink
-                            to={`/dashboard/receipt/${item?.id}`}
-                            className="text-indigo-300 hover:text-indigo-200 text-xs"
-                          >
-                            View
-                          </NavLink>
+                          {item?.reference ? (
+                            <NavLink
+                              to={`/dashboard/receipt/${item.reference}`}
+                              className="text-indigo-300 hover:text-indigo-200 text-xs"
+                            >
+                              View receipt
+                            </NavLink>
+                          ) : (
+                            <span className="text-slate-500 text-xs">Receipt unavailable</span>
+                          )}
                         </td>
                       </tr>
                     ))

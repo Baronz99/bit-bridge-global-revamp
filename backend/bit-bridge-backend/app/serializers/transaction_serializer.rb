@@ -2,6 +2,7 @@
 
 class TransactionSerializer < ActiveModel::Serializer
   attributes :id,
+             :reference,
              :status,
              :amount,
              :currency,
@@ -19,6 +20,11 @@ class TransactionSerializer < ActiveModel::Serializer
 
   def wallet_type
     object.wallet&.wallet_type
+  end
+
+  def reference
+    record = object.transaction_record
+    record&.reference || object.transfer_id || object.id
   end
 
   def currency

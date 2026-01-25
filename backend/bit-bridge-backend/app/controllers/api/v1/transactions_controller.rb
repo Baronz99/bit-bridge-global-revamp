@@ -5,6 +5,7 @@ module Api
     class TransactionsController < ApplicationController
       skip_before_action :authenticate_user!, only: :verify
       before_action :set_transaction, only: %i[show update destroy]
+      before_action :set_receipt_transaction, only: %i[receipt]
 
       def index
         @transactions =
@@ -44,6 +45,13 @@ module Api
 
       def show
         render json: { data: TransactionSerializer.new(@transaction) }, status: :ok
+      end
+
+      # GET /api/v1/transactions/:id/receipt
+      def receipt
+        return render json: { message: 'Transaction not found' }, status: :not_found unless @receipt_transaction
+
+        render json: { data: build_receipt(@receipt_transaction) }, status: :ok
       end
 
       # POST /api/v1/transactions/initialize_transaction
@@ -167,6 +175,281 @@ module Api
 
       def set_transaction
         @transaction = Transaction.find(params[:id])
+      end
+
+      def set_receipt_transaction
+        scope = Transaction.includes(:wallet, :transaction_record)
+
+        @receipt_transaction =
+          if current_user&.admin?
+            scope.find_by(id: params[:id])
+          else
+            current_user.transactions.includes(:wallet, :transaction_record).find_by(id: params[:id])
+          end
+      end
+
+      def build_receipt(txn)
+        metadata = txn.metadata.is_a?(Hash) ? txn.metadata : {}
+        record = txn.transaction_record
+        circle_tx = resolve_circle_transaction(txn, metadata)
+        fx_quote = resolve_fx_quote(txn, metadata)
+        provider_reference = resolve_provider_reference(record, metadata, txn)
+        provider_name = resolve_provider_name(record, metadata)
+        provider_status = record&.status || resolve_anchor_status(provider_reference) || metadata['provider_status']
+        amount = txn.amount.presence || record&.amount
+        currency = resolve_currency(txn)
+        fee_amount = resolve_fee_amount(metadata, fx_quote)
+        total_amount = resolve_total_amount(amount, fee_amount)
+
+        {
+          id: txn.id,
+          reference: record&.reference || txn.id,
+          status: txn.status,
+          transaction_type: txn.transaction_type,
+          kind: circle_tx&.kind || metadata['kind'],
+          direction: resolve_direction(txn.transaction_type),
+          amount: amount,
+          fee: fee_amount,
+          total: total_amount,
+          currency: currency,
+          created_at: txn.created_at,
+          updated_at: txn.updated_at,
+          provider: {
+            name: provider_name,
+            reference: provider_reference,
+            status: provider_status
+          }.compact,
+          idempotency_key: metadata['idempotency_key'] || circle_tx&.idempotency_key,
+          linked: {
+            bill_order_id: record&.bill_order_id,
+            circle_id: circle_tx&.circle_id,
+            circle_transaction_id: circle_tx&.id,
+            fx_quote_token: fx_quote&.token
+          }.compact,
+          fx: serialize_fx_quote(fx_quote),
+          customer: serialize_customer(record),
+          timeline: build_timeline(txn, record, provider_reference, circle_tx, fx_quote)
+        }.compact
+      end
+
+      def resolve_currency(txn)
+        value =
+          if txn.respond_to?(:has_attribute?) && txn.has_attribute?(:currency)
+            txn[:currency]
+          end
+        value = value.presence || txn.wallet&.currency
+        return value if value.present?
+        return 'USD' if txn.wallet&.usd?
+        return 'NGN' if txn.wallet&.ngn?
+
+        nil
+      end
+
+      def resolve_direction(transaction_type)
+        return nil if transaction_type.blank?
+
+        transaction_type.to_s == 'deposit' ? 'credit' : 'debit'
+      end
+
+      def resolve_provider_reference(record, metadata, txn)
+        record&.reference ||
+          metadata['transfer_reference'] ||
+          metadata['transaction_reference'] ||
+          txn.transfer_id
+      end
+
+      def resolve_provider_name(record, metadata)
+        event_type = record&.event_type.to_s
+        return 'monnify' if event_type.start_with?('monnify.')
+        return 'anchor' if event_type.start_with?('anchor.')
+        return metadata['provider'] if metadata['provider'].present?
+
+        nil
+      end
+
+      def resolve_anchor_status(reference)
+        return nil if reference.blank?
+
+        AnchorWebhookEvent.where(reference: reference).order(received_at: :desc).limit(1).pick(:status)
+      end
+
+      def resolve_fee_amount(metadata, fx_quote)
+        fee =
+          metadata['fee'] ||
+          metadata['fee_amount'] ||
+          metadata['fee_total'] ||
+          metadata['service_charge']
+        fee = fx_quote&.fee_amount if fee.nil?
+
+        return nil if fee.nil?
+
+        MoneyScale.normalize(fee)
+      end
+
+      def resolve_total_amount(amount, fee_amount)
+        return nil if amount.nil?
+        return nil if fee_amount.nil?
+
+        MoneyScale.normalize(amount.to_d + fee_amount.to_d)
+      end
+
+      def resolve_circle_transaction(txn, metadata)
+        circle_tx_id = metadata['circle_transaction_id']
+        return CircleTransaction.find_by(id: circle_tx_id) if circle_tx_id.present?
+
+        CircleTransaction.find_by(wallet_transaction_id: txn.id)
+      end
+
+      def resolve_fx_quote(txn, metadata)
+        token = metadata['fx_quote_token']
+        return nil if token.blank?
+
+        fx_quote = FxQuote.find_by(token: token)
+        return nil if fx_quote.nil?
+        return fx_quote if current_user&.admin?
+
+        fx_quote.user_id == txn.wallet&.user_id ? fx_quote : nil
+      end
+
+      def serialize_fx_quote(fx_quote)
+        return nil unless fx_quote
+
+        {
+          quote_token: fx_quote.token,
+          direction: fx_quote.direction,
+          base_rate: fx_quote.base_rate,
+          execution_rate: fx_quote.execution_rate,
+          markup: fx_quote.markup,
+          fee_amount: fx_quote.fee_amount,
+          fee_currency: fx_quote.fee_currency,
+          amount_in: fx_quote.amount_in,
+          amount_after_fee: fx_quote.amount_after_fee,
+          amount_out: fx_quote.amount_out,
+          executed_at: fx_quote.executed_at,
+          expires_at: fx_quote.expires_at
+        }
+      end
+
+      def serialize_customer(record)
+        return nil unless record
+
+        name = record.customer_name
+        email = record.email
+        phone = record.phone_number
+        return nil if name.blank? && email.blank? && phone.blank?
+
+        if current_user&.admin?
+          return {
+            name: name,
+            email: email,
+            phone_number: phone
+          }.compact
+        end
+
+        {
+          name: mask_name(name, email),
+          email: mask_email(email),
+          phone_number: mask_phone(phone)
+        }.compact
+      end
+
+      def build_timeline(txn, record, provider_reference, circle_tx, fx_quote)
+        events = []
+        events << {
+          event_type: 'wallet.transaction.created',
+          status: txn.status,
+          reference: txn.id,
+          occurred_at: txn.created_at,
+          source: 'wallet'
+        }
+
+        if record
+          events << {
+            event_type: record.event_type.presence || 'transaction_record',
+            status: record.status,
+            reference: record.reference,
+            amount: record.amount,
+            occurred_at: record.created_at,
+            source: 'transaction_record'
+          }.compact
+        end
+
+        if provider_reference.present?
+          AnchorWebhookEvent.where(reference: provider_reference).order(received_at: :desc).each do |event|
+            events << {
+              event_type: event.event_type,
+              status: event.status,
+              reference: event.reference,
+              occurred_at: event.processed_at || event.received_at || event.created_at,
+              source: 'anchor_webhook'
+            }
+          end
+        end
+
+        if circle_tx
+          events << {
+            event_type: 'circle.transaction.created',
+            status: circle_tx.direction,
+            reference: circle_tx.reference,
+            occurred_at: circle_tx.occurred_at,
+            source: 'circle'
+          }
+
+          dispute = circle_tx.dispute
+          if dispute
+            events << {
+              event_type: 'circle.dispute.opened',
+              status: dispute.status,
+              reference: dispute.id,
+              occurred_at: dispute.created_at,
+              source: 'dispute'
+            }
+          end
+        end
+
+        if fx_quote&.executed_at.present?
+          events << {
+            event_type: 'fx.quote.executed',
+            status: 'executed',
+            reference: fx_quote.token,
+            occurred_at: fx_quote.executed_at,
+            source: 'fx'
+          }
+        end
+
+        events
+          .sort_by { |event| event[:occurred_at] || Time.at(0) }
+          .reverse
+      end
+
+      def mask_email(email)
+        return nil if email.blank?
+
+        local, domain = email.split('@', 2)
+        return email if domain.blank?
+        local_mask = local.length <= 1 ? '*' : "#{local[0]}***"
+        domain_name, tld = domain.split('.', 2)
+        domain_mask = domain_name.present? ? "#{domain_name[0]}***" : '***'
+        tld_part = tld.present? ? ".#{tld}" : ''
+        "#{local_mask}@#{domain_mask}#{tld_part}"
+      end
+
+      def mask_phone(phone)
+        return nil if phone.blank?
+
+        digits = phone.to_s.gsub(/\D/, '')
+        return '*' * phone.length if digits.length <= 4
+
+        digits.gsub(/\d(?=\d{4})/, '*')
+      end
+
+      def mask_name(name, fallback_email)
+        return mask_email(fallback_email) if name.blank?
+
+        parts = name.to_s.strip.split(/\s+/)
+        return "#{parts[0][0]}." if parts.any?
+
+        mask_email(fallback_email)
       end
 
       def transaction_params

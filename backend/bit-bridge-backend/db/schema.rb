@@ -299,6 +299,10 @@ ActiveRecord::Schema[7.1].define(version: 2026_01_24_121000) do
     t.string "kind", default: "manual", null: false
     t.string "description"
     t.string "reference"
+    t.string "idempotency_key"
+    t.string "request_id"
+    t.string "event_type"
+    t.uuid "wallet_transaction_id"
     t.datetime "occurred_at", null: false
     t.jsonb "metadata", default: {}, null: false
     t.datetime "created_at", null: false
@@ -306,9 +310,11 @@ ActiveRecord::Schema[7.1].define(version: 2026_01_24_121000) do
     t.uuid "circle_activity_id"
     t.index ["circle_activity_id"], name: "index_circle_transactions_on_circle_activity_id"
     t.index ["circle_id", "circle_activity_id"], name: "index_circle_transactions_on_circle_id_and_circle_activity_id"
+    t.index ["circle_id", "idempotency_key"], name: "index_circle_transactions_on_circle_id_and_idempotency_key", unique: true, where: "(idempotency_key IS NOT NULL)"
     t.index ["circle_id", "occurred_at"], name: "index_circle_transactions_on_circle_id_and_occurred_at"
     t.index ["circle_id"], name: "index_circle_transactions_on_circle_id"
     t.index ["user_id"], name: "index_circle_transactions_on_user_id"
+    t.index ["wallet_transaction_id"], name: "index_circle_transactions_on_wallet_transaction_id"
   end
 
   create_table "circles", id: :uuid, default: -> { "gen_random_uuid()" }, force: :cascade do |t|
@@ -842,6 +848,7 @@ ActiveRecord::Schema[7.1].define(version: 2026_01_24_121000) do
   add_foreign_key "circle_transaction_reactions", "users"
   add_foreign_key "circle_transactions", "circle_activities"
   add_foreign_key "circle_transactions", "circles"
+  add_foreign_key "circle_transactions", "transactions", column: "wallet_transaction_id"
   add_foreign_key "circle_transactions", "users"
   add_foreign_key "circles", "users", column: "owner_id"
   add_foreign_key "disputes", "circle_transactions"

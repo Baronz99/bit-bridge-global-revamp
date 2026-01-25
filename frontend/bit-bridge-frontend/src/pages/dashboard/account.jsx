@@ -721,12 +721,16 @@ const Account = () => {
                                     {dateFormater(item?.created_at)}
                                   </td>
                                   <td className="whitespace-nowrap border-b border-slate-800 px-3 py-3 text-xs text-center">
-                                    <NavLink
-                                      to={`/dashboard/receipt/${item?.id}`}
-                                      className="text-indigo-300 hover:text-indigo-200"
-                                    >
-                                      View
-                                    </NavLink>
+                                    {item?.reference ? (
+                                      <NavLink
+                                        to={`/dashboard/receipt/${item.reference}`}
+                                        className="text-indigo-300 hover:text-indigo-200"
+                                      >
+                                        View receipt
+                                      </NavLink>
+                                    ) : (
+                                      <span className="text-slate-500 text-xs">Receipt unavailable</span>
+                                    )}
                                   </td>
                                 </tr>
                               ))

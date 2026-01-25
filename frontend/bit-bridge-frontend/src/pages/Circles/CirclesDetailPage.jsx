@@ -1523,9 +1523,20 @@ const CirclesDetailPage = () => {
 
                               <ReactionBar tx={tx} onToggle={toggleReaction} busyEmoji={reactionBusy[tx.id] || null} />
 
-                              <div className="mt-2 flex items-center justify-between">
+                              <div className="mt-2 flex items-center justify-between gap-3">
+                                <div className="flex items-center gap-3">
+                                  {tx.wallet_transaction_reference ? (
+                                    <button
+                                      type="button"
+                                      onClick={() => navigate(`/dashboard/receipt/${tx.wallet_transaction_reference}`)}
+                                      className="text-[11px] text-emerald-300 hover:text-emerald-100 underline underline-offset-4"
+                                    >
+                                      View receipt
+                                    </button>
+                                  ) : null}
+                                </div>
                                 {tx.dispute ? (
-                                  <span className="text-[11px] text-amber-400">⚠ Review requested • {tx.dispute.status}</span>
+                                  <span className="text-[11px] text-amber-400">? Review requested ? {tx.dispute.status}</span>
                                 ) : (
                                   <button
                                     type="button"
