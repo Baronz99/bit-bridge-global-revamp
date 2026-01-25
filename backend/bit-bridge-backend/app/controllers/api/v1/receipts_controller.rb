@@ -31,8 +31,7 @@ module Api
       def resolve_transaction(reference)
         return current_user.transactions.find_by(id: normalize_reference_id(reference)) if reference.start_with?('txn-')
 
-        current_user.transactions.find_by(id: reference) ||
-          current_user.transactions.find_by(transfer_id: reference) ||
+        current_user.transactions.find_by(transfer_id: reference) ||
           current_user.transactions.where("metadata ->> 'transfer_reference' = ?", reference).first
       end
 

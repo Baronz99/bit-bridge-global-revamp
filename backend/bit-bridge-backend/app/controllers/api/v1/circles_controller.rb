@@ -68,8 +68,7 @@ module Api
             }
           ).merge(
             wallet_transaction_reference: tx.wallet_transaction&.transaction_record&.reference ||
-              tx.wallet_transaction&.transfer_id ||
-              tx.wallet_transaction&.id,
+              tx.wallet_transaction&.transfer_id,
             dispute: tx.dispute&.as_json(
               only: %i[id status reason note created_at],
               include: { raised_by: { only: %i[id email] } }

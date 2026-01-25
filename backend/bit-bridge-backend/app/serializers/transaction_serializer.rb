@@ -24,7 +24,7 @@ class TransactionSerializer < ActiveModel::Serializer
 
   def reference
     record = object.transaction_record
-    record&.reference || object.transfer_id || object.id
+    record&.reference || object.transfer_id
   end
 
   def currency

@@ -134,9 +134,9 @@ const Orders = () => {
                       </td>
 
                       <td className="whitespace-nowrap border-b border-slate-800 px-3 py-3 text-xs md:text-sm text-center">
-                        {item?.transaction_id ? (
+                        {item?.receipt_reference ? (
                           <NavLink
-                            to={`/dashboard/receipt/${item.transaction_id}`}
+                            to={`/dashboard/receipt/${item.receipt_reference}`}
                             className="text-indigo-300 hover:text-indigo-200"
                           >
                             View receipt

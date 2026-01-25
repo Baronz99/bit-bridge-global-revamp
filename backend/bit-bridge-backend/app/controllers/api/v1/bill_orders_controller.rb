@@ -11,12 +11,12 @@ module Api
 
       # GET /bill_orders
       def index
-        @bill_orders = BillOrder.all
+        @bill_orders = BillOrder.includes(:transaction_record)
         render json: { data: ActiveModelSerializers::SerializableResource.new(@bill_orders) }, status: :ok
       end
 
       def recent
-        @bill_orders = BillOrder.select(:amount).distinct.order(created_at: :desc).limit(3)
+        @bill_orders = BillOrder.includes(:transaction_record).select(:amount).distinct.order(created_at: :desc).limit(3)
         render json: { data: ActiveModelSerializers::SerializableResource.new(@bill_orders) }, status: :ok
       end
 
@@ -102,13 +102,13 @@ module Api
       end
 
       def user
-        bill_orders = current_user.bill_orders.where(status: %w[completed declined])
+        bill_orders = current_user.bill_orders.includes(:transaction_record).where(status: %w[completed declined])
         # bill_orders = current_user.bill_orders.where(status: "completed")
         render json: { data: ActiveModelSerializers::SerializableResource.new(bill_orders) }, status: :ok
       end
 
       def user_recent
-        bill_orders = current_user.bill_orders.where(status: 'completed').order(created_at: :desc)
+        bill_orders = current_user.bill_orders.includes(:transaction_record).where(status: 'completed').order(created_at: :desc)
         unique_orders = []
 
         seen_amounts = Set.new
@@ -127,6 +127,7 @@ module Api
 
       # GET /bill_orders/1
       def show
+        @bill_order = BillOrder.includes(:transaction_record).find(@bill_order.id)
         render json: { data: BillOrderSerializer.new(@bill_order) }, status: :ok
       end
 
