@@ -3,7 +3,8 @@
 # Production frontends only
 ALLOWED_ORIGINS = [
   "https://bitbridgeglobal.com",
-  "https://www.bitbridgeglobal.com"
+  "https://www.bitbridgeglobal.com",
+  "https://bitbridge-staging.netlify.app"
 ].freeze
 
 # Local development frontends
