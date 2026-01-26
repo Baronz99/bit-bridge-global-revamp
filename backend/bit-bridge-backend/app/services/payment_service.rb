@@ -166,8 +166,7 @@ class PaymentService
       "paymentDescription": record_params[:description],
       "currencyCode":       'NGN',
       "contractCode":       @contract_code,
-      default_redirect = ENV.fetch("MONNIFY_REDIRECT_URL_DEFAULT", "https://bitbridgeglobal.com/app-redirect")
-"redirectUrl": (record_params[:redirect_url].presence || default_redirect),
+      "redirectUrl": (record_params[:redirect_url].presence || ENV.fetch("MONNIFY_REDIRECT_URL_DEFAULT", "https://bitbridgeglobal.com/app-redirect")),
 
       "paymentMethods":     %w[CARD ACCOUNT_TRANSFER],
       "metadata": {
