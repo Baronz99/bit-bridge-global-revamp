@@ -38,6 +38,12 @@ const Receipt = () => {
     let active = true
     const load = async () => {
       setLoading(true)
+      if (!reference) {
+        setReceipt(null)
+        setIsLegacy(false)
+        setLoading(false)
+        return
+      }
       try {
         const res = await getTransactionReceipt(reference)
         if (!active) return

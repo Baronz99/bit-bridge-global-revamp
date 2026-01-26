@@ -19,6 +19,15 @@ module Api
       private
 
       def resolve_receipt(reference)
+        if transaction_record_reference?(reference)
+          record = TransactionRecord.find_by(reference: reference)
+          if record
+            return receipt_from_transaction(record.exchange) if record.exchange_id.present? && record.exchange.present?
+            return receipt_from_bill_order(record.bill_order) if record.bill_order.present?
+            return receipt_from_transaction_record(record)
+          end
+        end
+
         txn = resolve_transaction(reference)
         return receipt_from_transaction(txn) if txn
 
@@ -58,7 +67,7 @@ module Api
           return current_user.bill_orders.find_by(id: normalize_reference_id(reference))
         end
 
-        record = TransactionRecord.find_by(reference: reference)
+        record = TransactionRecord.find_by(reference: reference) if transaction_record_reference?(reference)
         return nil if record.nil?
 
         record.bill_order if record.bill_order&.user_id == current_user.id
@@ -123,15 +132,25 @@ module Api
         payload
       end
 
+
       def receipt_from_bill_order(order)
         record = order.transaction_record
+        currency =
+          if order.respond_to?(:currency)
+            order.currency.presence
+          elsif order.respond_to?(:has_attribute?) && order.has_attribute?(:currency)
+            order[:currency].presence
+          else
+            nil
+          end
+        currency ||= 'NGN'
         {
           reference: order.id,
           type: 'bill',
           source: order.service_type,
           status: order.status,
           amount: order.total_amount || order.amount,
-          currency: order.currency.presence || 'NGN',
+          currency: currency,
           description: order.biller.presence || order.service_type,
           created_at: order.created_at,
           transaction_reference: record&.reference,
@@ -139,8 +158,29 @@ module Api
         }.compact
       end
 
+
+      def receipt_from_transaction_record(record)
+        bill_order = record.bill_order
+        {
+          reference: record.reference,
+          type: bill_order ? 'bill' : 'checkout',
+          source: bill_order&.service_type || record.event_type || 'checkout',
+          status: record.status.presence || 'pending',
+          amount: record.amount || bill_order&.total_amount || bill_order&.amount,
+          currency: 'NGN',
+          description: record.description || bill_order&.biller || bill_order&.service_type,
+          created_at: record.created_at,
+          transaction_reference: record.reference,
+          recipient: bill_order&.meter_number || (bill_order&.respond_to?(:card_number) ? bill_order.card_number : nil) || (bill_order&.respond_to?(:phone_number) ? bill_order.phone_number : nil)
+        }.compact
+      end
+
       def normalize_reference_id(reference)
         reference.to_s.split('-', 2).last
+      end
+
+      def transaction_record_reference?(reference)
+        reference.match?(/\A(fbg|bbg)-\d+\z/)
       end
     end
   end
