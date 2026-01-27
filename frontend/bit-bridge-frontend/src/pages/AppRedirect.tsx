@@ -1,30 +1,93 @@
-import React, { useEffect } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import React, { useEffect, useMemo, useState } from 'react'
+import { useSearchParams, useNavigate } from 'react-router-dom'
 
 function AppRedirect() {
   const [queryParams] = useSearchParams()
+  const navigate = useNavigate()
+  const [message, setMessage] = useState('Redirecting to app...')
 
-  const paymentReference =
-    queryParams.get('paymentReference') ||
-    queryParams.get('transactionReference') ||
-    queryParams.get('reference')
+  const paymentReference = useMemo(() => {
+    return (
+      queryParams.get('paymentReference') ||
+      queryParams.get('payment_reference') ||
+      queryParams.get('reference') ||
+      ''
+    ).trim()
+  }, [queryParams])
+
+  const fallbackPath = useMemo(() => {
+    // Your web confirmation route is /checkout
+    return paymentReference ? `/checkout?paymentReference=${encodeURIComponent(paymentReference)}` : '/checkout'
+  }, [paymentReference])
 
   useEffect(() => {
-    const origin = window.location.origin
-
-    // Send user into the existing web confirm flow
-    if (paymentReference) {
-      window.location.replace(
-        `${origin}/checkout?paymentReference=${encodeURIComponent(paymentReference)}`
-      )
+    if (!paymentReference) {
+      setMessage('Missing payment reference.')
       return
     }
 
-    // No ref provided: still send them to checkout (ConfirmPayment can show a friendly state)
-    window.location.replace(`${origin}/checkout`)
-  }, [paymentReference])
+    const deepLink = `bitbridgeglobal://transaction/confirm?reference=${encodeURIComponent(paymentReference)}`
 
-  return <div style={{ padding: 16 }}>Redirecting…</div>
+    // If deep link fails (desktop / app not installed), fall back to web confirm page.
+    let didFallback = false
+    const fallback = () => {
+      if (didFallback) return
+      didFallback = true
+      navigate(fallbackPath, { replace: true })
+    }
+
+    // Attempt deep link first
+    try {
+      window.location.href = deepLink
+    } catch (e) {
+      // ignore, we’ll fallback
+    }
+
+    // If the app opens, the browser page usually becomes hidden.
+    // If after ~1200ms we're still visible, assume it failed and fallback.
+    const t = setTimeout(() => {
+      if (!document.hidden) {
+        fallback()
+      }
+    }, 1200)
+
+    // If user comes back (or page never hid), fallback anyway.
+    const onVisibility = () => {
+      if (!document.hidden) {
+        // If we’re still here after returning, route them to web confirm.
+        fallback()
+      }
+    }
+    document.addEventListener('visibilitychange', onVisibility)
+
+    return () => {
+      clearTimeout(t)
+      document.removeEventListener('visibilitychange', onVisibility)
+    }
+  }, [paymentReference, fallbackPath, navigate])
+
+  return (
+    <div style={{ padding: 24 }}>
+      <div style={{ fontSize: 16, marginBottom: 12 }}>{message}</div>
+      {paymentReference ? (
+        <>
+          <div style={{ opacity: 0.7, marginBottom: 16 }}>Ref: {paymentReference}</div>
+
+          <button
+            onClick={() => (window.location.href = fallbackPath)}
+            style={{
+              padding: '10px 14px',
+              borderRadius: 8,
+              border: '1px solid #ccc',
+              cursor: 'pointer',
+            }}
+          >
+            Continue on web
+          </button>
+        </>
+      ) : null}
+    </div>
+  )
 }
 
 export default AppRedirect
