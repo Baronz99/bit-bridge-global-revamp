@@ -58,47 +58,43 @@ module Api
         end
       end
 
-      def update_status
-        reference = params[:id]
-        transaction_record = TransactionRecord.find_by(reference: reference)
-        ref_type = reference.split('-').first
+def update_status
+  reference = params[:id].to_s
+  transaction_record = TransactionRecord.find_by(reference: reference)
+  return render json: { message: 'transaction_not_found' }, status: :not_found unless transaction_record
 
-        case ref_type
-        when 'bbg'
-          transaction_record.bill_order.update(status: 'declined')
-        when 'fbg'
-          transaction_record.exchange.update(status: 'declined')
-        else
-          return render json: { message: 'transaction_declined' }, status: :unprocessable_entity
-        end
+  ref_type = reference.split('-').first
+  cutoff = (ENV['PAYMENT_DECLINE_CUTOFF_MINUTES'] || 30).to_i.minutes.ago
 
-        render json: { message: 'transaction_declined' }, status: :ok
-      end
+  case ref_type
+  when 'bbg'
+    order = transaction_record.bill_order
+    return render json: { message: 'order_not_found' }, status: :not_found unless order
 
-      def get_ref_order
-        reference = params[:id]
-        transaction_record = TransactionRecord.find_by(reference: reference)
+    # only decline if still in a non-terminal state AND old enough
+    if order.created_at <= cutoff && !BillOrder::TERMINAL_STATUSES.include?(order.status.to_s)
+      order.update(status: 'declined')
+      return render json: { message: 'transaction_declined' }, status: :ok
+    end
 
-        unless transaction_record.present?
-          return render json: { message: 'transaction not found' }, status: :unprocessable_entity
-        end
+    return render json: { message: 'no_action' }, status: :ok
 
-        ref_type = reference.split('-').first
+  when 'fbg'
+    exchange = transaction_record.exchange
+    return render json: { message: 'exchange_not_found' }, status: :not_found unless exchange
 
-        order =
-          case ref_type
-          when 'bbg'
-            transaction_record.bill_order
-          when 'fbg'
-            transaction_record.exchange
-          else
-            nil
-          end
+    terminal = %w[approved completed success paid failed cancelled reversed expired declined]
+    if exchange.created_at <= cutoff && !terminal.include?(exchange.status.to_s.downcase)
+      exchange.update(status: 'declined')
+      return render json: { message: 'transaction_declined' }, status: :ok
+    end
 
-        return render json: { message: 'transaction not found' }, status: :unprocessable_entity unless order
+    return render json: { message: 'no_action' }, status: :ok
+  else
+    render json: { message: 'invalid_reference' }, status: :unprocessable_entity
+  end
+end
 
-        render json: { data: order }, status: :ok
-      end
 
       def process_payment
         service = BuyPowerPaymentService.new

@@ -135,7 +135,8 @@ module Api
           exchange = transaction_record.exchange
 
           # Treat these as truly terminal for preventing double-credit
-          terminal_exchange_statuses = %w[completed success paid failed declined cancelled reversed expired]
+          terminal_exchange_statuses = %w[completed success paid failed cancelled reversed expired]
+
           exchange_status_before = exchange&.status.to_s
           record_status_before = transaction_record.status.to_s
 
