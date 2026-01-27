@@ -10,6 +10,7 @@ class PaymentService
     rescue KeyError
       nil
     end
+
   base_uri(
     (monnify_base_url.is_a?(String) ? monnify_base_url.to_s.strip.presence : nil) ||
     ENV['MONNIFY_BASE_URL'].to_s.strip.presence ||
@@ -18,7 +19,8 @@ class PaymentService
 
   def initialize
     # Prefer values from config.x, fall back to ENV to avoid breaking existing prod config.
-    config         = Rails.configuration.x
+    config = Rails.configuration.x
+
     config_secret =
       begin
         value = config.monnify_secret_key
@@ -26,6 +28,7 @@ class PaymentService
       rescue KeyError
         nil
       end
+
     config_api =
       begin
         value = config.monnify_api_key
@@ -33,6 +36,7 @@ class PaymentService
       rescue KeyError
         nil
       end
+
     config_contract =
       begin
         value = config.monnify_contract_code
@@ -64,7 +68,6 @@ class PaymentService
 
   def authenticate_and_store
     response = self.class.post('/api/v1/auth/login', headers: @headers)
-
     raise(response['responseMessage'] || 'bad request') unless response.success?
 
     monify_token = MonifyToken.create(
@@ -83,7 +86,6 @@ class PaymentService
     return monify.token if monify.present? && monify.expires_in > Time.current
 
     monify = authenticate_and_store
-
     if monify.is_a?(Hash) && monify[:status] == :bad_request
       raise "Token authentication failed: #{monify[:response]}"
     end
@@ -123,7 +125,6 @@ class PaymentService
     }
 
     begin
-      # Use Bearer token headers here
       response = self.class.post(
         'api/v1/bank-transfer/reserved-accounts',
         headers: headers,
@@ -131,7 +132,6 @@ class PaymentService
       )
 
       raise response['responseMessage'] unless response.success?
-
       { response: response, status: :ok }
     rescue StandardError => e
       { message: e.message.to_s, body: body }
@@ -145,7 +145,6 @@ class PaymentService
     )
 
     raise response['responseMessage'] unless response.success?
-
     { response: response, status: :ok }
   rescue StandardError => e
     { message: e.message.to_s }
@@ -157,45 +156,33 @@ class PaymentService
       "Content-Type":  'application/json'
     }
 
+    # Default redirect target. Keep prod default intact; allow staging override via ENV.
+    default_redirect =
+      ENV.fetch(
+        "MONNIFY_REDIRECT_URL_DEFAULT",
+        "https://bitbridgeglobal.com/app-redirect"
+      ).to_s.strip
+
+    redirect = record_params[:redirect_url].to_s.strip
+    redirect = default_redirect if redirect.blank?
+
+    # STAGING SAFETY: prevent redirects to production domains when running in staging.
+    if Rails.env.staging?
+      prod_hosts = ["bitbridgeglobal.com", "www.bitbridgeglobal.com"]
+      if prod_hosts.any? { |h| redirect.include?(h) }
+        redirect = default_redirect
+      end
+    end
+
     body_hash = {
       "amount":             record_params[:total_amount] || record_params[:amount],
       "customerName":       record_params[:customer_name] || record_params[:name],
       "customerEmail":      record_params[:email],
-      "paymentReference":   record_params[:type].present? && record_params[:type] == 'bills' ?
-                              "bbg-#{Time.now.to_i}" : "fbg-#{Time.now.to_i}",
+      "paymentReference":   (record_params[:type].present? && record_params[:type] == 'bills') ? "bbg-#{Time.now.to_i}" : "fbg-#{Time.now.to_i}",
       "paymentDescription": record_params[:description],
       "currencyCode":       'NGN',
       "contractCode":       @contract_code,
-     default_redirect = ENV.fetch(
-  "MONNIFY_REDIRECT_URL_DEFAULT",
-  "https://bitbridge-staging.netlify.app/app-redirect"
-)
-
-redirect = record_params[:redirect_url].to_s.strip
-redirect = default_redirect if redirect.blank?
-
-if Rails.env.staging?
-  prod_hosts = ["bitbridgeglobal.com", "www.bitbridgeglobal.com"]
-  redirect = default_redirect if prod_hosts.any? { |h| redirect.include?(h) }
-end
-
-body_hash = {
-  # ... keep your existing keys above/below ...
-  "redirectUrl": redirect,
-  "paymentMethods": %w[CARD ACCOUNT_TRANSFER],
-  "metadata": {
-    "name": record_params[:customer_name] || record_params[:name],
-    "paymentPurpose": record_params[:payment_purpose]
-  }
-}
-
-
-payload = {
-  # ...
-  "redirectUrl": redirect,
-  # ...
-}
-
+      "redirectUrl":        redirect,
       "paymentMethods":     %w[CARD ACCOUNT_TRANSFER],
       "metadata": {
         "name":           record_params[:customer_name] || record_params[:name],
@@ -213,13 +200,11 @@ payload = {
 
     unless response.success?
       message = response['responseMessage'] || response['message'] || "Monnify error #{response.code}"
-      # ?. Never include request body in errors/logs
       raise message
     end
 
     { response: response, status: :ok }
   rescue StandardError => e
-    # ?. Do NOT return request payload (contains customer PII)
     { message: e.message.to_s }
   end
 end
