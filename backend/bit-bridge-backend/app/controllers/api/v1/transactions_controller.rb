@@ -114,20 +114,41 @@ module Api
           return render json: { message: 'Transaction not found' }, status: :not_found
         end
 
-        currency = transaction_record&.exchange&.wallet&.currency.presence || 'NGN'
+        exchange = transaction_record.exchange
+
+        currency =
+          exchange&.wallet&.currency.presence ||
+          transaction_record&.exchange&.wallet&.currency.presence ||
+          'NGN'
+
         status_value = transaction_record.status.to_s.strip.downcase
         status_value = 'pending' if status_value.blank?
-        amount_value = transaction_record&.amount
 
+        # ✅ Critical: ensure amount is not nil (some flows don’t persist amount on TransactionRecord)
+        amount_value =
+          transaction_record&.amount.presence ||
+          exchange&.amount.presence
+
+        exchange_status = exchange&.status.to_s.strip.downcase.presence
+
+        payload = {
+          reference: transaction_record.reference,
+          status: status_value,
+          amount: amount_value,
+          currency: currency,
+          exchange_id: exchange&.id,
+          exchange_status: exchange_status,
+          created_at: transaction_record.created_at,
+          updated_at: transaction_record.updated_at
+        }
+
+        # ✅ Keep existing shape, but also add top-level keys for any legacy frontend polling logic
         render json: {
-          data: {
-            reference: transaction_record.reference,
-            status: status_value,
-            amount: amount_value,
-            currency: currency,
-            created_at: transaction_record.created_at,
-            updated_at: transaction_record.updated_at
-          }
+          data: payload,
+          reference: payload[:reference],
+          status: payload[:status],
+          amount: payload[:amount],
+          currency: payload[:currency]
         }, status: :ok
       end
 
