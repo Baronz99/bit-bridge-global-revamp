@@ -166,7 +166,7 @@ class PaymentService
       "paymentDescription": record_params[:description],
       "currencyCode":       'NGN',
       "contractCode":       @contract_code,
-      default_redirect = ENV.fetch(
+     default_redirect = ENV.fetch(
   "MONNIFY_REDIRECT_URL_DEFAULT",
   "https://bitbridge-staging.netlify.app/app-redirect"
 )
@@ -175,12 +175,20 @@ redirect = record_params[:redirect_url].to_s.strip
 redirect = default_redirect if redirect.blank?
 
 if Rails.env.staging?
-  # If staging clients accidentally send prod URLs, force back to staging.
   prod_hosts = ["bitbridgeglobal.com", "www.bitbridgeglobal.com"]
-  if prod_hosts.any? { |h| redirect.include?(h) }
-    redirect = default_redirect
-  end
+  redirect = default_redirect if prod_hosts.any? { |h| redirect.include?(h) }
 end
+
+body_hash = {
+  # ... keep your existing keys above/below ...
+  "redirectUrl": redirect,
+  "paymentMethods": %w[CARD ACCOUNT_TRANSFER],
+  "metadata": {
+    "name": record_params[:customer_name] || record_params[:name],
+    "paymentPurpose": record_params[:payment_purpose]
+  }
+}
+
 
 payload = {
   # ...
