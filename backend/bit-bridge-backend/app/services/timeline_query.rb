@@ -60,6 +60,12 @@ class TimelineQuery
     wallet_transactions.map do |tx|
       record = tx.transaction_record
 
+      # ✅ Receipt reference logic (critical for mobile routing):
+      # - Prefer transaction_record.reference (bank-grade receipt ref like fbg-/bbg-)
+      # - Fallback to tx.reference (if your Transaction model stores a receipt-like reference)
+      # - Never fabricate "wallet-tx-*" as a receipt reference.
+      receipt_ref = record&.reference.presence || tx.reference.presence
+
       {
         id: "wallet-tx-#{tx.id}",
         kind: 'wallet_transaction',
@@ -75,8 +81,19 @@ class TimelineQuery
           coin_type: tx.coin_type,
           address: tx.address,
           bank: tx.bank,
-          reference: record&.reference,
-          description: record&.description,
+
+          # ✅ New: explicit transaction_record reference (keeps semantics clear)
+          transaction_record_reference: record&.reference,
+
+          # ✅ New: provide record id for debugging/correlation (harmless for clients)
+          transaction_record_id: record&.id,
+
+          # ✅ Important: this is what the mobile app already inspects for receipt routing.
+          # If transaction_record exists, it becomes fbg-/bbg- and confirm receipt works.
+          reference: receipt_ref,
+
+          # Prefer richer record fields, but keep useful fallbacks
+          description: record&.description.presence || tx.description,
           account_name: record&.customer_name,
           account_number: record&.account_number
         }
