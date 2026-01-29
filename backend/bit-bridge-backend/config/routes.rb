@@ -2,15 +2,14 @@
 
 require "sidekiq/web"
 
-
 Rails.application.routes.draw do
+  # --- non-API (legacy / admin / misc) ---
   resources :cards
   resources :bank_transactions
   resources :commissions
   resources :bill_orders
 
-
- mount Sidekiq::Web => "/sidekiq"
+  mount Sidekiq::Web => "/sidekiq"
 
   get "users/index"
   get "users/update"
@@ -39,6 +38,7 @@ Rails.application.routes.draw do
 
   get "up" => "rails/health#show", as: :rails_health_check
 
+  # --- API v1 ---
   namespace :api do
     namespace :v1 do
       # Webhooks
@@ -46,13 +46,16 @@ Rails.application.routes.draw do
       post "anchor/webhook",     to: "webhooks#anchor"
       post "bridgecard/webhook", to: "webhooks#bridgecard"
 
-      post "/login", to: "sessions#create"
-      post "signup", to: "users/registrations#create"
-      post "refresh", to: "users/sessions#refresh"
-      delete "logout", to: "users/sessions#destroy"
-      get "confirmation", to: "users/confirmations#show"
+      # Auth
+      post   "/login",        to: "sessions#create"
+      post   "signup",        to: "users/registrations#create"
+      post   "refresh",       to: "users/sessions#refresh"
+      delete "logout",        to: "users/sessions#destroy"
+      get    "confirmation",  to: "users/confirmations#show"
 
-      get "timeline", to: "timeline#index"
+      # Timeline
+      get "timeline",     to: "timeline#index"
+      get "timeline/:id", to: "timeline#show"
 
       # ✅ Termii delivery receipts (DLR)
       post "termii/dlr", to: "termii_webhooks#dlr"
@@ -84,6 +87,7 @@ Rails.application.routes.draw do
         post "reset/confirm", to: "transaction_pins#reset_confirm"
       end
 
+      # Cards
       resources :cards do
         collection do
           post :fund_wallet
@@ -115,27 +119,28 @@ Rails.application.routes.draw do
       # ✅ Tier 3 Biometric Verification
       namespace :verification do
         namespace :tier3 do
-          post :start   # POST /api/v1/verification/tier3/start
-          post :liveness # POST /api/v1/verification/tier3/liveness
-          get  :status  # GET  /api/v1/verification/tier3/status   ✅ added
+          post :start     # POST /api/v1/verification/tier3/start
+          post :liveness  # POST /api/v1/verification/tier3/liveness
+          get  :status    # GET  /api/v1/verification/tier3/status
         end
       end
 
-        resources :accounts do
-          collection do
-            post :verify_kyc
-            get  :get_account_number
-            get  :user_accounts
-            get  :get_user_account_detail
-            get  :get_account_details
-            get  :get_banks
-            get  :beneficiaries
-            post :resolve
+      # Accounts
+      resources :accounts do
+        collection do
+          post :verify_kyc
+          get  :get_account_number
+          get  :user_accounts
+          get  :get_user_account_detail
+          get  :get_account_details
+          get  :get_banks
+          get  :beneficiaries
+          post :resolve
 
-            get  :verify_transfer
-            post :initiate_fund_transfer
-            post :create_counter_party
-          end
+          get  :verify_transfer
+          post :initiate_fund_transfer
+          post :create_counter_party
+        end
 
         member do
           get :verify_transfer
@@ -182,11 +187,13 @@ Rails.application.routes.draw do
           get  :user
           get  :verify
         end
+
         member do
           get :receipt
         end
       end
 
+      # ✅ Unified receipts endpoint
       resources :receipts, only: [:show]
 
       resources :fees, only: [:index]
@@ -264,9 +271,9 @@ Rails.application.routes.draw do
         member do
           post :fund
           post :withdraw
-          get  :timeline, to: "circles/timeline#index"
-          get  :audit, to: "circle_audits#show", constraints: ->(req) { req.format == :json }
-          get  :audit, to: "circle_audits#csv", constraints: ->(req) { req.format == :csv }
+          get  :timeline,       to: "circles/timeline#index"
+          get  :audit,          to: "circle_audits#show", constraints: ->(req) { req.format == :json }
+          get  :audit,          to: "circle_audits#csv",  constraints: ->(req) { req.format == :csv }
           get  :audit_summary
           get  :export_csv
         end
@@ -291,38 +298,45 @@ Rails.application.routes.draw do
       resources :disputes, only: [:create]
       resources :statistics
 
+      # Admin
       namespace :admin do
         resources :kyc_reviews, only: %i[index update]
-        get 'pricing-spec', to: 'pricing_spec#show'
-        get 'ops/health', to: 'ops#health'
+        get "pricing-spec", to: "pricing_spec#show"
+        get "ops/health",   to: "ops#health"
         resources :transaction_records, only: [:index]
-        resource :fx_settings, path: 'fx-settings', only: %i[show update] do
+
+        resource :fx_settings, path: "fx-settings", only: %i[show update] do
           post :refresh_provider
           post :apply_provider
         end
-        post 'fx-settings/refresh-provider', to: 'fx_settings#refresh_provider'
-        post 'fx-settings/apply-provider', to: 'fx_settings#apply_provider'
-        post 'fx-settings/provider/refresh', to: 'fx_settings#refresh_exchange_rate'
-        post 'fx-settings/provider/apply', to: 'fx_settings#apply_exchange_rate'
+
+        post "fx-settings/refresh-provider", to: "fx_settings#refresh_provider"
+        post "fx-settings/apply-provider",   to: "fx_settings#apply_provider"
+        post "fx-settings/provider/refresh", to: "fx_settings#refresh_exchange_rate"
+        post "fx-settings/provider/apply",   to: "fx_settings#apply_exchange_rate"
+
         resources :cards, only: [] do
-          post :mock_debit, on: :member
-          post :refresh_status, on: :member
-          post :sync_transactions, on: :member
-          post :enrich_transaction, on: :member
-          get :provider_details, on: :member
-          post :refresh_provider_status, on: :member
-          get :provider_transactions, on: :member
-          get :provider_transaction, on: :member
-          get :provider_transaction_status, on: :member
-          get :events, on: :member
+          post :mock_debit,               on: :member
+          post :refresh_status,           on: :member
+          post :sync_transactions,        on: :member
+          post :enrich_transaction,       on: :member
+          get  :provider_details,         on: :member
+          post :refresh_provider_status,  on: :member
+          get  :provider_transactions,    on: :member
+          get  :provider_transaction,     on: :member
+          get  :provider_transaction_status, on: :member
+          get  :events,                   on: :member
         end
-        get 'cards/:id/provider-details', to: 'cards#provider_details'
-        post 'cards/:id/refresh-provider-status', to: 'cards#refresh_provider_status'
-        post 'cards/:id/sync-transactions', to: 'cards#sync_transactions'
-        post 'cards/:id/enrich-transaction', to: 'cards#enrich_transaction'
-        get 'cards/:id/provider-transactions', to: 'cards#provider_transactions'
-        get 'cards/:id/provider-transaction', to: 'cards#provider_transaction'
-        get 'cards/:id/provider-transaction-status', to: 'cards#provider_transaction_status'
+
+        # (kept your explicit routes exactly as-is)
+        get  "cards/:id/provider-details",         to: "cards#provider_details"
+        post "cards/:id/refresh-provider-status",  to: "cards#refresh_provider_status"
+        post "cards/:id/sync-transactions",        to: "cards#sync_transactions"
+        post "cards/:id/enrich-transaction",       to: "cards#enrich_transaction"
+        get  "cards/:id/provider-transactions",    to: "cards#provider_transactions"
+        get  "cards/:id/provider-transaction",     to: "cards#provider_transaction"
+        get  "cards/:id/provider-transaction-status", to: "cards#provider_transaction_status"
+
         resources :users, only: [:index] do
           post :reveal, on: :member
         end

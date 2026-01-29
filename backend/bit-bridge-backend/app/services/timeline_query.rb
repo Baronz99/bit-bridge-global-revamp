@@ -4,7 +4,15 @@ class TimelineQuery
   DEFAULT_LIMIT = 30
   MAX_LIMIT = 100
 
-  def initialize(user:, limit: nil, cursor: nil, circle_id: nil, default_limit: DEFAULT_LIMIT, max_limit: MAX_LIMIT, include_card_events: nil)
+  def initialize(
+    user:,
+    limit: nil,
+    cursor: nil,
+    circle_id: nil,
+    default_limit: DEFAULT_LIMIT,
+    max_limit: MAX_LIMIT,
+    include_card_events: nil
+  )
     @user = user
     @circle_id = circle_id
     @default_limit = normalize_limit_value(default_limit, DEFAULT_LIMIT)
@@ -14,6 +22,7 @@ class TimelineQuery
     @cursor = parse_cursor(cursor)
   end
 
+  # GET /api/v1/timeline
   def call
     merged = circle_items
     merged += wallet_items if include_global_items?
@@ -22,8 +31,8 @@ class TimelineQuery
 
     sorted =
       merged
-      .sort_by { |entry| entry[:occurred_at] || Time.at(0) }
-      .reverse
+        .sort_by { |entry| entry[:occurred_at] || Time.at(0) }
+        .reverse
 
     limited = sorted.first(@limit)
 
@@ -33,165 +42,247 @@ class TimelineQuery
     }
   end
 
+  # GET /api/v1/timeline/:id
+  # Returns a single timeline item in the same shape as index items.
+  def find_item(id)
+    key = id.to_s.strip
+    return nil if key.blank?
+
+    prefix, raw_id = key.split('-', 3).values_at(0, 2) # e.g. "wallet", "tx", "UUID"
+    # handle ids like "wallet-tx-<uuid>" / "circle-tx-<uuid>" / "bill-<uuid>" / "card-evt-<uuid>"
+    if key.start_with?('wallet-tx-')
+      tx_id = key.sub('wallet-tx-', '')
+      tx = wallet_transactions_unscoped.find_by(id: tx_id)
+      return nil unless tx
+      return wallet_item(tx)
+    end
+
+    if key.start_with?('circle-tx-')
+      tx_id = key.sub('circle-tx-', '')
+      tx = circle_transactions_unscoped.find_by(id: tx_id)
+      return nil unless tx
+      return circle_item(tx)
+    end
+
+    if key.start_with?('bill-')
+      order_id = key.sub('bill-', '')
+      order = bill_orders_unscoped.find_by(id: order_id)
+      return nil unless order
+      return bill_item(order)
+    end
+
+    if key.start_with?('card-evt-')
+      event_id = key.sub('card-evt-', '')
+      event = card_events_unscoped.find_by(id: event_id)
+      return nil unless event
+      return card_item(event)
+    end
+
+    nil
+  end
+
   private
 
+  # -------------------------
+  # Item builders
+  # -------------------------
+
   def circle_items
-    circle_transactions.map do |tx|
-      {
-        id: "circle-tx-#{tx.id}",
-        kind: 'circle_transaction',
-        label: timeline_label(tx.description, tx.kind),
-        amount_cents: tx.amount_cents,
-        status: nil,
-        occurred_at: tx.occurred_at,
-        actor: actor_json(tx.user),
-        meta: {
-          circle_id: tx.circle_id,
-          circle_name: tx.circle&.name,
-          activity_id: tx.circle_activity_id,
-          activity_name: tx.circle_activity&.name,
-          reference: tx.reference
-        }
-      }
-    end
+    circle_transactions.map { |tx| circle_item(tx) }
+  end
+
+  def circle_item(tx)
+    {
+      id: "circle-tx-#{tx.id}",
+      kind: 'circle_transaction',
+      label: timeline_label(tx.description, tx.kind),
+      amount_cents: tx.amount_cents,
+      status: nil,
+      occurred_at: tx.occurred_at,
+      actor: actor_json(tx.user),
+      meta: {
+        circle_id: tx.circle_id,
+        circle_name: tx.circle&.name,
+        activity_id: tx.circle_activity_id,
+        activity_name: tx.circle_activity&.name,
+
+        # circle tx reference (not always a canonical receipt ref, but keep it)
+        reference: tx.reference,
+
+        # if circle tx is linked to a transaction_record, expose it (optional)
+        transaction_record_reference: nil
+      }.compact
+    }
   end
 
   def wallet_items
-    wallet_transactions.map do |tx|
-      record = tx.transaction_record
+    wallet_transactions.map { |tx| wallet_item(tx) }
+  end
 
-      # ✅ Transaction does NOT have `description` in your schema.
-      # Use record.description if present, else fall back to tx.address (which exists).
-      safe_description = record&.description.presence || tx.address
+  def wallet_item(tx)
+    record = tx.transaction_record
+    safe_description = record&.description.presence || tx.address
 
-      {
-        id: "wallet-tx-#{tx.id}",
-        kind: 'wallet_transaction',
-        label: wallet_label(tx, record),
-        amount_cents: amount_to_cents(tx.amount),
-        status: tx.status,
-        occurred_at: tx.created_at,
-        actor: actor_json(tx.user),
-        meta: {
-          wallet_type: tx.wallet&.wallet_type,
-          currency: tx.wallet&.currency,
-          transaction_type: tx.transaction_type,
-          coin_type: tx.coin_type,
-          address: tx.address,
-          bank: tx.bank,
+    {
+      id: "wallet-tx-#{tx.id}",
+      kind: 'wallet_transaction',
+      label: wallet_label(tx, record),
+      amount_cents: amount_to_cents(tx.amount),
+      status: tx.status,
+      occurred_at: tx.created_at,
+      actor: actor_json(tx.user),
+      meta: {
+        wallet_type: tx.wallet&.wallet_type,
+        currency: tx.wallet&.currency,
+        transaction_type: tx.transaction_type,
+        coin_type: tx.coin_type,
+        address: tx.address,
+        bank: tx.bank,
 
-          # ✅ Transaction model does NOT have `reference`.
-          # Only use TransactionRecord.reference.
-          reference: record&.reference,
+        # canonical receipt reference (preferred)
+        reference: record&.reference,
+        transaction_record_reference: record&.reference,
+        transaction_record_id: record&.id,
 
-          description: safe_description,
-          account_name: record&.customer_name,
-          account_number: record&.account_number,
+        description: safe_description,
+        account_name: record&.customer_name,
+        account_number: record&.account_number,
 
-          # ✅ correlation / routing helpers
-          transaction_record_reference: record&.reference,
-          transaction_record_id: record&.id,
-          unique_transaction_id: tx.unique_transaction_id,
-          bridge_card_id: tx.bridge_card_id
-        }
-      }
-    end
+        unique_transaction_id: tx.unique_transaction_id,
+
+        # used for card receipt / card history correlation (provider-side)
+        bridge_card_id: tx.bridge_card_id
+      }.compact
+    }
   end
 
   def bill_items
-    bill_orders.map do |order|
-      {
-        id: "bill-#{order.id}",
-        kind: 'bill_order',
-        label: timeline_label(order.description, order.service_type),
-        amount_cents: amount_to_cents(order.total_amount || order.amount),
-        status: order.status,
-        occurred_at: order.updated_at,
-        actor: actor_json(order.user),
-        meta: {
-          service_type: order.service_type,
-          biller: order.biller,
-          payment_method: order.payment_method,
-          reference: order.transaction_id,
-          token: order.token,
-          meter_number: order.meter_number,
-          phone: order.phone,
-          usd_amount: order.usd_amount,
-          currency: 'NGN'
-        }
-      }
-    end
+    bill_orders.map { |order| bill_item(order) }
+  end
+
+  def bill_item(order)
+    record = order.transaction_record
+
+    {
+      id: "bill-#{order.id}",
+      kind: 'bill_order',
+      label: timeline_label(order.description, order.service_type),
+      amount_cents: amount_to_cents(order.total_amount || order.amount),
+      status: order.status,
+      occurred_at: order.updated_at,
+      actor: actor_json(order.user),
+      meta: {
+        service_type: order.service_type,
+        biller: order.biller,
+        payment_method: order.payment_method,
+
+        # provider id / transaction_id isn't always the canonical receipt reference
+        reference: record&.reference.presence || order.transaction_id,
+
+        # canonical receipt reference (preferred)
+        transaction_record_reference: record&.reference,
+
+        token: order.token,
+        meter_number: order.meter_number,
+        phone: (order.respond_to?(:phone_number) ? order.phone_number : order.phone),
+        usd_amount: order.usd_amount,
+        currency: (order.respond_to?(:currency) ? order.currency : nil) || 'NGN'
+      }.compact
+    }
   end
 
   def card_items
-    card_events.map do |event|
-      occurred_at = event.transaction_at || event.created_at
-
-      {
-        id: "card-evt-#{event.id}",
-        kind: 'card_event',
-        label: timeline_label(event.description, event.event),
-        amount_cents: amount_to_cents(event.amount),
-        status: event.status,
-        occurred_at: occurred_at,
-        actor: actor_json(event.user),
-        meta: {
-          circle_id: nil,
-          circle_name: nil,
-          activity_id: nil,
-          activity_name: nil,
-          reference: event.transaction_reference,
-          currency: 'USD'
-        }
-      }
-    end
+    card_events.map { |event| card_item(event) }
   end
 
-  def circle_transactions
-    scope =
-      CircleTransaction
-      .includes(:circle, :user, :reactions, :circle_activity, dispute: :raised_by)
+  def card_item(event)
+    occurred_at = event.transaction_at || event.created_at
 
-    if @circle_id
-      scope = scope.where(circle_id: @circle_id)
-    else
-      scope = scope.where(circle_id: @user.circles.select(:id))
+    # Map provider card_id -> local Card.id when possible
+    local_card = begin
+      Card.find_by(user_id: @user.id, card_id: event.card_id)
+    rescue StandardError
+      nil
     end
 
-    scope = scope.where('occurred_at < ?', @cursor) if @cursor
+    {
+      id: "card-evt-#{event.id}",
+      kind: 'card_event',
+      label: timeline_label(event.description, event.event),
+      amount_cents: amount_to_cents(event.amount),
+      status: event.status,
+      occurred_at: occurred_at,
+      actor: actor_json(event.user),
+      meta: {
+        currency: (event.respond_to?(:currency) ? event.currency : nil) || 'USD',
 
+        # card mapping for mobile: local Card.id used for /cards/:id/details and /cards/:id/history
+        card_id: local_card&.id,
+
+        # provider transaction reference (not always receipt ref, but used for receipts)
+        reference: event.transaction_reference || event.provider_transaction_reference || event.id
+      }.compact
+    }
+  end
+
+  # -------------------------
+  # Scopes
+  # -------------------------
+
+  def circle_transactions
+    scope = circle_transactions_unscoped
+    scope = scope.where('occurred_at < ?', @cursor) if @cursor
     scope.order(occurred_at: :desc).limit(@limit)
   end
 
-  def card_events
-    scope = CardEvent.includes(:user).where(user_id: @user.id)
+  def circle_transactions_unscoped
+    scope =
+      CircleTransaction
+        .includes(:circle, :user, :reactions, :circle_activity, dispute: :raised_by)
 
-    if @cursor
-      scope = scope.where('COALESCE(transaction_at, created_at) < ?', @cursor)
+    if @circle_id
+      scope.where(circle_id: @circle_id)
+    else
+      scope.where(circle_id: @user.circles.select(:id))
     end
+  end
 
+  def card_events
+    scope = card_events_unscoped
+    scope = scope.where('COALESCE(transaction_at, created_at) < ?', @cursor) if @cursor
     scope.order(Arel.sql('COALESCE(transaction_at, created_at) DESC')).limit(@limit)
   end
 
+  def card_events_unscoped
+    CardEvent.includes(:user).where(user_id: @user.id)
+  end
+
   def wallet_transactions
-    scope =
-      Transaction
-      .joins(:wallet)
-      .includes(:wallet, :transaction_record, :user)
-      .where(wallets: { user_id: @user.id })
-
+    scope = wallet_transactions_unscoped
     scope = scope.where('transactions.created_at < ?', @cursor) if @cursor
-
     scope.order(created_at: :desc).limit(@limit)
   end
 
+  def wallet_transactions_unscoped
+    Transaction
+      .joins(:wallet)
+      .includes(:wallet, :transaction_record, :user)
+      .where(wallets: { user_id: @user.id })
+  end
+
   def bill_orders
-    scope = BillOrder.includes(:user).where(user_id: @user.id)
-
+    scope = bill_orders_unscoped
     scope = scope.where('updated_at < ?', @cursor) if @cursor
-
     scope.order(updated_at: :desc).limit(@limit)
   end
+
+  def bill_orders_unscoped
+    BillOrder.includes(:user, :transaction_record).where(user_id: @user.id)
+  end
+
+  # -------------------------
+  # Helpers
+  # -------------------------
 
   def actor_json(user)
     return nil unless user
@@ -200,11 +291,7 @@ class TimelineQuery
     name = [profile&.first_name, profile&.last_name].compact.join(' ').strip
     name = user.email if name.blank?
 
-    {
-      id: user.id,
-      name: name,
-      email: user.email
-    }
+    { id: user.id, name: name, email: user.email }
   end
 
   def timeline_label(description, fallback)
@@ -223,7 +310,6 @@ class TimelineQuery
 
   def amount_to_cents(amount)
     return nil if amount.nil?
-
     (amount.to_d * 100).to_i
   end
 
@@ -241,7 +327,6 @@ class TimelineQuery
 
   def parse_cursor(raw)
     return nil if raw.blank?
-
     Time.iso8601(raw.to_s)
   rescue ArgumentError
     nil
@@ -249,7 +334,6 @@ class TimelineQuery
 
   def include_card_events?
     return @include_card_events unless @include_card_events.nil?
-
     @circle_id.nil?
   end
 
