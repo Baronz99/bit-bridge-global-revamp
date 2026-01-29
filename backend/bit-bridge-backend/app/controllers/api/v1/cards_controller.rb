@@ -3,9 +3,6 @@
 module Api
   module V1
     class CardsController < ApplicationController
-      # NOTE: ApplicationController already has authenticate_user!
-      # Keeping this would be redundant, so we omit it.
-
       before_action :set_card, only: %i[show update destroy]
 
       before_action :ensure_bridge_cards_enabled!,
@@ -45,16 +42,22 @@ module Api
                     ],
                     message: 'Complete Tier 2 verification to use cards.'
 
-      rescue_from ActiveRecord::RecordNotFound do
-        render json: { message: 'Card not found' }, status: :not_found
-      end
-
+      # IMPORTANT:
+      # Rails resolves rescue_from handlers in reverse order of declaration.
+      # If StandardError is declared after RecordNotFound, it will swallow RecordNotFound => 500.
       rescue_from StandardError do |e|
-        # Don’t hide errors in development, but don’t return raw exception messages in prod.
-        Rails.logger.error("[CardsController] #{e.class}: #{e.message}\n#{e.backtrace&.first(10)&.join("\n")}")
+        raise e if e.is_a?(ActiveRecord::RecordNotFound)
+
+        Rails.logger.error(
+          "[CardsController] #{e.class}: #{e.message}\n#{e.backtrace&.first(10)&.join("\n")}"
+        )
 
         render json: { message: 'Something went wrong while processing your request.' },
                status: :internal_server_error
+      end
+
+      rescue_from ActiveRecord::RecordNotFound do
+        render json: { message: 'Card not found' }, status: :not_found
       end
 
       # GET /api/v1/cards
@@ -106,9 +109,6 @@ module Api
       end
 
       # POST /api/v1/cards/create_card
-      #
-      # Body example:
-      # { card: { amount: 10, transaction_pin: "1234", wallet_type: "usd", ... } }
       def create_card
         raw_pin =
           params.dig(:card, :transaction_pin).presence ||
@@ -122,7 +122,6 @@ module Api
 
         processed = normalized_card_params
 
-        # ✅ Tunnel-only: cards are USD feature
         wt = processed[:wallet_type].to_s.downcase
         wt = 'usd' if wt == 'usdt'
 
@@ -188,7 +187,7 @@ module Api
 
       # GET /api/v1/cards/:id/details
       def details
-        card = current_user.cards.find(params[:id])
+        card = find_user_card!(params[:id])
         return render json: { message: 'card_id not available' }, status: :unprocessable_entity if card.card_id.blank?
 
         service = BridgeCardService.new
@@ -203,7 +202,7 @@ module Api
 
       # GET /api/v1/cards/:id/balance
       def balance
-        card = current_user.cards.find(params[:id])
+        card = find_user_card!(params[:id])
         return render json: { message: 'card_id not available' }, status: :unprocessable_entity if card.card_id.blank?
 
         service = BridgeCardService.new
@@ -217,10 +216,6 @@ module Api
       end
 
       # GET /api/v1/cards/:id/reveal
-      #
-      # IMPORTANT:
-      # You intentionally disabled this endpoint earlier.
-      # Keep it disabled to avoid leaking PCI data through non-PCI controller.
       def reveal
         render json: { message: 'Method not allowed. Use POST /api/v1/pci/cards/:id/reveal' },
                status: :method_not_allowed
@@ -228,7 +223,7 @@ module Api
 
       # GET /api/v1/cards/:id/history
       def history
-        card = current_user.cards.find(params[:id])
+        card = find_user_card!(params[:id])
         return render json: { message: 'card_id not available' }, status: :unprocessable_entity if card.card_id.blank?
 
         if params[:refresh].to_s == '1'
@@ -268,6 +263,7 @@ module Api
           event_time = event.transaction_at || event.created_at
           label = event.description.presence || event.event.to_s.tr('._', ' ').strip
           metadata = event.metadata.is_a?(Hash) ? event.metadata : {}
+
           fx_payload =
             if event.merchant_currency.present? || metadata['fx_discovery_present']
               {
@@ -312,7 +308,7 @@ module Api
 
       # GET /api/v1/cards/:id/insights
       def insights
-        card = current_user.cards.find(params[:id])
+        card = find_user_card!(params[:id])
         return render json: { message: 'card_id not available' }, status: :unprocessable_entity if card.card_id.blank?
 
         txns =
@@ -372,7 +368,7 @@ module Api
 
       # PATCH /api/v1/cards/:id/freeze
       def freeze
-        card = current_user.cards.find(params[:id])
+        card = find_user_card!(params[:id])
         return render json: { message: 'card_id not available' }, status: :unprocessable_entity if card.card_id.blank?
 
         service = BridgeCardService.new
@@ -388,7 +384,7 @@ module Api
 
       # PATCH /api/v1/cards/:id/unfreeze
       def unfreeze
-        card = current_user.cards.find(params[:id])
+        card = find_user_card!(params[:id])
         return render json: { message: 'card_id not available' }, status: :unprocessable_entity if card.card_id.blank?
 
         service = BridgeCardService.new
@@ -437,15 +433,27 @@ module Api
       end
 
       def set_card
-        # Avoid letting a user access someone else’s card
         @card = current_user.cards.find(params[:id])
+      end
+
+      # ✅ KEY FIX:
+      # Timeline often supplies the provider/bridge id (stored in cards.card_id),
+      # while REST routes often use cards.id.
+      # This lets the same endpoint accept either.
+      def find_user_card!(id_param)
+        key = id_param.to_s.strip
+        raise ActiveRecord::RecordNotFound if key.blank?
+
+        current_user.cards.find_by(id: key) ||
+          current_user.cards.find_by(card_id: key) ||
+          raise(ActiveRecord::RecordNotFound)
       end
 
       def card_params
         params.require(:card).permit(
           :cardholder_id, :card_id, :transaction_reference, :card_type, :card_brand,
           :card_currency, :card_limit, :funding_amount, :amount, :currency,
-          :transaction_pin, # ✅ keep ONLY transaction_pin coming from client
+          :transaction_pin,
           :status, :postal_code, :user_id, :address, :city, :state, :postal,
           :house_no, :bvn, :account_source,
           :wallet_type,
