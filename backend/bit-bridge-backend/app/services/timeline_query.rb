@@ -60,6 +60,10 @@ class TimelineQuery
     wallet_transactions.map do |tx|
       record = tx.transaction_record
 
+      # ✅ Transaction does NOT have `description` in your schema.
+      # Use record.description if present, else fall back to tx.address (which exists).
+      safe_description = record&.description.presence || tx.address
+
       {
         id: "wallet-tx-#{tx.id}",
         kind: 'wallet_transaction',
@@ -76,16 +80,15 @@ class TimelineQuery
           address: tx.address,
           bank: tx.bank,
 
-          # ✅ IMPORTANT: Transaction model does NOT have `reference`.
-          # Only use TransactionRecord.reference as the bank-grade receipt reference.
+          # ✅ Transaction model does NOT have `reference`.
+          # Only use TransactionRecord.reference.
           reference: record&.reference,
 
-          # ✅ helpful fallbacks for UI
-          description: (record&.description.presence || tx.description),
+          description: safe_description,
           account_name: record&.customer_name,
           account_number: record&.account_number,
 
-          # ✅ safe correlation fields (helps debug card funding etc.)
+          # ✅ correlation / routing helpers
           transaction_record_reference: record&.reference,
           transaction_record_id: record&.id,
           unique_transaction_id: tx.unique_transaction_id,
