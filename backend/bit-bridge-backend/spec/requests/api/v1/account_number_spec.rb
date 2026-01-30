@@ -29,17 +29,34 @@ RSpec.describe 'Anchor account number', type: :request do
       expect(response).to have_http_status(:not_found)
     end
 
-    it 'returns 422 with stable errors when Anchor service fails' do
+    it 'returns anchor_phone_already_exists code when provider rejects duplicate phone' do
       user = create(:user, :tier2)
       Account.create!(user: user, vendor: 'anchor', account_type: :individual, useable_id: 'abc123')
       allow_any_instance_of(AnchorService).to receive(:create_account_number).and_return(
-        { status: :bad_request, message: 'anchor_error' }
+        { status: :bad_request, message: 'PhoneNumber already exist in this organization' }
       )
 
       get '/api/v1/accounts/get_account_number', headers: auth_headers(user)
       expect(response).to have_http_status(:unprocessable_entity)
       body = JSON.parse(response.body)
-      expect(body['errors']).to include('anchor_error')
+      expect(body['error']).to eq('anchor_phone_already_exists')
+      expect(body['errors'].first).to match(/phone/i)
+      expect(body.dig('meta', 'provider')).to eq('anchor')
+      expect(body.dig('meta', 'retryable')).to eq(false)
+    end
+
+    it 'returns provider_unavailable code when provider is down' do
+      user = create(:user, :tier2)
+      Account.create!(user: user, vendor: 'anchor', account_type: :individual, useable_id: 'abc123')
+      allow_any_instance_of(AnchorService).to receive(:create_account_number).and_return(
+        { status: :bad_request, message: '503 Service unavailable' }
+      )
+
+      get '/api/v1/accounts/get_account_number', headers: auth_headers(user)
+      expect(response).to have_http_status(:unprocessable_entity)
+      body = JSON.parse(response.body)
+      expect(body['error']).to eq('provider_unavailable')
+      expect(body.dig('meta', 'retryable')).to eq(true)
     end
 
     it 'returns 200 when eligible and service succeeds' do

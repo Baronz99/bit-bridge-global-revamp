@@ -58,7 +58,14 @@ module Api
       def get_account_number
         account = current_user.accounts.find_by(vendor: 'anchor')
         unless account
-          return render json: { errors: ['No Anchor account present'] }, status: :not_found
+          log_anchor_account_number_failure(
+            status: :not_found,
+            code: 'anchor_account_missing',
+            message: 'No Anchor account present',
+            account_id: nil
+          )
+          return render json: anchor_error_payload('anchor_account_missing', 'No Anchor account present', retryable: false),
+                        status: :not_found
         end
 
         service = AnchorService.new
@@ -70,9 +77,19 @@ module Api
             messsage: 'Account created'
           }, status: :ok
         else
-          render json: {
-            errors: [service_response[:message] || service_response[:response]].compact
-          }, status: :unprocessable_entity
+          raw_message = service_response[:message] || service_response[:response]
+          code, retryable = map_anchor_account_number_error(raw_message)
+
+          log_anchor_account_number_failure(
+            status: :unprocessable_entity,
+            code: code,
+            message: raw_message,
+            account_id: account.id,
+            retryable: retryable
+          )
+
+          render json: anchor_error_payload(code, raw_message, retryable: retryable),
+                 status: :unprocessable_entity
         end
       end
 
@@ -649,6 +666,44 @@ module Api
 
       def duplicate_anchor_phone_error?(message)
         message.to_s.downcase.include?('phonenumber already exist in this organization')
+      end
+
+      def map_anchor_account_number_error(message)
+        text = message.to_s.downcase
+
+        return ['anchor_phone_already_exists', false] if duplicate_anchor_phone_error?(text)
+        return ['anchor_kyc_incomplete', false] if text.include?('kyc') || text.include?('missing')
+        return ['provider_unavailable', true] if text.include?('unavailable') || text.include?('timeout') || text.include?('timed out') || text.include?('503')
+
+        ['anchor_account_number_failed', true]
+      end
+
+      def anchor_error_payload(code, message, retryable:)
+        {
+          error: code,
+          errors: [message.presence || 'Unable to generate account number'],
+          meta: {
+            provider: 'anchor',
+            request_id: request.request_id,
+            retryable: retryable
+          }
+        }
+      end
+
+      def log_anchor_account_number_failure(status:, code:, message:, account_id:, retryable: nil)
+        Rails.logger.info(
+          {
+            event: 'anchor.account_number.failure',
+            status: status,
+            error: code,
+            message: message,
+            user_id: current_user&.id,
+            account_id: account_id,
+            provider: 'anchor',
+            request_id: request.request_id,
+            retryable: retryable
+          }.compact
+        )
       end
 
       # ✅ Transaction PIN enforcement with lockouts + attempt tracking (safe if columns don't exist)
