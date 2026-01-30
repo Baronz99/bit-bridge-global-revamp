@@ -78,14 +78,18 @@ module Api
           }, status: :ok
         else
           raw_message = service_response[:message] || service_response[:response]
-          code, retryable = map_anchor_account_number_error(raw_message)
+          provider_status = service_response[:provider_status]
+          provider_body = service_response[:provider_body]
+          code, retryable = map_anchor_account_number_error(raw_message, provider_body)
 
           log_anchor_account_number_failure(
             status: :unprocessable_entity,
             code: code,
             message: raw_message,
             account_id: account.id,
-            retryable: retryable
+            retryable: retryable,
+            provider_status: provider_status,
+            provider_body: provider_body
           )
 
           render json: anchor_error_payload(code, raw_message, retryable: retryable),
@@ -665,15 +669,20 @@ module Api
       end
 
       def duplicate_anchor_phone_error?(message)
-        message.to_s.downcase.include?('phonenumber already exist in this organization')
+        msg = message.to_s.downcase
+        return true if msg.include?('phonenumber already exist in this organization')
+        return true if msg.include?('phone number already attached')
+
+        false
       end
 
-      def map_anchor_account_number_error(message)
+      def map_anchor_account_number_error(message, provider_body = nil)
         text = message.to_s.downcase
+        body_text = provider_body.to_s.downcase
 
-        return ['anchor_phone_already_exists', false] if duplicate_anchor_phone_error?(text)
-        return ['anchor_kyc_incomplete', false] if text.include?('kyc') || text.include?('missing')
-        return ['provider_unavailable', true] if text.include?('unavailable') || text.include?('timeout') || text.include?('timed out') || text.include?('503')
+        return ['anchor_phone_already_exists', false] if duplicate_anchor_phone_error?(text) || duplicate_anchor_phone_error?(body_text)
+        return ['anchor_kyc_incomplete', false] if text.include?('kyc') || text.include?('missing') || body_text.include?('kyc')
+        return ['provider_unavailable', true] if [text, body_text].any? { |t| t.include?('unavailable') || t.include?('timeout') || t.include?('timed out') || t.include?('503') }
 
         ['anchor_account_number_failed', true]
       end
@@ -690,7 +699,7 @@ module Api
         }
       end
 
-      def log_anchor_account_number_failure(status:, code:, message:, account_id:, retryable: nil)
+      def log_anchor_account_number_failure(status:, code:, message:, account_id:, retryable: nil, provider_status: nil, provider_body: nil)
         Rails.logger.info(
           {
             event: 'anchor.account_number.failure',
@@ -700,10 +709,19 @@ module Api
             user_id: current_user&.id,
             account_id: account_id,
             provider: 'anchor',
+            provider_status: provider_status,
+            provider_body: safe_provider_body(provider_body),
             request_id: request.request_id,
             retryable: retryable
           }.compact
         )
+      end
+
+      def safe_provider_body(body)
+        return nil if body.nil?
+
+        str = body.is_a?(String) ? body : (body.to_json rescue body.to_s)
+        str[0, 1000]
       end
 
       # ✅ Transaction PIN enforcement with lockouts + attempt tracking (safe if columns don't exist)

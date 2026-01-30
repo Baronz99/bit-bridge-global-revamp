@@ -49,7 +49,7 @@ RSpec.describe 'Anchor account number', type: :request do
       user = create(:user, :tier2)
       Account.create!(user: user, vendor: 'anchor', account_type: :individual, useable_id: 'abc123')
       allow_any_instance_of(AnchorService).to receive(:create_account_number).and_return(
-        { status: :bad_request, message: '503 Service unavailable' }
+        { status: :bad_request, message: '503 Service unavailable', provider_status: 503, provider_body: { error: 'unavailable' } }
       )
 
       get '/api/v1/accounts/get_account_number', headers: auth_headers(user)
@@ -57,6 +57,35 @@ RSpec.describe 'Anchor account number', type: :request do
       body = JSON.parse(response.body)
       expect(body['error']).to eq('provider_unavailable')
       expect(body.dig('meta', 'retryable')).to eq(true)
+    end
+
+    it 'returns anchor_phone_already_exists for alternate phone message' do
+      user = create(:user, :tier2)
+      Account.create!(user: user, vendor: 'anchor', account_type: :individual, useable_id: 'abc123')
+      allow_any_instance_of(AnchorService).to receive(:create_account_number).and_return(
+        { status: :bad_request, message: 'phone number already attached to customer', provider_status: 400, provider_body: { errors: [{ detail: 'phone number already attached' }] } }
+      )
+
+      get '/api/v1/accounts/get_account_number', headers: auth_headers(user)
+      expect(response).to have_http_status(:unprocessable_entity)
+      body = JSON.parse(response.body)
+      expect(body['error']).to eq('anchor_phone_already_exists')
+      expect(body.dig('meta', 'retryable')).to eq(false)
+    end
+
+    it 'returns anchor_account_number_failed with request_id on generic errors' do
+      user = create(:user, :tier2)
+      Account.create!(user: user, vendor: 'anchor', account_type: :individual, useable_id: 'abc123')
+      allow_any_instance_of(AnchorService).to receive(:create_account_number).and_return(
+        { status: :bad_request, message: 'unknown error' }
+      )
+
+      get '/api/v1/accounts/get_account_number', headers: auth_headers(user)
+      expect(response).to have_http_status(:unprocessable_entity)
+      body = JSON.parse(response.body)
+      expect(body['error']).to eq('anchor_account_number_failed')
+      expect(body.dig('meta', 'retryable')).to eq(true)
+      expect(body.dig('meta', 'request_id')).to be_present
     end
 
     it 'returns 200 when eligible and service succeeds' do
