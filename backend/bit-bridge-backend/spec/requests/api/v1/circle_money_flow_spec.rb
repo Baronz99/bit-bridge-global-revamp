@@ -152,6 +152,50 @@ RSpec.describe 'Circle Money Flow', type: :request do
       expect(wallet.transactions.count).to eq(wallet_tx_count)
     end
 
+    it 'attaches group_reference to both legs and returns a grouped timeline item with derived status' do
+      user = create(:user, :tier2, :with_pin)
+      circle = create_circle_for(user)
+      wallet = user.ngn_wallet
+      wallet.transactions.create!(
+        transaction_type: :deposit,
+        status: :approved,
+        coin_type: :bank,
+        amount: 200
+      )
+
+      post "/api/v1/circles/#{circle.id}/fund",
+           params: { amount_cents: 10_00, pin: '1234' },
+           headers: auth_headers(user)
+
+      expect(response).to have_http_status(:ok)
+
+      wallet_tx = wallet.transactions.order(created_at: :desc).first
+      circle_tx = circle.circle_transactions.order(created_at: :desc).first
+
+      group_ref_wallet = wallet_tx.metadata&.[]('group_reference')
+      group_ref_circle = circle_tx.metadata&.[]('group_reference')
+      expect(group_ref_wallet).to be_present
+      expect(group_ref_circle).to eq(group_ref_wallet)
+
+      get '/api/v1/timeline', headers: auth_headers(user)
+      expect(response).to have_http_status(:ok)
+      timeline = JSON.parse(response.body)
+      items = timeline['items']
+
+      grouped = items.select do |i|
+        i['id'].to_s.start_with?('circle-fund-') && i.dig('meta', 'group_reference') == group_ref_wallet
+      end
+      expect(grouped.length).to eq(1)
+      grouped_item = grouped.first
+      expect(grouped_item['status']).to eq('approved')
+      expect(grouped_item['amount_cents']).to eq(-10_00)
+
+      non_grouped_with_ref = items.select do |i|
+        i.dig('meta', 'group_reference') == group_ref_wallet && i['kind'] != 'circle_fund_group'
+      end
+      expect(non_grouped_with_ref).to be_empty
+    end
+
     it 'is idempotent with Idempotency-Key header' do
       user = create(:user, :tier2, :with_pin)
       circle = create_circle_for(user)

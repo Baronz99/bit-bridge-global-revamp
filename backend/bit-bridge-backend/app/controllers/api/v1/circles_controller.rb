@@ -145,6 +145,8 @@ module Api
           circle_balance_before = @circle.balance_cents.to_i
           wallet_balance_before = wallet.balance.to_d
 
+          group_reference = idempotency_key.presence || SecureRandom.uuid
+
           wallet_tx = wallet.transactions.create!(
             transaction_type: :withdrawal,
             status: :approved,
@@ -154,7 +156,8 @@ module Api
             metadata: {
               circle_id: @circle.id,
               idempotency_key: idempotency_key,
-              kind: 'circle_fund'
+              kind: 'circle_fund',
+              group_reference: group_reference
             }.compact
           )
 
@@ -173,7 +176,8 @@ module Api
             metadata: {
               wallet_balance_before: wallet_balance_before.to_s,
               circle_balance_before: circle_balance_before,
-              user_id: current_user.id
+              user_id: current_user.id,
+              group_reference: group_reference
             }.compact
           )
 

@@ -56,9 +56,9 @@ module Api
       end
 
       def get_account_number
-        account = Account.find_by(user_id: current_user.id, vendor: 'anchor')
+        account = current_user.accounts.find_by(vendor: 'anchor')
         unless account
-          return render json: { message: 'No Anchor account present' }, status: :not_found
+          return render json: { errors: ['No Anchor account present'] }, status: :not_found
         end
 
         service = AnchorService.new
@@ -71,7 +71,7 @@ module Api
           }, status: :ok
         else
           render json: {
-            message: service_response[:message] || service_response[:response]
+            errors: [service_response[:message] || service_response[:response]].compact
           }, status: :unprocessable_entity
         end
       end

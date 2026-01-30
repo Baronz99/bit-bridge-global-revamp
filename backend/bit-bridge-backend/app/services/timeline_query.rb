@@ -29,6 +29,8 @@ class TimelineQuery
     merged += bill_items if include_global_items?
     merged += card_items if include_card_events?
 
+    merged = collapse_circle_fund_groups(merged)
+
     sorted =
       merged
         .sort_by { |entry| entry[:occurred_at] || Time.at(0) }
@@ -92,6 +94,7 @@ class TimelineQuery
   end
 
   def circle_item(tx)
+    metadata = tx.metadata.is_a?(Hash) ? tx.metadata.symbolize_keys : {}
     {
       id: "circle-tx-#{tx.id}",
       kind: 'circle_transaction',
@@ -108,6 +111,7 @@ class TimelineQuery
 
         # circle tx reference (not always a canonical receipt ref, but keep it)
         reference: tx.reference,
+        group_reference: metadata[:group_reference],
 
         # if circle tx is linked to a transaction_record, expose it (optional)
         transaction_record_reference: nil
@@ -122,6 +126,7 @@ class TimelineQuery
   def wallet_item(tx)
     record = tx.transaction_record
     safe_description = record&.description.presence || tx.address
+    metadata = tx.metadata.is_a?(Hash) ? tx.metadata.symbolize_keys : {}
 
     {
       id: "wallet-tx-#{tx.id}",
@@ -138,6 +143,7 @@ class TimelineQuery
         coin_type: tx.coin_type,
         address: tx.address,
         bank: tx.bank,
+        group_reference: metadata[:group_reference],
 
         # canonical receipt reference (preferred)
         reference: record&.reference,
@@ -311,6 +317,64 @@ class TimelineQuery
   def amount_to_cents(amount)
     return nil if amount.nil?
     (amount.to_d * 100).to_i
+  end
+
+  # Collapse wallet + circle legs that belong to the same group_reference (circle funding)
+  def collapse_circle_fund_groups(items)
+    grouped = items.group_by { |item| item.dig(:meta, :group_reference) }
+
+    grouped.flat_map do |group_ref, group_items|
+      if group_ref.present?
+        wallet_leg = group_items.find { |i| i[:kind] == 'wallet_transaction' }
+        circle_leg = group_items.find { |i| i[:kind] == 'circle_transaction' }
+
+        if wallet_leg && circle_leg
+          build_circle_fund_group_item(group_ref, wallet_leg, circle_leg)
+        else
+          group_items
+        end
+      else
+        group_items
+      end
+    end
+  end
+
+  def build_circle_fund_group_item(group_ref, wallet_leg, circle_leg)
+    amount_cents = wallet_leg[:amount_cents].to_i * -1
+    occurred_at = [wallet_leg[:occurred_at], circle_leg[:occurred_at]].compact.max
+    status = derive_group_status([wallet_leg, circle_leg])
+    circle_name = circle_leg.dig(:meta, :circle_name)
+
+    merged_meta =
+      (wallet_leg[:meta] || {})
+      .merge(circle_leg[:meta] || {})
+      .merge(
+        group_reference: group_ref,
+        wallet_timeline_id: wallet_leg[:id],
+        circle_timeline_id: circle_leg[:id]
+      )
+    merged_meta[:reference] ||= wallet_leg[:id]
+
+    [{
+      id: "circle-fund-#{group_ref}",
+      kind: 'circle_fund_group',
+      label: circle_name.present? ? "Funded #{circle_name}" : wallet_leg[:label],
+      amount_cents: amount_cents,
+      status: status,
+      occurred_at: occurred_at,
+      actor: wallet_leg[:actor] || circle_leg[:actor],
+      meta: merged_meta.compact
+    }]
+  end
+
+  def derive_group_status(items)
+    statuses = items.map { |i| i[:status].to_s }.compact
+    return 'pending' if statuses.empty?
+
+    return 'failed' if statuses.any? { |s| %w[failed declined].include?(s) }
+    return 'pending' if statuses.any? { |s| %w[pending initialized].include?(s) }
+
+    'approved'
   end
 
   def normalize_limit(raw)
