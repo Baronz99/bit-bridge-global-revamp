@@ -153,8 +153,6 @@ ActiveRecord::Schema[7.1].define(version: 2026_01_30_120000) do
     t.string "idempotency_key"
     t.string "provider_reference"
     t.jsonb "provider_response"
-    t.decimal "reward_applied", precision: 15, scale: 2, default: "0.0", null: false
-    t.decimal "wallet_amount_charged", precision: 15, scale: 2, default: "0.0", null: false
     t.decimal "commission_used", precision: 18, scale: 2, default: "0.0", null: false
     t.bigint "amount_cents"
     t.bigint "total_amount_cents"
@@ -183,14 +181,6 @@ ActiveRecord::Schema[7.1].define(version: 2026_01_30_120000) do
     t.uuid "user_id"
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
-    t.string "provider_transaction_reference"
-    t.string "provider_card_id"
-    t.string "event_name"
-    t.string "event_status"
-    t.decimal "fee_amount", precision: 12, scale: 2
-    t.string "fee_currency"
-    t.string "merchant_name"
-    t.jsonb "metadata"
     t.decimal "merchant_amount", precision: 18, scale: 6
     t.string "merchant_currency"
     t.decimal "billing_amount", precision: 18, scale: 6
@@ -199,6 +189,14 @@ ActiveRecord::Schema[7.1].define(version: 2026_01_30_120000) do
     t.decimal "fx_reference_rate", precision: 18, scale: 6
     t.decimal "fx_margin_usd", precision: 18, scale: 6
     t.decimal "fx_markup_usd", precision: 18, scale: 6
+    t.string "provider_transaction_reference"
+    t.string "provider_card_id"
+    t.string "event_name"
+    t.string "event_status"
+    t.decimal "fee_amount", precision: 12, scale: 2
+    t.string "fee_currency"
+    t.string "merchant_name"
+    t.jsonb "metadata"
     t.index ["card_id", "provider_transaction_reference", "event_name"], name: "index_card_events_on_provider_reference", unique: true
     t.index ["card_id"], name: "index_card_events_on_card_id"
     t.index ["event"], name: "index_card_events_on_event"
@@ -241,16 +239,16 @@ ActiveRecord::Schema[7.1].define(version: 2026_01_30_120000) do
     t.string "last_name"
     t.string "id_type"
     t.string "phone"
-    t.integer "decline_count", default: 0, null: false
-    t.datetime "last_declined_at"
-    t.string "frozen_by"
-    t.string "frozen_reason"
     t.string "provider_status"
     t.datetime "provider_updated_at"
     t.string "last_provider_sync_error"
     t.boolean "provider_livemode"
     t.datetime "last_synced_at"
     t.datetime "last_maintenance_fee_charged_at"
+    t.integer "decline_count", default: 0, null: false
+    t.datetime "last_declined_at"
+    t.string "frozen_by"
+    t.string "frozen_reason"
     t.index ["user_id"], name: "index_cards_on_user_id"
   end
 
@@ -402,6 +400,12 @@ ActiveRecord::Schema[7.1].define(version: 2026_01_30_120000) do
     t.decimal "base_usd_ngn_rate", precision: 12, scale: 4, default: "1490.0", null: false
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
+    t.integer "card_monthly_maintenance_fee_usd_cents", default: 0, null: false
+    t.integer "card_funding_fee_bps", default: 0, null: false
+    t.integer "card_funding_fee_cap_usd_cents", default: 0, null: false
+    t.integer "card_withdrawal_fee_bps", default: 0, null: false
+    t.integer "card_withdrawal_fee_cap_usd_cents", default: 0, null: false
+    t.integer "card_creation_fee_usd_cents", default: 400, null: false
     t.decimal "provider_usd_ngn_rate", precision: 18, scale: 6
     t.bigint "provider_raw"
     t.string "provider_source", default: "bridgecard", null: false
@@ -413,12 +417,6 @@ ActiveRecord::Schema[7.1].define(version: 2026_01_30_120000) do
     t.string "provider_error"
     t.datetime "provider_next_refresh_at"
     t.jsonb "base_fx_rates", default: {}
-    t.integer "card_monthly_maintenance_fee_usd_cents", default: 0, null: false
-    t.integer "card_funding_fee_bps", default: 0, null: false
-    t.integer "card_funding_fee_cap_usd_cents", default: 0, null: false
-    t.integer "card_withdrawal_fee_bps", default: 0, null: false
-    t.integer "card_withdrawal_fee_cap_usd_cents", default: 0, null: false
-    t.integer "card_creation_fee_usd_cents", default: 400, null: false
   end
 
   create_table "gift_cards", id: :uuid, default: -> { "gen_random_uuid()" }, force: :cascade do |t|
@@ -626,9 +624,9 @@ ActiveRecord::Schema[7.1].define(version: 2026_01_30_120000) do
     t.datetime "last_status_at"
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
-    t.index ["expires_at"], name: "index_transaction_pin_reset_codes_on_expires_at"
-    t.index ["status"], name: "index_transaction_pin_reset_codes_on_status"
-    t.index ["user_id", "phone_e164"], name: "index_transaction_pin_reset_codes_on_user_id_and_phone_e164"
+    t.index ["expires_at"], name: "idx_pin_reset_codes_expires_at"
+    t.index ["status"], name: "idx_pin_reset_codes_status"
+    t.index ["user_id", "phone_e164"], name: "idx_pin_reset_codes_user_phone"
     t.index ["user_id"], name: "index_transaction_pin_reset_codes_on_user_id"
   end
 

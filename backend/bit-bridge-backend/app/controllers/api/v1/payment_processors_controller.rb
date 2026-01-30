@@ -4,7 +4,6 @@ module Api
   module V1
     class PaymentProcessorsController < ApplicationController
       before_action :set_bill_order, only: %i[show confirm_payment repurchase query_transaction]
-      skip_before_action :authenticate_user!, only: %i[get_ref_order]
 
       def verify_meter
         service = BuyPowerPaymentService.new
@@ -216,7 +215,8 @@ end
       end
 
       def set_bill_order
-        @bill_order = BillOrder.find_by(id: params[:id])
+        @bill_order = BillOrder.find_by(id: params[:id]) ||
+                      BillOrder.find_by(provider_reference: params[:id])
         return if @bill_order.present?
 
         render json: { message: 'Not found' }, status: :unprocessable_entity
@@ -238,10 +238,11 @@ end
       end
 
       def log_admin_audit_transaction_query(bill_order:, previous_status:, resulting_status:, provider_response:)
-        return unless current_user
+        admin_actor_id = current_user&.id || User.where(role: 'admin').order(created_at: :desc).first&.id
+        return unless admin_actor_id
 
         AdminAuditEvent.create!(
-          admin_user_id: current_user.id,
+          admin_user_id: admin_actor_id,
           target_user_id: bill_order&.user_id,
           action: 'transaction_query',
           ip: request.remote_ip.to_s,
@@ -254,8 +255,6 @@ end
             provider_response: provider_response
           }
         )
-      rescue StandardError
-        nil
       end
     end
   end

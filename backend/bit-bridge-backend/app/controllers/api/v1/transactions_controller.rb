@@ -136,8 +136,6 @@ module Api
           status: status_value,
           amount: amount_value,
           currency: currency,
-          exchange_id: exchange&.id,
-          exchange_status: exchange_status,
           created_at: transaction_record.created_at,
           updated_at: transaction_record.updated_at
         }

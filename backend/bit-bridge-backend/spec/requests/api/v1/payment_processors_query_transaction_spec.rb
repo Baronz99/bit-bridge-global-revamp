@@ -28,7 +28,8 @@ RSpec.describe 'Payment processor query transaction', type: :request do
     expect do
       get "/api/v1/payment_processors/#{bill_order.id}/query_transaction",
           headers: auth_headers(admin)
-    end.to change(AdminAuditEvent, :count).by(1)
+      expect(response).to have_http_status(:ok), "status=#{response.status} body=#{response.body}"
+    end.to change { AdminAuditEvent.count }.by(1)
 
     event = AdminAuditEvent.last
     expect(event.admin_user_id).to eq(admin.id)
