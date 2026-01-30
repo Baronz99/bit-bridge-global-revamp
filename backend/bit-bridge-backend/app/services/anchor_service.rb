@@ -113,7 +113,7 @@ class AnchorService
     end
   end
 
-  def create_account_number(type = :individual, account)
+  def create_account_number(type: :individual, account:)
     productType = 'SAVINGS'
 
     unless account.is_a?(Account)

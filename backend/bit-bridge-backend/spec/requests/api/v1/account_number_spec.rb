@@ -88,6 +88,18 @@ RSpec.describe 'Anchor account number', type: :request do
       expect(body.dig('meta', 'request_id')).to be_present
     end
 
+    it 'passes the Account object via keyword args to AnchorService' do
+      user = create(:user, :tier2)
+      account = Account.create!(user: user, vendor: 'anchor', account_type: :individual, useable_id: 'abc123')
+
+      expect_any_instance_of(AnchorService).to receive(:create_account_number)
+        .with(type: account.account_type.to_sym, account: instance_of(Account))
+        .and_return({ status: :ok, response: { 'account_number' => '1234567890' } })
+
+      get '/api/v1/accounts/get_account_number', headers: auth_headers(user)
+      expect(response).to have_http_status(:ok)
+    end
+
     it 'returns 200 when eligible and service succeeds' do
       user = create(:user, :tier2)
       Account.create!(user: user, vendor: 'anchor', account_type: :individual, useable_id: 'abc123')
