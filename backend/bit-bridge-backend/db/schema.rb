@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[7.1].define(version: 2026_01_24_121000) do
+ActiveRecord::Schema[7.1].define(version: 2026_01_30_120000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pgcrypto"
   enable_extension "plpgsql"
@@ -299,15 +299,15 @@ ActiveRecord::Schema[7.1].define(version: 2026_01_24_121000) do
     t.string "kind", default: "manual", null: false
     t.string "description"
     t.string "reference"
-    t.string "idempotency_key"
-    t.string "request_id"
-    t.string "event_type"
-    t.uuid "wallet_transaction_id"
     t.datetime "occurred_at", null: false
     t.jsonb "metadata", default: {}, null: false
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
     t.uuid "circle_activity_id"
+    t.string "idempotency_key"
+    t.string "request_id"
+    t.string "event_type"
+    t.uuid "wallet_transaction_id"
     t.index ["circle_activity_id"], name: "index_circle_transactions_on_circle_activity_id"
     t.index ["circle_id", "circle_activity_id"], name: "index_circle_transactions_on_circle_id_and_circle_activity_id"
     t.index ["circle_id", "idempotency_key"], name: "index_circle_transactions_on_circle_id_and_idempotency_key", unique: true, where: "(idempotency_key IS NOT NULL)"
@@ -748,6 +748,7 @@ ActiveRecord::Schema[7.1].define(version: 2026_01_24_121000) do
     t.string "bvn_status"
     t.datetime "bvn_verified_at"
     t.string "bvn_rejection_reason"
+    t.string "gender"
     t.index ["phone_e164"], name: "index_user_profiles_on_phone_e164"
     t.index ["user_id"], name: "index_user_profiles_on_user_id"
   end

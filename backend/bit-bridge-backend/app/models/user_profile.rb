@@ -4,6 +4,7 @@ class UserProfile < ApplicationRecord
   belongs_to :user
 
   validates :phone_number, uniqueness: true, allow_blank: true
+  validates :gender, inclusion: { in: %w[male female], allow_nil: true, allow_blank: true }
 
   has_one_attached :id_document
   has_one_attached :proof_of_address

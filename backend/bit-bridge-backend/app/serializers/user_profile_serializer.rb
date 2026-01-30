@@ -8,6 +8,7 @@ class UserProfileSerializer < ActiveModel::Serializer
              :last_name,
              :phone_number,
              :date_of_birth,          # used on ProfilePage + onboarding
+             :gender,                 # tier-2 identity field
              :address_line1,
              :address_line2,
              :city,

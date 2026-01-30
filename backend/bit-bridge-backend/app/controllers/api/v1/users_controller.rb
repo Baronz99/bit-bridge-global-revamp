@@ -439,6 +439,7 @@ end
             first_name
             last_name
             phone_number
+            gender
             date_of_birth
             address_line1
             address_line2
@@ -460,6 +461,7 @@ end
             first_name
             last_name
             phone_number
+            gender
             date_of_birth
             address_line1
             address_line2
@@ -482,6 +484,7 @@ end
             first_name
             last_name
             phone_number
+            gender
             date_of_birth
             address_line1
             address_line2
