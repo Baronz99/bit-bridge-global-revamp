@@ -46,8 +46,11 @@ class ApplicationController < ActionController::API
   #
   def require_transaction_pin!(raw_pin = nil, error_key: :message)
     unless current_user.respond_to?(:transaction_pin_set?) && current_user.transaction_pin_set?
-      render json: { error_key => "Please set a transaction PIN before performing this action." },
-             status: :forbidden
+      render_pin_error(
+        "Please set a transaction PIN before performing this action.",
+        :forbidden,
+        error_key
+      )
       return false
     end
 
@@ -70,7 +73,7 @@ class ApplicationController < ActionController::API
     end
 
     if pin.blank?
-      render json: { error_key => "Transaction PIN is required" }, status: :unprocessable_entity
+      render_pin_error("Transaction PIN is required", :unprocessable_entity, error_key)
       return false
     end
 
@@ -78,24 +81,36 @@ class ApplicationController < ActionController::API
 
     if result == :locked
       secs = current_user.transaction_pin_lock_remaining_seconds
-      render json: {
+      payload = {
         error_key => "Too many failed attempts. Try again in #{(secs / 60.0).ceil} minute(s).",
         locked: true,
         retry_after_seconds: secs
-      }, status: :too_many_requests
+      }
+      payload = { errors: [payload[error_key]] }.merge(payload.except(error_key)) if error_key == :errors
+      render json: payload, status: :too_many_requests
       return false
     end
 
     if result != true
       remaining = User::MAX_TRANSACTION_PIN_ATTEMPTS - (current_user.transaction_pin_attempts || 0)
-      render json: {
+      payload = {
         error_key => "Invalid transaction PIN",
         attempts_remaining: [remaining, 0].max
-      }, status: :unprocessable_entity
+      }
+      payload = { errors: [payload[error_key]] }.merge(payload.except(error_key)) if error_key == :errors
+      render json: payload, status: :unprocessable_entity
       return false
     end
 
     true
+  end
+
+  def render_pin_error(message, status, error_key)
+    if error_key == :errors
+      render json: { errors: [message] }, status: status
+    else
+      render json: { error_key => message }, status: status
+    end
   end
 
   # Tier 2 guard for restricted features (shared groups, tunnel, cards, transfers)

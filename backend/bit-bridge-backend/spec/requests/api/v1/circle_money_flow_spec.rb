@@ -20,6 +20,19 @@ RSpec.describe 'Circle Money Flow', type: :request do
       expect(response).to have_http_status(:unauthorized)
     end
 
+    it 'returns 404 when user is not a member of the circle' do
+      user = create(:user, :tier2, :with_pin)
+      other_circle = Circle.create!(name: 'Beta', owner: create(:user))
+
+      post "/api/v1/circles/#{other_circle.id}/fund",
+           params: { amount_cents: 1000, pin: '1234' },
+           headers: auth_headers(user)
+
+      expect(response).to have_http_status(:not_found)
+      body = JSON.parse(response.body)
+      expect(body['errors']).to include(a_string_matching(/Circle not found/i))
+    end
+
     it 'returns 403 when user is not tier2' do
       user = create(:user)
       circle = create_circle_for(user)
@@ -42,7 +55,7 @@ RSpec.describe 'Circle Money Flow', type: :request do
       expect(response).to have_http_status(:forbidden)
     end
 
-    it 'returns 422 when PIN is missing or invalid' do
+    it 'returns 422 when PIN is missing' do
       user = create(:user, :tier2, :with_pin)
       circle = create_circle_for(user)
 
@@ -51,6 +64,41 @@ RSpec.describe 'Circle Money Flow', type: :request do
            headers: auth_headers(user)
 
       expect(response).to have_http_status(:unprocessable_entity)
+      body = JSON.parse(response.body)
+      expect(body['errors']).to include('Transaction PIN is required')
+    end
+
+    it 'returns 422 when PIN is invalid' do
+      user = create(:user, :tier2, :with_pin)
+      circle = create_circle_for(user)
+      wallet = user.ngn_wallet
+      wallet.transactions.create!(
+        transaction_type: :deposit,
+        status: :approved,
+        coin_type: :bank,
+        amount: 100
+      )
+
+      post "/api/v1/circles/#{circle.id}/fund",
+           params: { amount_cents: 1000, pin: '0000' },
+           headers: auth_headers(user)
+
+      expect(response).to have_http_status(:unprocessable_entity)
+      body = JSON.parse(response.body)
+      expect(body['errors']).to include('Invalid transaction PIN')
+    end
+
+    it 'returns 422 when wallet balance is insufficient' do
+      user = create(:user, :tier2, :with_pin)
+      circle = create_circle_for(user)
+
+      post "/api/v1/circles/#{circle.id}/fund",
+           params: { amount_cents: 100_00, pin: '1234' },
+           headers: auth_headers(user)
+
+      expect(response).to have_http_status(:unprocessable_entity)
+      body = JSON.parse(response.body)
+      expect(body['errors']).to include('Insufficient wallet balance.')
     end
 
     it 'returns 200 on success' do
@@ -95,6 +143,41 @@ RSpec.describe 'Circle Money Flow', type: :request do
       post "/api/v1/circles/#{circle.id}/fund",
            params: { amount_cents: 1000, pin: '1234', idempotency_key: key },
            headers: auth_headers(user)
+
+      expect(response).to have_http_status(:ok)
+      body = JSON.parse(response.body)
+      expect(body['replayed']).to eq(true)
+      expect(circle.reload.balance_cents).to eq(first_balance)
+      expect(circle.circle_transactions.count).to eq(tx_count)
+      expect(wallet.transactions.count).to eq(wallet_tx_count)
+    end
+
+    it 'is idempotent with Idempotency-Key header' do
+      user = create(:user, :tier2, :with_pin)
+      circle = create_circle_for(user)
+      wallet = user.ngn_wallet
+      wallet.transactions.create!(
+        transaction_type: :deposit,
+        status: :approved,
+        coin_type: :bank,
+        amount: 100
+      )
+
+      key = 'header-idem-789'
+      headers = auth_headers(user).merge('Idempotency-Key' => key)
+
+      post "/api/v1/circles/#{circle.id}/fund",
+           params: { amount_cents: 1000, pin: '1234' },
+           headers: headers
+
+      expect(response).to have_http_status(:ok)
+      first_balance = circle.reload.balance_cents
+      tx_count = circle.circle_transactions.count
+      wallet_tx_count = wallet.transactions.count
+
+      post "/api/v1/circles/#{circle.id}/fund",
+           params: { amount_cents: 1000, pin: '1234' },
+           headers: headers
 
       expect(response).to have_http_status(:ok)
       body = JSON.parse(response.body)

@@ -118,8 +118,9 @@ module Api
         wallet = current_user.ngn_wallet
         return render(json: { errors: ['You do not have a wallet yet.'] }, status: :unprocessable_entity) unless wallet
 
-        amount_naira = amount_cents / 100.0
-        if wallet.balance < amount_naira
+        amount_naira = amount_cents.to_d / 100
+        wallet_balance_cents = (wallet.balance.to_d * 100).floor
+        if wallet_balance_cents < amount_cents
           return render json: { errors: ['Insufficient wallet balance.'] }, status: :unprocessable_entity
         end
 
@@ -371,7 +372,7 @@ module Api
       def set_circle
         @circle = current_user.circles.find(params[:id])
       rescue ActiveRecord::RecordNotFound
-        render json: { error: 'Circle not found' }, status: :not_found
+        render json: { errors: ['Circle not found'] }, status: :not_found
       end
 
       def authorize_withdraw!
@@ -395,10 +396,11 @@ module Api
       end
 
       def require_pin_for_circle_money_movement!
-  # Uses ApplicationController shared PIN extractor (supports circle.pin / transaction_pin etc.)
-  return if require_transaction_pin!
-  false
-end
+        # Uses ApplicationController shared PIN extractor (supports circle.pin / transaction_pin etc.)
+        return if require_transaction_pin!(nil, error_key: :errors)
+
+        false
+      end
 
       def extract_idempotency_key
         request.headers['Idempotency-Key'].presence ||
