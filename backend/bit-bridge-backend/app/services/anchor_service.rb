@@ -160,6 +160,15 @@ class AnchorService
 
       raise response.dig('errors', 0, 'detail') || 'bad request' unless response.success?
 
+      if account_number.blank?
+        return {
+          status: :bad_request,
+          message: 'Anchor returned no account number',
+          provider_status: provider_status,
+          provider_body: provider_body
+        }
+      end
+
       unless account_record.update(account_number: account_number, account_type: type, status: 'completed',
                                    active: true, bank_name: bank_name, account_name: account_name, useable_id: useable_id)
 

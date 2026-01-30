@@ -88,13 +88,30 @@ RSpec.describe 'Anchor account number', type: :request do
       expect(body.dig('meta', 'request_id')).to be_present
     end
 
+    it 'fails when provider returns success without account_number' do
+      user = create(:user, :tier2)
+      Account.create!(user: user, vendor: 'anchor', account_type: :individual, useable_id: 'abc123')
+      allow_any_instance_of(AnchorService).to receive(:create_account_number).and_return(
+        { status: :ok, response: Account.new(account_number: nil), provider_status: 200, provider_body: {} }
+      )
+
+      get '/api/v1/accounts/get_account_number', headers: auth_headers(user)
+      expect(response).to have_http_status(:unprocessable_entity)
+      body = JSON.parse(response.body)
+      expect(body['error']).to eq('anchor_account_number_failed')
+      expect(body.dig('meta', 'retryable')).to eq(true)
+    end
+
     it 'passes the Account object via keyword args to AnchorService' do
       user = create(:user, :tier2)
       account = Account.create!(user: user, vendor: 'anchor', account_type: :individual, useable_id: 'abc123')
 
       expect_any_instance_of(AnchorService).to receive(:create_account_number)
         .with(type: account.account_type.to_sym, account: instance_of(Account))
-        .and_return({ status: :ok, response: { 'account_number' => '1234567890' } })
+        .and_wrap_original do |m, **kwargs|
+          kwargs[:account].update!(account_number: '1234567890')
+          { status: :ok, response: kwargs[:account] }
+        end
 
       get '/api/v1/accounts/get_account_number', headers: auth_headers(user)
       expect(response).to have_http_status(:ok)
@@ -104,14 +121,15 @@ RSpec.describe 'Anchor account number', type: :request do
       user = create(:user, :tier2)
       Account.create!(user: user, vendor: 'anchor', account_type: :individual, useable_id: 'abc123')
       payload = { 'account_number' => '1234567890' }
-      allow_any_instance_of(AnchorService).to receive(:create_account_number).and_return(
-        { status: :ok, response: payload }
-      )
+      allow_any_instance_of(AnchorService).to receive(:create_account_number).and_wrap_original do |m, **kwargs|
+        kwargs[:account].update!(account_number: payload['account_number'])
+        { status: :ok, response: kwargs[:account] }
+      end
 
       get '/api/v1/accounts/get_account_number', headers: auth_headers(user)
       expect(response).to have_http_status(:ok)
       body = JSON.parse(response.body)
-      expect(body['data']).to eq(payload)
+      expect(body['data']['account_number']).to eq(payload['account_number'])
     end
   end
 end

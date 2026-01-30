@@ -72,6 +72,20 @@ module Api
         service_response = service.create_account_number(type: account.account_type.to_sym, account: account)
 
         if service_response[:status] == :ok
+          unless account.reload.account_number.present?
+            code = 'anchor_account_number_failed'
+            log_anchor_account_number_failure(
+              status: :unprocessable_entity,
+              code: code,
+              message: 'Anchor did not return an account number',
+              account_id: account.id,
+              retryable: true,
+              provider_status: service_response[:provider_status],
+              provider_body: service_response[:provider_body]
+            )
+            return render json: anchor_error_payload(code, 'Anchor did not return an account number', retryable: true),
+                          status: :unprocessable_entity
+          end
           render json: {
             data:     service_response[:response],
             messsage: 'Account created'
