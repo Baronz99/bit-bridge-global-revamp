@@ -106,12 +106,23 @@ end
 
 
       def process_payment
+        debug = (!Rails.env.production? || ENV['DEBUG_VEND_KEYS'].to_s == '1')
+        if debug
+          safe = params.to_unsafe_h.slice('billersCode', 'tariff_class', 'amount', 'biller', 'service_type')
+          if safe['billersCode'].present?
+            safe['billersCode'] = safe['billersCode'].to_s.gsub(/\A(\d{3})\d+(\d{2})\z/, '\1***\2')
+          end
+          Rails.logger.info("[TV_FLOW] process_payment params=#{safe.inspect}")
+        end
         service = BuyPowerPaymentService.new
         service_response = service.process_payment(current_user, payment_processor_params)
 
         if service_response[:status] == 'success'
           render json: { data: service_response[:response], message: 'Transaction initiated' }, status: :created
         else
+          if debug
+            Rails.logger.warn("[TV_FLOW] returning_422 reason=#{service_response[:response].inspect}")
+          end
           render json: { message: service_response[:response] }, status: :unprocessable_entity
         end
       end
