@@ -39,6 +39,13 @@ class BuyPowerPaymentService
         nil
       end
 
+    if service_type_upcase == 'TV'
+      amount_raw = payment_processor_params[:amount]
+      return { response: 'Amount is required', status: 'error' } if amount_raw.nil? || amount_raw == ''
+      return { response: 'Invalid amount', status: 'error' } unless valid_amount?(amount_raw)
+      return { response: 'tariff_class is required', status: 'error' } if payment_processor_params[:tariff_class].blank?
+    end
+
     name_value = res&.dig('name')
     address_value = res&.dig('address')
     provider_response_value = nil
@@ -51,10 +58,15 @@ class BuyPowerPaymentService
           vend_type: resolved_meter_type
         )
       provider_response_value = provider_response_payload(verify_response[:response])
-      if tv_verify_success?(provider_response_value)
-        name_value = extract_tv_name(provider_response_value).presence
-      else
-        name_value = nil
+      tv_ok = tv_verify_success?(provider_response_value)
+      name_value = tv_ok ? extract_tv_name(provider_response_value).presence : nil
+      if !Rails.env.production? || ENV['DEBUG_TV_VERIFY_KEYS'].to_s == '1'
+        response_code = provider_response_value.is_a?(Hash) ? (provider_response_value['responseCode'] || provider_response_value[:responseCode]) : nil
+        error_flag = provider_response_value.is_a?(Hash) ? provider_response_value['error'] : nil
+        message_value = provider_response_value.is_a?(Hash) ? provider_response_value['message'] : nil
+        Rails.logger.info(
+          "[TV_VERIFY] gating responseCode=#{response_code} error=#{error_flag.inspect} message=#{message_value.inspect} extracted_name=#{name_value.inspect} tv_verify_success=#{tv_ok}"
+        )
       end
       address_value = nil
     end
@@ -746,6 +758,14 @@ end
     return false if error_flag == true
 
     true
+  end
+
+  def valid_amount?(raw)
+    return false unless MoneyScale.valid_scale?(raw)
+
+    BigDecimal(raw.to_s) > 0
+  rescue ArgumentError
+    false
   end
 
   def provider_status_from(response)

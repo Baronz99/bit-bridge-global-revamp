@@ -98,7 +98,7 @@ RSpec.describe 'Admin transaction records', type: :request do
           headers: headers
     end.to change(AdminAuditEvent, :count).by(1)
 
-    event = AdminAuditEvent.last
+    event = AdminAuditEvent.order(created_at: :desc).first
     expect(event.action).to eq('admin.transaction_records.list')
     expect(event.admin_user_id).to eq(admin.id)
     expect(event.metadata).to include(

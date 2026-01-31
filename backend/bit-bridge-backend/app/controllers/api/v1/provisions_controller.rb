@@ -8,7 +8,10 @@ module Api
       skip_before_action :authenticate_user!, only: %i[index show]
       # GET /provisions
       def index
-        @provisions = Provision.all
+        @provisions = Provision.includes(
+          { product: :provisions },
+          order_items: %i[product order_detail card_token]
+        )
         render json: { data: ActiveModelSerializers::SerializableResource.new(@provisions) }
       end
 

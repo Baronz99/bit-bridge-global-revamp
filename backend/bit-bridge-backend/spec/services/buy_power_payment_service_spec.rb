@@ -44,6 +44,7 @@ RSpec.describe BuyPowerPaymentService do
       result = service.process_payment(user, {
         billersCode: '9876543210',
         amount: 2500,
+        tariff_class: 'A',
         service_type: 'TV',
         biller: 'dstv',
         email: user.email
@@ -69,6 +70,7 @@ RSpec.describe BuyPowerPaymentService do
         billersCode: '9876543210',
         amount: 2500,
         meter_type: 'PREPAID',
+        tariff_class: 'A',
         service_type: 'TV',
         biller: 'dstv',
         email: user.email
@@ -92,6 +94,7 @@ RSpec.describe BuyPowerPaymentService do
       result = service.process_payment(user, {
         billersCode: '9876543210',
         amount: 2500,
+        tariff_class: 'A',
         service_type: 'TV',
         biller: 'dstv',
         email: user.email
@@ -113,6 +116,7 @@ RSpec.describe BuyPowerPaymentService do
       result = service.process_payment(user, {
         billersCode: '9876543210',
         amount: 2500,
+        tariff_class: 'A',
         service_type: 'TV',
         biller: 'dstv',
         email: user.email
@@ -142,6 +146,7 @@ RSpec.describe BuyPowerPaymentService do
       result = service.process_payment(user, {
         billersCode: '9876543210',
         amount: 2500,
+        tariff_class: 'A',
         service_type: 'TV',
         biller: 'dstv',
         email: user.email
@@ -149,6 +154,25 @@ RSpec.describe BuyPowerPaymentService do
 
       expect(result[:status]).to eq('success')
       expect(result[:response].name).to eq('Jane Doe')
+    end
+
+    it 'returns error without calling verify when TV amount is blank' do
+      user = create(:user)
+      service = described_class.new
+
+      expect(service).not_to receive(:verify_tv_account)
+
+      result = service.process_payment(user, {
+        billersCode: '9876543210',
+        amount: '',
+        tariff_class: 'A',
+        service_type: 'TV',
+        biller: 'dstv',
+        email: user.email
+      })
+
+      expect(result[:status]).to eq('error')
+      expect(result[:response]).to eq('Amount is required')
     end
   end
 
