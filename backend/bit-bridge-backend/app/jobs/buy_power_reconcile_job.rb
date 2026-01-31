@@ -8,6 +8,10 @@ class BuyPowerReconcileJob < ApplicationJob
   def perform(bill_order_id)
     order = BillOrder.find_by(id: bill_order_id)
     return unless order
+    # TV verify-only orders can be initialized without provider_reference; do not reconcile.
+    return if order.service_type.to_s.strip.upcase == 'TV' &&
+              order.provider_reference.blank? &&
+              order.status.to_s == 'initialized'
     return unless order.payment_method == 'wallet'
 
     service = BuyPowerPaymentService.new

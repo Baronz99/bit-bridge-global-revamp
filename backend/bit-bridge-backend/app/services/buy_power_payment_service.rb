@@ -51,8 +51,8 @@ class BuyPowerPaymentService
           vend_type: resolved_meter_type
         )
       provider_response_value = provider_response_payload(verify_response[:response])
-      if verify_response[:status] == 'success'
-        name_value = extract_tv_name(verify_response[:response]).presence
+      if tv_verify_success?(provider_response_value)
+        name_value = extract_tv_name(provider_response_value).presence
       else
         name_value = nil
       end
@@ -734,6 +734,18 @@ end
     return response.parsed_response if response.respond_to?(:parsed_response)
     return response.to_h if response.respond_to?(:to_h)
     response
+  end
+
+  def tv_verify_success?(payload)
+    return false unless payload.is_a?(Hash)
+
+    response_code = payload['responseCode'] || payload[:responseCode]
+    error_flag = payload['error']
+
+    return false unless response_code.to_s == '00'
+    return false if error_flag == true
+
+    true
   end
 
   def provider_status_from(response)

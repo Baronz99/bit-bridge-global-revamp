@@ -36,6 +36,10 @@ RSpec.describe BuyPowerPaymentService do
       service = described_class.new
 
       expect(service).not_to receive(:verify_meter)
+      allow(service).to receive(:verify_tv_account).and_return({
+        status: 'success',
+        response: { 'responseCode' => '00', 'error' => false, 'name' => 'John Doe' }
+      })
 
       result = service.process_payment(user, {
         billersCode: '9876543210',
@@ -47,6 +51,7 @@ RSpec.describe BuyPowerPaymentService do
 
       expect(result[:status]).to eq('success')
       expect(result[:response].meter_type).to eq('PREPAID')
+      expect(result[:response].name).to eq('John Doe')
       expect(result[:response].service_type).to eq('TV')
     end
 
@@ -55,6 +60,10 @@ RSpec.describe BuyPowerPaymentService do
       service = described_class.new
 
       expect(service).not_to receive(:verify_meter)
+      allow(service).to receive(:verify_tv_account).and_return({
+        status: 'success',
+        response: { 'responseCode' => '00', 'error' => false, 'name' => 'John Doe' }
+      })
 
       result = service.process_payment(user, {
         billersCode: '9876543210',
@@ -67,7 +76,79 @@ RSpec.describe BuyPowerPaymentService do
 
       expect(result[:status]).to eq('success')
       expect(result[:response].meter_type).to eq('PREPAID')
+      expect(result[:response].name).to eq('John Doe')
       expect(result[:response].service_type).to eq('TV')
+    end
+
+    it 'sets TV name only on business-success verify payload' do
+      user = create(:user)
+      service = described_class.new
+
+      allow(service).to receive(:verify_tv_account).and_return({
+        status: 'success',
+        response: { 'responseCode' => 'E01', 'error' => true, 'name' => 'John Doe' }
+      })
+
+      result = service.process_payment(user, {
+        billersCode: '9876543210',
+        amount: 2500,
+        service_type: 'TV',
+        biller: 'dstv',
+        email: user.email
+      })
+
+      expect(result[:status]).to eq('success')
+      expect(result[:response].name).to be_nil
+    end
+
+    it 'persists provider_response for TV verify failure' do
+      user = create(:user)
+      service = described_class.new
+
+      allow(service).to receive(:verify_tv_account).and_return({
+        status: 'success',
+        response: { 'responseCode' => 'E01', 'error' => true, 'message' => 'Invalid decoder' }
+      })
+
+      result = service.process_payment(user, {
+        billersCode: '9876543210',
+        amount: 2500,
+        service_type: 'TV',
+        biller: 'dstv',
+        email: user.email
+      })
+
+      expect(result[:status]).to eq('success')
+      expect(result[:response].name).to be_nil
+      order = BillOrder.find(result[:response].id)
+      expect(order.provider_response).to include('responseCode' => 'E01', 'message' => 'Invalid decoder')
+    end
+
+    it 'accepts TV verify success payload with extra keys' do
+      user = create(:user)
+      service = described_class.new
+
+      allow(service).to receive(:verify_tv_account).and_return({
+        status: 'success',
+        response: {
+          'responseCode' => '00',
+          'error' => false,
+          'name' => 'Jane Doe',
+          'vendType' => 'PREPAID',
+          'status' => 'success'
+        }
+      })
+
+      result = service.process_payment(user, {
+        billersCode: '9876543210',
+        amount: 2500,
+        service_type: 'TV',
+        biller: 'dstv',
+        email: user.email
+      })
+
+      expect(result[:status]).to eq('success')
+      expect(result[:response].name).to eq('Jane Doe')
     end
   end
 
