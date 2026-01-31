@@ -256,14 +256,7 @@ class BuyPowerPaymentService
           elsif response.is_a?(Hash)
             response['responseCode'] || response[:responseCode]
           end
-        raw =
-          if response.respond_to?(:body)
-            response.body.to_s
-          else
-            response.to_json
-          rescue StandardError
-            response.to_s
-          end
+        raw = safe_json_dump(response)
         success =
           if response.respond_to?(:success?)
             response.success?
@@ -311,14 +304,7 @@ class BuyPowerPaymentService
           elsif response.is_a?(Hash)
             response['responseCode'] || response[:responseCode]
           end
-        raw =
-          if response.respond_to?(:body)
-            response.body.to_s
-          else
-            response.to_json
-          rescue StandardError
-            response.to_s
-          end
+        raw = safe_json_dump(response)
         success =
           if response.respond_to?(:success?)
             response.success?
@@ -698,6 +684,18 @@ end
     return message unless message.is_a?(String)
 
     message.gsub(/\d{6,}/) { |m| ('*' * [m.length - 4, 0].max) + m[-4, 4] }
+  end
+
+  def safe_json_dump(response)
+    if response.respond_to?(:body)
+      response.body.to_s
+    else
+      begin
+        response.to_json
+      rescue StandardError
+        response.to_s
+      end
+    end
   end
 
   def vtu_service_type?(service_type)
