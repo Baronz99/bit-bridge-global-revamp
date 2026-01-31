@@ -204,9 +204,10 @@ end
       end
 
       def payment_processor_params
-        params.permit(
+        p = params[:payment_processor].presence || params
+        p.permit(
           :billersCode, :amount, :request_id, :meter_type, :phone, :biller, :email, :status,
-          :tariff_class, :service_type, :skip, :description, :type, :use_commission
+          :tariff_class, :service_type, :skip, :description, :type, :use_commission, :vend_type
         )
       end
 

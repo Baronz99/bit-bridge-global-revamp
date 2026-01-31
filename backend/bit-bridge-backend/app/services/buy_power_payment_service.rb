@@ -33,6 +33,8 @@ class BuyPowerPaymentService
     resolved_meter_type =
       if is_electricity
         res&.dig('vendType') || payment_processor_params[:meter_type] || 'PREPAID'
+      elsif service_type_upcase == 'TV'
+        payment_processor_params[:vend_type] || payment_processor_params[:meter_type] || 'PREPAID'
       else
         nil
       end
@@ -198,13 +200,19 @@ class BuyPowerPaymentService
       end
 
       call_started_at = Process.clock_gettime(Process::CLOCK_MONOTONIC)
-      Rails.logger.info("BuyPower vend request start #{request_tag}")
+      vend_type_log = body[:vendType]
+      Rails.logger.info(
+        "BuyPower vend request start #{request_tag} bill_order_id=#{electric_bill_order&.id} service_type=#{electric_bill_order['service_type']} biller=#{electric_bill_order['biller']} vendType=#{vend_type_log}"
+      )
       response = self.class.post('/vend', headers: @post_headers, body: body, timeout: PROVIDER_READ_TIMEOUT, open_timeout: PROVIDER_OPEN_TIMEOUT)
       call_duration_ms = ((Process.clock_gettime(Process::CLOCK_MONOTONIC) - call_started_at) * 1000).round
       Rails.logger.info("BuyPower vend request finish #{request_tag} duration_ms=#{call_duration_ms} success=#{response&.success?}")
     elsif payment_method == 'card'
       call_started_at = Process.clock_gettime(Process::CLOCK_MONOTONIC)
-      Rails.logger.info("BuyPower vend request start #{request_tag}")
+      vend_type_log = body[:vendType]
+      Rails.logger.info(
+        "BuyPower vend request start #{request_tag} bill_order_id=#{electric_bill_order&.id} service_type=#{electric_bill_order['service_type']} biller=#{electric_bill_order['biller']} vendType=#{vend_type_log}"
+      )
       response = self.class.post('/vend', headers: @post_headers, body: body, timeout: PROVIDER_READ_TIMEOUT, open_timeout: PROVIDER_OPEN_TIMEOUT)
       call_duration_ms = ((Process.clock_gettime(Process::CLOCK_MONOTONIC) - call_started_at) * 1000).round
       Rails.logger.info("BuyPower vend request finish #{request_tag} duration_ms=#{call_duration_ms} success=#{response&.success?}")
@@ -484,8 +492,20 @@ end
       tariffClass: electric_bill_order['tariff_class']
     }
 
-    if electric_bill_order['service_type'].to_s.strip.upcase == 'ELECTRICITY'
-      body[:vendType] = electric_bill_order['meter_type']
+    service_type = electric_bill_order['service_type'].to_s.strip.upcase
+    if %w[ELECTRICITY TV].include?(service_type)
+      raw_vend_type = electric_bill_order['meter_type']
+      vend_type = raw_vend_type.to_s.strip.upcase.presence
+      allowed = %w[PREPAID POSTPAID RECOVERY]
+
+      if service_type == 'TV'
+        vend_type = 'PREPAID' unless allowed.include?(vend_type)
+        body[:vendType] = vend_type
+      else
+        raise "Missing/invalid vendType for electricity: #{vend_type.inspect}" unless allowed.include?(vend_type)
+
+        body[:vendType] = vend_type
+      end
     end
 
     body.transform_values { |v| v.is_a?(String) ? v.strip : v }
