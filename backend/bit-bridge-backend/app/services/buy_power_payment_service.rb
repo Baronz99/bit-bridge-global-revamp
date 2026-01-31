@@ -25,15 +25,25 @@ class BuyPowerPaymentService
   def process_payment(current_user, payment_processor_params)
     res = nil
 
-    res = verify_meter(payment_processor_params) unless payment_processor_params[:skip] === true
+    service_type = payment_processor_params[:service_type].to_s
+    service_type_upcase = service_type.strip.upcase
+    is_electricity = service_type_upcase == 'ELECTRICITY'
+    res = verify_meter(payment_processor_params) if is_electricity && payment_processor_params[:skip] != true
+
+    resolved_meter_type =
+      if is_electricity
+        res&.dig('vendType') || payment_processor_params[:meter_type] || 'PREPAID'
+      else
+        nil
+      end
 
     bill_order = current_user&.bill_orders&.new(
       meter_number: payment_processor_params[:billersCode],
-      meter_type: res&.dig('vendType') || 'PREPAID',
+      meter_type: resolved_meter_type,
       address: res&.dig('address') || payment_processor_params[:billersCode],
       name: res&.dig('name') || payment_processor_params[:billersCode],
       tariff_class: payment_processor_params[:tariff_class],
-      service_type: payment_processor_params[:service_type],
+      service_type: service_type,
       email: current_user.email || payment_processor_params[:email],
       amount: payment_processor_params[:amount],
       phone: current_user.user_profile&.phone_number || payment_processor_params[:phone],
@@ -42,11 +52,11 @@ class BuyPowerPaymentService
       demand_category: res&.dig('demandCategory')
     ) || BillOrder.new(
       meter_number: payment_processor_params[:billersCode],
-      meter_type: res&.dig('vendType') || 'PREPAID',
+      meter_type: resolved_meter_type,
       address: res&.dig('address') || payment_processor_params[:billersCode],
       name: res&.dig('name') || payment_processor_params[:billersCode],
       tariff_class: payment_processor_params[:tariff_class],
-      service_type: payment_processor_params[:service_type],
+      service_type: service_type,
       email: payment_processor_params[:email],
       amount: payment_processor_params[:amount],
       phone: payment_processor_params[:phone],
@@ -91,20 +101,10 @@ class BuyPowerPaymentService
   end
 
   def pay_data(electric_bill_order)
-    body = {
-
-      meter: electric_bill_order['meter_number'],
-      amount: electric_bill_order['amount'],
-      orderId: electric_bill_order['id'],
-      vendType: electric_bill_order['meter_type'],
-      phone: electric_bill_order['meter_number'],
-      disco: electric_bill_order['biller'],
-      vertical: electric_bill_order['service_type'],
-      paymentType: electric_bill_order['payment_type'],
-      name: electric_bill_order['name'],
-      email: electric_bill_order['email'],
-      tariffClass: electric_bill_order['tariff_class']
-    }.transform_values { |v| v.is_a?(String) ? v.strip : v }
+    body = build_vend_body(
+      electric_bill_order,
+      phone: electric_bill_order['meter_number']
+    )
 
 
     begin
@@ -121,19 +121,12 @@ class BuyPowerPaymentService
   end
 
   def confirm_subscription(electric_bill_order, payment_method = 'wallet', use_commission = false, request_id: nil, idempotency_key: nil)
-    body = {
-      meter: electric_bill_order['meter_number'],
-      amount: electric_bill_order['amount'],
-      orderId: electric_bill_order['id'],
-      vendType: electric_bill_order['meter_type'],
-      phone: electric_bill_order['phone'] || electric_bill_order['service_type'] == 'TV' ? '07064334160' : electric_bill_order['meter_number'],
-      disco: electric_bill_order['biller'],
-      vertical: electric_bill_order['service_type'],
-      paymentType: electric_bill_order['payment_type'],
-      name: electric_bill_order['name'],
-      email: electric_bill_order['email'],
-      tariffClass: electric_bill_order['tariff_class']
-    }.transform_values { |v| v.is_a?(String) ? v.strip : v }
+    body = build_vend_body(
+      electric_bill_order,
+      phone:
+        electric_bill_order['phone'] ||
+        (electric_bill_order['service_type'] == 'TV' ? '07064334160' : electric_bill_order['meter_number'])
+    )
 
     user = electric_bill_order.user
     raise 'No user associated with this order' unless user
@@ -347,23 +340,12 @@ class BuyPowerPaymentService
 
     return response_service
 
-    body = {
-      meter: electric_bill_order['meter_number'],
-      amount: electric_bill_order['amount'],
-      orderId: electric_bill_order['id'],
-      vendType: electric_bill_order['meter_type'],
-      phone: (
-  electric_bill_order['phone'].presence ||
-  (electric_bill_order['service_type'] == 'TV' ? '07064334160' : electric_bill_order['meter_number'])
-),
-
-      disco: electric_bill_order['biller'],
-      vertical: electric_bill_order['service_type'],
-      paymentType: electric_bill_order['payment_type'],
-      name: electric_bill_order['name'],
-      email: electric_bill_order['email'],
-      tariffClass: electric_bill_order['tariff_class']
-    }.transform_values { |v| v.is_a?(String) ? v.strip : v }
+    body = build_vend_body(
+      electric_bill_order,
+      phone:
+        electric_bill_order['phone'].presence ||
+        (electric_bill_order['service_type'] == 'TV' ? '07064334160' : electric_bill_order['meter_number'])
+    )
 
 
     begin
@@ -488,6 +470,26 @@ end
   end
 
   private
+  def build_vend_body(electric_bill_order, phone:)
+    body = {
+      meter: electric_bill_order['meter_number'],
+      amount: electric_bill_order['amount'],
+      orderId: electric_bill_order['id'],
+      phone: phone,
+      disco: electric_bill_order['biller'],
+      vertical: electric_bill_order['service_type'],
+      paymentType: electric_bill_order['payment_type'],
+      name: electric_bill_order['name'],
+      email: electric_bill_order['email'],
+      tariffClass: electric_bill_order['tariff_class']
+    }
+
+    if electric_bill_order['service_type'].to_s.strip.upcase == 'ELECTRICITY'
+      body[:vendType] = electric_bill_order['meter_type']
+    end
+
+    body.transform_values { |v| v.is_a?(String) ? v.strip : v }
+  end
 
   def provider_response_payload(response)
     return response.parsed_response if response.respond_to?(:parsed_response)

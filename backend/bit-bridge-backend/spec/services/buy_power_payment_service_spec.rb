@@ -3,6 +3,74 @@
 require 'rails_helper'
 
 RSpec.describe BuyPowerPaymentService do
+  describe '#process_payment' do
+    before do
+      allow(Config::Bills).to receive(:validate!).and_return(true)
+      allow(Config::Bills).to receive(:base_url).and_return('http://example.test')
+      allow(Config::Bills).to receive(:token).and_return('token')
+    end
+
+    it 'fails electricity purchase with invalid vendType' do
+      user = create(:user)
+      service = described_class.new
+
+      allow(service).to receive(:verify_meter).and_raise(
+        'Invalid vendType provided. Valid types are PREPAID or POSTPAID'
+      )
+
+      result = service.process_payment(user, {
+        billersCode: '1234567890',
+        amount: 1000,
+        meter_type: 'INVALID',
+        service_type: 'ELECTRICITY',
+        biller: 'ikeja',
+        email: user.email
+      })
+
+      expect(result[:status]).to eq('error')
+      expect(result[:response]).to include('Invalid vendType provided')
+    end
+
+    it 'allows TV purchase without vendType' do
+      user = create(:user)
+      service = described_class.new
+
+      expect(service).not_to receive(:verify_meter)
+
+      result = service.process_payment(user, {
+        billersCode: '9876543210',
+        amount: 2500,
+        service_type: 'TV',
+        biller: 'dstv',
+        email: user.email
+      })
+
+      expect(result[:status]).to eq('success')
+      expect(result[:response].meter_type).to be_nil
+      expect(result[:response].service_type).to eq('TV')
+    end
+
+    it 'ignores vendType for TV purchase' do
+      user = create(:user)
+      service = described_class.new
+
+      expect(service).not_to receive(:verify_meter)
+
+      result = service.process_payment(user, {
+        billersCode: '9876543210',
+        amount: 2500,
+        meter_type: 'PREPAID',
+        service_type: 'TV',
+        biller: 'dstv',
+        email: user.email
+      })
+
+      expect(result[:status]).to eq('success')
+      expect(result[:response].meter_type).to be_nil
+      expect(result[:response].service_type).to eq('TV')
+    end
+  end
+
   describe '#confirm_subscription' do
     it 'returns success when wallet commission is nil and vend succeeds' do
       allow(Config::Bills).to receive(:validate!).and_return(true)

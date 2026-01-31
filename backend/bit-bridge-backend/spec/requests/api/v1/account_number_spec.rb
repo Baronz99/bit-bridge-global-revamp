@@ -99,6 +99,8 @@ RSpec.describe 'Anchor account number', type: :request do
       expect(response).to have_http_status(:unprocessable_entity)
       body = JSON.parse(response.body)
       expect(body['error']).to eq('anchor_account_number_failed')
+      expect(body.dig('meta', 'provider')).to eq('anchor')
+      expect(body.dig('meta', 'request_id')).to be_present
       expect(body.dig('meta', 'retryable')).to eq(true)
     end
 

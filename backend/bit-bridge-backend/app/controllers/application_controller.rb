@@ -3,9 +3,12 @@
 class ApplicationController < ActionController::API
   include ActionController::Cookies
 
+  before_action :log_debug_request, if: :debug_request_logging_enabled?
   before_action :force_json
   before_action :authenticate_user!, unless: :devise_controller?
   before_action :configure_permitted_parameters, if: :devise_controller?
+
+  rescue_from ActionDispatch::Http::Parameters::ParseError, with: :handle_parse_error
 
   protected
 
@@ -130,5 +133,88 @@ class ApplicationController < ActionController::API
     return if current_user&.super_admin?
 
     render json: { message: 'Not authorized' }, status: :forbidden
+  end
+
+  private
+
+  def debug_request_logging_enabled?
+    return true if ENV['DEBUG_REQUESTS'].to_s == '1'
+
+    path = request.path.to_s
+    return true if path == '/api/v1/payment_processors/process_payment'
+    return true if path == '/api/v1/payment_processors/get_price_list'
+    return true if path == '/api/v1/provisions'
+
+    false
+  end
+
+  def log_debug_request(parse_success: nil, error: nil)
+    return unless debug_request_logging_enabled?
+
+    raw = read_raw_body
+    truncated = raw.to_s.byteslice(0, 2048) || ''
+    redacted = redact_raw_body(truncated)
+
+    json_parse_succeeded = parse_success
+    if json_parse_succeeded.nil?
+      if request.content_type.to_s.include?('json') && raw.to_s.strip != ''
+        begin
+          JSON.parse(raw.to_s)
+          json_parse_succeeded = true
+        rescue StandardError
+          json_parse_succeeded = false
+        end
+      end
+    end
+
+    payload = {
+      request_id: request.request_id,
+      method: request.method,
+      path: request.path,
+      query_string: request.query_string,
+      content_type: request.content_type,
+      accept: request.headers['Accept'],
+      user_agent: request.user_agent,
+      content_length: request.content_length,
+      json_parse_succeeded: json_parse_succeeded,
+      raw_body: redacted,
+      error_class: error&.class&.name,
+      error_message: error&.message
+    }.compact
+
+    Rails.logger.info("[REQUEST_DEBUG] #{payload.to_json}")
+  rescue StandardError => e
+    Rails.logger.warn("[REQUEST_DEBUG] log_failed error=#{e.class} message=#{e.message}")
+  end
+
+  def handle_parse_error(error)
+    log_debug_request(parse_success: false, error: error)
+    render json: {
+      status: 400,
+      error: 'Bad Request',
+      message: 'Invalid JSON payload',
+      request_id: request.request_id
+    }, status: :bad_request
+  end
+
+  def read_raw_body
+    return '' unless request.body
+
+    raw = request.body.read
+    request.body.rewind
+    raw
+  end
+
+  def redact_raw_body(raw)
+    data = raw.to_s
+    data = data.gsub(/Bearer\s+[A-Za-z0-9\-_\.=]+/i, 'Bearer [REDACTED]')
+    data = data.gsub(/\beyJ[a-zA-Z0-9\-_]+\.[a-zA-Z0-9\-_]+\.[a-zA-Z0-9\-_]+\b/, '[REDACTED_JWT]')
+    data = data.gsub(/\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/i, '[REDACTED_EMAIL]')
+    data = data.gsub(
+      /(\"?(billersCode|phone|meter_number|meterNumber)\"?\s*[:=]\s*\")([^\"]+)(\")/i,
+      '\1[REDACTED]\4'
+    )
+    data = data.gsub(/(\"?email\"?\s*[:=]\s*\")([^\"]+)(\")/i, '\1[REDACTED]\3')
+    data
   end
 end
