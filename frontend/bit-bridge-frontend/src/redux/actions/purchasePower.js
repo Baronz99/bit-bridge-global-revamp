@@ -64,7 +64,12 @@ export const getPurchaseOrder = createAsyncThunk(
   'purchaseOrder/get-order',
   async (id, { rejectWithValue }) => {
     try {
-      const response = await client.get(`/payment_processors/${id}`)
+      const safeId = String(id || '').trim()
+      const safeIdLower = safeId.toLowerCase()
+      if (!safeId || safeIdLower === 'undefined' || safeIdLower === 'null') {
+        return rejectWithValue({ message: 'Receipt not available yet' })
+      }
+      const response = await client.get(`/payment_processors/${safeId}`)
       return response.data
     } catch (error) {
       return rejectWithValue({ message: getErrorMessage(error) })

@@ -242,11 +242,17 @@ end
       end
 
       def set_bill_order
-        @bill_order = BillOrder.find_by(id: params[:id]) ||
-                      BillOrder.find_by(provider_reference: params[:id])
+        raw_id = params[:id].to_s.strip
+        if raw_id.blank? || %w[undefined null].include?(raw_id.downcase)
+          render json: { message: 'Invalid reference' }, status: :bad_request
+          return
+        end
+
+        @bill_order = BillOrder.find_by(id: raw_id) ||
+                      BillOrder.find_by(provider_reference: raw_id)
         return if @bill_order.present?
 
-        render json: { message: 'Not found' }, status: :unprocessable_entity
+        render json: { message: 'Not found' }, status: :not_found
       end
 
       def safe_provider_response(response)

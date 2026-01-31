@@ -53,8 +53,14 @@ const PurchaseDetails = () => {
   }
 
   useEffect(() => {
+    const safe = String(queryId || '').trim().toLowerCase()
+    if (!safe || safe === 'undefined' || safe === 'null') {
+      setMessage('Receipt not available yet')
+      setErr(true)
+      return
+    }
     dispatch(getPurchaseOrder(queryId))
-  }, [])
+  }, [dispatch, queryId])
   return (
     <>
       {message && (
