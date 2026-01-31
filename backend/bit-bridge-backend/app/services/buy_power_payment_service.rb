@@ -39,11 +39,34 @@ class BuyPowerPaymentService
         nil
       end
 
+    name_value = res&.dig('name')
+    address_value = res&.dig('address')
+    if service_type_upcase == 'TV'
+      verify_response =
+        verify_tv_account(
+          billersCode: payment_processor_params[:billersCode],
+          biller: payment_processor_params[:biller],
+          service_type: 'TV',
+          vend_type: resolved_meter_type
+        )
+      if verify_response[:status] == 'success'
+        name_value = extract_tv_name(verify_response[:response]).presence
+      else
+        name_value = nil
+      end
+      address_value = nil
+    end
+
+    name_for_record =
+      service_type_upcase == 'TV' ? name_value : (name_value || payment_processor_params[:billersCode])
+    address_for_record =
+      service_type_upcase == 'TV' ? address_value : (address_value || payment_processor_params[:billersCode])
+
     bill_order = current_user&.bill_orders&.new(
       meter_number: payment_processor_params[:billersCode],
       meter_type: resolved_meter_type,
-      address: res&.dig('address') || payment_processor_params[:billersCode],
-      name: res&.dig('name') || payment_processor_params[:billersCode],
+      address: address_for_record,
+      name: name_for_record,
       tariff_class: payment_processor_params[:tariff_class],
       service_type: service_type,
       email: current_user.email || payment_processor_params[:email],
@@ -55,8 +78,8 @@ class BuyPowerPaymentService
     ) || BillOrder.new(
       meter_number: payment_processor_params[:billersCode],
       meter_type: resolved_meter_type,
-      address: res&.dig('address') || payment_processor_params[:billersCode],
-      name: res&.dig('name') || payment_processor_params[:billersCode],
+      address: address_for_record,
+      name: name_for_record,
       tariff_class: payment_processor_params[:tariff_class],
       service_type: service_type,
       email: payment_processor_params[:email],
@@ -116,11 +139,53 @@ class BuyPowerPaymentService
       headers: @get_headers
     )
 
+    if service_type == 'TV' && (!Rails.env.production? || ENV['DEBUG_TV_VERIFY_KEYS'].to_s == '1')
+      payload =
+        if response.respond_to?(:parsed_response)
+          response.parsed_response
+        elsif response.respond_to?(:to_h)
+          response.to_h
+        else
+          response
+        end
+      top_keys = payload.is_a?(Hash) ? payload.keys : []
+      data_keys = payload.is_a?(Hash) && payload['data'].is_a?(Hash) ? payload['data'].keys : []
+      result_keys =
+        if payload.is_a?(Hash) && payload['result'].is_a?(Hash)
+          payload['result'].keys
+        else
+          []
+        end
+      result_data_keys =
+        if payload.is_a?(Hash) && payload.dig('result', 'data').is_a?(Hash)
+          payload.dig('result', 'data').keys
+        else
+          []
+        end
+      Rails.logger.info(
+        "[TV_VERIFY] response_keys top=#{top_keys} data=#{data_keys} result=#{result_keys} result_data=#{result_data_keys}"
+      )
+    end
+
     raise response['message'] unless response.success?
 
     { response: response, status: 'success' }
   rescue StandardError => e
     { response: e.message.to_s, status: 'error' }
+  end
+
+  def extract_tv_name(response)
+    return nil unless response.is_a?(Hash)
+
+    response['name'] ||
+      response['customerName'] ||
+      response['customer_name'] ||
+      response.dig('data', 'name') ||
+      response.dig('data', 'customerName') ||
+      response.dig('data', 'customer_name') ||
+      response.dig('result', 'data', 'name') ||
+      response.dig('result', 'data', 'customerName') ||
+      response.dig('result', 'data', 'customer_name')
   end
 
   def pay_data(electric_bill_order)

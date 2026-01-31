@@ -77,7 +77,7 @@ class BillOrder < ApplicationRecord
   end
 
   def calc_service_charge
-    self.service_charge = %w[VTU DATA].include?(service_type) ? 0 : 100
+    self.service_charge = service_type == 'ELECTRICITY' ? 100 : 0
   end
 
   def send_confirmation_mail
