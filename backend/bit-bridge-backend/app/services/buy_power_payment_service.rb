@@ -41,6 +41,7 @@ class BuyPowerPaymentService
 
     name_value = res&.dig('name')
     address_value = res&.dig('address')
+    provider_response_value = nil
     if service_type_upcase == 'TV'
       verify_response =
         verify_tv_account(
@@ -49,6 +50,7 @@ class BuyPowerPaymentService
           service_type: 'TV',
           vend_type: resolved_meter_type
         )
+      provider_response_value = provider_response_payload(verify_response[:response])
       if verify_response[:status] == 'success'
         name_value = extract_tv_name(verify_response[:response]).presence
       else
@@ -74,6 +76,7 @@ class BuyPowerPaymentService
       phone: current_user.user_profile&.phone_number || payment_processor_params[:phone],
       biller: payment_processor_params[:biller],
       description: payment_processor_params[:description],
+      provider_response: provider_response_value,
       demand_category: res&.dig('demandCategory')
     ) || BillOrder.new(
       meter_number: payment_processor_params[:billersCode],
@@ -87,6 +90,7 @@ class BuyPowerPaymentService
       phone: payment_processor_params[:phone],
       biller: payment_processor_params[:biller],
       description: payment_processor_params[:description],
+      provider_response: provider_response_value,
       demand_category: res&.dig('demandCategory')
     )
 
@@ -162,8 +166,25 @@ class BuyPowerPaymentService
         else
           []
         end
+      name_paths = []
+      if payload.is_a?(Hash)
+        name_paths << 'name' if payload.key?('name')
+        name_paths << 'customerName' if payload.key?('customerName')
+        name_paths << 'customer_name' if payload.key?('customer_name')
+        if payload['data'].is_a?(Hash)
+          name_paths << 'data.name' if payload['data'].key?('name')
+          name_paths << 'data.customerName' if payload['data'].key?('customerName')
+          name_paths << 'data.customer_name' if payload['data'].key?('customer_name')
+        end
+        if payload['result'].is_a?(Hash) && payload['result']['data'].is_a?(Hash)
+          result_data = payload['result']['data']
+          name_paths << 'result.data.name' if result_data.key?('name')
+          name_paths << 'result.data.customerName' if result_data.key?('customerName')
+          name_paths << 'result.data.customer_name' if result_data.key?('customer_name')
+        end
+      end
       Rails.logger.info(
-        "[TV_VERIFY] response_keys top=#{top_keys} data=#{data_keys} result=#{result_keys} result_data=#{result_data_keys}"
+        "[TV_VERIFY] response_keys top=#{top_keys} data=#{data_keys} result=#{result_keys} result_data=#{result_data_keys} name_paths=#{name_paths}"
       )
     end
 
@@ -779,7 +800,7 @@ end
   def assert_vend_type_rules!(service_type, body)
     normalized = service_type.to_s.strip.upcase
     if %w[VTU AIRTIME DATA].include?(normalized)
-      raise "vendType must be absent for #{normalized}" if body.key?(:vendType)
+      raise "vendType must be PREPAID for #{normalized}" unless body[:vendType].to_s.strip == 'PREPAID'
     elsif normalized == 'TV'
       raise 'vendType must be present for TV' unless body[:vendType].to_s.strip == 'PREPAID'
     elsif normalized == 'ELECTRICITY'

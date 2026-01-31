@@ -31,7 +31,7 @@ RSpec.describe BuyPowerPaymentService do
       expect(result[:response]).to include('Invalid vendType provided')
     end
 
-    it 'allows TV purchase without vendType' do
+    it 'defaults vendType to PREPAID for TV purchase without vendType' do
       user = create(:user)
       service = described_class.new
 
@@ -46,11 +46,11 @@ RSpec.describe BuyPowerPaymentService do
       })
 
       expect(result[:status]).to eq('success')
-      expect(result[:response].meter_type).to be_nil
+      expect(result[:response].meter_type).to eq('PREPAID')
       expect(result[:response].service_type).to eq('TV')
     end
 
-    it 'ignores vendType for TV purchase' do
+    it 'uses provided vendType for TV purchase' do
       user = create(:user)
       service = described_class.new
 
@@ -66,7 +66,7 @@ RSpec.describe BuyPowerPaymentService do
       })
 
       expect(result[:status]).to eq('success')
-      expect(result[:response].meter_type).to be_nil
+      expect(result[:response].meter_type).to eq('PREPAID')
       expect(result[:response].service_type).to eq('TV')
     end
   end
