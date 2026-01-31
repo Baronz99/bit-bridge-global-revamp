@@ -10,6 +10,16 @@ module Api
         service.verify_meter(verify_processor_params)
       end
 
+      def verify_tv_account
+        service = BuyPowerPaymentService.new
+        service_response = service.verify_tv_account(verify_tv_params)
+        if service_response[:status] == 'success'
+          render json: { success: true, data: service_response[:response] }, status: :ok
+        else
+          render json: { success: false, message: service_response[:response] }, status: :unprocessable_entity
+        end
+      end
+
       def show
         render json: { data: BillOrderSerializer.new(@bill_order) }
       end
@@ -213,6 +223,11 @@ end
 
       def verify_processor_params
         params.permit(:billersCode, :serviceID, :type)
+      end
+
+      def verify_tv_params
+        p = params[:payment_processor].presence || params
+        p.permit(:billersCode, :biller, :service_type, :vend_type, :meter_type, :provider)
       end
 
       def set_bill_order

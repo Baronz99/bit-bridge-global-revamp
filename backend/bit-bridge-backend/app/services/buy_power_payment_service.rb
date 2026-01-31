@@ -102,6 +102,27 @@ class BuyPowerPaymentService
     end
   end
 
+  def verify_tv_account(params)
+    billers_code = params[:billersCode] || params[:smartcard] || params[:decoder] || params[:account_number]
+    biller = params[:biller] || params[:provider]
+    service_type = params[:service_type].to_s.strip.upcase
+    service_type = 'TV' if service_type.blank?
+    raw_vend_type = params[:vend_type] || params[:meter_type]
+    vend_type = raw_vend_type.to_s.strip.upcase
+    vend_type = 'PREPAID' unless %w[PREPAID POSTPAID RECOVERY].include?(vend_type)
+
+    response = self.class.get(
+      "/check/meter?meter=#{billers_code}&disco=#{biller}&vendType=#{vend_type}&vertical=#{service_type}&orderId=false",
+      headers: @get_headers
+    )
+
+    raise response['message'] unless response.success?
+
+    { response: response, status: 'success' }
+  rescue StandardError => e
+    { response: e.message.to_s, status: 'error' }
+  end
+
   def pay_data(electric_bill_order)
     body = build_vend_body(
       electric_bill_order,
@@ -199,8 +220,24 @@ class BuyPowerPaymentService
         return { status: 'error', message: e.record.errors.full_messages.to_sentence }
       end
 
+      if sandbox_vtu_blocked?(body)
+        message = 'VTU is not supported in BuyPower sandbox. Please use staging/live.'
+        return handle_wallet_failure(
+          electric_bill_order,
+          payment_method,
+          message,
+          { message: message, responseCode: 'SANDBOX_UNSUPPORTED' },
+          status: 'failed'
+        )
+      end
+
       call_started_at = Process.clock_gettime(Process::CLOCK_MONOTONIC)
       vend_type_log = body[:vendType]
+      if !Rails.env.production? || ENV['DEBUG_VEND_KEYS'].to_s == '1'
+        Rails.logger.info(
+          "BuyPower vend body keys=#{body.keys.sort} vertical=#{body[:vertical]} vendType_present=#{body.key?(:vendType)} vendType=#{body[:vendType].inspect}"
+        )
+      end
       Rails.logger.info(
         "BuyPower vend request start #{request_tag} bill_order_id=#{electric_bill_order&.id} service_type=#{electric_bill_order['service_type']} biller=#{electric_bill_order['biller']} vendType=#{vend_type_log}"
       )
@@ -208,8 +245,16 @@ class BuyPowerPaymentService
       call_duration_ms = ((Process.clock_gettime(Process::CLOCK_MONOTONIC) - call_started_at) * 1000).round
       Rails.logger.info("BuyPower vend request finish #{request_tag} duration_ms=#{call_duration_ms} success=#{response&.success?}")
     elsif payment_method == 'card'
+      if sandbox_vtu_blocked?(body)
+        return { status: 'error', response: 'VTU is not supported in BuyPower sandbox. Please use staging/live.' }
+      end
       call_started_at = Process.clock_gettime(Process::CLOCK_MONOTONIC)
       vend_type_log = body[:vendType]
+      if !Rails.env.production? || ENV['DEBUG_VEND_KEYS'].to_s == '1'
+        Rails.logger.info(
+          "BuyPower vend body keys=#{body.keys.sort} vertical=#{body[:vertical]} vendType_present=#{body.key?(:vendType)} vendType=#{body[:vendType].inspect}"
+        )
+      end
       Rails.logger.info(
         "BuyPower vend request start #{request_tag} bill_order_id=#{electric_bill_order&.id} service_type=#{electric_bill_order['service_type']} biller=#{electric_bill_order['biller']} vendType=#{vend_type_log}"
       )
@@ -282,6 +327,25 @@ class BuyPowerPaymentService
         provider_payload&.dig('result', 'message') ||
         provider_payload&.dig('message') ||
         provider_payload&.dig('error')
+      if electric_bill_order['service_type'].to_s.strip.upcase == 'TV' &&
+         (provider_message.to_s.downcase.include?('invalid account number') ||
+          error_message.to_s.downcase.include?('invalid account number'))
+        log_tv_invalid_account(
+          provider_payload: provider_payload,
+          bill_order: electric_bill_order,
+          request_id: request_id
+        )
+      end
+      if vtu_service_type?(electric_bill_order['service_type']) &&
+         (Rails.env.development? || Rails.env.staging?) &&
+         Config::Bills.base_url.to_s.include?('idev.')
+        sanitized_message = sanitize_provider_message(provider_message.presence || error_message)
+        response_code = provider_payload&.dig('responseCode') || provider_payload&.dig(:responseCode)
+        Rails.logger.warn(
+          "BuyPower VTU failure request_id=#{request_id || 'unknown'} bill_order_id=#{electric_bill_order.id} vertical=#{body[:vertical]} disco=#{body[:disco]} responseCode=#{response_code} message=#{sanitized_message}"
+        )
+      end
+
       if provider_message.to_s.downcase.include?('daily transaction count limit')
         Rails.logger.warn(
           "BuyPower wallet vend failed bill_order_id=#{electric_bill_order.id} reason=#{provider_message}"
@@ -508,6 +572,11 @@ end
       end
     end
 
+    body.delete(:vendType) unless %w[ELECTRICITY TV].include?(service_type)
+    body.delete(:vendType) if body[:vendType].to_s.strip == ''
+
+    assert_vend_type_rules!(service_type, body) if Rails.env.test?
+
     body.transform_values { |v| v.is_a?(String) ? v.strip : v }
   end
 
@@ -521,6 +590,61 @@ end
     response&.dig('data', 'status')&.to_s&.downcase ||
       response&.dig('status')&.to_s&.downcase ||
       response&.dig('responseCode')&.to_s&.downcase
+  end
+
+  def log_tv_invalid_account(provider_payload:, bill_order:, request_id:)
+    data_message =
+      provider_payload&.dig('data', 'message') ||
+      provider_payload&.dig(:data, :message) ||
+      provider_payload&.dig('result', 'data', 'message') ||
+      provider_payload&.dig(:result, :data, :message)
+
+    sanitized = {
+      responseCode: provider_payload&.dig('responseCode') || provider_payload&.dig(:responseCode),
+      status: provider_payload&.dig('status') || provider_payload&.dig(:status),
+      message: redact_account_identifier(provider_payload&.dig('message') || provider_payload&.dig(:message)),
+      error: redact_account_identifier(provider_payload&.dig('error') || provider_payload&.dig(:error)),
+      data_message: redact_account_identifier(data_message)
+    }.compact
+
+    Rails.logger.warn(
+      "[BuyPower TV invalid account] request_id=#{request_id || 'unknown'} bill_order_id=#{bill_order&.id} payload=#{sanitized.to_json}"
+    )
+  end
+
+  def redact_account_identifier(value)
+    return value unless value.is_a?(String)
+
+    value.gsub(/\d{6,}/) { |m| ('*' * [m.length - 4, 0].max) + m[-4, 4] }
+  end
+
+  def sanitize_provider_message(message)
+    return message unless message.is_a?(String)
+
+    message.gsub(/\d{6,}/) { |m| ('*' * [m.length - 4, 0].max) + m[-4, 4] }
+  end
+
+  def vtu_service_type?(service_type)
+    %w[VTU AIRTIME DATA].include?(service_type.to_s.strip.upcase)
+  end
+
+  def sandbox_vtu_blocked?(body)
+    return false unless (Rails.env.development? || Rails.env.staging?)
+    return false unless Config::Bills.base_url.to_s.include?('idev.')
+
+    vtu_service_type?(body[:vertical])
+  end
+
+  def assert_vend_type_rules!(service_type, body)
+    normalized = service_type.to_s.strip.upcase
+    if %w[VTU AIRTIME DATA].include?(normalized)
+      raise "vendType must be absent for #{normalized}" if body.key?(:vendType)
+    elsif normalized == 'TV'
+      raise 'vendType must be present for TV' unless body[:vendType].to_s.strip == 'PREPAID'
+    elsif normalized == 'ELECTRICITY'
+      allowed = %w[PREPAID POSTPAID RECOVERY]
+      raise 'vendType must be valid for ELECTRICITY' unless allowed.include?(body[:vendType].to_s.strip)
+    end
   end
 
     def handle_wallet_success(order, payment_method, use_commission, units, token, transaction_id, message, provider_payload)

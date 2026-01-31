@@ -157,6 +157,7 @@ Rails.application.routes.draw do
         collection do
           post :payment_order
           post :verify_meter
+          post :verify_tv_account
           post :process_payment
           get  :get_balance
           get  :get_price_list

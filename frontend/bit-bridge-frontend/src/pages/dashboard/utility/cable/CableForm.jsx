@@ -44,9 +44,11 @@ const DashboardCableForm = () => {
 
     dispatch(SET_LOADING(true))
 
+    const { meter_type: _meterType, ...safeValues } = values || {}
+
     dispatch(
       createPurchaseOrder({
-        ...values,
+        ...safeValues,
         ...value,
         biller: selectedProvider.product.provider,
         service_type: selectedProvider.service_type,
