@@ -632,9 +632,11 @@ end
 
         body[:vendType] = vend_type
       end
+    elsif %w[VTU DATA].include?(service_type)
+      body[:vendType] = 'PREPAID'
     end
 
-    body.delete(:vendType) unless %w[ELECTRICITY TV].include?(service_type)
+    body.delete(:vendType) unless %w[ELECTRICITY TV VTU DATA].include?(service_type)
     body.delete(:vendType) if body[:vendType].to_s.strip == ''
 
     assert_vend_type_rules!(service_type, body) if Rails.env.test?
