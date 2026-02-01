@@ -692,14 +692,32 @@ end
 
 
   def re_query(order_id)
-    response = self.class.get("/transaction/#{order_id}", headers: @get_headers)
+  http = self.class.get("/transaction/#{order_id}", headers: @get_headers)
 
-    raise response['message'] || response unless response.success?
-
-    { response: response, status: :ok }
-  rescue StandardError => e
-    { response: e.message.to_s, status: :unprocessable_entity }
+  unless http.respond_to?(:success?) && http.success?
+    msg =
+      if http.respond_to?(:parsed_response)
+        http.parsed_response
+      else
+        http
+      end
+    raise(msg.is_a?(Hash) ? (msg['message'] || msg[:message]) : msg.to_s)
   end
+
+  payload =
+    if http.respond_to?(:parsed_response)
+      http.parsed_response
+    elsif http.respond_to?(:to_h)
+      http.to_h
+    else
+      http
+    end
+
+  { response: payload, status: :ok }
+rescue StandardError => e
+  { response: e.message.to_s, status: :unprocessable_entity }
+end
+
 
   private
   def build_vend_body(electric_bill_order, phone:)
