@@ -8,7 +8,7 @@ class OrderDetail < ApplicationRecord
   has_many :card_tokens, through: :order_items
   has_many :provisions, through: :order_items
   # validates :total_amount, presence: true,  numericality: {greater_than: 0}
-  enum :order_type, { buy: 0, sell: 1 }
+  enum :order_type, { buy: 0, sell: 1, vtu: 2 }
   enum :payment_method, { wallet: 0 }
   enum :status, { pending: 0, approved: 1, declined: 2 }
 
@@ -45,7 +45,8 @@ class OrderDetail < ApplicationRecord
   end
 
   def set_net_amount
-    self.net_total = ((10 / 100) * add_total) + add_total
+    base = calculate_total || add_total
+    self.net_total = (0.10 * base) + base
   end
 
   def set_total_amount

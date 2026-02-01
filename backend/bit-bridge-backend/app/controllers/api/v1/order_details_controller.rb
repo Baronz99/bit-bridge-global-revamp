@@ -23,16 +23,24 @@ module Api
 
       # POST /order_details
       def create
-        # Rails.logger.debug(order_detail_params.inspect)
+        attrs = order_detail_params.to_h
+        raw_type = attrs.delete('service_type')
+        Rails.logger.warn("[ORDER_DETAILS] legacy service_type received") if raw_type.present?
 
-        @order_detail = current_user.order_details.new(order_detail_params)
+        normalized_type = normalize_order_type(attrs['order_type'] || raw_type)
+
+        unless normalized_type
+          return render json: {
+            message: "Invalid order_type. Allowed: #{OrderDetail.order_types.keys.join(', ')}"
+          }, status: :unprocessable_entity
+        end
+
+        attrs['order_type'] = normalized_type
+
+        @order_detail = current_user.order_details.new(attrs)
 
         if @order_detail.save
-          # Rails.logger.debug(@order_detail.errors.full_messages)
-
           render json: { data: OrderDetailSerializer.new(@order_detail), message: 'Order created' }, status: :created
-          # render json: {data: OrderDetailSerializer.new(@order_detail), message: "Order created" }, status: :created
-
         else
           render json: { message: @order_detail.errors.full_messages.to_sentence }, status: :unprocessable_entity
         end
@@ -61,8 +69,16 @@ module Api
 
       # Only allow a list of trusted parameters through.
       def order_detail_params
-        params.require(:order_detail).permit(:total_amount, :extra_info, :status, :payment_method, :viewed, :net_total,
-                                             :order_type, :proof, order_items_attributes: %i[quantity amount provision_id product_id currency])
+        params.require(:order_detail).permit(:total_amount, :extra_info, :order_type, :proof,
+                                             order_items_attributes: %i[quantity amount provision_id product_id currency])
+      end
+
+      def normalize_order_type(raw)
+        t = raw.to_s.strip.downcase
+        return 'buy' if t == 'buy'
+        return 'sell' if t == 'sell'
+        return 'vtu' if t == 'vtu'
+        nil
       end
     end
   end
