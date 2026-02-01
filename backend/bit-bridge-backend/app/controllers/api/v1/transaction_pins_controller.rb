@@ -5,7 +5,7 @@ module Api
     class TransactionPinsController < ApplicationController
       before_action :authenticate_user!
 
-      # ✅ Allow /verify ONLY in development OR when explicitly enabled
+      # ✅ Allow /verify in dev and staging; production can disable with ENV flag
       before_action :ensure_verify_enabled!, only: [:verify]
 
       # ✅ For production: require verified phone to SET/CHANGE PIN
@@ -376,9 +376,10 @@ end
           params.dig(:user, :pin).presence
       end
 
-      # ✅ /verify should be dev-only unless explicitly enabled
+      # ✅ /verify should be available in staging/prod when env flag allows
       def ensure_verify_enabled!
-        enabled = Rails.env.development? || ENV['ENABLE_TRANSACTION_PIN_VERIFY'] == 'true'
+        enabled = Rails.env.development? || Rails.env.test? || Rails.env.staging? || ENV['ENABLE_TRANSACTION_PIN_VERIFY'] != 'false'
+        Rails.logger.info("[PIN_VERIFY] enable_check enabled=#{enabled} env=#{Rails.env} flag=#{ENV['ENABLE_TRANSACTION_PIN_VERIFY']}") if Rails.env.development? || Rails.env.staging?
         return if enabled
 
         render json: { message: 'Not found' }, status: :not_found
