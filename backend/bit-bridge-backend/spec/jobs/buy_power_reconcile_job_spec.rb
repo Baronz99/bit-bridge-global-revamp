@@ -106,8 +106,7 @@ RSpec.describe BuyPowerReconcileJob, type: :job do
     entries = WalletLedgerEntry.where(bill_order: bill_order)
     expect(entries.hold.count).to eq(1)
     expect(entries.release.count).to eq(1)
-    expected_refunds = entries.debit.exists? ? 1 : 0
-    expect(entries.refund.count).to eq(expected_refunds)
+    expect(entries.refund.count).to eq(1)
     expect(bill_order.reload.status).to eq('refunded')
   end
 

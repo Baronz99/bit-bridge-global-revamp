@@ -98,6 +98,17 @@ class BuyPowerReconcileJob < ApplicationJob
         # Ensure the web dashboard/timeline has a record (idempotent).
         ensure_transaction_record!(order)
 
+      when :refunded
+        service.send(
+          :handle_wallet_failure,
+          order,
+          'wallet',
+          message.presence || 'Vend refunded',
+          raw,
+          status: 'refunded',
+          force_refund: true
+        )
+
       when :failed
         if limit_reached
           Rails.logger.warn("BuyPower reconcile limit-reached bill_order_id=#{order.id} reason=#{message}")
@@ -188,22 +199,23 @@ class BuyPowerReconcileJob < ApplicationJob
     return :success if %w[success successful completed paid].include?(s)
     result_status = raw.dig('result', 'status')
     return :success if result_status == true
-    return :failed  if %w[failed refund refunded reversed cancelled declined].include?(s)
+    return :refunded if %w[refund refunded reversed].include?(s)
+    return :failed  if %w[failed cancelled declined].include?(s)
 
     :pending
   end
 
- def provider_message(raw, data)
-  return nil unless raw.is_a?(Hash)
+  def provider_message(raw, data)
+    return nil unless raw.is_a?(Hash)
 
-  data = data.is_a?(Hash) ? data : {}
+    data = data.is_a?(Hash) ? data : {}
 
-  data['responseMessage'].to_s.presence ||
-    data['message'].to_s.presence ||
-    raw.dig('result', 'message').to_s.presence ||
-    raw['message'].to_s.presence ||
-    'Vend successful'
-end
+    data['responseMessage'].to_s.presence ||
+      data['message'].to_s.presence ||
+      raw.dig('result', 'message').to_s.presence ||
+      raw['message'].to_s.presence ||
+      'Vend successful'
+  end
 
 
   def provider_txn_id(raw, data, order)
