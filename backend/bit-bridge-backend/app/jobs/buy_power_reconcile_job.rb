@@ -8,34 +8,23 @@ class BuyPowerReconcileJob < ApplicationJob
   def perform(bill_order_id)
     order = BillOrder.find_by(id: bill_order_id)
     return unless order
+
     # TV verify-only orders can be initialized without provider_reference; do not reconcile.
     return if order.service_type.to_s.strip.upcase == 'TV' &&
               order.provider_reference.blank? &&
               order.status.to_s == 'initialized'
+
     return unless order.payment_method == 'wallet'
 
     service = BuyPowerPaymentService.new
-    provider_payload =
-      case order.provider_response
-      when String
-        JSON.parse(order.provider_response) rescue nil
-      else
-        order.provider_response
-      end
-    provider_error =
-      provider_payload&.dig('error') || provider_payload&.dig(:error) ||
-      provider_payload&.dig('errors') || provider_payload&.dig(:errors) ||
-      provider_payload&.dig('status').to_s.downcase == 'error' ||
-      provider_payload&.dig(:status).to_s.downcase == 'error'
+
+    # 1) If we already have an error payload on a processing order, hard-fail + release/refund.
+    provider_payload = provider_payload_from(order.provider_response)
+    provider_error = provider_error?(provider_payload)
+
     if order.processing? && provider_error && order.provider_reference.blank?
-      reason_value = order.reason.to_s.strip
-      failure_message =
-        (reason_value.empty? ? nil : reason_value) ||
-        provider_payload&.dig('result', 'data', 'message') ||
-        provider_payload&.dig('data', 'message') ||
-        provider_payload&.dig('message') ||
-        provider_payload&.dig(:message) ||
-        'Vend failed'
+      failure_message = failure_message_from(order, provider_payload)
+
       begin
         service.send(
           :handle_wallet_failure,
@@ -53,35 +42,41 @@ class BuyPowerReconcileJob < ApplicationJob
       return
     end
 
+    # 2) Re-query provider
     reference = order.provider_reference.presence || order.id
-    response = service.re_query(reference)
+    response  = service.re_query(reference)
 
     unless response[:status] == :ok
       order.with_lock do
         order.reload
         return if TERMINAL_STATUSES.include?(order.status.to_s)
+
         if order.updated_at < 2.hours.ago
           Rails.logger.error("[reconcile] stale non-ok requery order=#{order.id} status=#{response[:status]}")
           order.update(reason: "Reconcile stalled: #{response[:status]}") if order.reason.blank?
           return
         end
+
         self.class.set(wait: 10.minutes).perform_later(order.id)
       end
       return
     end
 
-    data = response[:response]&.dig('result', 'data') || response[:response]&.dig('data') || {}
-    provider_status = data['status'].to_s.downcase
-    message = data['message'].to_s.presence || response[:response]&.dig('message')
-    message = response[:response].to_s if message.blank?
+    raw  = response[:response]
+    data = extract_provider_data(raw)
+
+    outcome     = provider_outcome(raw)
+    message     = provider_message(raw, data)
+    provider_id = provider_txn_id(raw, data, order)
+
     limit_reached = message.to_s.downcase.include?('daily transaction count limit')
 
     order.with_lock do
       order.reload
       return if TERMINAL_STATUSES.include?(order.status.to_s)
 
-      case provider_status
-      when 'success', 'successful', 'completed', 'paid'
+      case outcome
+      when :success
         service.send(
           :handle_wallet_success,
           order,
@@ -89,43 +84,148 @@ class BuyPowerReconcileJob < ApplicationJob
           order.use_commission,
           data['units'],
           data['token'],
-          data['id'] || data['transaction_id'] || order.provider_reference,
-          message || 'Vend successful',
-          response[:response]
+          provider_id,
+          message.presence || 'Vend successful',
+          raw
         )
+
+        # Ensure ledger settlement happens (debit conversion, etc)
         BillOrders::Finalizer.call(bill_order: order.reload)
+
+        # Some flows leave a hold behind after success; ensure release exists (safety net).
         ensure_reconcile_release!(order)
-      when 'failed', 'refund', 'refunded', 'reversed', 'cancelled'
+
+        # Ensure the web dashboard/timeline has a record (idempotent).
+        ensure_transaction_record!(order)
+
+      when :failed
+        if limit_reached
+          Rails.logger.warn("BuyPower reconcile limit-reached bill_order_id=#{order.id} reason=#{message}")
+        end
+
         service.send(
           :handle_wallet_failure,
           order,
           'wallet',
-          message || 'Vend failed',
-          response[:response],
-          status: provider_status == 'refund' || provider_status == 'refunded' ? 'refunded' : 'failed'
+          message.presence || 'Vend failed',
+          raw,
+          status: 'failed'
         )
-      else
-        if limit_reached
-          Rails.logger.warn(
-            "BuyPower reconcile failed bill_order_id=#{order.id} reason=#{message}"
-          )
-          service.send(
-            :handle_wallet_failure,
-            order,
-            'wallet',
-            message || 'Vend failed',
-            response[:response],
-            status: 'failed'
-          )
-          return
+
+      else # :pending / unknown
+        # Keep the latest provider response for troubleshooting.
+        if order.status.to_s != 'processing'
+          order.update(status: 'processing', provider_response: raw)
+        else
+          order.update(provider_response: raw) if raw.present?
         end
-        order.update(status: 'processing', provider_response: response[:response]) if order.status != 'processing'
         self.class.set(wait: 10.minutes).perform_later(order.id)
       end
     end
   end
 
   private
+
+  # -------------------------
+  # Provider parsing helpers
+  # -------------------------
+
+  def provider_payload_from(value)
+    case value
+    when String
+      JSON.parse(value) rescue nil
+    else
+      value
+    end
+  end
+
+  def extract_provider_data(raw)
+    return {} unless raw.is_a?(Hash)
+
+    raw.dig('result', 'data') ||
+      raw.dig(:result, :data) ||
+      raw['data'] ||
+      raw[:data] ||
+      {}
+  end
+
+  def provider_error?(payload)
+    return false unless payload.is_a?(Hash)
+
+    payload.dig('error') || payload.dig(:error) ||
+      payload.dig('errors') || payload.dig(:errors) ||
+      payload.dig('status').to_s.downcase == 'error' ||
+      payload.dig(:status).to_s.downcase == 'error'
+  end
+
+  # Bank-grade: normalize all the different success shapes.
+  # Requirement: treat responseCode == 100 as success.
+  def provider_outcome(raw)
+    return :pending unless raw.is_a?(Hash)
+
+    data = extract_provider_data(raw)
+    merged = data.is_a?(Hash) ? raw.merge(data) : raw
+
+    # Error flags (any level)
+    err =
+      merged['error'] || merged[:error] ||
+      merged['errors'] || merged[:errors]
+
+    return :failed if err == true
+
+    # Codes (TV often uses responseCode)
+    code =
+      merged['responseCode'] || merged[:responseCode] ||
+      merged['code'] || merged[:code]
+
+    return :success if code.to_s == '100'
+
+    # Status strings
+    status =
+      merged['status'] || merged[:status]
+
+    s = status.to_s.strip.downcase
+    return :success if %w[success successful completed paid].include?(s)
+    return :failed  if %w[failed refund refunded reversed cancelled declined].include?(s)
+
+    :pending
+  end
+
+  def provider_message(raw, data)
+    msg =
+      (data.is_a?(Hash) ? data['message'] : nil).to_s.presence ||
+      (raw.is_a?(Hash) ? raw['message'] : nil).to_s.presence ||
+      (data.is_a?(Hash) ? data[:message] : nil).to_s.presence ||
+      (raw.is_a?(Hash) ? raw[:message] : nil).to_s.presence
+
+    msg.presence || raw.to_s
+  end
+
+  def provider_txn_id(raw, data, order)
+    id =
+      (data.is_a?(Hash) ? (data['id'] || data['transaction_id'] || data[:id] || data[:transaction_id]) : nil)
+
+    id.presence ||
+      (raw.is_a?(Hash) ? raw.dig('data', 'id') : nil).presence ||
+      order.provider_reference.presence ||
+      order.transaction_id.presence ||
+      order.id
+  end
+
+  def failure_message_from(order, provider_payload)
+    reason_value = order.reason.to_s.strip
+    return reason_value unless reason_value.empty?
+
+    provider_payload&.dig('result', 'data', 'message') ||
+      provider_payload&.dig('data', 'message') ||
+      provider_payload&.dig('message') ||
+      provider_payload&.dig(:message) ||
+      'Vend failed'
+  end
+
+  # -------------------------
+  # Ledger + dashboard safety nets
+  # -------------------------
 
   def ensure_reconcile_release!(order)
     wallet = order.user&.wallet
@@ -134,10 +234,10 @@ class BuyPowerReconcileJob < ApplicationJob
     return if WalletLedgerEntry.exists?(bill_order: order, entry_type: :release)
 
     amount_cents, amount = WalletLedgerEntry
-                            .where(wallet: wallet, bill_order: order, entry_type: :hold)
-                            .order(created_at: :desc)
-                            .limit(1)
-                            .pick(:amount_cents, :amount)
+                           .where(wallet: wallet, bill_order: order, entry_type: :hold)
+                           .order(created_at: :desc)
+                           .limit(1)
+                           .pick(:amount_cents, :amount)
 
     release_amount =
       if amount_cents.present?
@@ -149,7 +249,31 @@ class BuyPowerReconcileJob < ApplicationJob
     WalletLedgerEntry.find_or_create_by!(wallet: wallet, bill_order: order, entry_type: :release) do |entry|
       entry.amount = release_amount.to_d
       entry.reference = order.idempotency_key
-      entry.metadata = { 'source' => 'buy_power_reconcile_success', 'provider_reference' => order.provider_reference }
+      entry.metadata = {
+        'source' => 'buy_power_reconcile_success',
+        'provider_reference' => order.provider_reference
+      }
     end
+  end
+
+  # Web dashboard uses TransactionRecord. Make sure it exists after success.
+  # Idempotent: canonical reference = idempotency_key.
+  def ensure_transaction_record!(order)
+    ref = order.idempotency_key.presence || order.provider_reference.presence || order.id
+    return if ref.blank?
+
+    TransactionRecord.find_or_create_by!(reference: ref.to_s) do |tr|
+      tr.bill_order_id  = order.id
+      tr.status         = order.status.to_s
+      tr.amount         = (order.total_amount.presence || order.amount).to_d
+      tr.event_type     = 'bill_payment'
+      tr.transaction_id = order.provider_reference.presence || order.transaction_id
+      tr.description    = "#{order.service_type} #{order.biller}".strip
+      tr.customer_name  = order.name
+      tr.email          = order.email
+      tr.phone_number   = order.phone
+    end
+  rescue StandardError => e
+    Rails.logger.error("[BuyPowerReconcileJob] ensure_transaction_record failed order=#{order.id} #{e.class}: #{e.message}")
   end
 end
