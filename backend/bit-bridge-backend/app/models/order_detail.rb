@@ -20,13 +20,32 @@ class OrderDetail < ApplicationRecord
   before_save :set_net_amount
   accepts_nested_attributes_for :order_items
 
-  attr_accessor :calculate_total
+  attr_accessor :calculate_total, :invalid_amounts_found
 
   def add_total
     @add_total ||= begin
       conversion = CurrencyService.new('usd', 'usd')
+      invalid = false
+      total = order_items.collect do |item|
+        amount_bd = safe_decimal(item.amount) { invalid = true }
+        rate_hash = conversion.get_calculated_rate(amount_bd || 0, item.currency, 'usd')
+        rate_bd = safe_decimal(rate_hash[:rate] || rate_hash['rate']) { invalid = true }
 
-      order_items.collect { |item| conversion.get_calculated_rate(item.amount, item.currency, 'usd')[:rate] }.sum
+        if amount_bd.nil? || rate_bd.nil?
+          invalid = true
+          nil
+        else
+          amount_bd * rate_bd
+        end
+      rescue StandardError => e
+        invalid = true
+        Rails.logger.error("[ORDER_DETAIL] amount conversion failed: #{e.class} - #{e.message}")
+        nil
+      end.compact
+
+      sum = total.sum(BigDecimal('0'))
+      self.invalid_amounts_found = invalid
+      sum
     end
   end
 
@@ -44,6 +63,8 @@ class OrderDetail < ApplicationRecord
     self.calculate_total = add_total
   end
 
+  validate :reject_invalid_amounts
+
   def set_net_amount
     base = calculate_total || add_total
     self.net_total = (0.10 * base) + base
@@ -55,5 +76,30 @@ class OrderDetail < ApplicationRecord
 
   def proof_url
     Rails.application.routes.url_helpers.url_for(proof) if proof.attached?
+  end
+
+  private
+
+  def safe_decimal(val, errs = nil)
+    BigDecimal(val.to_s)
+  rescue StandardError
+    self.invalid_amounts_found = true
+    yield if block_given?
+    nil
+  end
+
+  def reject_invalid_amounts
+    add_total if @add_total.nil?
+    flagged = invalid_amounts_found
+    flagged ||= order_items.any? { |i| amount_invalid?(i.amount) }
+    flagged ||= (@add_total == BigDecimal('0') && order_items.any?)
+    errors.add(:total_amount, 'invalid amount') if flagged
+  end
+
+  def amount_invalid?(val)
+    BigDecimal(val.to_s)
+    false
+  rescue StandardError
+    true
   end
 end

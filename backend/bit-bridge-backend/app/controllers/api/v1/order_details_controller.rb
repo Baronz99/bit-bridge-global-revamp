@@ -69,7 +69,7 @@ module Api
 
       # Only allow a list of trusted parameters through.
       def order_detail_params
-        params.require(:order_detail).permit(:total_amount, :extra_info, :order_type, :proof,
+        params.require(:order_detail).permit(:total_amount, :extra_info, :order_type, :service_type, :proof,
                                              order_items_attributes: %i[quantity amount provision_id product_id currency])
       end
 
@@ -77,7 +77,7 @@ module Api
         t = raw.to_s.strip.downcase
         return 'buy' if t == 'buy'
         return 'sell' if t == 'sell'
-        return 'vtu' if t == 'vtu'
+        return 'vtu' if t == 'vtu' || t == 'utility'
         nil
       end
     end
