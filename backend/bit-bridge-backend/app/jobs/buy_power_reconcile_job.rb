@@ -186,20 +186,25 @@ class BuyPowerReconcileJob < ApplicationJob
 
     s = status.to_s.strip.downcase
     return :success if %w[success successful completed paid].include?(s)
+    result_status = raw.dig('result', 'status')
+    return :success if result_status == true
     return :failed  if %w[failed refund refunded reversed cancelled declined].include?(s)
 
     :pending
   end
 
-  def provider_message(raw, data)
-    msg =
-      (data.is_a?(Hash) ? data['message'] : nil).to_s.presence ||
-      (raw.is_a?(Hash) ? raw['message'] : nil).to_s.presence ||
-      (data.is_a?(Hash) ? data[:message] : nil).to_s.presence ||
-      (raw.is_a?(Hash) ? raw[:message] : nil).to_s.presence
+ def provider_message(raw, data)
+  return nil unless raw.is_a?(Hash)
 
-    msg.presence || raw.to_s
-  end
+  data = data.is_a?(Hash) ? data : {}
+
+  data['responseMessage'].to_s.presence ||
+    data['message'].to_s.presence ||
+    raw.dig('result', 'message').to_s.presence ||
+    raw['message'].to_s.presence ||
+    'Vend successful'
+end
+
 
   def provider_txn_id(raw, data, order)
     id =
@@ -259,10 +264,11 @@ class BuyPowerReconcileJob < ApplicationJob
   # Web dashboard uses TransactionRecord. Make sure it exists after success.
   # Idempotent: canonical reference = idempotency_key.
   def ensure_transaction_record!(order)
-    ref = order.idempotency_key.presence || order.provider_reference.presence || order.id
-    return if ref.blank?
+    reference = order.idempotency_key.presence || order.provider_reference.presence || order.id.to_s
+    return if reference.blank?
 
-    TransactionRecord.find_or_create_by!(reference: ref.to_s) do |tr|
+    TransactionRecord.find_or_create_by!(bill_order_id: order.id) do |tr|
+      tr.reference = reference
       tr.bill_order_id  = order.id
       tr.status         = order.status.to_s
       tr.amount         = (order.total_amount.presence || order.amount).to_d
