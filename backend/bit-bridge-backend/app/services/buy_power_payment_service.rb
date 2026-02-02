@@ -309,7 +309,10 @@ class BuyPowerPaymentService
 
             electric_bill_order.payment_method = payment_method
             electric_bill_order.use_commission = use_commission
-            electric_bill_order.commission_used = bonus_used
+            electric_bill_order.commission_used = MoneyScale.normalize(bonus_used)
+            electric_bill_order.wallet_amount_charged = MoneyScale.normalize(wallet_debit)
+            electric_bill_order.reward_applied = MoneyScale.normalize(bonus_used)
+            electric_bill_order.commission_used_cents = Money.to_cents(bonus_used, 'NGN')
             electric_bill_order.status = 'processing'
             electric_bill_order.save!
           end

@@ -227,6 +227,66 @@ RSpec.describe BuyPowerPaymentService do
       expect(WalletLedgerEntry.where(bill_order: bill_order).hold.count).to eq(1)
       expect(WalletLedgerEntry.where(bill_order: bill_order).release.count).to eq(0)
       expect(WalletLedgerEntry.where(bill_order: bill_order).debit.count).to eq(1)
+      refreshed = bill_order.reload
+      expect(refreshed.wallet_amount_charged.to_d).to eq(refreshed.total_amount.to_d)
+      expect(refreshed.commission_used.to_d).to eq(0.to_d)
+      expect(refreshed.reward_applied.to_d).to eq(0.to_d)
+      expect(refreshed.commission_used_cents).to eq(0)
+    end
+
+    it 'records commission usage when use_commission is true' do
+      allow(Config::Bills).to receive(:validate!).and_return(true)
+      allow(Config::Bills).to receive(:base_url).and_return('http://example.test')
+      allow(Config::Bills).to receive(:token).and_return('token')
+
+      response = {
+        'data' => { 'units' => '1', 'token' => 'abc', 'id' => 'txn_2' },
+        'message' => 'OK'
+      }
+      def response.success?
+        true
+      end
+
+      allow(described_class).to receive(:post).and_return(response)
+
+      user = create(:user)
+      wallet = user.wallet
+      wallet.update!(commission: 200)
+      Transaction.create!(
+        wallet: wallet,
+        amount: 10_000,
+        bonus: 0,
+        status: :approved,
+        transaction_type: :deposit
+      )
+
+      bill_order = BillOrder.create!(
+        user: user,
+        meter_number: '08012345679',
+        meter_type: 'PREPAID',
+        address: 'Test Address',
+        name: 'Test User',
+        tariff_class: 'A',
+        service_type: 'VTU',
+        email: user.email,
+        amount: 1000,
+        phone: '08012345679',
+        biller: 'MTN',
+        description: 'Airtime',
+        payment_type: 'online',
+        payment_method: 'wallet'
+      )
+
+      service = described_class.new
+      result = service.confirm_subscription(bill_order, 'wallet', true, request_id: 'spec')
+
+      expect(result[:status]).to eq('success')
+      refreshed = bill_order.reload
+      expect(refreshed.status).to eq('completed')
+      expect(refreshed.commission_used.to_d).to eq(200.to_d)
+      expect(refreshed.reward_applied.to_d).to eq(200.to_d)
+      expect(refreshed.wallet_amount_charged.to_d).to eq(refreshed.total_amount.to_d)
+      expect(refreshed.commission_used_cents).to eq(20_000)
     end
 
     it 'applies commission once for VTU and does not double-apply on retry' do
