@@ -18,7 +18,7 @@ module Api
           pin_set_at: current_user.transaction_pin_set_at,
           locked: current_user.transaction_pin_locked?,
           lock_remaining_seconds: current_user.transaction_pin_lock_remaining_seconds,
-          app_lock_enabled: current_user.transaction_pin_app_lock_enabled == true
+          app_lock_enabled: current_user.transaction_pin_app_lock_enabled
         }, status: :ok
       end
 
