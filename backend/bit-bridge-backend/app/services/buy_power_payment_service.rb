@@ -260,6 +260,14 @@ class BuyPowerPaymentService
       Rails.logger.warn(
         "BuyPower confirm_subscription blocked wallet bill_order_id=#{electric_bill_order.id} payment_method=#{electric_bill_order.payment_method}"
       )
+      log_commission_context(
+        electric_bill_order,
+        user,
+        detail: 'invalid_payment_method',
+        use_commission: false,
+        commission_balance: nil,
+        wallet_debit: 0
+      )
       return { status: 'error', message: 'Invalid payment method for wallet confirmation' }
     end
 
@@ -294,7 +302,18 @@ class BuyPowerPaymentService
             available_balance = wallet.ledger_available_balance
             has_money = wallet_debit <= 0 || available_balance >= wallet_debit
 
-            raise 'Insufficient funds' unless has_money
+            unless has_money
+              log_commission_context(
+                electric_bill_order,
+                user,
+                detail: 'insufficient_funds',
+                use_commission: use_commission,
+                wallet_debit: wallet_debit,
+                commission_balance: commission_balance,
+                available_balance: available_balance
+              )
+              raise 'Insufficient funds'
+            end
 
             # Avoid 0-amount holds that would create misleading ledger entries.
             if wallet_debit.positive?
@@ -953,5 +972,15 @@ end
       reference: reference,
       metadata: metadata
     )
+  end
+
+  def log_commission_context(order, user, detail:, use_commission:, wallet_debit:, commission_balance:, available_balance: nil)
+    reward_balance = RewardTransaction.available_sum_for(user.id).to_d rescue 0
+    pin_required = user&.transaction_pin_set?
+    Rails.logger.warn(
+      "[BONUS] confirm_subscription rejection detail=#{detail} bill_order_id=#{order&.id} user_id=#{user&.id} use_commission=#{use_commission} wallet_debit=#{wallet_debit} commission_balance=#{commission_balance} reward_balance=#{reward_balance} available_balance=#{available_balance} pin_required=#{pin_required}"
+    )
+  rescue StandardError => e
+    Rails.logger.error("[BONUS] failed to log commission context #{e.class}: #{e.message}")
   end
 end
