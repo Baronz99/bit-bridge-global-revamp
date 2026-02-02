@@ -408,6 +408,9 @@ module Api
           recipient: order.meter_number || (order.respond_to?(:card_number) ? order.card_number : nil) || (order.respond_to?(:phone_number) ? order.phone_number : nil)
         }.compact
 
+        value_amount = order.amount || order.total_amount
+        reward_amount = (order.reward_applied || order.commission_used).to_f
+
         build_dto(
           reference: record&.reference.presence || original_reference || "bill-#{order.id}",
           kind: 'bill',
@@ -432,7 +435,11 @@ module Api
             currency: currency
           }.compact,
           fees: [],
-          legacy: legacy
+          legacy: legacy,
+          value_amount: value_amount,
+          wallet_amount_charged: order.wallet_amount_charged,
+          reward_applied: reward_amount,
+          total_display: value_amount
         )
       end
 
@@ -454,6 +461,9 @@ module Api
             (bill_order&.respond_to?(:phone_number) ? bill_order.phone_number : nil)
         }.compact
 
+        value_amount = bill_order&.amount
+        reward_amount = bill_order ? ((bill_order.reward_applied || bill_order.commission_used).to_f) : nil
+
         build_dto(
           reference: record.reference || original_reference,
           kind: bill_order ? 'bill' : 'checkout',
@@ -473,7 +483,11 @@ module Api
           },
           meta: {},
           fees: [],
-          legacy: legacy
+          legacy: legacy,
+          value_amount: value_amount,
+          wallet_amount_charged: bill_order&.wallet_amount_charged,
+          reward_applied: reward_amount,
+          total_display: value_amount || amount
         )
       end
 
@@ -526,7 +540,7 @@ module Api
         reference.match?(/\A(fbg|bbg)-\d+\z/i)
       end
 
-      def build_dto(reference:, kind:, event:, status:, amount:, currency:, occurred_at:, title:, subtitle:, parties:, provider:, meta:, fees:, legacy:)
+      def build_dto(reference:, kind:, event:, status:, amount:, currency:, occurred_at:, title:, subtitle:, parties:, provider:, meta:, fees:, legacy:, value_amount: nil, wallet_amount_charged: nil, reward_applied: nil, total_display: nil)
         fee_array = Array(fees).compact
         total_fees = fee_array.reduce(0) { |sum, f| sum + (f[:amount].to_d rescue 0) }
 
@@ -545,7 +559,11 @@ module Api
           parties: parties.presence || {},
           provider: provider.presence || {},
           meta: meta.presence || {},
-          legacy: legacy
+          legacy: legacy,
+          value_amount: value_amount,
+          wallet_amount_charged: wallet_amount_charged,
+          reward_applied: reward_applied,
+          total_display: total_display || value_amount
         }.compact
       end
 

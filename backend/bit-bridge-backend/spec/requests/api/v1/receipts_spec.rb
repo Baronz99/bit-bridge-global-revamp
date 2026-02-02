@@ -125,6 +125,19 @@ RSpec.describe 'Api::V1::ReceiptsController', type: :request do
       expect(body['data']['kind']).to eq('bill')
     end
 
+    it 'returns value and wallet breakdown for reward-assisted bill' do
+      skip('Factories not available in this environment') unless user
+      order = build_bill_order(user)
+      order.update!(wallet_amount_charged: 180, reward_applied: 20, commission_used: 20)
+      get "/api/v1/receipts/bill-#{order.id}", headers: auth_headers(user)
+      expect(response).to have_http_status(:ok)
+      body = JSON.parse(response.body)
+      expect(body['data']['value_amount'].to_d).to eq(order.amount.to_d)
+      expect(body['data']['wallet_amount_charged'].to_d).to eq(180.to_d)
+      expect(body['data']['reward_applied'].to_d).to eq(20.to_d)
+      expect(body['data']['total_display'].to_d).to eq(order.amount.to_d)
+    end
+
     it 'returns transaction_record receipt dto (bbg-/fbg-)' do
       skip('Factories not available in this environment') unless user
       record = build_transaction_record(user, reference: 'bbg-123')
