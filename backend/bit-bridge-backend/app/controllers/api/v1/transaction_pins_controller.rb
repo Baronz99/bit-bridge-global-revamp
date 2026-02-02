@@ -12,14 +12,31 @@ module Api
       before_action :ensure_phone_verified!, only: [:set, :change]
 
       # GET /api/v1/transaction_pin/status
-def status
-  render json: {
-    pin_set: current_user.transaction_pin_set?,
-    pin_set_at: current_user.transaction_pin_set_at,
-    locked: current_user.transaction_pin_locked?,
-    lock_remaining_seconds: current_user.transaction_pin_lock_remaining_seconds
-  }, status: :ok
-end
+      def status
+        render json: {
+          pin_set: current_user.transaction_pin_set?,
+          pin_set_at: current_user.transaction_pin_set_at,
+          locked: current_user.transaction_pin_locked?,
+          lock_remaining_seconds: current_user.transaction_pin_lock_remaining_seconds,
+          app_lock_enabled: current_user.transaction_pin_app_lock_enabled == true
+        }, status: :ok
+      end
+
+      # POST /api/v1/transaction_pin/app_lock/enable
+      def enable_app_lock
+        unless current_user.transaction_pin_set?
+          return render json: { message: 'Set a transaction PIN first.' }, status: :forbidden
+        end
+
+        current_user.update!(transaction_pin_app_lock_enabled: true)
+        render json: { app_lock_enabled: true }, status: :ok
+      end
+
+      # POST /api/v1/transaction_pin/app_lock/disable
+      def disable_app_lock
+        current_user.update!(transaction_pin_app_lock_enabled: false)
+        render json: { app_lock_enabled: false }, status: :ok
+      end
 
 
 

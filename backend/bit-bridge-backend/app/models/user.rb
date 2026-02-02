@@ -53,6 +53,10 @@ class User < ApplicationRecord
   MAX_TRANSACTION_PIN_ATTEMPTS = 5
   TRANSACTION_PIN_LOCK_MINUTES = 15
 
+  def transaction_pin_app_lock_enabled?
+    transaction_pin_app_lock_enabled == true
+  end
+
   def full_name
     "#{user_profile.first_name} #{user_profile.last_name}"
   end

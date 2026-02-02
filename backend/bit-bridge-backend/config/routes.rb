@@ -52,6 +52,7 @@ Rails.application.routes.draw do
       post   "refresh",       to: "users/sessions#refresh"
       delete "logout",        to: "users/sessions#destroy"
       get    "confirmation",  to: "users/confirmations#show"
+      post   "auth/verify_password", to: "auth#verify_password"
 
       # Timeline
       get "timeline",     to: "timeline#index"
@@ -85,6 +86,8 @@ Rails.application.routes.draw do
 
         post "reset/request", to: "transaction_pins#reset_request"
         post "reset/confirm", to: "transaction_pins#reset_confirm"
+        post "app_lock/enable", to: "transaction_pins#enable_app_lock"
+        post "app_lock/disable", to: "transaction_pins#disable_app_lock"
       end
 
       # Cards
