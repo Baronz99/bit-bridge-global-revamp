@@ -362,6 +362,9 @@ class BuyPowerPaymentService
       Rails.logger.info(
         "BuyPower request start #{request_tag} endpoint=#{endpoint} service_type=#{electric_bill_order['service_type']} biller=#{electric_bill_order['biller']} body_keys=#{body.keys.sort}"
       )
+      Rails.logger.info(
+        "[BuyPower] POST base_uri=#{self.class.base_uri} path=#{endpoint} order_id=#{electric_bill_order.id} service_type=#{electric_bill_order['service_type']}"
+      )
       response = self.class.post(endpoint, headers: @post_headers, body: body, timeout: PROVIDER_READ_TIMEOUT, open_timeout: PROVIDER_OPEN_TIMEOUT)
       if debug_vend
         http_status = response.respond_to?(:code) ? response.code : nil
@@ -399,6 +402,9 @@ class BuyPowerPaymentService
       Rails.logger.info(
         "BuyPower request start #{request_tag} endpoint=#{endpoint} service_type=#{electric_bill_order['service_type']} biller=#{electric_bill_order['biller']} body_keys=#{body.keys.sort}"
       )
+      Rails.logger.info(
+        "[BuyPower] POST base_uri=#{self.class.base_uri} path=#{endpoint} order_id=#{electric_bill_order.id} service_type=#{electric_bill_order['service_type']}"
+      )
       response = self.class.post(endpoint, headers: @post_headers, body: body, timeout: PROVIDER_READ_TIMEOUT, open_timeout: PROVIDER_OPEN_TIMEOUT)
       if debug_vend
         http_status = response.respond_to?(:code) ? response.code : nil
@@ -431,6 +437,50 @@ class BuyPowerPaymentService
       raise 'no payment method selected'
     end
 
+    provider_payload = provider_response_payload(response)
+    provider_code =
+      if provider_payload.is_a?(Hash)
+        provider_payload['responseCode'] || provider_payload[:responseCode]
+      end
+    data_response_code =
+      if provider_payload.is_a?(Hash)
+        provider_payload.dig('data', 'responseCode') || provider_payload.dig(:data, :responseCode)
+      end
+
+    if vtu_service_type?(electric_bill_order['service_type']) &&
+       ((provider_code.present? && provider_code.to_i >= 400) ||
+        (data_response_code.present? && data_response_code.to_i != 100))
+      message =
+        if provider_payload.is_a?(Hash)
+          provider_payload['message'] || provider_payload[:message] || 'Provider returned error'
+        else
+          'Provider returned error'
+        end
+      provider_reference =
+        if provider_payload.is_a?(Hash)
+          provider_payload.dig('data', 'id').to_s.presence
+        end
+
+      if payment_method == 'wallet'
+        return handle_wallet_failure(
+          electric_bill_order,
+          payment_method,
+          message,
+          provider_payload,
+          status: 'failed'
+        )
+      else
+        electric_bill_order.update(
+          status: 'failed',
+          payment_method: payment_method,
+          provider_reference: provider_reference,
+          provider_response: provider_payload,
+          reason: message
+        )
+        return { response: message, status: 'error' }
+      end
+    end
+
     unless response.respond_to?(:success?)
       enqueue_reconciliation(electric_bill_order)
       return { status: 'pending', response: 'Payment pending...' }
@@ -444,9 +494,9 @@ class BuyPowerPaymentService
       payment_method = payment_method
       units = response&.dig('data', 'units')
       token = response&.dig('data', 'token')
-      transaction_id = response&.dig('data', 'id')
+      transaction_id = response&.dig('data', 'id').to_s
       message = response&.dig('message') || 'No error message'
-      provider_payload = provider_response_payload(response)
+      provider_payload ||= provider_response_payload(response)
 
       if response&.dig('error')
         return handle_wallet_failure(
@@ -472,7 +522,7 @@ class BuyPowerPaymentService
       end
 
       if electric_bill_order.update(status: 'completed', payment_method: payment_method, use_commission: use_commission,
-                                    units: units, token: token, transaction_id: transaction_id, reason: message)
+                                    units: units, token: token, transaction_id: transaction_id, provider_reference: transaction_id, reason: message)
         return { response: electric_bill_order, status: 'success' }
       end
     else
@@ -755,7 +805,9 @@ end
     case vertical
     when 'VTU', 'AIRTIME'
       # Airtime must not include electricity-only keys.
-      body = base
+      body = base.merge(
+        disco: electric_bill_order['biller'] || electric_bill_order['disco']
+      )
     when 'DATA'
       body = base.merge(
         tariffClass: electric_bill_order['tariff_class'],
