@@ -11,7 +11,7 @@ RSpec.describe 'BillOrders VTU vendType', type: :request do
     allow(Config::Bills).to receive(:token).and_return('token')
 
     provider_response = {
-      'data' => { 'units' => '1', 'token' => 'abc', 'id' => 'txn_1' },
+      'data' => { 'units' => '1', 'token' => 'abc', 'id' => 'txn_1', 'responseCode' => 100 },
       'message' => 'OK'
     }
     def provider_response.success?
@@ -56,6 +56,7 @@ RSpec.describe 'BillOrders VTU vendType', type: :request do
     params = { bill_order: { payment_method: 'wallet', use_commission: false } }
 
     patch "/api/v1/bill_orders/#{bill_order.id}/confirm_bill_payment", params: params, headers: headers
+    puts "response_status=#{response.status} body=#{response.body}"
     expect(response).to have_http_status(:ok)
   end
 end

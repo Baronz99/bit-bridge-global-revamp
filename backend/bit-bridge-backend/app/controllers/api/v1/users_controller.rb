@@ -146,6 +146,18 @@ end
         profile_attrs = attrs.delete(:user_profile_attributes)
         should_recheck = should_recheck_bvn_snapshot?(current_user, profile_attrs)
 
+        if ENV['DEBUG_UPLOADS'].present?
+          Rails.logger.info(
+            "[USER_UPDATE] uploads debug " \
+            "id_document_present=#{params.dig(:user, :id_document).present?} " \
+            "id_document_class=#{params.dig(:user, :id_document)&.class} " \
+            "proof_present=#{params.dig(:user, :proof_of_address).present?} " \
+            "proof_class=#{params.dig(:user, :proof_of_address)&.class} " \
+            "permitted_user_keys=#{attrs.keys} " \
+            "permitted_profile_keys=#{profile_attrs&.keys}"
+          )
+        end
+
         Rails.logger.info(
           "[USER_UPDATE] raw_user_keys=#{params[:user]&.keys} raw_profile_keys=#{params[:user]&.dig(:user_profile_attributes)&.keys}"
         )
