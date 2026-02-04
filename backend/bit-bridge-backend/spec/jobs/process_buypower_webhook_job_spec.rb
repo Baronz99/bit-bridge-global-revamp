@@ -8,6 +8,7 @@ RSpec.describe ProcessBuypowerWebhookJob, type: :job do
     unless conn.table_exists?(:webhook_events)
       conn.create_table(:webhook_events, id: :uuid) do |t|
         t.string :source, null: false
+        t.string :event_type
         t.jsonb :headers
         t.jsonb :payload
         t.datetime :processed_at
@@ -15,6 +16,7 @@ RSpec.describe ProcessBuypowerWebhookJob, type: :job do
         t.timestamps
       end
     end
+    conn.add_column(:webhook_events, :event_type, :string) unless conn.column_exists?(:webhook_events, :event_type)
     unless conn.column_exists?(:webhook_events, :processed_at)
       conn.add_column(:webhook_events, :processed_at, :datetime)
     end

@@ -4,21 +4,33 @@ module Api
   module V1
     module Webhooks
       class BuypowerController < ApplicationController
-        skip_before_action :authenticate_user!
+        skip_before_action :authenticate_user!, raise: false
 
         def create
           return head :unauthorized unless valid_token?
 
+          raw = request.raw_post.to_s
+          parsed = nil
+          parse_error = nil
+          begin
+            parsed = JSON.parse(raw)
+          rescue JSON::ParserError => e
+            parse_error = e.message
+          end
+
           event = WebhookEvent.create!(
             source: 'buypower',
-            headers: request.headers.to_h.slice('HTTP_X_BUYPOWER_TOKEN', 'HTTP_USER_AGENT'),
-            payload: raw_payload
+            headers: request.headers.env.select { |k, _| k.start_with?('HTTP') },
+            payload: raw,
+            payload_json: parsed,
+            event_type: parsed.is_a?(Hash) ? (parsed['event'] || parsed[:event] || 'unknown') : 'unknown',
+            processing_error: parse_error
           )
 
-          ProcessBuypowerWebhookJob.perform_later(event.id)
+          ProcessBuypowerWebhookJob.perform_later(event.id) if parsed.present?
 
           Rails.logger.info(
-            "[BuyPowerWebhook] request_id=#{request.request_id} event_type=#{raw_payload['event'] || raw_payload[:event]}"
+            "[BuyPowerWebhook] request_id=#{request.request_id} event_type=#{event.event_type}"
           )
 
           head :ok
@@ -35,11 +47,6 @@ module Api
           expected.present? && ActiveSupport::SecurityUtils.secure_compare(provided, expected)
         end
 
-        def raw_payload
-          @raw_payload ||= request.request_parameters.presence || JSON.parse(request.raw_post.presence || '{}')
-        rescue JSON::ParserError
-          {}
-        end
       end
     end
   end
