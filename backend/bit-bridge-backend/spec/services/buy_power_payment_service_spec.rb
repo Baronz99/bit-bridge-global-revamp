@@ -27,7 +27,7 @@ RSpec.describe BuyPowerPaymentService do
 
       body = service.send(:build_vend_body, order, phone: order['phone'])
 
-      expect(body).to include(amount: 100, orderId: 'bbg-123', phone: '08012345678', vertical: 'VTU', disco: 'MTN', meter: '08012345678', vendType: 'PREPAID')
+      expect(body).to include(amount: 100, orderId: 'bbg-123', phone: '08012345678', vertical: 'VTU', disco: 'mtn', meter: '08012345678', vendType: 'PREPAID')
       expect(body.keys).not_to include(:tariffClass)
     end
 

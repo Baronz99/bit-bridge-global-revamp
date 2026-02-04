@@ -831,6 +831,18 @@ ActiveRecord::Schema[7.1].define(version: 2026_02_02_130000) do
     t.index ["user_id"], name: "index_wallets_on_user_id"
   end
 
+  create_table "webhook_events", id: :uuid, default: -> { "gen_random_uuid()" }, force: :cascade do |t|
+    t.string "source", null: false
+    t.jsonb "headers"
+    t.jsonb "payload"
+    t.datetime "processed_at"
+    t.string "processing_error"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["created_at"], name: "index_webhook_events_on_created_at"
+    t.index ["source"], name: "index_webhook_events_on_source"
+  end
+
   add_foreign_key "accounts", "users"
   add_foreign_key "active_storage_attachments", "active_storage_blobs", column: "blob_id"
   add_foreign_key "active_storage_variant_records", "active_storage_blobs", column: "blob_id"

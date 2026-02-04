@@ -362,9 +362,11 @@ class BuyPowerPaymentService
       Rails.logger.info(
         "BuyPower request start #{request_tag} endpoint=#{endpoint} service_type=#{electric_bill_order['service_type']} biller=#{electric_bill_order['biller']} body_keys=#{body.keys.sort}"
       )
-      Rails.logger.debug(
-        "BuyPower /vend payload keys=#{body.keys.sort} vendType=#{body[:vendType].inspect} service_type=#{electric_bill_order['service_type']}"
-      )
+      if ENV['DEBUG_VEND_KEYS'].to_s == '1'
+        Rails.logger.debug(
+          "BuyPower /vend payload keys=#{body.keys.sort} vendType=#{body[:vendType].inspect} service_type=#{electric_bill_order['service_type']}"
+        )
+      end
       Rails.logger.info(
         "[BuyPower] POST base_uri=#{self.class.base_uri} path=#{endpoint} order_id=#{electric_bill_order.id} service_type=#{electric_bill_order['service_type']}"
       )
@@ -405,9 +407,11 @@ class BuyPowerPaymentService
       Rails.logger.info(
         "BuyPower request start #{request_tag} endpoint=#{endpoint} service_type=#{electric_bill_order['service_type']} biller=#{electric_bill_order['biller']} body_keys=#{body.keys.sort}"
       )
-      Rails.logger.debug(
-        "BuyPower /vend payload keys=#{body.keys.sort} vendType=#{body[:vendType].inspect} service_type=#{electric_bill_order['service_type']}"
-      )
+      if ENV['DEBUG_VEND_KEYS'].to_s == '1'
+        Rails.logger.debug(
+          "BuyPower /vend payload keys=#{body.keys.sort} vendType=#{body[:vendType].inspect} service_type=#{electric_bill_order['service_type']}"
+        )
+      end
       Rails.logger.info(
         "[BuyPower] POST base_uri=#{self.class.base_uri} path=#{endpoint} order_id=#{electric_bill_order.id} service_type=#{electric_bill_order['service_type']}"
       )
@@ -457,9 +461,24 @@ class BuyPowerPaymentService
       end
     data_response_code = data_response_code.to_i if data_response_code.respond_to?(:to_i)
 
+    retried = false
+
     if vtu_service_type?(electric_bill_order['service_type']) &&
        ((provider_code.present? && provider_code >= 400) ||
         (data_response_code != 100))
+      if please_requery?(provider_payload) && !retried
+        retried = true
+        sleep 12
+        response = self.class.post(endpoint, headers: @post_headers, body: body, timeout: PROVIDER_READ_TIMEOUT, open_timeout: PROVIDER_OPEN_TIMEOUT)
+        provider_payload = provider_response_payload(response)
+        provider_code = provider_payload['responseCode'].to_i if provider_payload.is_a?(Hash)
+        data_response_code = provider_payload.dig('data', 'responseCode').to_i if provider_payload.is_a?(Hash)
+        goto_success = response.respond_to?(:success?) && response.success? && data_response_code == 100
+        unless goto_success
+          enqueue_reconciliation(electric_bill_order)
+          return { status: 'pending', response: 'Payment pending... requery in progress' }
+        end
+      end
       message =
         if provider_payload.is_a?(Hash)
           provider_payload['message'] || provider_payload[:message] || 'Provider returned error'
@@ -805,6 +824,8 @@ end
   private
   def build_vend_body(electric_bill_order, phone:)
     vertical = electric_bill_order['service_type'].to_s.strip.upcase
+    return BuyPowerPayloads.vtu(electric_bill_order, phone: phone) if vertical == 'VTU' || vertical == 'AIRTIME'
+
     vend_type_raw = electric_bill_order['vendType'] ||
                     electric_bill_order['vend_type'] ||
                     electric_bill_order['vendtype'] ||
@@ -826,12 +847,8 @@ end
 
     case vertical
     when 'VTU', 'AIRTIME'
-      # Airtime must not include electricity-only keys.
-      body = base.merge(
-        disco: electric_bill_order['biller'] || electric_bill_order['disco'],
-        meter: phone,
-        vendType: vend_type
-      )
+      # handled in BuyPowerPayloads.vtu (already returned)
+      body = base
     when 'DATA'
       body = base.merge(
         tariffClass: electric_bill_order['tariff_class'],
@@ -863,6 +880,24 @@ end
 
     body.transform_values { |v| v.is_a?(String) ? v.strip : v }
   end
+
+module BuyPowerPayloads
+  def self.vtu(order, phone:)
+    {
+      amount: order['amount'],
+      orderId: order['id'],
+      phone: phone,
+      vertical: order['service_type'].to_s.strip.upcase,
+      paymentType: order['payment_type'],
+      name: order['name'],
+      email: order['email'],
+      biller: (order['biller'] || order['disco']).to_s.downcase.presence || order['biller'],
+      disco: (order['biller'] || order['disco']).to_s.downcase.presence || order['biller'],
+      meter: phone,
+      vendType: 'PREPAID'
+    }.compact
+  end
+end
 
   def provider_response_payload(response)
     return response.parsed_response if response.respond_to?(:parsed_response)
@@ -961,6 +996,16 @@ end
       allowed = %w[PREPAID POSTPAID RECOVERY]
       raise 'vendType must be valid for ELECTRICITY' unless allowed.include?(body[:vendType].to_s.strip)
     end
+  end
+
+  def please_requery?(payload)
+    msg =
+      if payload.is_a?(Hash)
+        payload['message'] || payload[:message]
+      else
+        nil
+      end
+    msg.to_s.downcase.include?('please requery')
   end
 
     def handle_wallet_success(order, payment_method, use_commission, units, token, transaction_id, message, provider_payload)

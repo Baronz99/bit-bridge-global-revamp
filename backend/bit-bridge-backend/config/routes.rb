@@ -45,6 +45,7 @@ Rails.application.routes.draw do
       post "monnify/webhook",    to: "webhooks#monnify"
       post "anchor/webhook",     to: "webhooks#anchor"
       post "bridgecard/webhook", to: "webhooks#bridgecard"
+      post "webhooks/buypower",  to: "webhooks/buypower#create"
 
       # Auth
       post   "/login",        to: "sessions#create"
