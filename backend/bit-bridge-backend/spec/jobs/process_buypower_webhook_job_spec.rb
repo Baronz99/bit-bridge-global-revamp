@@ -77,6 +77,14 @@ RSpec.describe ProcessBuypowerWebhookJob, type: :job do
     expect(bill_order.provider_reference).to be_nil
   end
 
+  it 'completes when transactionId is nil but orderId present in data' do
+    event = build_event({ 'data' => { 'orderId' => bill_order.id, 'transactionId' => nil, 'status' => true } })
+    described_class.new.perform(event.id)
+    bill_order.reload
+    expect(bill_order.status).to eq('completed')
+    expect(bill_order.provider_reference).to be_nil
+  end
+
   it 'marks bill order failed on non-100 responseCode' do
     event = build_event({ 'reference' => bill_order.idempotency_key, 'data' => { 'transaction_id' => 'p124', 'responseCode' => 400 }, 'message' => 'fail' })
     described_class.new.perform(event.id)

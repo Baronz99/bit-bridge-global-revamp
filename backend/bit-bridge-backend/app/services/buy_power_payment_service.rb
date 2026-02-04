@@ -641,8 +641,35 @@ class BuyPowerPaymentService
         )
       end
 
-      electric_bill_order.update(status: 'processing', payment_method: payment_method, reason: error_message, provider_response: provider_payload)
+      provider_reference =
+        if provider_payload.is_a?(Hash)
+          provider_payload.dig('data', 'id') ||
+            provider_payload.dig('data', 'transactionId') ||
+            provider_payload.dig('data', 'transaction_id') ||
+            provider_payload.dig('data', 'reference') ||
+            provider_payload.dig('data', 'ref')
+        end
+
+      if provider_reference.blank?
+        message = provider_message.presence || error_message.presence || 'Provider did not return a reference'
+        return handle_wallet_failure(
+          electric_bill_order,
+          payment_method,
+          message,
+          provider_payload,
+          status: 'failed'
+        )
+      end
+
+      electric_bill_order.update(
+        status: 'processing',
+        payment_method: payment_method,
+        reason: error_message,
+        provider_response: provider_payload,
+        provider_reference: provider_reference
+      )
       enqueue_reconciliation(electric_bill_order)
+      enqueue_processing_retry(electric_bill_order)
       return { status: 'pending', response: 'Payment processing...' }
     end
 
@@ -651,10 +678,14 @@ class BuyPowerPaymentService
     Rails.logger.error("Update failed: #{e.record.errors.full_messages.join(', ')}")
     return { status: 'error', message: e.record.errors.full_messages.to_sentence }
   rescue Timeout::Error, Net::OpenTimeout, Net::ReadTimeout => e
-    electric_bill_order.update(status: 'processing', payment_method: payment_method)
     Rails.logger.info("BuyPower vend request timeout #{request_tag} error=#{e.class}")
-    enqueue_reconciliation(electric_bill_order)
-    return { status: 'pending', response: 'Payment pending...', code: 503 }
+    return handle_wallet_failure(
+      electric_bill_order,
+      payment_method,
+      'Provider timeout. Please try again.',
+      { error: e.class.name, message: e.message },
+      status: 'failed'
+    ).merge(code: 503)
   rescue StandardError => e
     if electric_bill_order&.status == 'completed' && electric_bill_order&.transaction_id.present?
       Rails.logger.error(
@@ -1086,6 +1117,16 @@ end
     return unless order&.id
 
     BuyPowerReconcileJob.set(wait: 2.minutes).perform_later(order.id)
+  rescue StandardError
+    nil
+  end
+
+  def enqueue_processing_retry(order)
+    return unless order&.id
+
+    wait_minutes = ENV.fetch('BUYPOWER_PROCESSING_REQUERY_MINUTES', 10).to_i
+    wait_minutes = 10 if wait_minutes <= 0
+    BuyPowerProcessingRetryJob.set(wait: wait_minutes.minutes).perform_later(order.id)
   rescue StandardError
     nil
   end
