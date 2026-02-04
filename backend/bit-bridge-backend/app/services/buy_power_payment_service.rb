@@ -256,12 +256,7 @@ class BuyPowerPaymentService
     Rails.logger.info("BuyPower confirm_subscription start #{request_tag} payment_method=#{payment_method}")
 
     response = nil
-    endpoint =
-      if vtu_service_type?(electric_bill_order['service_type'])
-        '/vtu/topup'
-      else
-        '/vend'
-      end
+    endpoint = '/vend'
     if payment_method == 'wallet' && electric_bill_order.payment_method != 'wallet'
       Rails.logger.warn(
         "BuyPower confirm_subscription blocked wallet bill_order_id=#{electric_bill_order.id} payment_method=#{electric_bill_order.payment_method}"
@@ -438,18 +433,22 @@ class BuyPowerPaymentService
     end
 
     provider_payload = provider_response_payload(response)
+    http_status = response.respond_to?(:code) ? response.code.to_i : nil
     provider_code =
       if provider_payload.is_a?(Hash)
         provider_payload['responseCode'] || provider_payload[:responseCode]
       end
+    provider_code = provider_code.to_i if provider_code.respond_to?(:to_i)
+
     data_response_code =
       if provider_payload.is_a?(Hash)
         provider_payload.dig('data', 'responseCode') || provider_payload.dig(:data, :responseCode)
       end
+    data_response_code = data_response_code.to_i if data_response_code.respond_to?(:to_i)
 
     if vtu_service_type?(electric_bill_order['service_type']) &&
-       ((provider_code.present? && provider_code.to_i >= 400) ||
-        (data_response_code.present? && data_response_code.to_i != 100))
+       ((provider_code.present? && provider_code >= 400) ||
+        (data_response_code != 100))
       message =
         if provider_payload.is_a?(Hash)
           provider_payload['message'] || provider_payload[:message] || 'Provider returned error'
@@ -462,13 +461,15 @@ class BuyPowerPaymentService
         end
 
       if payment_method == 'wallet'
-        return handle_wallet_failure(
+        result = handle_wallet_failure(
           electric_bill_order,
           payment_method,
           message,
           provider_payload,
           status: 'failed'
         )
+        result[:code] = 503 if http_status && http_status >= 500
+        return result
       else
         electric_bill_order.update(
           status: 'failed',
@@ -811,7 +812,8 @@ end
     when 'DATA'
       body = base.merge(
         tariffClass: electric_bill_order['tariff_class'],
-        billersCode: electric_bill_order['meter_number']
+        billersCode: electric_bill_order['meter_number'],
+        disco: electric_bill_order['biller']
       )
     when 'TV', 'ELECTRICITY'
       raw_vend_type = electric_bill_order['meter_type']

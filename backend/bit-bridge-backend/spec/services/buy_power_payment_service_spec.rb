@@ -27,8 +27,36 @@ RSpec.describe BuyPowerPaymentService do
 
       body = service.send(:build_vend_body, order, phone: order['phone'])
 
-      expect(body).to include(amount: 100, orderId: 'bbg-123', phone: '08012345678', vertical: 'VTU')
-      expect(body.keys).not_to include(:vendType, :meter, :disco, :tariffClass)
+      expect(body).to include(amount: 100, orderId: 'bbg-123', phone: '08012345678', vertical: 'VTU', disco: 'MTN')
+      expect(body.keys).not_to include(:vendType, :meter, :tariffClass)
+    end
+
+    it 'builds DATA payload with disco and tariffClass' do
+      order = {
+        'service_type' => 'DATA',
+        'amount' => 1500,
+        'id' => 'bbg-456',
+        'phone' => '08012345678',
+        'meter_number' => '08012345678',
+        'biller' => 'GLO',
+        'payment_type' => nil,
+        'name' => 'Test User',
+        'email' => 'test@example.com',
+        'tariff_class' => 'SME'
+      }
+
+      body = service.send(:build_vend_body, order, phone: order['phone'])
+
+      expect(body).to include(
+        amount: 1500,
+        orderId: 'bbg-456',
+        phone: '08012345678',
+        vertical: 'DATA',
+        billersCode: '08012345678',
+        tariffClass: 'SME',
+        disco: 'GLO'
+      )
+      expect(body.keys).not_to include(:vendType, :meter)
     end
   end
   describe '#process_payment' do
@@ -211,14 +239,14 @@ RSpec.describe BuyPowerPaymentService do
       allow(Config::Bills).to receive(:token).and_return('token')
 
       response = {
-        'data' => { 'units' => '1', 'token' => 'abc', 'id' => 'txn_1' },
+        'data' => { 'units' => '1', 'token' => 'abc', 'id' => 'txn_1', 'responseCode' => 100 },
         'message' => 'OK'
       }
       def response.success?
         true
       end
 
-      expect(described_class).to receive(:post).with('/vtu/topup', anything).and_return(response)
+      expect(described_class).to receive(:post).with('/vend', anything).and_return(response)
 
       user = create(:user)
       wallet = user.wallet
@@ -262,20 +290,69 @@ RSpec.describe BuyPowerPaymentService do
       expect(refreshed.commission_used_cents).to eq(0)
     end
 
+    it 'fails VTU/DATA vend when provider responseCode is not 100 even if HTTP success' do
+      allow(Config::Bills).to receive(:validate!).and_return(true)
+      allow(Config::Bills).to receive(:base_url).and_return('http://example.test')
+      allow(Config::Bills).to receive(:token).and_return('token')
+
+      response = {
+        'data' => { 'units' => '1', 'token' => 'abc', 'id' => 'txn_bad', 'responseCode' => 99 },
+        'message' => 'Almost OK'
+      }
+      def response.success?
+        true
+      end
+
+      expect(described_class).to receive(:post).with('/vend', anything).and_return(response)
+
+      user = create(:user)
+      wallet = user.wallet
+      Transaction.create!(
+        wallet: wallet,
+        amount: 10_000,
+        bonus: 0,
+        status: :approved,
+        transaction_type: :deposit
+      )
+
+      bill_order = BillOrder.create!(
+        user: user,
+        meter_number: '08012345678',
+        meter_type: 'PREPAID',
+        address: 'Test Address',
+        name: 'Test User',
+        tariff_class: 'A',
+        service_type: 'DATA',
+        email: user.email,
+        amount: 1000,
+        phone: '08012345678',
+        biller: 'MTN',
+        description: 'Data',
+        payment_type: 'online',
+        payment_method: 'wallet'
+      )
+
+      result = described_class.new.confirm_subscription(bill_order, 'wallet', false, request_id: 'spec')
+
+      expect(result[:status]).to eq('error')
+      expect(bill_order.reload.status).to eq('failed')
+      expect(WalletLedgerEntry.where(bill_order: bill_order).release.count).to eq(1)
+    end
+
     it 'records commission usage when use_commission is true' do
       allow(Config::Bills).to receive(:validate!).and_return(true)
       allow(Config::Bills).to receive(:base_url).and_return('http://example.test')
       allow(Config::Bills).to receive(:token).and_return('token')
 
       response = {
-        'data' => { 'units' => '1', 'token' => 'abc', 'id' => 'txn_2' },
+        'data' => { 'units' => '1', 'token' => 'abc', 'id' => 'txn_2', 'responseCode' => 100 },
         'message' => 'OK'
       }
       def response.success?
         true
       end
 
-      expect(described_class).to receive(:post).with('/vtu/topup', anything).and_return(response)
+      expect(described_class).to receive(:post).with('/vend', anything).and_return(response)
 
       user = create(:user)
       wallet = user.wallet
@@ -323,14 +400,14 @@ RSpec.describe BuyPowerPaymentService do
       allow(Config::Bills).to receive(:token).and_return('token')
 
       response = {
-        'data' => { 'units' => '1', 'token' => 'abc', 'id' => 'txn_1' },
+        'data' => { 'units' => '1', 'token' => 'abc', 'id' => 'txn_1', 'responseCode' => 100 },
         'message' => 'OK'
       }
       def response.success?
         true
       end
 
-      expect(described_class).to receive(:post).with('/vtu/topup', anything).and_return(response)
+      expect(described_class).to receive(:post).with('/vend', anything).and_return(response)
 
       user = create(:user)
       wallet = user.wallet
@@ -515,7 +592,7 @@ RSpec.describe BuyPowerPaymentService do
         false
       end
 
-      expect(described_class).to receive(:post).with('/vtu/topup', anything).and_return(response)
+      expect(described_class).to receive(:post).with('/vend', anything).and_return(response)
 
       user = create(:user)
       bill_order = BillOrder.create!(
@@ -538,7 +615,7 @@ RSpec.describe BuyPowerPaymentService do
       result = described_class.new.confirm_subscription(bill_order, 'card', false, request_id: 'spec')
 
       expect(result[:status]).to eq('error')
-      expect(bill_order.reload.status).to eq('initialized')
+      expect(bill_order.reload.status).to eq('failed')
       expect(bill_order.reason).to include('Vend failed')
     end
 
@@ -599,7 +676,7 @@ RSpec.describe BuyPowerPaymentService do
         false
       end
 
-      expect(described_class).to receive(:post).with('/vtu/topup', anything).and_return(response)
+      expect(described_class).to receive(:post).with('/vend', anything).and_return(response)
 
       user = create(:user)
       wallet = user.wallet
@@ -630,10 +707,10 @@ RSpec.describe BuyPowerPaymentService do
 
       result = described_class.new.confirm_subscription(bill_order, 'wallet', false, request_id: 'spec')
 
-      expect(result[:status]).to eq('pending')
-      expect(bill_order.reload.status).to eq('processing')
+      expect(result[:status]).to eq('error')
+      expect(bill_order.reload.status).to eq('failed')
       expect(WalletLedgerEntry.where(bill_order: bill_order).hold.count).to eq(1)
-      expect(WalletLedgerEntry.where(bill_order: bill_order).release.count).to eq(0)
+      expect(WalletLedgerEntry.where(bill_order: bill_order).release.count).to eq(1)
     end
 
     it 'releases hold and marks failed on hard provider error' do
@@ -849,9 +926,9 @@ RSpec.describe BuyPowerPaymentService do
       result = described_class.new.confirm_subscription(bill_order, 'wallet', false, request_id: 'spec')
 
       expect(result[:status]).to eq('error')
-      expect(bill_order.reload.status).to eq('refunded')
+      expect(bill_order.reload.status).to eq('failed')
       expect(WalletLedgerEntry.where(bill_order: bill_order).release.count).to eq(1)
-      expect(WalletLedgerEntry.where(bill_order: bill_order).refund.count).to eq(1)
+      expect(WalletLedgerEntry.where(bill_order: bill_order).refund.count).to eq(0)
     end
   end
 end
