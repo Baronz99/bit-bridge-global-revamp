@@ -196,7 +196,7 @@ RSpec.describe 'BillOrders confirm with provider 5xx', type: :request do
       payment_method: 'wallet'
     )
 
-    expect(BuyPowerPaymentService).to receive(:post).with('/vend', satisfy { |payload| payload[:body].is_a?(Hash) && !payload[:body].key?(:vendType) }).and_return(provider_200_vtu_success)
+    expect(BuyPowerPaymentService).to receive(:post).with('/vend', satisfy { |payload| payload[:body].is_a?(Hash) && payload[:body][:vendType] == 'PREPAID' }).and_return(provider_200_vtu_success)
 
     headers = auth_headers(user)
     params = { bill_order: { payment_method: 'wallet', use_commission: false } }
@@ -227,7 +227,7 @@ RSpec.describe 'BillOrders confirm with provider 5xx', type: :request do
       payment_method: 'wallet'
     )
 
-    expect(BuyPowerPaymentService).to receive(:post).with('/vend', satisfy { |payload| payload[:body].is_a?(Hash) && !payload[:body].key?(:vendType) }).and_return(provider_200_data_success)
+    expect(BuyPowerPaymentService).to receive(:post).with('/vend', satisfy { |payload| payload[:body].is_a?(Hash) && payload[:body][:vendType] == 'PREPAID' }).and_return(provider_200_data_success)
 
     headers = auth_headers(user)
     params = { bill_order: { payment_method: 'wallet', use_commission: false } }

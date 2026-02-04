@@ -30,13 +30,18 @@ class BuyPowerPaymentService
     is_electricity = service_type_upcase == 'ELECTRICITY'
     res = verify_meter(payment_processor_params) if is_electricity && payment_processor_params[:skip] != true
 
+    vend_type_param = payment_processor_params[:vendType] || payment_processor_params[:vend_type] || payment_processor_params[:meter_type]
+    vend_type_normalized = vend_type_param.to_s.strip.upcase
+    allowed_vend_types = %w[PREPAID POSTPAID RECOVERY]
+    vend_type_normalized = 'PREPAID' if vend_type_normalized.blank? || !allowed_vend_types.include?(vend_type_normalized)
+
     resolved_meter_type =
       if is_electricity
-        res&.dig('vendType') || payment_processor_params[:meter_type] || 'PREPAID'
+        res&.dig('vendType') || vend_type_normalized
       elsif service_type_upcase == 'TV'
-        payment_processor_params[:vend_type] || payment_processor_params[:meter_type] || 'PREPAID'
+        vend_type_normalized
       else
-        nil
+        'PREPAID'
       end
 
     if service_type_upcase == 'TV'
@@ -800,6 +805,14 @@ end
   private
   def build_vend_body(electric_bill_order, phone:)
     vertical = electric_bill_order['service_type'].to_s.strip.upcase
+    vend_type_raw = electric_bill_order['vendType'] ||
+                    electric_bill_order['vend_type'] ||
+                    electric_bill_order['vendtype'] ||
+                    electric_bill_order['meter_type']
+    vend_type = vend_type_raw.to_s.strip.upcase.presence || 'PREPAID'
+    allowed_vend_types = %w[PREPAID POSTPAID RECOVERY]
+    vend_type = 'PREPAID' unless allowed_vend_types.include?(vend_type)
+
     base = {
       amount: electric_bill_order['amount'],
       orderId: electric_bill_order['id'],
@@ -816,38 +829,35 @@ end
       # Airtime must not include electricity-only keys.
       body = base.merge(
         disco: electric_bill_order['biller'] || electric_bill_order['disco'],
-        meter: phone
+        meter: phone,
+        vendType: vend_type
       )
     when 'DATA'
       body = base.merge(
         tariffClass: electric_bill_order['tariff_class'],
         billersCode: electric_bill_order['meter_number'],
         disco: electric_bill_order['biller'],
-        meter: electric_bill_order['meter_number']
+        meter: electric_bill_order['meter_number'],
+        vendType: vend_type
       )
     when 'TV', 'ELECTRICITY'
       raw_vend_type = electric_bill_order['meter_type']
-      vend_type = raw_vend_type.to_s.strip.upcase.presence
+      vend_type = raw_vend_type.to_s.strip.upcase.presence || vend_type
       allowed = %w[PREPAID POSTPAID RECOVERY]
-
-      if vertical == 'TV'
-        vend_type = nil
-      else
-        raise "Missing/invalid vendType for electricity: #{vend_type.inspect}" unless allowed.include?(vend_type)
-      end
+      vend_type = 'PREPAID' unless allowed.include?(vend_type)
+      electric_bill_order['meter_type'] = vend_type if electric_bill_order.respond_to?(:[]=)
 
       body = base.merge(
         meter: electric_bill_order['meter_number'],
         disco: electric_bill_order['biller'],
-        tariffClass: electric_bill_order['tariff_class']
+        tariffClass: electric_bill_order['tariff_class'],
+        vendType: vend_type
       )
-      body[:vendType] = vend_type if vertical == 'ELECTRICITY'
     else
-      body = base
+      body = base.merge(vendType: vend_type)
     end
 
     body = body.compact
-    body.delete(:vendType) if %w[VTU AIRTIME DATA TV].include?(vertical)
 
     assert_vend_type_rules!(vertical, body) if Rails.env.test?
 
@@ -944,13 +954,9 @@ end
   def assert_vend_type_rules!(service_type, body)
     normalized = service_type.to_s.strip.upcase
     if %w[VTU AIRTIME DATA].include?(normalized)
-      # For VTU/AIRTIME/DATA we do not require vendType; if present, must be PREPAID
-      if body.key?(:vendType) && body[:vendType].to_s.strip != '' && body[:vendType].to_s.strip != 'PREPAID'
-        raise "vendType must be PREPAID for #{normalized}"
-      end
+      raise "vendType must be PREPAID for #{normalized}" unless body[:vendType].to_s.strip == 'PREPAID'
     elsif normalized == 'TV'
-      # TV must not send vendType to BuyPower
-      raise 'vendType must be absent for TV' if body.key?(:vendType)
+      raise "vendType must be PREPAID for TV" unless body[:vendType].to_s.strip == 'PREPAID'
     elsif normalized == 'ELECTRICITY'
       allowed = %w[PREPAID POSTPAID RECOVERY]
       raise 'vendType must be valid for ELECTRICITY' unless allowed.include?(body[:vendType].to_s.strip)

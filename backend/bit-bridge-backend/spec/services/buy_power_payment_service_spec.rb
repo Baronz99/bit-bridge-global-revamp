@@ -27,8 +27,8 @@ RSpec.describe BuyPowerPaymentService do
 
       body = service.send(:build_vend_body, order, phone: order['phone'])
 
-      expect(body).to include(amount: 100, orderId: 'bbg-123', phone: '08012345678', vertical: 'VTU', disco: 'MTN', meter: '08012345678')
-      expect(body.keys).not_to include(:vendType, :tariffClass)
+      expect(body).to include(amount: 100, orderId: 'bbg-123', phone: '08012345678', vertical: 'VTU', disco: 'MTN', meter: '08012345678', vendType: 'PREPAID')
+      expect(body.keys).not_to include(:tariffClass)
     end
 
     it 'builds DATA payload with disco, tariffClass, and meter' do
@@ -55,9 +55,10 @@ RSpec.describe BuyPowerPaymentService do
         billersCode: '08012345678',
         tariffClass: 'SME',
         disco: 'GLO',
-        meter: '08012345678'
+        meter: '08012345678',
+        vendType: 'PREPAID'
       )
-      expect(body.keys).not_to include(:vendType)
+      expect(body[:vendType]).to eq('PREPAID')
     end
   end
   describe '#process_payment' do
@@ -247,7 +248,7 @@ RSpec.describe BuyPowerPaymentService do
         true
       end
 
-      expect(described_class).to receive(:post).with('/vend', hash_including(body: hash_excluding(:vendType))).and_return(response)
+      expect(described_class).to receive(:post).with('/vend', hash_including(body: hash_including(vendType: 'PREPAID'))).and_return(response)
 
       user = create(:user)
       wallet = user.wallet
@@ -304,7 +305,7 @@ RSpec.describe BuyPowerPaymentService do
         true
       end
 
-      expect(described_class).to receive(:post).with('/vend', hash_including(body: hash_excluding(:vendType))).and_return(response)
+      expect(described_class).to receive(:post).with('/vend', hash_including(body: hash_including(vendType: 'PREPAID'))).and_return(response)
 
       user = create(:user)
       wallet = user.wallet
@@ -353,7 +354,7 @@ RSpec.describe BuyPowerPaymentService do
         true
       end
 
-      expect(described_class).to receive(:post).with('/vend', hash_including(body: hash_excluding(:vendType))).and_return(response)
+      expect(described_class).to receive(:post).with('/vend', hash_including(body: hash_including(vendType: 'PREPAID'))).and_return(response)
 
       user = create(:user)
       wallet = user.wallet
@@ -408,7 +409,7 @@ RSpec.describe BuyPowerPaymentService do
         true
       end
 
-      expect(described_class).to receive(:post).with('/vend', hash_including(body: hash_excluding(:vendType))).and_return(response)
+      expect(described_class).to receive(:post).with('/vend', hash_including(body: hash_including(vendType: 'PREPAID'))).and_return(response)
 
       user = create(:user)
       wallet = user.wallet
@@ -593,7 +594,7 @@ RSpec.describe BuyPowerPaymentService do
         false
       end
 
-      expect(described_class).to receive(:post).with('/vend', anything).and_return(response)
+      allow(described_class).to receive(:post).with('/vend', anything).and_return(response)
 
       user = create(:user)
       bill_order = BillOrder.create!(
@@ -633,7 +634,7 @@ RSpec.describe BuyPowerPaymentService do
         true
       end
 
-      expect(described_class).to receive(:post).with('/vend', anything).and_return(response)
+      allow(described_class).to receive(:post).with('/vend', anything).and_return(response)
 
       user = create(:user)
       wallet = user.wallet
