@@ -46,14 +46,39 @@ RSpec.describe ProcessBuypowerWebhookJob, type: :job do
   end
 
   it 'marks bill order completed on responseCode 100' do
-    event = build_event({ 'orderId' => bill_order.id, 'data' => { 'id' => 'p123', 'responseCode' => 100 }, 'message' => 'done' })
+    event = build_event({ 'orderId' => bill_order.id, 'data' => { 'transactionId' => 'p123', 'responseCode' => 100 }, 'message' => 'done' })
     described_class.new.perform(event.id)
     expect(bill_order.reload.status).to eq('completed')
     expect(bill_order.provider_reference).to eq('p123')
   end
 
+  it 'marks bill order completed on boolean success status' do
+    event = build_event({ 'orderId' => bill_order.id, 'data' => { 'status' => true, 'transactionId' => 'txn-bool' } })
+    described_class.new.perform(event.id)
+    expect(bill_order.reload.status).to eq('completed')
+    expect(bill_order.provider_reference).to eq('txn-bool')
+  end
+
+  it 'marks bill order completed even if previously failed when success webhook arrives' do
+    bill_order.update!(status: 'failed', reason: 'provider_error', provider_reference: nil)
+    event = build_event({ 'orderId' => bill_order.id, 'data' => { 'responseCode' => 100, 'transaction_id' => 'txn-recover' } })
+    described_class.new.perform(event.id)
+    bill_order.reload
+    expect(bill_order.status).to eq('completed')
+    expect(bill_order.provider_reference).to eq('txn-recover')
+    expect(bill_order.reason).to be_nil
+  end
+
+  it 'completes on responseCode success even without provider_reference' do
+    event = build_event({ 'orderId' => bill_order.id, 'data' => { 'responseCode' => 100, 'status' => 'success' } })
+    described_class.new.perform(event.id)
+    bill_order.reload
+    expect(bill_order.status).to eq('completed')
+    expect(bill_order.provider_reference).to be_nil
+  end
+
   it 'marks bill order failed on non-100 responseCode' do
-    event = build_event({ 'reference' => bill_order.idempotency_key, 'data' => { 'id' => 'p124', 'responseCode' => 400 }, 'message' => 'fail' })
+    event = build_event({ 'reference' => bill_order.idempotency_key, 'data' => { 'transaction_id' => 'p124', 'responseCode' => 400 }, 'message' => 'fail' })
     described_class.new.perform(event.id)
     expect(bill_order.reload.status).to eq('failed')
     expect(bill_order.provider_reference).to eq('p124')

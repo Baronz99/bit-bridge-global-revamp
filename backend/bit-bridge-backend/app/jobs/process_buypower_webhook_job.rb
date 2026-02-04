@@ -17,22 +17,25 @@ class ProcessBuypowerWebhookJob < ApplicationJob
       return
     end
 
-    event_type = payload['event'] || payload[:event]
+    data = payload.is_a?(Hash) ? (payload['data'] || payload[:data] || {}) : {}
     provider_response = payload
-    provider_reference = payload.dig('data', 'id') || payload['id'] || reference
-    response_code = payload.dig('data', 'responseCode') || payload['responseCode']
-    status_flag = payload['status'] || payload.dig('data', 'status')
+    provider_reference = resolve_provider_reference(data, payload, reference, bill_order.provider_reference)
+    response_code = data.is_a?(Hash) ? (data['responseCode'] || data[:responseCode]) : nil
+    status_flag = data.is_a?(Hash) ? (data['status'] || data[:status]) : nil
     message = payload['message'] || payload.dig('data', 'message') || 'Webhook update'
+
+    status_normalized = status_flag.to_s.downcase
 
     success =
       response_code.to_i == 100 ||
-      status_flag.to_s.downcase == 'true' ||
-      %w[completed success].include?(status_flag.to_s.downcase) ||
-      event_type.to_s.downcase.include?('success')
+      status_flag == true ||
+      %w[success completed].include?(status_normalized)
 
     failure =
-      (!success && response_code.present?) ||
-      %w[failed reversed cancelled refund refunded].include?(status_flag.to_s.downcase)
+      status_flag == false ||
+      status_normalized == 'false' ||
+      (response_code.present? && ![0, 100, 200].include?(response_code.to_i)) ||
+      %w[failed reversed cancelled refund refunded].include?(status_normalized)
 
     if bill_order.completed?
       bill_order.update(provider_response: provider_response) if provider_response.present?
@@ -41,12 +44,20 @@ class ProcessBuypowerWebhookJob < ApplicationJob
     end
 
     if success
-      bill_order.update(
-        status: 'completed',
-        provider_reference: provider_reference,
+      attrs = {
+        status: BillOrder.statuses[:completed],
+        provider_reference: provider_reference || bill_order.provider_reference,
         provider_response: provider_response,
-        reason: message
-      )
+        reason: nil,
+        updated_at: Time.current
+      }
+
+      if BillOrder::TERMINAL_STATUSES.include?(bill_order.status)
+        bill_order.update_columns(attrs)
+        bill_order.reload
+      else
+        bill_order.update(attrs)
+      end
     elsif failure
       bill_order.update(
         status: 'failed',
@@ -100,5 +111,21 @@ class ProcessBuypowerWebhookJob < ApplicationJob
 
     BillOrder.find_by(provider_reference: ref) ||
       BillOrder.find_by(idempotency_key: ref)
+  end
+
+  def resolve_provider_reference(data, payload, _fallback_ref, existing_ref)
+    candidates = []
+    if data.is_a?(Hash)
+      candidates += [
+        data['transactionId'] || data[:transactionId],
+        data['transaction_id'] || data[:transaction_id],
+        data['reference'] || data[:reference],
+        data['ref'] || data[:ref]
+      ]
+    end
+
+    candidates << existing_ref
+
+    candidates.find { |val| val.present? }
   end
 end
