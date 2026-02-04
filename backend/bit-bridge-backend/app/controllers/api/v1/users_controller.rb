@@ -142,15 +142,44 @@ end
       # ========= UPDATE CURRENT USER (PROFILE) =========
 
       def user_update
-        profile_attrs = user_update_params[:user_profile_attributes]
+        attrs = user_update_params.to_h.deep_symbolize_keys
+        profile_attrs = attrs.delete(:user_profile_attributes)
         should_recheck = should_recheck_bvn_snapshot?(current_user, profile_attrs)
 
-        if current_user.update(user_update_params)
-          run_bvn_snapshot_recheck!(current_user) if should_recheck
-          render json: { data: UserSerializer.new(current_user), message: 'User updated' }, status: :ok
-        else
-          render json: { message: current_user.errors.full_messages.to_sentence }, status: :unprocessable_entity
+        Rails.logger.info(
+          "[USER_UPDATE] raw_user_keys=#{params[:user]&.keys} raw_profile_keys=#{params[:user]&.dig(:user_profile_attributes)&.keys}"
+        )
+
+        Rails.logger.info(
+          "[USER_UPDATE] profile_keys=#{profile_attrs&.keys} " \
+          "attachments={id_document=#{profile_attrs&.dig(:id_document)&.class} " \
+          "proof_of_address=#{profile_attrs&.dig(:proof_of_address)&.class}}"
+        )
+
+        begin
+          User.transaction do
+            current_user.update!(attrs)
+
+            if profile_attrs.present?
+              profile = current_user.user_profile || current_user.build_user_profile
+              profile.update!(profile_attrs)
+              profile.reload
+              Rails.logger.info(
+                "[USER_UPDATE] saved profile attachments id_document_attached=#{profile.id_document.attached?} " \
+                "proof_of_address_attached=#{profile.proof_of_address.attached?} " \
+                "proof_of_address_type=#{profile.proof_of_address_type.inspect}"
+              )
+            end
+          end
+        rescue StandardError => e
+          return render json: { message: e.message }, status: :unprocessable_entity
         end
+
+        current_user.reload
+        current_user.user_profile&.reload
+
+        run_bvn_snapshot_recheck!(current_user) if should_recheck
+        render json: { data: UserSerializer.new(current_user), message: 'User updated' }, status: :ok
       end
 
       # ========= ONBOARDING STAGE ONLY =========
@@ -434,6 +463,8 @@ end
           :primary_use_case,
           :kyc_level,
           :id_type,
+          :id_document,
+          :proof_of_address,
           user_profile_attributes: %i[
             id
             first_name
@@ -448,6 +479,8 @@ end
             country
             postal_code
             proof_of_address_type
+            id_document
+            proof_of_address
           ]
         )
       end
@@ -456,6 +489,9 @@ end
         params.require(:user).permit(
           :email,
           :active,
+          :id_type,
+          :id_document,
+          :proof_of_address,
           user_profile_attributes: %i[
             id
             first_name
@@ -470,6 +506,8 @@ end
             country
             postal_code
             proof_of_address_type
+            id_document
+            proof_of_address
           ]
         )
       end

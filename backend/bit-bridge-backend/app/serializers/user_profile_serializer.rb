@@ -19,7 +19,9 @@ class UserProfileSerializer < ActiveModel::Serializer
              :phone_verified_at,      # ?. added (safe)
              :phone_verified,         # ?. added (safe boolean helper)
              :id_document_url,        # read-only URL for ID doc
-             :proof_of_address_url    # read-only URL for proof of address
+             :proof_of_address_url,   # read-only URL for proof of address
+             :id_document_filename,
+             :proof_of_address_filename
 
   def phone_number
     return object.phone_number unless admin_scope?
@@ -58,6 +60,16 @@ class UserProfileSerializer < ActiveModel::Serializer
       host: host,
       protocol: protocol
     )
+  end
+
+  def id_document_filename
+    return unless object.respond_to?(:id_document) && object.id_document.attached?
+    object.id_document.filename.to_s
+  end
+
+  def proof_of_address_filename
+    return unless object.respond_to?(:proof_of_address) && object.proof_of_address.attached?
+    object.proof_of_address.filename.to_s
   end
 
   private
