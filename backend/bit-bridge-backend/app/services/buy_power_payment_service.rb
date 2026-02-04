@@ -724,6 +724,9 @@ end
 
   private
   def build_vend_body(electric_bill_order, phone:)
+    vertical = electric_bill_order['service_type'].to_s.strip.upcase
+    return BuyPowerPayloads.vtu(electric_bill_order, phone: phone) if vtu_or_airtime?(vertical)
+
     body = {
       meter: electric_bill_order['meter_number'],
       amount: electric_bill_order['amount'],
@@ -737,7 +740,7 @@ end
       tariffClass: electric_bill_order['tariff_class']
     }
 
-    service_type = electric_bill_order['service_type'].to_s.strip.upcase
+    service_type = vertical
     if %w[ELECTRICITY TV].include?(service_type)
       raw_vend_type = electric_bill_order['meter_type']
       vend_type = raw_vend_type.to_s.strip.upcase.presence
@@ -763,6 +766,31 @@ end
     body.transform_values { |v| v.is_a?(String) ? v.strip : v }
   end
 
+module BuyPowerPayloads
+  def self.vtu(order, phone:)
+    raw_vertical = order['service_type'].to_s.strip.upcase
+
+    if raw_vertical.present? && !%w[VTU AIRTIME].include?(raw_vertical)
+      Rails.logger.warn(
+        "[BuyPower] VTU payload called with unexpected service_type=#{raw_vertical}; forcing vertical=VTU"
+      )
+    end
+
+    {
+      amount: order['amount'],
+      orderId: order['id'],
+      phone: phone,
+      vertical: 'VTU',
+      paymentType: order['payment_type'],
+      name: order['name'],
+      email: order['email'],
+      biller: (order['biller'] || order['disco']).to_s.downcase.presence || order['biller'],
+      disco: (order['biller'] || order['disco']).to_s.downcase.presence || order['biller'],
+      meter: phone,
+      vendType: 'PREPAID'
+    }.compact
+  end
+end
   def provider_response_payload(response)
     return response.parsed_response if response.respond_to?(:parsed_response)
     return response.to_h if response.respond_to?(:to_h)
@@ -841,6 +869,10 @@ end
 
   def vtu_service_type?(service_type)
     %w[VTU AIRTIME DATA].include?(service_type.to_s.strip.upcase)
+  end
+
+  def vtu_or_airtime?(service_type)
+    %w[VTU AIRTIME].include?(service_type.to_s.strip.upcase)
   end
 
   def sandbox_vtu_blocked?(body)
