@@ -263,6 +263,10 @@ class BuyPowerPaymentService
 
     response = nil
     endpoint = '/vend'
+    if vtu_or_airtime?(electric_bill_order['service_type']) && endpoint != '/vend'
+      Rails.logger.error("[BuyPower] VTU/AIRTIME must use /vend; overriding endpoint=#{endpoint.inspect} -> '/vend'")
+      endpoint = '/vend'
+    end
     if payment_method == 'wallet' && electric_bill_order.payment_method != 'wallet'
       Rails.logger.warn(
         "BuyPower confirm_subscription blocked wallet bill_order_id=#{electric_bill_order.id} payment_method=#{electric_bill_order.payment_method}"
@@ -856,7 +860,7 @@ end
   private
   def build_vend_body(electric_bill_order, phone:)
     vertical = electric_bill_order['service_type'].to_s.strip.upcase
-    return BuyPowerPayloads.vtu(electric_bill_order, phone: phone) if vertical == 'VTU' || vertical == 'AIRTIME'
+    return BuyPowerPayloads.vtu(electric_bill_order, phone: phone) if vtu_or_airtime?(vertical)
 
     vend_type_raw = electric_bill_order['vendType'] ||
                     electric_bill_order['vend_type'] ||
@@ -915,11 +919,19 @@ end
 
 module BuyPowerPayloads
   def self.vtu(order, phone:)
+    raw_vertical = order['service_type'].to_s.strip.upcase
+
+    if raw_vertical.present? && !%w[VTU AIRTIME].include?(raw_vertical)
+      Rails.logger.warn(
+        "[BuyPower] VTU payload called with unexpected service_type=#{raw_vertical}; forcing vertical=VTU"
+      )
+    end
+
     {
       amount: order['amount'],
       orderId: order['id'],
       phone: phone,
-      vertical: order['service_type'].to_s.strip.upcase,
+      vertical: 'VTU',
       paymentType: order['payment_type'],
       name: order['name'],
       email: order['email'],
@@ -1009,6 +1021,10 @@ end
 
   def vtu_service_type?(service_type)
     %w[VTU AIRTIME DATA].include?(service_type.to_s.strip.upcase)
+  end
+
+  def vtu_or_airtime?(service_type)
+    %w[VTU AIRTIME].include?(service_type.to_s.strip.upcase)
   end
 
   def sandbox_vtu_blocked?(body)
