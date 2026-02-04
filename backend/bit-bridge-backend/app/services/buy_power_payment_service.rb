@@ -357,6 +357,9 @@ class BuyPowerPaymentService
       Rails.logger.info(
         "BuyPower request start #{request_tag} endpoint=#{endpoint} service_type=#{electric_bill_order['service_type']} biller=#{electric_bill_order['biller']} body_keys=#{body.keys.sort}"
       )
+      Rails.logger.debug(
+        "BuyPower /vend payload keys=#{body.keys.sort} vendType=#{body[:vendType].inspect} service_type=#{electric_bill_order['service_type']}"
+      )
       Rails.logger.info(
         "[BuyPower] POST base_uri=#{self.class.base_uri} path=#{endpoint} order_id=#{electric_bill_order.id} service_type=#{electric_bill_order['service_type']}"
       )
@@ -396,6 +399,9 @@ class BuyPowerPaymentService
       call_started_at = Process.clock_gettime(Process::CLOCK_MONOTONIC)
       Rails.logger.info(
         "BuyPower request start #{request_tag} endpoint=#{endpoint} service_type=#{electric_bill_order['service_type']} biller=#{electric_bill_order['biller']} body_keys=#{body.keys.sort}"
+      )
+      Rails.logger.debug(
+        "BuyPower /vend payload keys=#{body.keys.sort} vendType=#{body[:vendType].inspect} service_type=#{electric_bill_order['service_type']}"
       )
       Rails.logger.info(
         "[BuyPower] POST base_uri=#{self.class.base_uri} path=#{endpoint} order_id=#{electric_bill_order.id} service_type=#{electric_bill_order['service_type']}"
@@ -825,7 +831,7 @@ end
       allowed = %w[PREPAID POSTPAID RECOVERY]
 
       if vertical == 'TV'
-        vend_type = 'PREPAID' unless allowed.include?(vend_type)
+        vend_type = nil
       else
         raise "Missing/invalid vendType for electricity: #{vend_type.inspect}" unless allowed.include?(vend_type)
       end
@@ -833,15 +839,15 @@ end
       body = base.merge(
         meter: electric_bill_order['meter_number'],
         disco: electric_bill_order['biller'],
-        vendType: vend_type,
         tariffClass: electric_bill_order['tariff_class']
       )
+      body[:vendType] = vend_type if vertical == 'ELECTRICITY'
     else
       body = base
     end
 
     body = body.compact
-    body.delete(:vendType) if vertical == 'VTU'
+    body.delete(:vendType) if %w[VTU AIRTIME DATA TV].include?(vertical)
 
     assert_vend_type_rules!(vertical, body) if Rails.env.test?
 
@@ -943,7 +949,8 @@ end
         raise "vendType must be PREPAID for #{normalized}"
       end
     elsif normalized == 'TV'
-      raise 'vendType must be present for TV' unless body[:vendType].to_s.strip == 'PREPAID'
+      # TV must not send vendType to BuyPower
+      raise 'vendType must be absent for TV' if body.key?(:vendType)
     elsif normalized == 'ELECTRICITY'
       allowed = %w[PREPAID POSTPAID RECOVERY]
       raise 'vendType must be valid for ELECTRICITY' unless allowed.include?(body[:vendType].to_s.strip)

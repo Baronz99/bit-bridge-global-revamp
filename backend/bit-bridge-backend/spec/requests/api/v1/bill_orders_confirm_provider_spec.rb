@@ -76,7 +76,7 @@ RSpec.describe 'BillOrders confirm with provider 5xx', type: :request do
     bill_order = BillOrder.create!(
       user: user,
       meter_number: '08012345678',
-      meter_type: 'PREPAID',
+      meter_type: nil,
       address: 'Test Address',
       name: 'Test User',
       tariff_class: nil,
@@ -116,7 +116,7 @@ RSpec.describe 'BillOrders confirm with provider 5xx', type: :request do
     bill_order = BillOrder.create!(
       user: user,
       meter_number: '08012345678',
-      meter_type: 'PREPAID',
+      meter_type: nil,
       address: 'Test Address',
       name: 'Test User',
       tariff_class: nil,
@@ -149,7 +149,7 @@ RSpec.describe 'BillOrders confirm with provider 5xx', type: :request do
     bill_order = BillOrder.create!(
       user: user,
       meter_number: '08012345678',
-      meter_type: 'PREPAID',
+      meter_type: nil,
       address: 'Test Address',
       name: 'Test User',
       tariff_class: 'SME',
@@ -196,7 +196,7 @@ RSpec.describe 'BillOrders confirm with provider 5xx', type: :request do
       payment_method: 'wallet'
     )
 
-    expect(BuyPowerPaymentService).to receive(:post).with('/vend', anything).and_return(provider_200_vtu_success)
+    expect(BuyPowerPaymentService).to receive(:post).with('/vend', satisfy { |payload| payload[:body].is_a?(Hash) && !payload[:body].key?(:vendType) }).and_return(provider_200_vtu_success)
 
     headers = auth_headers(user)
     params = { bill_order: { payment_method: 'wallet', use_commission: false } }
@@ -213,7 +213,7 @@ RSpec.describe 'BillOrders confirm with provider 5xx', type: :request do
     bill_order = BillOrder.create!(
       user: user,
       meter_number: '08012345678',
-      meter_type: 'PREPAID',
+      meter_type: nil,
       address: 'Test Address',
       name: 'Test User',
       tariff_class: 'SME',
@@ -227,7 +227,7 @@ RSpec.describe 'BillOrders confirm with provider 5xx', type: :request do
       payment_method: 'wallet'
     )
 
-    expect(BuyPowerPaymentService).to receive(:post).with('/vend', anything).and_return(provider_200_data_success)
+    expect(BuyPowerPaymentService).to receive(:post).with('/vend', satisfy { |payload| payload[:body].is_a?(Hash) && !payload[:body].key?(:vendType) }).and_return(provider_200_data_success)
 
     headers = auth_headers(user)
     params = { bill_order: { payment_method: 'wallet', use_commission: false } }

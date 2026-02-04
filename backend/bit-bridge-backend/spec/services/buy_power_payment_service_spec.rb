@@ -247,7 +247,7 @@ RSpec.describe BuyPowerPaymentService do
         true
       end
 
-      expect(described_class).to receive(:post).with('/vend', anything).and_return(response)
+      expect(described_class).to receive(:post).with('/vend', hash_including(body: hash_excluding(:vendType))).and_return(response)
 
       user = create(:user)
       wallet = user.wallet
@@ -263,7 +263,7 @@ RSpec.describe BuyPowerPaymentService do
       bill_order = BillOrder.create!(
         user: user,
         meter_number: '08012345678',
-        meter_type: 'PREPAID',
+        meter_type: nil,
         address: 'Test Address',
         name: 'Test User',
         tariff_class: 'A',
@@ -304,7 +304,7 @@ RSpec.describe BuyPowerPaymentService do
         true
       end
 
-      expect(described_class).to receive(:post).with('/vend', anything).and_return(response)
+      expect(described_class).to receive(:post).with('/vend', hash_including(body: hash_excluding(:vendType))).and_return(response)
 
       user = create(:user)
       wallet = user.wallet
@@ -319,7 +319,7 @@ RSpec.describe BuyPowerPaymentService do
       bill_order = BillOrder.create!(
         user: user,
         meter_number: '08012345678',
-        meter_type: 'PREPAID',
+        meter_type: nil,
         address: 'Test Address',
         name: 'Test User',
         tariff_class: 'A',
@@ -353,7 +353,7 @@ RSpec.describe BuyPowerPaymentService do
         true
       end
 
-      expect(described_class).to receive(:post).with('/vend', anything).and_return(response)
+      expect(described_class).to receive(:post).with('/vend', hash_including(body: hash_excluding(:vendType))).and_return(response)
 
       user = create(:user)
       wallet = user.wallet
@@ -369,7 +369,7 @@ RSpec.describe BuyPowerPaymentService do
       bill_order = BillOrder.create!(
         user: user,
         meter_number: '08012345679',
-        meter_type: 'PREPAID',
+        meter_type: nil,
         address: 'Test Address',
         name: 'Test User',
         tariff_class: 'A',
@@ -408,7 +408,7 @@ RSpec.describe BuyPowerPaymentService do
         true
       end
 
-      expect(described_class).to receive(:post).with('/vend', anything).and_return(response)
+      expect(described_class).to receive(:post).with('/vend', hash_including(body: hash_excluding(:vendType))).and_return(response)
 
       user = create(:user)
       wallet = user.wallet
@@ -424,7 +424,7 @@ RSpec.describe BuyPowerPaymentService do
       bill_order = BillOrder.create!(
         user: user,
         meter_number: '08012345678',
-        meter_type: 'PREPAID',
+        meter_type: nil,
         address: 'Test Address',
         name: 'Test User',
         tariff_class: 'A',
@@ -465,7 +465,7 @@ RSpec.describe BuyPowerPaymentService do
       bill_order = BillOrder.create!(
         user: user,
         meter_number: '08012345678',
-        meter_type: 'PREPAID',
+        meter_type: nil,
         address: 'Test Address',
         name: 'Test User',
         tariff_class: 'A',
@@ -505,7 +505,7 @@ RSpec.describe BuyPowerPaymentService do
       bill_order = BillOrder.create!(
         user: user,
         meter_number: '08012345678',
-        meter_type: 'PREPAID',
+        meter_type: nil,
         address: 'Test Address',
         name: 'Test User',
         tariff_class: 'A',
@@ -544,7 +544,7 @@ RSpec.describe BuyPowerPaymentService do
       other_bill_order = BillOrder.create!(
         user: user,
         meter_number: '08012345679',
-        meter_type: 'PREPAID',
+        meter_type: nil,
         address: 'Hold Address',
         name: 'Hold User',
         tariff_class: 'A',
@@ -563,7 +563,7 @@ RSpec.describe BuyPowerPaymentService do
       bill_order = BillOrder.create!(
         user: user,
         meter_number: '08012345678',
-        meter_type: 'PREPAID',
+        meter_type: nil,
         address: 'Test Address',
         name: 'Test User',
         tariff_class: 'A',
@@ -599,7 +599,7 @@ RSpec.describe BuyPowerPaymentService do
       bill_order = BillOrder.create!(
         user: user,
         meter_number: '08012345678',
-        meter_type: 'PREPAID',
+        meter_type: nil,
         address: 'Test Address',
         name: 'Test User',
         tariff_class: 'A',
@@ -649,7 +649,7 @@ RSpec.describe BuyPowerPaymentService do
       bill_order = BillOrder.create!(
         user: user,
         meter_number: '08012345678',
-        meter_type: 'PREPAID',
+        meter_type: nil,
         address: 'Test Address',
         name: 'Test User',
         tariff_class: 'A',
@@ -692,7 +692,7 @@ RSpec.describe BuyPowerPaymentService do
       bill_order = BillOrder.create!(
         user: user,
         meter_number: '08012345678',
-        meter_type: 'PREPAID',
+        meter_type: nil,
         address: 'Test Address',
         name: 'Test User',
         tariff_class: 'A',
@@ -739,7 +739,7 @@ RSpec.describe BuyPowerPaymentService do
       bill_order = BillOrder.create!(
         user: user,
         meter_number: '08012345678',
-        meter_type: 'PREPAID',
+        meter_type: nil,
         address: 'Test Address',
         name: 'Test User',
         tariff_class: 'A',
