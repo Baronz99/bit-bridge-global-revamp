@@ -218,7 +218,7 @@ RSpec.describe BuyPowerPaymentService do
         true
       end
 
-      allow(described_class).to receive(:post).and_return(response)
+      expect(described_class).to receive(:post).with('/vtu/topup', anything).and_return(response)
 
       user = create(:user)
       wallet = user.wallet
@@ -275,7 +275,7 @@ RSpec.describe BuyPowerPaymentService do
         true
       end
 
-      allow(described_class).to receive(:post).and_return(response)
+      expect(described_class).to receive(:post).with('/vtu/topup', anything).and_return(response)
 
       user = create(:user)
       wallet = user.wallet
@@ -330,7 +330,7 @@ RSpec.describe BuyPowerPaymentService do
         true
       end
 
-      allow(described_class).to receive(:post).and_return(response)
+      expect(described_class).to receive(:post).with('/vtu/topup', anything).and_return(response)
 
       user = create(:user)
       wallet = user.wallet
@@ -515,7 +515,7 @@ RSpec.describe BuyPowerPaymentService do
         false
       end
 
-      allow(described_class).to receive(:post).and_return(response)
+      expect(described_class).to receive(:post).with('/vtu/topup', anything).and_return(response)
 
       user = create(:user)
       bill_order = BillOrder.create!(
@@ -555,7 +555,7 @@ RSpec.describe BuyPowerPaymentService do
         true
       end
 
-      allow(described_class).to receive(:post).and_return(response)
+      expect(described_class).to receive(:post).with('/vend', anything).and_return(response)
 
       user = create(:user)
       wallet = user.wallet
@@ -599,7 +599,7 @@ RSpec.describe BuyPowerPaymentService do
         false
       end
 
-      allow(described_class).to receive(:post).and_return(response)
+      expect(described_class).to receive(:post).with('/vtu/topup', anything).and_return(response)
 
       user = create(:user)
       wallet = user.wallet

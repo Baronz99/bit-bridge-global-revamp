@@ -45,7 +45,8 @@ RSpec.describe 'BillOrders confirm with provider 5xx', type: :request do
       payment_method: 'wallet'
     )
 
-    allow(BuyPowerPaymentService).to receive(:post).and_return(provider_500_response)
+    expect(BuyPowerPaymentService).not_to receive(:post).with('/vend', anything)
+    expect(BuyPowerPaymentService).to receive(:post).with('/vtu/topup', anything).and_return(provider_500_response)
 
     headers = auth_headers(user)
     params = { bill_order: { payment_method: 'wallet', use_commission: false } }

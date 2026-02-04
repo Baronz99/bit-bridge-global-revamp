@@ -256,6 +256,12 @@ class BuyPowerPaymentService
     Rails.logger.info("BuyPower confirm_subscription start #{request_tag} payment_method=#{payment_method}")
 
     response = nil
+    endpoint =
+      if vtu_service_type?(electric_bill_order['service_type'])
+        '/vtu/topup'
+      else
+        '/vend'
+      end
     if payment_method == 'wallet' && electric_bill_order.payment_method != 'wallet'
       Rails.logger.warn(
         "BuyPower confirm_subscription blocked wallet bill_order_id=#{electric_bill_order.id} payment_method=#{electric_bill_order.payment_method}"
@@ -352,22 +358,11 @@ class BuyPowerPaymentService
       end
 
       debug_vend = (!Rails.env.production? || ENV['DEBUG_VEND_KEYS'].to_s == '1')
-      if debug_vend
-        Rails.logger.info(
-          "[TV_FLOW] about_to_call_buypower action=vend service_type=#{electric_bill_order['service_type']} vertical=#{body[:vertical]}"
-        )
-      end
       call_started_at = Process.clock_gettime(Process::CLOCK_MONOTONIC)
-      vend_type_log = body[:vendType]
-      if debug_vend
-        Rails.logger.info(
-          "BuyPower vend body keys=#{body.keys.sort} vertical=#{body[:vertical]} vendType_present=#{body.key?(:vendType)} vendType=#{body[:vendType].inspect}"
-        )
-      end
       Rails.logger.info(
-        "BuyPower vend request start #{request_tag} bill_order_id=#{electric_bill_order&.id} service_type=#{electric_bill_order['service_type']} biller=#{electric_bill_order['biller']} vendType=#{vend_type_log}"
+        "BuyPower request start #{request_tag} endpoint=#{endpoint} service_type=#{electric_bill_order['service_type']} biller=#{electric_bill_order['biller']} body_keys=#{body.keys.sort}"
       )
-      response = self.class.post('/vend', headers: @post_headers, body: body, timeout: PROVIDER_READ_TIMEOUT, open_timeout: PROVIDER_OPEN_TIMEOUT)
+      response = self.class.post(endpoint, headers: @post_headers, body: body, timeout: PROVIDER_READ_TIMEOUT, open_timeout: PROVIDER_OPEN_TIMEOUT)
       if debug_vend
         http_status = response.respond_to?(:code) ? response.code : nil
         provider_code =
@@ -394,28 +389,17 @@ class BuyPowerPaymentService
         elsif response.is_a?(Hash)
           response['success'] || response[:success]
         end
-      Rails.logger.info("BuyPower vend request finish #{request_tag} duration_ms=#{call_duration_ms} success=#{success.inspect}")
+      Rails.logger.info("BuyPower request finish #{request_tag} endpoint=#{endpoint} duration_ms=#{call_duration_ms} success=#{success.inspect}")
     elsif payment_method == 'card'
       if sandbox_vtu_blocked?(body)
         return { status: 'error', response: 'VTU is not supported in BuyPower sandbox. Please use staging/live.' }
       end
       debug_vend = (!Rails.env.production? || ENV['DEBUG_VEND_KEYS'].to_s == '1')
-      if debug_vend
-        Rails.logger.info(
-          "[TV_FLOW] about_to_call_buypower action=vend service_type=#{electric_bill_order['service_type']} vertical=#{body[:vertical]}"
-        )
-      end
       call_started_at = Process.clock_gettime(Process::CLOCK_MONOTONIC)
-      vend_type_log = body[:vendType]
-      if debug_vend
-        Rails.logger.info(
-          "BuyPower vend body keys=#{body.keys.sort} vertical=#{body[:vertical]} vendType_present=#{body.key?(:vendType)} vendType=#{body[:vendType].inspect}"
-        )
-      end
       Rails.logger.info(
-        "BuyPower vend request start #{request_tag} bill_order_id=#{electric_bill_order&.id} service_type=#{electric_bill_order['service_type']} biller=#{electric_bill_order['biller']} vendType=#{vend_type_log}"
+        "BuyPower request start #{request_tag} endpoint=#{endpoint} service_type=#{electric_bill_order['service_type']} biller=#{electric_bill_order['biller']} body_keys=#{body.keys.sort}"
       )
-      response = self.class.post('/vend', headers: @post_headers, body: body, timeout: PROVIDER_READ_TIMEOUT, open_timeout: PROVIDER_OPEN_TIMEOUT)
+      response = self.class.post(endpoint, headers: @post_headers, body: body, timeout: PROVIDER_READ_TIMEOUT, open_timeout: PROVIDER_OPEN_TIMEOUT)
       if debug_vend
         http_status = response.respond_to?(:code) ? response.code : nil
         provider_code =
@@ -442,7 +426,7 @@ class BuyPowerPaymentService
         elsif response.is_a?(Hash)
           response['success'] || response[:success]
         end
-      Rails.logger.info("BuyPower vend request finish #{request_tag} duration_ms=#{call_duration_ms} success=#{success.inspect}")
+      Rails.logger.info("BuyPower request finish #{request_tag} endpoint=#{endpoint} duration_ms=#{call_duration_ms} success=#{success.inspect}")
     else
       raise 'no payment method selected'
     end
