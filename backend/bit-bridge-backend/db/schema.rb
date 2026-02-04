@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[7.1].define(version: 2026_02_02_130000) do
+ActiveRecord::Schema[7.1].define(version: 2026_02_04_223000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pgcrypto"
   enable_extension "plpgsql"
@@ -160,6 +160,8 @@ ActiveRecord::Schema[7.1].define(version: 2026_02_02_130000) do
     t.bigint "total_amount_cents"
     t.bigint "service_charge_cents"
     t.bigint "commission_used_cents"
+    t.integer "reconcile_attempts", default: 0, null: false
+    t.datetime "reconcile_last_attempt_at"
     t.index ["order_detail_id"], name: "index_bill_orders_on_order_detail_id"
     t.index ["user_id", "idempotency_key"], name: "index_bill_orders_on_user_id_and_idempotency_key", unique: true, where: "(idempotency_key IS NOT NULL)"
     t.index ["user_id"], name: "index_bill_orders_on_user_id"

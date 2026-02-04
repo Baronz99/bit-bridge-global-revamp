@@ -36,7 +36,8 @@ RSpec.describe BuyPowerReconcileJob, type: :job do
       description: 'Airtime',
       payment_type: 'online',
       payment_method: 'wallet',
-      status: 'processing'
+      status: 'processing',
+      provider_reference: 'bp-ref-1'
     )
 
     WalletLedgerEntry.ensure_hold!(wallet: wallet, bill_order: bill_order, amount: 1000)
@@ -89,7 +90,8 @@ RSpec.describe BuyPowerReconcileJob, type: :job do
       description: 'Airtime',
       payment_type: 'online',
       payment_method: 'wallet',
-      status: 'processing'
+      status: 'processing',
+      provider_reference: 'bp-ref-2'
     )
 
     WalletLedgerEntry.ensure_hold!(wallet: wallet, bill_order: bill_order, amount: 1000)
@@ -131,7 +133,8 @@ RSpec.describe BuyPowerReconcileJob, type: :job do
       description: 'Airtime',
       payment_type: 'online',
       payment_method: 'wallet',
-      status: 'processing'
+      status: 'processing',
+      provider_reference: 'bp-ref-3'
     )
 
     allow_any_instance_of(BuyPowerPaymentService).to receive(:re_query)
@@ -141,12 +144,20 @@ RSpec.describe BuyPowerReconcileJob, type: :job do
       .to have_enqueued_job(described_class)
   end
 
-  it 'does not re-enqueue stale non-ok responses and marks reason' do
+  it 'fails after max attempts when provider response is not ok' do
     allow(Config::Bills).to receive(:validate!).and_return(true)
     allow(Config::Bills).to receive(:base_url).and_return('http://example.test')
     allow(Config::Bills).to receive(:token).and_return('token')
 
     user = create(:user)
+    wallet = user.wallet
+    Transaction.create!(
+      wallet: wallet,
+      amount: 10_000,
+      bonus: 0,
+      status: :approved,
+      transaction_type: :deposit
+    )
     bill_order = BillOrder.create!(
       user: user,
       meter_number: '08012345678',
@@ -163,9 +174,13 @@ RSpec.describe BuyPowerReconcileJob, type: :job do
       payment_type: 'online',
       payment_method: 'wallet',
       status: 'processing',
-      reason: nil
+      reason: nil,
+      provider_reference: 'bp-ref-4',
+      reconcile_attempts: BuyPowerReconcileJob::DEFAULT_MAX_ATTEMPTS - 1
     )
-    bill_order.update_columns(updated_at: 3.hours.ago)
+
+    WalletLedgerEntry.ensure_hold!(wallet: wallet, bill_order: bill_order, amount: 1000)
+    WalletLedgerEntry.record_debit!(wallet: wallet, bill_order: bill_order, amount: 1000)
 
     allow_any_instance_of(BuyPowerPaymentService).to receive(:re_query)
       .and_return(status: :unprocessable_entity, response: 'error')
@@ -173,7 +188,59 @@ RSpec.describe BuyPowerReconcileJob, type: :job do
     expect { described_class.perform_now(bill_order.id) }
       .not_to have_enqueued_job(described_class)
 
-    expect(bill_order.reload.reason).to include('Reconcile stalled')
+    bill_order.reload
+    expect(bill_order.status).to eq('failed')
+    entries = WalletLedgerEntry.where(bill_order: bill_order)
+    expect(entries.refund.count).to eq(1)
+  end
+
+  it 'fails and refunds when no provider reference is available' do
+    allow(Config::Bills).to receive(:validate!).and_return(true)
+    allow(Config::Bills).to receive(:base_url).and_return('http://example.test')
+    allow(Config::Bills).to receive(:token).and_return('token')
+
+    user = create(:user)
+    wallet = user.wallet
+    Transaction.create!(
+      wallet: wallet,
+      amount: 10_000,
+      bonus: 0,
+      status: :approved,
+      transaction_type: :deposit
+    )
+
+    bill_order = BillOrder.create!(
+      user: user,
+      meter_number: '08012345678',
+      meter_type: 'PREPAID',
+      address: 'Test Address',
+      name: 'Test User',
+      tariff_class: 'A',
+      service_type: 'VTU',
+      email: user.email,
+      amount: 1000,
+      phone: '08012345678',
+      biller: 'MTN',
+      description: 'Airtime',
+      payment_type: 'online',
+      payment_method: 'wallet',
+      status: 'processing',
+      provider_reference: nil,
+      transaction_id: nil
+    )
+
+    WalletLedgerEntry.ensure_hold!(wallet: wallet, bill_order: bill_order, amount: 1000)
+    WalletLedgerEntry.record_debit!(wallet: wallet, bill_order: bill_order, amount: 1000)
+
+    expect { described_class.perform_now(bill_order.id) }
+      .not_to have_enqueued_job(described_class)
+
+    bill_order.reload
+    expect(bill_order.status).to eq('failed')
+    entries = WalletLedgerEntry.where(bill_order: bill_order)
+    expect(entries.hold.count).to eq(1)
+    expect(entries.release.count).to eq(0)
+    expect(entries.refund.count).to eq(1)
   end
 
   it 'fails processing wallet order with provider error and releases hold' do
