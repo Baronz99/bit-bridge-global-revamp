@@ -67,9 +67,10 @@ module Api
 
       def confirm_bill_payment
         payment_method = bill_order_params[:payment_method]
-
         use_commission = ActiveModel::Type::Boolean.new.cast(bill_order_params[:use_commission])
         idempotency_key = request.headers['Idempotency-Key'].to_s.strip
+
+        request_tag = "request_id=#{request.request_id} bill_order_id=#{@bill_order&.id} status=#{@bill_order&.status} biller=#{@bill_order&.biller} amount=#{@bill_order&.amount}"
 
         if idempotency_key.present?
           existing = current_user.bill_orders.find_by(idempotency_key: idempotency_key)
@@ -82,6 +83,8 @@ module Api
           end
         end
 
+        Rails.logger.info("[ConfirmBillOrder] start #{request_tag} payment_method=#{payment_method} use_commission=#{use_commission} idempotency_key_present=#{idempotency_key.present?}")
+
         service = BuyPowerPaymentService.new
         service_response =
           service.confirm_subscription(
@@ -91,14 +94,34 @@ module Api
             request_id: request.request_id,
             idempotency_key: idempotency_key
           )
+
         case service_response[:status]
         when 'success'
           render json: { success: true, data: service_response[:response], message: 'payment confirmed' }, status: :ok
         when 'pending'
           render json: { success: false, status: 'pending', message: service_response[:response] }, status: :accepted
         else
-          render json: { success: false, message: service_response[:response] }, status: :unprocessable_entity
+          message = service_response[:message] || service_response[:response] || 'Payment confirmation failed'
+          code = service_response[:code].to_i
+          status_symbol = service_response[:status].to_s
+
+          if code == 503
+            Rails.logger.warn("[ConfirmBillOrder] provider_unavailable #{request_tag} message=#{message}")
+            render json: { success: false, message: "Provider temporarily unavailable. Try again. Reference: #{request.request_id}" }, status: :service_unavailable
+          elsif status_symbol == 'error'
+            Rails.logger.warn("[ConfirmBillOrder] error #{request_tag} message=#{message}")
+            render json: { success: false, message: message }, status: :unprocessable_entity
+          else
+            Rails.logger.warn("[ConfirmBillOrder] unexpected_status #{request_tag} status=#{service_response[:status]} message=#{message}")
+            render json: { success: false, message: message }, status: :unprocessable_entity
+          end
         end
+      rescue ActiveRecord::RecordNotFound => e
+        Rails.logger.warn("[ConfirmBillOrder] not_found #{request_tag} error=#{e.message}")
+        render json: { success: false, message: 'Bill order not found' }, status: :not_found
+      rescue StandardError => e
+        Rails.logger.error("[ConfirmBillOrder] exception #{request_tag} error=#{e.class} message=#{e.message} backtrace=#{e.backtrace&.take(5)&.join(' | ')}")
+        render json: { success: false, message: "Confirm failed. Reference: #{request.request_id}" }, status: :unprocessable_entity
       end
 
       def user

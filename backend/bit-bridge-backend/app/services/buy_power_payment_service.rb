@@ -493,12 +493,25 @@ class BuyPowerPaymentService
       end
     else
       error_message = response&.dig('message') || 'Upstream provider error'
+      http_status = response.respond_to?(:code) ? response.code.to_i : nil
+      provider_payload = provider_response_payload(response)
+
       if payment_method == 'card' || electric_bill_order.payment_method == 'card'
         electric_bill_order.update(status: 'initialized', payment_method: payment_method, reason: "Vend failed: #{error_message}")
         return { response: error_message, status: 'error' }
       end
 
-      provider_payload = provider_response_payload(response)
+      if http_status && http_status >= 500
+        result = handle_wallet_failure(
+          electric_bill_order,
+          payment_method,
+          'Provider temporarily unavailable. Try again.',
+          provider_payload,
+          status: 'failed'
+        )
+        return result.merge(code: 503)
+      end
+
       provider_status = provider_status_from(response)
       provider_error =
         provider_payload&.dig('error') || provider_payload&.dig(:error) ||
@@ -743,41 +756,52 @@ end
 
   private
   def build_vend_body(electric_bill_order, phone:)
-    body = {
-      meter: electric_bill_order['meter_number'],
+    vertical = electric_bill_order['service_type'].to_s.strip.upcase
+    base = {
       amount: electric_bill_order['amount'],
       orderId: electric_bill_order['id'],
       phone: phone,
-      disco: electric_bill_order['biller'],
-      vertical: electric_bill_order['service_type'],
+      vertical: vertical,
       paymentType: electric_bill_order['payment_type'],
       name: electric_bill_order['name'],
       email: electric_bill_order['email'],
-      tariffClass: electric_bill_order['tariff_class']
+      biller: electric_bill_order['biller']
     }
 
-    service_type = electric_bill_order['service_type'].to_s.strip.upcase
-    if %w[ELECTRICITY TV].include?(service_type)
+    case vertical
+    when 'VTU', 'AIRTIME'
+      # Airtime must not include electricity-only keys.
+      body = base
+    when 'DATA'
+      body = base.merge(
+        tariffClass: electric_bill_order['tariff_class'],
+        billersCode: electric_bill_order['meter_number']
+      )
+    when 'TV', 'ELECTRICITY'
       raw_vend_type = electric_bill_order['meter_type']
       vend_type = raw_vend_type.to_s.strip.upcase.presence
       allowed = %w[PREPAID POSTPAID RECOVERY]
 
-      if service_type == 'TV'
+      if vertical == 'TV'
         vend_type = 'PREPAID' unless allowed.include?(vend_type)
-        body[:vendType] = vend_type
       else
         raise "Missing/invalid vendType for electricity: #{vend_type.inspect}" unless allowed.include?(vend_type)
-
-        body[:vendType] = vend_type
       end
-    elsif %w[VTU DATA].include?(service_type)
-      body[:vendType] = 'PREPAID'
+
+      body = base.merge(
+        meter: electric_bill_order['meter_number'],
+        disco: electric_bill_order['biller'],
+        vendType: vend_type,
+        tariffClass: electric_bill_order['tariff_class']
+      )
+    else
+      body = base
     end
 
-    body.delete(:vendType) unless %w[ELECTRICITY TV VTU DATA].include?(service_type)
-    body.delete(:vendType) if body[:vendType].to_s.strip == ''
+    body = body.compact
+    body.delete(:vendType) if vertical == 'VTU'
 
-    assert_vend_type_rules!(service_type, body) if Rails.env.test?
+    assert_vend_type_rules!(vertical, body) if Rails.env.test?
 
     body.transform_values { |v| v.is_a?(String) ? v.strip : v }
   end
@@ -872,7 +896,10 @@ end
   def assert_vend_type_rules!(service_type, body)
     normalized = service_type.to_s.strip.upcase
     if %w[VTU AIRTIME DATA].include?(normalized)
-      raise "vendType must be PREPAID for #{normalized}" unless body[:vendType].to_s.strip == 'PREPAID'
+      # For VTU/AIRTIME/DATA we do not require vendType; if present, must be PREPAID
+      if body.key?(:vendType) && body[:vendType].to_s.strip != '' && body[:vendType].to_s.strip != 'PREPAID'
+        raise "vendType must be PREPAID for #{normalized}"
+      end
     elsif normalized == 'TV'
       raise 'vendType must be present for TV' unless body[:vendType].to_s.strip == 'PREPAID'
     elsif normalized == 'ELECTRICITY'

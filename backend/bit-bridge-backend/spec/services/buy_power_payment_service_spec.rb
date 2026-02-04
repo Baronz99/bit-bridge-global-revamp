@@ -3,6 +3,34 @@
 require 'rails_helper'
 
 RSpec.describe BuyPowerPaymentService do
+  describe '#build_vend_body' do
+    let(:service) { described_class.new }
+
+    before do
+      allow(Config::Bills).to receive(:validate!).and_return(true)
+      allow(Config::Bills).to receive(:base_url).and_return('http://example.test')
+      allow(Config::Bills).to receive(:token).and_return('token')
+    end
+
+    it 'builds VTU payload without electricity-only fields' do
+      order = {
+        'service_type' => 'VTU',
+        'amount' => 100,
+        'id' => 'bbg-123',
+        'phone' => '08012345678',
+        'meter_number' => '08012345678',
+        'biller' => 'MTN',
+        'payment_type' => nil,
+        'name' => 'Test User',
+        'email' => 'test@example.com'
+      }
+
+      body = service.send(:build_vend_body, order, phone: order['phone'])
+
+      expect(body).to include(amount: 100, orderId: 'bbg-123', phone: '08012345678', vertical: 'VTU')
+      expect(body.keys).not_to include(:vendType, :meter, :disco, :tariffClass)
+    end
+  end
   describe '#process_payment' do
     before do
       allow(Config::Bills).to receive(:validate!).and_return(true)
