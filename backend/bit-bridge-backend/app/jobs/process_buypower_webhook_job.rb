@@ -13,6 +13,10 @@ class ProcessBuypowerWebhookJob < ApplicationJob
     reference = extract_reference(payload)
     bill_order = find_bill_order(reference)
 
+    Rails.logger.info(
+      "[BuyPowerWebhook] start event_id=#{event.id} event_type=#{event.event_type.inspect} reference=#{reference.inspect} bill_order_id=#{bill_order&.id}"
+    )
+
     unless bill_order
       event.update(processed_at: Time.current, processing_error: "BillOrder not found for reference=#{reference.inspect}")
       return
@@ -45,6 +49,10 @@ class ProcessBuypowerWebhookJob < ApplicationJob
     end
 
     if success
+      old_status = bill_order.status
+      new_status = 'completed'
+      log_pre_update(bill_order.id, old_status, new_status, provider_reference, response_code, status_flag)
+
       attrs = {
         status: BillOrder.statuses[:completed],
         provider_reference: provider_reference || bill_order.provider_reference,
@@ -59,20 +67,34 @@ class ProcessBuypowerWebhookJob < ApplicationJob
       else
         bill_order.update(attrs)
       end
+
+      log_post_update(bill_order.id, old_status, new_status, provider_reference, response_code, status_flag)
     elsif failure
+      old_status = bill_order.status
+      new_status = 'failed'
+      log_pre_update(bill_order.id, old_status, new_status, provider_reference, response_code, status_flag)
+
       bill_order.update(
         status: 'failed',
         provider_reference: provider_reference,
         provider_response: provider_response,
         reason: message
       )
+
+      log_post_update(bill_order.id, old_status, new_status, provider_reference, response_code, status_flag)
     else
+      old_status = bill_order.status
+      new_status = 'processing'
+      log_pre_update(bill_order.id, old_status, new_status, provider_reference, response_code, status_flag)
+
       bill_order.update(
         status: 'processing',
         provider_reference: provider_reference,
         provider_response: provider_response,
         reason: 'Awaiting provider completion'
       )
+
+      log_post_update(bill_order.id, old_status, new_status, provider_reference, response_code, status_flag)
     end
 
     event.update(processed_at: Time.current)
@@ -128,5 +150,17 @@ class ProcessBuypowerWebhookJob < ApplicationJob
     candidates << existing_ref
 
     candidates.find { |val| val.present? }
+  end
+
+  def log_pre_update(bill_order_id, old_status, new_status, provider_reference, response_code, status_flag)
+    Rails.logger.info(
+      "[BuyPowerWebhook] update start bill_order_id=#{bill_order_id} old_status=#{old_status} new_status=#{new_status} provider_reference=#{provider_reference.inspect} responseCode=#{response_code.inspect} status_flag=#{status_flag.inspect}"
+    )
+  end
+
+  def log_post_update(bill_order_id, old_status, new_status, provider_reference, response_code, status_flag)
+    Rails.logger.info(
+      "[BuyPowerWebhook] update done bill_order_id=#{bill_order_id} old_status=#{old_status} new_status=#{new_status} provider_reference=#{provider_reference.inspect} responseCode=#{response_code.inspect} status_flag=#{status_flag.inspect}"
+    )
   end
 end
