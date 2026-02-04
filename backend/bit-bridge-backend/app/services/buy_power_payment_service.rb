@@ -1056,7 +1056,7 @@ end
     msg.to_s.downcase.include?('please requery')
   end
 
-    def handle_wallet_success(order, payment_method, use_commission, units, token, transaction_id, message, provider_payload)
+  def handle_wallet_success(order, payment_method, use_commission, units, token, transaction_id, message, provider_payload)
       wallet = order.user.wallet
       amount = order.total_amount.to_d
       bonus_used = order.commission_used.to_d
@@ -1084,6 +1084,7 @@ end
         BillOrders::Finalizer.call(bill_order: order)
       end
 
+    upsert_transaction_record_provider_meta(order, provider_payload)
     { response: order, status: 'success' }
   end
 
@@ -1126,6 +1127,7 @@ end
       )
     end
 
+    upsert_transaction_record_provider_meta(order, provider_payload)
     { response: user_message, status: 'error' }
   end
 
@@ -1169,5 +1171,68 @@ end
     )
   rescue StandardError => e
     Rails.logger.error("[BONUS] failed to log commission context #{e.class}: #{e.message}")
+  end
+
+  def upsert_transaction_record_provider_meta(order, provider_payload)
+    return unless order
+
+    response_code, response_message = provider_response_meta(provider_payload)
+    return if response_code.blank? && response_message.blank?
+
+    record = TransactionRecord.find_or_initialize_by(bill_order_id: order.id, event_type: 'bill_payment')
+    record.reference ||= order.idempotency_key.presence || order.provider_reference.presence || order.transaction_id.presence || order.id.to_s
+    record.status ||= order.status.to_s
+    record.amount ||= (order.total_amount.presence || order.amount).to_d
+    record.customer_name ||= order.name
+    record.email ||= order.email
+    record.phone_number ||= order.phone
+    record.description ||= "#{order.service_type} #{order.biller}".strip
+    record.transaction_id ||= order.provider_reference.presence || order.transaction_id
+    record.response_code = response_code
+    record.response_message = response_message
+    record.provider_error_category = categorize_provider_error(response_message, response_code)
+    record.save!
+  rescue StandardError => e
+    Rails.logger.error("[BuyPower] transaction_record meta update failed order=#{order&.id} #{e.class}: #{e.message}")
+  end
+
+  def provider_response_meta(provider_payload)
+    return [nil, nil] unless provider_payload.is_a?(Hash)
+
+    response_code =
+      provider_payload['responseCode'] ||
+      provider_payload[:responseCode] ||
+      provider_payload.dig('data', 'responseCode') ||
+      provider_payload.dig(:data, :responseCode) ||
+      provider_payload['code'] ||
+      provider_payload[:code]
+
+    response_message =
+      provider_payload['message'] ||
+      provider_payload[:message] ||
+      provider_payload.dig('data', 'message') ||
+      provider_payload.dig(:data, :message) ||
+      provider_payload.dig('result', 'message') ||
+      provider_payload.dig(:result, :message) ||
+      provider_payload['error'] ||
+      provider_payload[:error]
+
+    [response_code&.to_s, response_message&.to_s]
+  end
+
+  def categorize_provider_error(message, response_code)
+    text = message.to_s.downcase
+
+    return 'daily_limit' if text.include?('daily transaction count limit')
+    return 'insufficient_funds' if text.include?('insufficient')
+    return 'invalid_account' if text.include?('invalid account') || text.include?('invalid meter') || text.include?('invalid phone')
+    return 'timeout' if text.include?('timeout')
+    return 'provider_unavailable' if text.include?('temporarily unavailable') || text.include?('service unavailable')
+    return 'network_error' if text.include?('network') || text.include?('connection')
+
+    code = response_code.to_i rescue 0
+    return 'provider_error' if code >= 400
+
+    'unknown_error'
   end
 end

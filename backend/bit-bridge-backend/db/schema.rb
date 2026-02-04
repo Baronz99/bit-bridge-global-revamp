@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[7.1].define(version: 2026_02_04_223000) do
+ActiveRecord::Schema[7.1].define(version: 2026_02_04_225500) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pgcrypto"
   enable_extension "plpgsql"
@@ -651,6 +651,9 @@ ActiveRecord::Schema[7.1].define(version: 2026_02_04_223000) do
     t.string "bank_code"
     t.string "bank"
     t.string "account_number"
+    t.string "response_code"
+    t.string "response_message"
+    t.string "provider_error_category"
     t.index ["bill_order_id"], name: "idx_tr_unique_bill_payment_per_bill_order", unique: true, where: "((bill_order_id IS NOT NULL) AND ((event_type)::text = 'bill_payment'::text))"
     t.index ["bill_order_id"], name: "index_transaction_records_on_bill_order_id"
     t.index ["exchange_id"], name: "index_transaction_records_on_exchange_id"

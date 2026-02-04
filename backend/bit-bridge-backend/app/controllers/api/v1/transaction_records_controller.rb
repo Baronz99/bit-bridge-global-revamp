@@ -57,6 +57,9 @@ module Api
           bank: @transaction_record.try(:bank),
           bank_code: @transaction_record.try(:bank_code),
           event_type: @transaction_record.try(:event_type),
+          response_code: @transaction_record.try(:response_code),
+          response_message: @transaction_record.try(:response_message),
+          provider_error_category: @transaction_record.try(:provider_error_category),
           created_at: @transaction_record.created_at,
           updated_at: @transaction_record.updated_at
         }
@@ -137,7 +140,10 @@ module Api
           :account_number,
           :bank,
           :bank_code,
-          :event_type
+          :event_type,
+          :response_code,
+          :response_message,
+          :provider_error_category
         )
       end
     end
