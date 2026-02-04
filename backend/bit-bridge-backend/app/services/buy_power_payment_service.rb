@@ -10,6 +10,7 @@ class BuyPowerPaymentService
   # - BILLS_CONFIRMATION_MODE (optional)
   PROVIDER_OPEN_TIMEOUT = 5
   PROVIDER_READ_TIMEOUT = 15
+  PENDING_USER_MESSAGE = 'Transaction is being processed. You will be notified once confirmed.'
   default_options.update(timeout: PROVIDER_READ_TIMEOUT, open_timeout: PROVIDER_OPEN_TIMEOUT)
 
   def initialize
@@ -1040,8 +1041,10 @@ end
   end
 
   def handle_wallet_failure(order, payment_method, message, provider_payload, status: 'failed', force_refund: false)
+    user_message = message.presence || PENDING_USER_MESSAGE
+
     if order&.status && BillOrder::TERMINAL_STATUSES.include?(order.status.to_s)
-      return { response: message, status: 'ignored' }
+      return { response: user_message, status: 'ignored' }
     end
 
     wallet = order.user.wallet
@@ -1072,11 +1075,11 @@ end
         status: status,
         payment_method: payment_method,
         provider_response: provider_payload,
-        reason: message
+        reason: user_message
       )
     end
 
-    { response: message, status: 'error' }
+    { response: user_message, status: 'error' }
   end
 
   def enqueue_reconciliation(order)

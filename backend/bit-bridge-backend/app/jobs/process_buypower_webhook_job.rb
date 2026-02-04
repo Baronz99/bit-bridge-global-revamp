@@ -7,6 +7,7 @@ class ProcessBuypowerWebhookJob < ApplicationJob
     WebhookEvent.reset_column_information
     event = WebhookEvent.find_by(id: webhook_event_id)
     return unless event
+    return if event.processed_at.present?
 
     payload = event.payload.is_a?(String) ? safe_parse(event.payload) : event.payload || {}
     reference = extract_reference(payload)
