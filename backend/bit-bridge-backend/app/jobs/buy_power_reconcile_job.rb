@@ -4,6 +4,8 @@ class BuyPowerReconcileJob < ApplicationJob
   queue_as :default
 
   TERMINAL_STATUSES = %w[completed failed refunded declined].freeze
+  DEFAULT_MAX_ATTEMPTS = 6
+  BASE_RETRY_MINUTES = 10
 
   def perform(bill_order_id)
     order = BillOrder.find_by(id: bill_order_id)
@@ -17,6 +19,17 @@ class BuyPowerReconcileJob < ApplicationJob
     return unless order.payment_method == 'wallet'
 
     service = BuyPowerPaymentService.new
+    now = Time.current
+    max_attempts = ENV.fetch('BUYPOWER_RECONCILE_MAX_ATTEMPTS', DEFAULT_MAX_ATTEMPTS).to_i
+    max_attempts = DEFAULT_MAX_ATTEMPTS if max_attempts <= 0
+
+    attempts = nil
+    order.with_lock do
+      order.reload
+      return if TERMINAL_STATUSES.include?(order.status.to_s)
+      attempts = order.reconcile_attempts.to_i + 1
+      order.update_columns(reconcile_attempts: attempts, reconcile_last_attempt_at: now)
+    end
 
     # 1) If we already have an error payload on a processing order, hard-fail + release/refund.
     provider_payload = provider_payload_from(order.provider_response)
@@ -34,6 +47,11 @@ class BuyPowerReconcileJob < ApplicationJob
           provider_payload,
           status: 'failed'
         )
+        log_reconcile(
+          order,
+          attempts: attempts,
+          action_taken: 'failed_provider_error_no_reference'
+        )
       rescue StandardError => e
         Rails.logger.error(
           "[BuyPowerReconcileJob] hard-error handler failed order=#{order.id} #{e.class}: #{e.message}"
@@ -43,7 +61,31 @@ class BuyPowerReconcileJob < ApplicationJob
     end
 
     # 2) Re-query provider
-    reference = order.provider_reference.presence || order.id
+    reference = order.provider_reference.presence || order.transaction_id.presence
+    if reference.blank?
+      message = 'Reconcile failed: missing provider reference'
+      begin
+        service.send(
+          :handle_wallet_failure,
+          order,
+          'wallet',
+          message,
+          provider_payload,
+          status: 'failed'
+        )
+        log_reconcile(
+          order,
+          attempts: attempts,
+          action_taken: 'failed_no_reference'
+        )
+      rescue StandardError => e
+        Rails.logger.error(
+          "[BuyPowerReconcileJob] missing-reference handler failed order=#{order.id} #{e.class}: #{e.message}"
+        )
+      end
+      return
+    end
+
     response  = service.re_query(reference)
 
     unless response[:status] == :ok
@@ -51,13 +93,31 @@ class BuyPowerReconcileJob < ApplicationJob
         order.reload
         return if TERMINAL_STATUSES.include?(order.status.to_s)
 
-        if order.updated_at < 2.hours.ago
-          Rails.logger.error("[reconcile] stale non-ok requery order=#{order.id} status=#{response[:status]}")
-          order.update(reason: "Reconcile stalled: #{response[:status]}") if order.reason.blank?
+        if attempts >= max_attempts
+          message = "Reconcile failed: provider requery status #{response[:status]}"
+          service.send(
+            :handle_wallet_failure,
+            order,
+            'wallet',
+            message,
+            response[:response],
+            status: 'failed'
+          )
+          log_reconcile(
+            order,
+            attempts: attempts,
+            action_taken: 'failed_requery_non_ok_max'
+          )
           return
         end
 
-        self.class.set(wait: 10.minutes).perform_later(order.id)
+        next_run_at = schedule_retry!(order, attempts: attempts)
+        log_reconcile(
+          order,
+          attempts: attempts,
+          action_taken: 'requeue_requery_non_ok',
+          next_run_at: next_run_at
+        )
       end
       return
     end
@@ -97,6 +157,11 @@ class BuyPowerReconcileJob < ApplicationJob
 
         # Ensure the web dashboard/timeline has a record (idempotent).
         ensure_transaction_record!(order)
+        log_reconcile(
+          order,
+          attempts: attempts,
+          action_taken: 'success'
+        )
 
       when :refunded
         service.send(
@@ -107,6 +172,11 @@ class BuyPowerReconcileJob < ApplicationJob
           raw,
           status: 'refunded',
           force_refund: true
+        )
+        log_reconcile(
+          order,
+          attempts: attempts,
+          action_taken: 'refunded'
         )
 
       when :failed
@@ -122,15 +192,44 @@ class BuyPowerReconcileJob < ApplicationJob
           raw,
           status: 'failed'
         )
+        log_reconcile(
+          order,
+          attempts: attempts,
+          action_taken: 'failed'
+        )
 
       else # :pending / unknown
+        if attempts >= max_attempts
+          failure_message = message.presence || 'Reconcile failed: max attempts reached'
+          service.send(
+            :handle_wallet_failure,
+            order,
+            'wallet',
+            failure_message,
+            raw,
+            status: 'failed'
+          )
+          log_reconcile(
+            order,
+            attempts: attempts,
+            action_taken: 'failed_pending_max'
+          )
+          return
+        end
+
         # Keep the latest provider response for troubleshooting.
         if order.status.to_s != 'processing'
           order.update(status: 'processing', provider_response: raw)
         else
           order.update(provider_response: raw) if raw.present?
         end
-        self.class.set(wait: 10.minutes).perform_later(order.id)
+        next_run_at = schedule_retry!(order, attempts: attempts)
+        log_reconcile(
+          order,
+          attempts: attempts,
+          action_taken: 'requeue_pending',
+          next_run_at: next_run_at
+        )
       end
     end
   end
@@ -238,6 +337,32 @@ class BuyPowerReconcileJob < ApplicationJob
       provider_payload&.dig('message') ||
       provider_payload&.dig(:message) ||
       'Vend failed'
+  end
+
+  def schedule_retry!(order, attempts:)
+    wait_minutes = [attempts, 1].max * BASE_RETRY_MINUTES
+    wait_minutes = BASE_RETRY_MINUTES if wait_minutes <= 0
+    next_run_at = Time.current + wait_minutes.minutes
+    self.class.set(wait: wait_minutes.minutes).perform_later(order.id)
+    next_run_at
+  end
+
+  def log_reconcile(order, attempts:, action_taken:, next_run_at: nil)
+    provider_ref_present = order.provider_reference.present?
+    transaction_ref_present = order.transaction_id.present?
+    payload = {
+      bill_order_id: order.id,
+      status: order.status.to_s,
+      attempts: attempts,
+      provider_reference_present: provider_ref_present,
+      transaction_reference_present: transaction_ref_present,
+      action_taken: action_taken,
+      next_run_at: next_run_at&.iso8601
+    }.compact
+
+    Rails.logger.info("[BuyPowerReconcileJob] #{payload.to_json}")
+  rescue StandardError => e
+    Rails.logger.error("[BuyPowerReconcileJob] log_reconcile failed order=#{order.id} #{e.class}: #{e.message}")
   end
 
   # -------------------------
