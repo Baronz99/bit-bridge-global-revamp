@@ -452,6 +452,8 @@ class BuyPowerPaymentService
       message =
         if provider_payload.is_a?(Hash)
           provider_payload['message'] || provider_payload[:message] || 'Provider returned error'
+        elsif provider_payload.respond_to?(:[]) # e.g., custom response object with [] defined
+          provider_payload[:message] || provider_payload['message'] || 'Provider returned error'
         else
           'Provider returned error'
         end
@@ -807,13 +809,15 @@ end
     when 'VTU', 'AIRTIME'
       # Airtime must not include electricity-only keys.
       body = base.merge(
-        disco: electric_bill_order['biller'] || electric_bill_order['disco']
+        disco: electric_bill_order['biller'] || electric_bill_order['disco'],
+        meter: phone
       )
     when 'DATA'
       body = base.merge(
         tariffClass: electric_bill_order['tariff_class'],
         billersCode: electric_bill_order['meter_number'],
-        disco: electric_bill_order['biller']
+        disco: electric_bill_order['biller'],
+        meter: electric_bill_order['meter_number']
       )
     when 'TV', 'ELECTRICITY'
       raw_vend_type = electric_bill_order['meter_type']

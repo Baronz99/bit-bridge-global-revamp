@@ -27,11 +27,11 @@ RSpec.describe BuyPowerPaymentService do
 
       body = service.send(:build_vend_body, order, phone: order['phone'])
 
-      expect(body).to include(amount: 100, orderId: 'bbg-123', phone: '08012345678', vertical: 'VTU', disco: 'MTN')
-      expect(body.keys).not_to include(:vendType, :meter, :tariffClass)
+      expect(body).to include(amount: 100, orderId: 'bbg-123', phone: '08012345678', vertical: 'VTU', disco: 'MTN', meter: '08012345678')
+      expect(body.keys).not_to include(:vendType, :tariffClass)
     end
 
-    it 'builds DATA payload with disco and tariffClass' do
+    it 'builds DATA payload with disco, tariffClass, and meter' do
       order = {
         'service_type' => 'DATA',
         'amount' => 1500,
@@ -54,9 +54,10 @@ RSpec.describe BuyPowerPaymentService do
         vertical: 'DATA',
         billersCode: '08012345678',
         tariffClass: 'SME',
-        disco: 'GLO'
+        disco: 'GLO',
+        meter: '08012345678'
       )
-      expect(body.keys).not_to include(:vendType, :meter)
+      expect(body.keys).not_to include(:vendType)
     end
   end
   describe '#process_payment' do

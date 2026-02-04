@@ -101,7 +101,8 @@ module Api
         when 'pending'
           render json: { success: false, status: 'pending', message: service_response[:response] }, status: :accepted
         else
-          message = service_response[:message] || service_response[:response] || 'Payment confirmation failed'
+          raw_message = service_response[:message] || service_response[:response] || 'Payment confirmation failed'
+          message = normalize_meter_error(@bill_order&.service_type, raw_message)
           code = service_response[:code].to_i
           status_symbol = service_response[:status].to_s
 
@@ -122,6 +123,13 @@ module Api
       rescue StandardError => e
         Rails.logger.error("[ConfirmBillOrder] exception #{request_tag} error=#{e.class} message=#{e.message} backtrace=#{e.backtrace&.take(5)&.join(' | ')}")
         render json: { success: false, message: "Confirm failed. Reference: #{request.request_id}" }, status: :unprocessable_entity
+      end
+
+      def normalize_meter_error(service_type, message)
+        return message unless message.to_s.downcase.include?('meter')
+        type = service_type.to_s.strip.upcase
+        return 'Phone number is required' if %w[VTU DATA].include?(type)
+        message
       end
 
       def user
