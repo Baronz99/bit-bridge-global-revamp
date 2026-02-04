@@ -35,10 +35,12 @@ const DashboardPowerForm = () => {
     dispatch(SET_LOADING(true))
 
     const normalizedAmount = normalizeAmount(values.amount)
+    const vendType = (values.vendType || values.vend_type || '').toString().trim().toUpperCase() || 'PREPAID'
 
     dispatch(
       createPurchaseOrder({
         ...values,
+        vendType,
         amount: normalizedAmount,
         biller,
         email: user.email,
@@ -117,6 +119,7 @@ const DashboardPowerForm = () => {
             phone: '',
             meter_type: '',
             billersCode: '',
+            vendType: 'PREPAID',
           }}
           layout="vertical"
         >
@@ -126,10 +129,14 @@ const DashboardPowerForm = () => {
               className="flex-1"
               label={'Meter Type'}
               options={[
-                { label: 'prepaid', value: 'prepaid' },
-                { value: 'postpaid', label: 'Post Paid' },
+                { label: 'Prepaid', value: 'PREPAID' },
+                { value: 'POSTPAID', label: 'Postpaid' },
+                { value: 'RECOVERY', label: 'Recovery' },
               ]}
-              name={'meter_type'}
+              name={'vendType'}
+              rules={[
+                { required: true, message: 'Select meter type' },
+              ]}
             />
             <FormInput
               className={'flex-1 w-full'}

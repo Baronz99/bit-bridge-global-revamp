@@ -15,7 +15,7 @@ module Api
           begin
             parsed = JSON.parse(raw)
           rescue JSON::ParserError => e
-            parse_error = e.message
+            parse_error = "parse_error: #{e.message}"
           end
 
           event = WebhookEvent.create!(

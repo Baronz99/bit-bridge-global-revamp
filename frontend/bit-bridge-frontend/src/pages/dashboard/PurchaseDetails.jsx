@@ -200,6 +200,9 @@ const DashboardPurchaseDetails = () => {
           toast(data?.message || 'Failed to make purchase', { type: 'error' })
           setMessage(data.message)
           setErr(true)
+          if (queryId) {
+            dispatch(getPurchaseOrder(queryId))
+          }
         }
       })
     },

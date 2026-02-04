@@ -23,7 +23,8 @@ const fallbackValue = (value) => (value === null || value === undefined || value
 const statusTone = (status) => {
   const normalized = String(status || '').toLowerCase()
   if (['approved', 'completed', 'success', 'paid'].includes(normalized)) return 'bg-emerald-500/15 text-emerald-300'
-  if (['failed', 'declined', 'cancelled', 'reversed'].includes(normalized)) return 'bg-rose-500/15 text-rose-300'
+  if (['failed', 'declined', 'cancelled', 'reversed', 'provider_unavailable', 'timedout', 'timeout'].includes(normalized))
+    return 'bg-rose-500/15 text-rose-300'
   return 'bg-amber-500/15 text-amber-300'
 }
 
@@ -89,7 +90,7 @@ const Receipt = () => {
   const total = receipt?.total
   const statusValue = String(receipt?.status || '').toLowerCase()
   const isPending = ['pending', 'processing', 'initialized'].includes(statusValue)
-  const isFailed = ['failed', 'declined', 'cancelled', 'reversed', 'expired'].includes(statusValue)
+  const isFailed = ['failed', 'declined', 'cancelled', 'reversed', 'expired', 'provider_unavailable', 'timedout', 'timeout'].includes(statusValue)
   const isSuccess = ['approved', 'completed', 'success', 'paid'].includes(statusValue)
   const provider = useMemo(() => {
     if (!receipt?.provider) return {}

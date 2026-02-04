@@ -4,6 +4,45 @@ import PropTypes from 'prop-types'
 import { useSelector } from 'react-redux'
 import { useLocation, useNavigate, useParams } from 'react-router-dom'
 
+const normalizeStatusValue = (raw) => {
+  const rawString = String(raw ?? '').trim()
+  const numeric = rawString !== '' && !Number.isNaN(Number(rawString))
+
+  if (numeric) {
+    const num = Number(rawString)
+    if (num === 0) return 'initialized'
+    if (num === 5) return 'processing'
+    if (num === 6) return 'provider_unavailable'
+    return 'unknown'
+  }
+
+  if (!rawString) return 'unknown'
+
+  const lowered = rawString.toLowerCase()
+  if (lowered.includes('provider') && lowered.includes('unavail')) return 'provider_unavailable'
+  const known = new Set([
+    'initialized',
+    'pending',
+    'processing',
+    'approved',
+    'completed',
+    'success',
+    'paid',
+    'failed',
+    'refunded',
+    'declined',
+    'timedout',
+    'timeout',
+    'disputed',
+    'provider_unavailable',
+    'cancelled',
+    'canceled',
+    'reversed',
+    'expired',
+  ])
+  return known.has(lowered) ? lowered : 'unknown'
+}
+
 const BillOrderDetails = ({ purchaseOrder, applyCommission, paymentBreakdown, debugBonusFlow }) => {
   const { user } = useSelector((state) => state.auth)
   const navigate = useNavigate()
@@ -11,7 +50,7 @@ const BillOrderDetails = ({ purchaseOrder, applyCommission, paymentBreakdown, de
   const { id } = useParams()
   const [showBreakdown, setShowBreakdown] = useState(false)
 
-  const normalizedStatus = String(purchaseOrder?.status || '').toLowerCase()
+  const normalizedStatus = normalizeStatusValue(purchaseOrder?.status)
   const isPhoneFailure =
     normalizedStatus === 'failed' &&
     /invalid phone|phone number/i.test(String(purchaseOrder?.reason || ''))
@@ -157,7 +196,7 @@ const BillOrderDetails = ({ purchaseOrder, applyCommission, paymentBreakdown, de
             //     <p className="w-60 border-b  border-gray-700 px-2  md:w-60 font-semibold"></p>
             //     <p className="flex-1 border-b  border-gray-700 px-2">{purchaseOrder?.status}</p>
             // </div>
-            <Detail label={'Status'} value={purchaseOrder?.status} badge />
+            <Detail label={'Status'} value={normalizedStatus} badge />
           )}
           {purchaseOrder?.reason && <Detail label={'Reason'} value={purchaseOrder?.reason} />}
           {isPhoneFailure && resolveEditRoute() && (
@@ -272,8 +311,9 @@ const Detail = ({
   applyCommission = false,
   commission,
 }) => {
-  console.log(commission, applyCommission)
-  const normalized = String(value || '').toLowerCase()
+  const shouldNormalizeStatus = badge && label === 'Status'
+  const normalized = shouldNormalizeStatus ? normalizeStatusValue(value) : String(value || '').toLowerCase()
+  const displayValue = shouldNormalizeStatus ? normalized : value
   const isSuccess = normalized === 'approved' || normalized === 'completed'
   const isPending =
     normalized === 'pending' ||
@@ -284,7 +324,9 @@ const Detail = ({
     normalized === 'refunded' ||
     normalized === 'declined' ||
     normalized === 'timedout' ||
-    normalized === 'disputed'
+    normalized === 'timeout' ||
+    normalized === 'disputed' ||
+    normalized === 'provider_unavailable'
   return (
     <div className={`${hidden ? 'hidden' : 'flex'} flex-col`}>
       <span className="text-gray-400 uppercase text-xs">{label}</span>
@@ -300,7 +342,7 @@ const Detail = ({
                   : 'bg-slate-600 text-white'
           }`}
         >
-          {value}
+          {displayValue}
         </span>
       ) : (
         <p className="flex items-center gap-5 bg-red">

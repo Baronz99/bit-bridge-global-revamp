@@ -835,11 +835,14 @@ ActiveRecord::Schema[7.1].define(version: 2026_02_02_130000) do
     t.string "source", null: false
     t.jsonb "headers"
     t.jsonb "payload"
-    t.datetime "created_at", null: false
-    t.datetime "updated_at", null: false
     t.datetime "processed_at"
     t.string "processing_error"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.string "event_type"
     t.jsonb "payload_json"
+    t.index ["created_at"], name: "index_webhook_events_on_created_at"
+    t.index ["source"], name: "index_webhook_events_on_source"
   end
 
   add_foreign_key "accounts", "users"

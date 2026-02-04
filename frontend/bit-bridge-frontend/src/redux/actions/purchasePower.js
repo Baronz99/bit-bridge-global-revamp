@@ -13,7 +13,30 @@ export const createPurchaseOrder = createAsyncThunk(
   'purchase/purchase-power',
   async (data, { rejectWithValue }) => {
     try {
-      const response = await client.post('/payment_processors/process_payment', data)
+      const normalizeVendType = (payload) => {
+        const serviceType = String(payload?.service_type || '').toUpperCase()
+        const raw =
+          payload?.vendType ||
+          payload?.vend_type ||
+          payload?.vendtype ||
+          payload?.meter_type
+        let vendType = String(raw || '').trim().toUpperCase()
+        if (!vendType) vendType = 'PREPAID'
+        const allowed = ['PREPAID', 'POSTPAID', 'RECOVERY']
+        if (!allowed.includes(vendType)) vendType = 'PREPAID'
+
+        if (serviceType !== 'ELECTRICITY') {
+          // VTU/DATA/CABLE must always be PREPAID
+          vendType = 'PREPAID'
+        }
+
+        return vendType
+      }
+
+      const vendType = normalizeVendType(data || {})
+      const payload = { ...data, vendType }
+
+      const response = await client.post('/payment_processors/process_payment', payload)
       const result = response.data
 
       toast(result?.message || 'order has been initialized', { type: 'success' })
