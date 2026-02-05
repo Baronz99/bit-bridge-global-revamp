@@ -66,11 +66,13 @@ class AnchorService
         { response: new_account, status: :ok }
 
       else
-        error_title = response.dig('errors', 0, 'detail') || 'bad request'
-        raise error_title
+        provider_status = response.code
+        provider_body = response.parsed_response || response.body
+        error_title = response.dig('errors', 0, 'detail') || response.dig('message') || 'bad request'
+        raise StandardError.new(error_title.to_s)
       end
     rescue StandardError => e
-      { message: e.message || 'bad request', status: :bad_request }
+      { message: e.message || 'bad request', status: :bad_request, provider_status: (defined?(provider_status) && provider_status) || nil, provider_body: (defined?(provider_body) && provider_body) || nil }
     end
   end
 

@@ -464,7 +464,20 @@ module Api
             }, status: :conflict
           end
 
-          render json: { message: 'Unable to create Anchor account.' }, status: :unprocessable_entity
+          Rails.logger.info(
+            {
+              event: 'anchor.onboarding.failure',
+              status: service_response[:provider_status],
+              message: service_response[:message],
+              provider_body: safe_provider_body(service_response[:provider_body]),
+              user_id: current_user&.id,
+              request_id: request.request_id
+            }.compact
+          )
+
+          render json: {
+            message: service_response[:message].presence || 'Unable to create Anchor account.'
+          }, status: :unprocessable_entity
         end
       end
 
