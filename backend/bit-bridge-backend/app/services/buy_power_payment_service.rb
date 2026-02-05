@@ -662,6 +662,19 @@ class BuyPowerPaymentService
         end
 
       if provider_reference.blank?
+        if please_requery?(provider_payload)
+          updates = {
+            status: 'processing',
+            payment_method: payment_method,
+            reason: provider_message.presence || error_message.presence || 'Payment processing...'
+          }
+          updates[:provider_response] = provider_payload
+          electric_bill_order.update(updates)
+          enqueue_reconciliation(electric_bill_order)
+          enqueue_processing_retry(electric_bill_order)
+          return { status: 'pending', response: 'Payment processing...' }
+        end
+
         message = provider_message.presence || error_message.presence || 'Provider did not return a reference'
         return handle_wallet_failure(
           electric_bill_order,

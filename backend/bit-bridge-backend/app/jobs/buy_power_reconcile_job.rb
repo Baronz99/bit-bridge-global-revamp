@@ -6,6 +6,8 @@ class BuyPowerReconcileJob < ApplicationJob
   TERMINAL_STATUSES = %w[completed failed refunded declined].freeze
   DEFAULT_MAX_ATTEMPTS = 6
   BASE_RETRY_MINUTES = 10
+  RETRY_SCHEDULE_SECONDS = [10, 15, 20, 25, 25, 25].freeze
+  FINAL_FAILURE_MESSAGE = 'Transaction failed after retry. Refund completed.'.freeze
 
   def perform(bill_order_id)
     order = BillOrder.find_by(id: bill_order_id)
@@ -74,7 +76,7 @@ class BuyPowerReconcileJob < ApplicationJob
         return
       end
 
-      message = 'Reconcile failed: missing provider reference'
+      message = FINAL_FAILURE_MESSAGE
       begin
         service.send(
           :handle_wallet_failure,
@@ -105,7 +107,7 @@ class BuyPowerReconcileJob < ApplicationJob
         return if TERMINAL_STATUSES.include?(order.status.to_s)
 
         if attempts >= max_attempts
-          message = "Reconcile failed: provider requery status #{response[:status]}"
+          message = FINAL_FAILURE_MESSAGE
           service.send(
             :handle_wallet_failure,
             order,
@@ -211,7 +213,7 @@ class BuyPowerReconcileJob < ApplicationJob
 
       else # :pending / unknown
         if attempts >= max_attempts
-          failure_message = message.presence || 'Reconcile failed: max attempts reached'
+          failure_message = FINAL_FAILURE_MESSAGE
           service.send(
             :handle_wallet_failure,
             order,
@@ -361,10 +363,10 @@ class BuyPowerReconcileJob < ApplicationJob
   end
 
   def schedule_retry!(order, attempts:)
-    wait_minutes = [attempts, 1].max * BASE_RETRY_MINUTES
-    wait_minutes = BASE_RETRY_MINUTES if wait_minutes <= 0
-    next_run_at = Time.current + wait_minutes.minutes
-    self.class.set(wait: wait_minutes.minutes).perform_later(order.id)
+    index = [attempts, 1].max - 1
+    wait_seconds = RETRY_SCHEDULE_SECONDS[index] || RETRY_SCHEDULE_SECONDS.last || (BASE_RETRY_MINUTES * 60)
+    next_run_at = Time.current + wait_seconds.seconds
+    self.class.set(wait: wait_seconds.seconds).perform_later(order.id)
     next_run_at
   end
 
