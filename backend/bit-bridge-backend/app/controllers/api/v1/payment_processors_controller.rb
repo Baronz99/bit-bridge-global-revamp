@@ -265,6 +265,8 @@ end
             response
           end
 
+        return { 'raw' => payload.to_s } if payload.is_a?(String)
+        return {} if payload.nil?
         return payload unless payload.is_a?(Hash)
 
         payload.slice('data', 'result', 'message', 'status', 'responseCode', 'error')

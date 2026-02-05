@@ -452,7 +452,7 @@ class BuyPowerPaymentService
       raise 'no payment method selected'
     end
 
-    provider_payload = provider_response_payload(response)
+    provider_payload = normalize_provider_payload(provider_response_payload(response))
     http_status = response.respond_to?(:code) ? response.code.to_i : nil
     provider_code =
       if provider_payload.is_a?(Hash)
@@ -475,7 +475,7 @@ class BuyPowerPaymentService
         retried = true
         sleep 12
         response = self.class.post(endpoint, headers: @post_headers, body: body, timeout: PROVIDER_READ_TIMEOUT, open_timeout: PROVIDER_OPEN_TIMEOUT)
-        provider_payload = provider_response_payload(response)
+        provider_payload = normalize_provider_payload(provider_response_payload(response))
         provider_code = provider_payload['responseCode'].to_i if provider_payload.is_a?(Hash)
         data_response_code = provider_payload.dig('data', 'responseCode').to_i if provider_payload.is_a?(Hash)
         goto_success = response.respond_to?(:success?) && response.success? && data_response_code == 100
@@ -508,16 +508,17 @@ class BuyPowerPaymentService
         result[:code] = 503 if http_status && http_status >= 500
         return result
       else
-        electric_bill_order.update(
-          status: 'failed',
-          payment_method: payment_method,
-          provider_reference: provider_reference,
-          provider_response: provider_payload,
-          reason: message
-        )
-        return { response: message, status: 'error' }
+          updates = {
+            status: 'failed',
+            payment_method: payment_method,
+            reason: message
+          }
+          updates[:provider_reference] = provider_reference if provider_reference.present?
+          updates[:provider_response] = provider_payload
+          electric_bill_order.update(updates)
+          return { response: message, status: 'error' }
+        end
       end
-    end
 
     unless response.respond_to?(:success?)
       enqueue_reconciliation(electric_bill_order)
@@ -534,7 +535,7 @@ class BuyPowerPaymentService
       token = response&.dig('data', 'token')
       transaction_id = response&.dig('data', 'id').to_s
       message = response&.dig('message') || 'No error message'
-      provider_payload ||= provider_response_payload(response)
+        provider_payload ||= normalize_provider_payload(provider_response_payload(response))
 
       if response&.dig('error')
         return handle_wallet_failure(
@@ -566,12 +567,18 @@ class BuyPowerPaymentService
     else
       error_message = response&.dig('message') || 'Upstream provider error'
       http_status = response.respond_to?(:code) ? response.code.to_i : nil
-      provider_payload = provider_response_payload(response)
+      provider_payload = normalize_provider_payload(provider_response_payload(response))
 
-      if payment_method == 'card' || electric_bill_order.payment_method == 'card'
-        electric_bill_order.update(status: 'initialized', payment_method: payment_method, reason: "Vend failed: #{error_message}")
-        return { response: error_message, status: 'error' }
-      end
+        if payment_method == 'card' || electric_bill_order.payment_method == 'card'
+          updates = {
+            status: 'initialized',
+            payment_method: payment_method,
+            reason: "Vend failed: #{sanitize_provider_message(error_message.to_s)}"
+          }
+          updates[:provider_response] = provider_payload
+          electric_bill_order.update(updates)
+          return { response: error_message, status: 'error' }
+        end
 
       if http_status && http_status >= 500
         result = handle_wallet_failure(
@@ -665,17 +672,18 @@ class BuyPowerPaymentService
         )
       end
 
-      electric_bill_order.update(
-        status: 'processing',
-        payment_method: payment_method,
-        reason: error_message,
-        provider_response: provider_payload,
-        provider_reference: provider_reference
-      )
-      enqueue_reconciliation(electric_bill_order)
-      enqueue_processing_retry(electric_bill_order)
-      return { status: 'pending', response: 'Payment processing...' }
-    end
+        updates = {
+          status: 'processing',
+          payment_method: payment_method,
+          reason: error_message
+        }
+        updates[:provider_response] = provider_payload
+        updates[:provider_reference] = provider_reference if provider_reference.present?
+        electric_bill_order.update(updates)
+        enqueue_reconciliation(electric_bill_order)
+        enqueue_processing_retry(electric_bill_order)
+        return { status: 'pending', response: 'Payment processing...' }
+      end
 
     return { response: electric_bill_order, status: 'success' }
   rescue ActiveRecord::RecordInvalid => e
@@ -1007,6 +1015,12 @@ end
     message.gsub(/\d{6,}/) { |m| ('*' * [m.length - 4, 0].max) + m[-4, 4] }
   end
 
+  def normalize_provider_payload(payload)
+    return {} if payload.nil?
+    return { 'raw' => payload.to_s } if payload.is_a?(String)
+    payload
+  end
+
   def safe_json_dump(response)
     if response.respond_to?(:body)
       response.body.to_s
@@ -1068,7 +1082,7 @@ end
       ActiveRecord::Base.transaction do
         wallet.lock!
 
-        order.update!(
+        updates = {
           status: 'completed',
           payment_method: payment_method,
           use_commission: use_commission,
@@ -1077,9 +1091,10 @@ end
           token: token,
           transaction_id: transaction_id,
           provider_reference: transaction_id,
-          provider_response: provider_payload,
           reason: message
-        )
+        }
+        updates[:provider_response] = provider_payload
+        order.update!(updates)
 
         BillOrders::Finalizer.call(bill_order: order)
       end
@@ -1119,12 +1134,13 @@ end
         )
       end
 
-      order.update!(
+      updates = {
         status: status,
         payment_method: payment_method,
-        provider_response: provider_payload,
         reason: user_message
-      )
+      }
+      updates[:provider_response] = provider_payload
+      order.update!(updates)
     end
 
     upsert_transaction_record_provider_meta(order, provider_payload)

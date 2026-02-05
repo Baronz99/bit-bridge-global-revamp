@@ -63,6 +63,17 @@ class BuyPowerReconcileJob < ApplicationJob
     # 2) Re-query provider
     reference = order.provider_reference.presence || order.transaction_id.presence
     if reference.blank?
+      if please_requery?(provider_payload) && attempts < max_attempts
+        next_run_at = schedule_retry!(order, attempts: attempts)
+        log_reconcile(
+          order,
+          attempts: attempts,
+          action_taken: 'requeue_missing_reference_requery',
+          next_run_at: next_run_at
+        )
+        return
+      end
+
       message = 'Reconcile failed: missing provider reference'
       begin
         service.send(
@@ -314,6 +325,16 @@ class BuyPowerReconcileJob < ApplicationJob
       raw.dig('result', 'message').to_s.presence ||
       raw['message'].to_s.presence ||
       'Vend successful'
+  end
+
+  def please_requery?(payload)
+    msg =
+      if payload.is_a?(Hash)
+        payload['message'] || payload[:message] || payload.dig('data', 'message') || payload.dig(:data, :message)
+      else
+        nil
+      end
+    msg.to_s.downcase.include?('please requery') || msg.to_s.downcase.include?('requery')
   end
 
 
