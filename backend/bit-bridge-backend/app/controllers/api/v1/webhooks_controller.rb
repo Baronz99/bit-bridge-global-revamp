@@ -381,16 +381,10 @@ module Api
         raw = BigDecimal(amount.to_s)
         scale = ENV['MONNIFY_AMOUNT_SCALE'].to_s.downcase
 
-        if scale == 'naira'
-          return [raw, 'naira']
-        end
-
-        if scale == 'kobo'
-          return [(raw / 100).round(2), 'kobo']
-        end
-
-        if currency.to_s.upcase == 'NGN' && raw.frac.zero? && raw >= 1000
-          return [(raw / 100).round(2), 'kobo']
+        if scale.present? && scale != 'naira'
+          Rails.logger.warn(
+            "[MonnifyWebhook] ignoring_non_naira_scale configured_scale=#{scale.inspect} currency=#{currency}"
+          )
         end
 
         [raw, 'naira']
