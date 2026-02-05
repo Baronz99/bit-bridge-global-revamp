@@ -55,6 +55,7 @@ class AnchorOnboardingMapper
     mapped[:vendor] = @account_params['vendor'] || @profile_params['vendor'] || @user_params['vendor']
     mapped[:phone_number] = normalize_string(mapped[:phone_number])
     mapped[:address] = @profile&.address_line1 if mapped[:address].blank? && @profile&.address_line1.present?
+    mapped[:state] = normalize_state(mapped[:state])
 
     mapped
   end
@@ -86,6 +87,16 @@ class AnchorOnboardingMapper
     end
 
     nil
+  end
+
+  def normalize_state(value)
+    return nil if value.blank?
+
+    raw = value.to_s.strip
+    return 'FCT' if raw.casecmp('fct (abuja)').zero? || raw.casecmp('abuja').zero? || raw.casecmp('fct').zero?
+
+    # Normalize common formatting variants
+    raw.gsub(/\s+/, ' ')
   end
 
   def normalize_string(value)
