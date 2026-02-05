@@ -963,7 +963,6 @@ module BuyPowerPayloads
     }.compact
   end
 end
-
   def provider_response_payload(response)
     return response.parsed_response if response.respond_to?(:parsed_response)
     return response.to_h if response.respond_to?(:to_h)
