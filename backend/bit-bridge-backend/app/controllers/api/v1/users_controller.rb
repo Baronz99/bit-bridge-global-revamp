@@ -145,6 +145,7 @@ end
         attrs = user_update_params.to_h.deep_symbolize_keys
         profile_attrs = attrs.delete(:user_profile_attributes)
         should_recheck = should_recheck_bvn_snapshot?(current_user, profile_attrs)
+        should_recalculate_kyc = profile_attrs.present? || attrs[:id_type].present?
 
         if ENV['DEBUG_UPLOADS'].present?
           Rails.logger.info(
@@ -181,6 +182,11 @@ end
                 "proof_of_address_attached=#{profile.proof_of_address.attached?} " \
                 "proof_of_address_type=#{profile.proof_of_address_type.inspect}"
               )
+            end
+
+            if should_recalculate_kyc
+              current_user.kyc_level = ::Kyc::LevelCalculator.resolve_level(current_user)
+              current_user.save! if current_user.changed?
             end
           end
         rescue StandardError => e
