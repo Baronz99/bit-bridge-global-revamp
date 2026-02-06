@@ -10,7 +10,6 @@ class BuyPowerPaymentService
   # - BILLS_CONFIRMATION_MODE (optional)
   PROVIDER_OPEN_TIMEOUT = 5
   PROVIDER_READ_TIMEOUT = 15
-  PENDING_USER_MESSAGE = 'Transaction is being processed. You will be notified once confirmed.'
   default_options.update(timeout: PROVIDER_READ_TIMEOUT, open_timeout: PROVIDER_OPEN_TIMEOUT)
 
   def initialize
@@ -31,18 +30,13 @@ class BuyPowerPaymentService
     is_electricity = service_type_upcase == 'ELECTRICITY'
     res = verify_meter(payment_processor_params) if is_electricity && payment_processor_params[:skip] != true
 
-    vend_type_param = payment_processor_params[:vendType] || payment_processor_params[:vend_type] || payment_processor_params[:meter_type]
-    vend_type_normalized = vend_type_param.to_s.strip.upcase
-    allowed_vend_types = %w[PREPAID POSTPAID RECOVERY]
-    vend_type_normalized = 'PREPAID' if vend_type_normalized.blank? || !allowed_vend_types.include?(vend_type_normalized)
-
     resolved_meter_type =
       if is_electricity
-        res&.dig('vendType') || vend_type_normalized
+        res&.dig('vendType') || payment_processor_params[:meter_type] || 'PREPAID'
       elsif service_type_upcase == 'TV'
-        vend_type_normalized
+        payment_processor_params[:vend_type] || payment_processor_params[:meter_type] || 'PREPAID'
       else
-        'PREPAID'
+        nil
       end
 
     if service_type_upcase == 'TV'
@@ -262,22 +256,9 @@ class BuyPowerPaymentService
     Rails.logger.info("BuyPower confirm_subscription start #{request_tag} payment_method=#{payment_method}")
 
     response = nil
-    endpoint = '/vend'
-    if vtu_or_airtime?(electric_bill_order['service_type']) && endpoint != '/vend'
-      Rails.logger.error("[BuyPower] VTU/AIRTIME must use /vend; overriding endpoint=#{endpoint.inspect} -> '/vend'")
-      endpoint = '/vend'
-    end
     if payment_method == 'wallet' && electric_bill_order.payment_method != 'wallet'
       Rails.logger.warn(
         "BuyPower confirm_subscription blocked wallet bill_order_id=#{electric_bill_order.id} payment_method=#{electric_bill_order.payment_method}"
-      )
-      log_commission_context(
-        electric_bill_order,
-        user,
-        detail: 'invalid_payment_method',
-        use_commission: false,
-        commission_balance: nil,
-        wallet_debit: 0
       )
       return { status: 'error', message: 'Invalid payment method for wallet confirmation' }
     end
@@ -313,18 +294,7 @@ class BuyPowerPaymentService
             available_balance = wallet.ledger_available_balance
             has_money = wallet_debit <= 0 || available_balance >= wallet_debit
 
-            unless has_money
-              log_commission_context(
-                electric_bill_order,
-                user,
-                detail: 'insufficient_funds',
-                use_commission: use_commission,
-                wallet_debit: wallet_debit,
-                commission_balance: commission_balance,
-                available_balance: available_balance
-              )
-              raise 'Insufficient funds'
-            end
+            raise 'Insufficient funds' unless has_money
 
             # Avoid 0-amount holds that would create misleading ledger entries.
             if wallet_debit.positive?
@@ -363,19 +333,22 @@ class BuyPowerPaymentService
       end
 
       debug_vend = (!Rails.env.production? || ENV['DEBUG_VEND_KEYS'].to_s == '1')
+      if debug_vend
+        Rails.logger.info(
+          "[TV_FLOW] about_to_call_buypower action=vend service_type=#{electric_bill_order['service_type']} vertical=#{body[:vertical]}"
+        )
+      end
       call_started_at = Process.clock_gettime(Process::CLOCK_MONOTONIC)
-      Rails.logger.info(
-        "BuyPower request start #{request_tag} endpoint=#{endpoint} service_type=#{electric_bill_order['service_type']} biller=#{electric_bill_order['biller']} body_keys=#{body.keys.sort}"
-      )
-      if ENV['DEBUG_VEND_KEYS'].to_s == '1'
-        Rails.logger.debug(
-          "BuyPower /vend payload keys=#{body.keys.sort} vendType=#{body[:vendType].inspect} service_type=#{electric_bill_order['service_type']}"
+      vend_type_log = body[:vendType]
+      if debug_vend
+        Rails.logger.info(
+          "BuyPower vend body keys=#{body.keys.sort} vertical=#{body[:vertical]} vendType_present=#{body.key?(:vendType)} vendType=#{body[:vendType].inspect}"
         )
       end
       Rails.logger.info(
-        "[BuyPower] POST base_uri=#{self.class.base_uri} path=#{endpoint} order_id=#{electric_bill_order.id} service_type=#{electric_bill_order['service_type']}"
+        "BuyPower vend request start #{request_tag} bill_order_id=#{electric_bill_order&.id} service_type=#{electric_bill_order['service_type']} biller=#{electric_bill_order['biller']} vendType=#{vend_type_log}"
       )
-      response = self.class.post(endpoint, headers: @post_headers, body: body, timeout: PROVIDER_READ_TIMEOUT, open_timeout: PROVIDER_OPEN_TIMEOUT)
+      response = self.class.post('/vend', headers: @post_headers, body: body, timeout: PROVIDER_READ_TIMEOUT, open_timeout: PROVIDER_OPEN_TIMEOUT)
       if debug_vend
         http_status = response.respond_to?(:code) ? response.code : nil
         provider_code =
@@ -402,25 +375,28 @@ class BuyPowerPaymentService
         elsif response.is_a?(Hash)
           response['success'] || response[:success]
         end
-      Rails.logger.info("BuyPower request finish #{request_tag} endpoint=#{endpoint} duration_ms=#{call_duration_ms} success=#{success.inspect}")
+      Rails.logger.info("BuyPower vend request finish #{request_tag} duration_ms=#{call_duration_ms} success=#{success.inspect}")
     elsif payment_method == 'card'
       if sandbox_vtu_blocked?(body)
         return { status: 'error', response: 'VTU is not supported in BuyPower sandbox. Please use staging/live.' }
       end
       debug_vend = (!Rails.env.production? || ENV['DEBUG_VEND_KEYS'].to_s == '1')
+      if debug_vend
+        Rails.logger.info(
+          "[TV_FLOW] about_to_call_buypower action=vend service_type=#{electric_bill_order['service_type']} vertical=#{body[:vertical]}"
+        )
+      end
       call_started_at = Process.clock_gettime(Process::CLOCK_MONOTONIC)
-      Rails.logger.info(
-        "BuyPower request start #{request_tag} endpoint=#{endpoint} service_type=#{electric_bill_order['service_type']} biller=#{electric_bill_order['biller']} body_keys=#{body.keys.sort}"
-      )
-      if ENV['DEBUG_VEND_KEYS'].to_s == '1'
-        Rails.logger.debug(
-          "BuyPower /vend payload keys=#{body.keys.sort} vendType=#{body[:vendType].inspect} service_type=#{electric_bill_order['service_type']}"
+      vend_type_log = body[:vendType]
+      if debug_vend
+        Rails.logger.info(
+          "BuyPower vend body keys=#{body.keys.sort} vertical=#{body[:vertical]} vendType_present=#{body.key?(:vendType)} vendType=#{body[:vendType].inspect}"
         )
       end
       Rails.logger.info(
-        "[BuyPower] POST base_uri=#{self.class.base_uri} path=#{endpoint} order_id=#{electric_bill_order.id} service_type=#{electric_bill_order['service_type']}"
+        "BuyPower vend request start #{request_tag} bill_order_id=#{electric_bill_order&.id} service_type=#{electric_bill_order['service_type']} biller=#{electric_bill_order['biller']} vendType=#{vend_type_log}"
       )
-      response = self.class.post(endpoint, headers: @post_headers, body: body, timeout: PROVIDER_READ_TIMEOUT, open_timeout: PROVIDER_OPEN_TIMEOUT)
+      response = self.class.post('/vend', headers: @post_headers, body: body, timeout: PROVIDER_READ_TIMEOUT, open_timeout: PROVIDER_OPEN_TIMEOUT)
       if debug_vend
         http_status = response.respond_to?(:code) ? response.code : nil
         provider_code =
@@ -447,78 +423,10 @@ class BuyPowerPaymentService
         elsif response.is_a?(Hash)
           response['success'] || response[:success]
         end
-      Rails.logger.info("BuyPower request finish #{request_tag} endpoint=#{endpoint} duration_ms=#{call_duration_ms} success=#{success.inspect}")
+      Rails.logger.info("BuyPower vend request finish #{request_tag} duration_ms=#{call_duration_ms} success=#{success.inspect}")
     else
       raise 'no payment method selected'
     end
-
-    provider_payload = normalize_provider_payload(provider_response_payload(response))
-    http_status = response.respond_to?(:code) ? response.code.to_i : nil
-    provider_code =
-      if provider_payload.is_a?(Hash)
-        provider_payload['responseCode'] || provider_payload[:responseCode]
-      end
-    provider_code = provider_code.to_i if provider_code.respond_to?(:to_i)
-
-    data_response_code =
-      if provider_payload.is_a?(Hash)
-        provider_payload.dig('data', 'responseCode') || provider_payload.dig(:data, :responseCode)
-      end
-    data_response_code = data_response_code.to_i if data_response_code.respond_to?(:to_i)
-
-    retried = false
-
-    if vtu_service_type?(electric_bill_order['service_type']) &&
-       ((provider_code.present? && provider_code >= 400) ||
-        (data_response_code != 100))
-      if please_requery?(provider_payload) && !retried
-        retried = true
-        sleep 12
-        response = self.class.post(endpoint, headers: @post_headers, body: body, timeout: PROVIDER_READ_TIMEOUT, open_timeout: PROVIDER_OPEN_TIMEOUT)
-        provider_payload = normalize_provider_payload(provider_response_payload(response))
-        provider_code = provider_payload['responseCode'].to_i if provider_payload.is_a?(Hash)
-        data_response_code = provider_payload.dig('data', 'responseCode').to_i if provider_payload.is_a?(Hash)
-        goto_success = response.respond_to?(:success?) && response.success? && data_response_code == 100
-        unless goto_success
-          enqueue_reconciliation(electric_bill_order)
-          return { status: 'pending', response: 'Payment pending... requery in progress' }
-        end
-      end
-      message =
-        if provider_payload.is_a?(Hash)
-          provider_payload['message'] || provider_payload[:message] || 'Provider returned error'
-        elsif provider_payload.respond_to?(:[]) # e.g., custom response object with [] defined
-          provider_payload[:message] || provider_payload['message'] || 'Provider returned error'
-        else
-          'Provider returned error'
-        end
-      provider_reference =
-        if provider_payload.is_a?(Hash)
-          provider_payload.dig('data', 'id').to_s.presence
-        end
-
-      if payment_method == 'wallet'
-        result = handle_wallet_failure(
-          electric_bill_order,
-          payment_method,
-          message,
-          provider_payload,
-          status: 'failed'
-        )
-        result[:code] = 503 if http_status && http_status >= 500
-        return result
-      else
-          updates = {
-            status: 'failed',
-            payment_method: payment_method,
-            reason: message
-          }
-          updates[:provider_reference] = provider_reference if provider_reference.present?
-          updates[:provider_response] = provider_payload
-          electric_bill_order.update(updates)
-          return { response: message, status: 'error' }
-        end
-      end
 
     unless response.respond_to?(:success?)
       enqueue_reconciliation(electric_bill_order)
@@ -533,9 +441,9 @@ class BuyPowerPaymentService
       payment_method = payment_method
       units = response&.dig('data', 'units')
       token = response&.dig('data', 'token')
-      transaction_id = response&.dig('data', 'id').to_s
+      transaction_id = response&.dig('data', 'id')
       message = response&.dig('message') || 'No error message'
-        provider_payload ||= normalize_provider_payload(provider_response_payload(response))
+      provider_payload = provider_response_payload(response)
 
       if response&.dig('error')
         return handle_wallet_failure(
@@ -561,36 +469,17 @@ class BuyPowerPaymentService
       end
 
       if electric_bill_order.update(status: 'completed', payment_method: payment_method, use_commission: use_commission,
-                                    units: units, token: token, transaction_id: transaction_id, provider_reference: transaction_id, reason: message)
+                                    units: units, token: token, transaction_id: transaction_id, reason: message)
         return { response: electric_bill_order, status: 'success' }
       end
     else
       error_message = response&.dig('message') || 'Upstream provider error'
-      http_status = response.respond_to?(:code) ? response.code.to_i : nil
-      provider_payload = normalize_provider_payload(provider_response_payload(response))
-
-        if payment_method == 'card' || electric_bill_order.payment_method == 'card'
-          updates = {
-            status: 'initialized',
-            payment_method: payment_method,
-            reason: "Vend failed: #{sanitize_provider_message(error_message.to_s)}"
-          }
-          updates[:provider_response] = provider_payload
-          electric_bill_order.update(updates)
-          return { response: error_message, status: 'error' }
-        end
-
-      if http_status && http_status >= 500
-        result = handle_wallet_failure(
-          electric_bill_order,
-          payment_method,
-          'Provider temporarily unavailable. Try again.',
-          provider_payload,
-          status: 'failed'
-        )
-        return result.merge(code: 503)
+      if payment_method == 'card' || electric_bill_order.payment_method == 'card'
+        electric_bill_order.update(status: 'initialized', payment_method: payment_method, reason: "Vend failed: #{error_message}")
+        return { response: error_message, status: 'error' }
       end
 
+      provider_payload = provider_response_payload(response)
       provider_status = provider_status_from(response)
       provider_error =
         provider_payload&.dig('error') || provider_payload&.dig(:error) ||
@@ -652,65 +541,20 @@ class BuyPowerPaymentService
         )
       end
 
-      provider_reference =
-        if provider_payload.is_a?(Hash)
-          provider_payload.dig('data', 'id') ||
-            provider_payload.dig('data', 'transactionId') ||
-            provider_payload.dig('data', 'transaction_id') ||
-            provider_payload.dig('data', 'reference') ||
-            provider_payload.dig('data', 'ref')
-        end
-
-      if provider_reference.blank?
-        if please_requery?(provider_payload)
-          updates = {
-            status: 'processing',
-            payment_method: payment_method,
-            reason: provider_message.presence || error_message.presence || 'Payment processing...'
-          }
-          updates[:provider_response] = provider_payload
-          electric_bill_order.update(updates)
-          enqueue_reconciliation(electric_bill_order)
-          enqueue_processing_retry(electric_bill_order)
-          return { status: 'pending', response: 'Payment processing...' }
-        end
-
-        message = provider_message.presence || error_message.presence || 'Provider did not return a reference'
-        return handle_wallet_failure(
-          electric_bill_order,
-          payment_method,
-          message,
-          provider_payload,
-          status: 'failed'
-        )
-      end
-
-        updates = {
-          status: 'processing',
-          payment_method: payment_method,
-          reason: error_message
-        }
-        updates[:provider_response] = provider_payload
-        updates[:provider_reference] = provider_reference if provider_reference.present?
-        electric_bill_order.update(updates)
-        enqueue_reconciliation(electric_bill_order)
-        enqueue_processing_retry(electric_bill_order)
-        return { status: 'pending', response: 'Payment processing...' }
-      end
+      electric_bill_order.update(status: 'processing', payment_method: payment_method, reason: error_message, provider_response: provider_payload)
+      enqueue_reconciliation(electric_bill_order)
+      return { status: 'pending', response: 'Payment processing...' }
+    end
 
     return { response: electric_bill_order, status: 'success' }
   rescue ActiveRecord::RecordInvalid => e
     Rails.logger.error("Update failed: #{e.record.errors.full_messages.join(', ')}")
     return { status: 'error', message: e.record.errors.full_messages.to_sentence }
   rescue Timeout::Error, Net::OpenTimeout, Net::ReadTimeout => e
+    electric_bill_order.update(status: 'processing', payment_method: payment_method)
     Rails.logger.info("BuyPower vend request timeout #{request_tag} error=#{e.class}")
-    return handle_wallet_failure(
-      electric_bill_order,
-      payment_method,
-      'Provider timeout. Please try again.',
-      { error: e.class.name, message: e.message },
-      status: 'failed'
-    ).merge(code: 503)
+    enqueue_reconciliation(electric_bill_order)
+    return { status: 'pending', response: 'Payment pending...', code: 503 }
   rescue StandardError => e
     if electric_bill_order&.status == 'completed' && electric_bill_order&.transaction_id.present?
       Rails.logger.error(
@@ -880,89 +724,45 @@ end
 
   private
   def build_vend_body(electric_bill_order, phone:)
-    vertical = electric_bill_order['service_type'].to_s.strip.upcase
-    return BuyPowerPayloads.vtu(electric_bill_order, phone: phone) if vtu_or_airtime?(vertical)
-
-    vend_type_raw = electric_bill_order['vendType'] ||
-                    electric_bill_order['vend_type'] ||
-                    electric_bill_order['vendtype'] ||
-                    electric_bill_order['meter_type']
-    vend_type = vend_type_raw.to_s.strip.upcase.presence || 'PREPAID'
-    allowed_vend_types = %w[PREPAID POSTPAID RECOVERY]
-    vend_type = 'PREPAID' unless allowed_vend_types.include?(vend_type)
-
-    base = {
+    body = {
+      meter: electric_bill_order['meter_number'],
       amount: electric_bill_order['amount'],
       orderId: electric_bill_order['id'],
       phone: phone,
-      vertical: vertical,
+      disco: electric_bill_order['biller'],
+      vertical: electric_bill_order['service_type'],
       paymentType: electric_bill_order['payment_type'],
       name: electric_bill_order['name'],
       email: electric_bill_order['email'],
-      biller: electric_bill_order['biller']
+      tariffClass: electric_bill_order['tariff_class']
     }
 
-    case vertical
-    when 'VTU', 'AIRTIME'
-      # handled in BuyPowerPayloads.vtu (already returned)
-      body = base
-    when 'DATA'
-      body = base.merge(
-        tariffClass: electric_bill_order['tariff_class'],
-        billersCode: electric_bill_order['meter_number'],
-        disco: electric_bill_order['biller'],
-        meter: electric_bill_order['meter_number'],
-        vendType: vend_type
-      )
-    when 'TV', 'ELECTRICITY'
+    service_type = electric_bill_order['service_type'].to_s.strip.upcase
+    if %w[ELECTRICITY TV].include?(service_type)
       raw_vend_type = electric_bill_order['meter_type']
-      vend_type = raw_vend_type.to_s.strip.upcase.presence || vend_type
+      vend_type = raw_vend_type.to_s.strip.upcase.presence
       allowed = %w[PREPAID POSTPAID RECOVERY]
-      vend_type = 'PREPAID' unless allowed.include?(vend_type)
-      electric_bill_order['meter_type'] = vend_type if electric_bill_order.respond_to?(:[]=)
 
-      body = base.merge(
-        meter: electric_bill_order['meter_number'],
-        disco: electric_bill_order['biller'],
-        tariffClass: electric_bill_order['tariff_class'],
-        vendType: vend_type
-      )
-    else
-      body = base.merge(vendType: vend_type)
+      if service_type == 'TV'
+        vend_type = 'PREPAID' unless allowed.include?(vend_type)
+        body[:vendType] = vend_type
+      else
+        raise "Missing/invalid vendType for electricity: #{vend_type.inspect}" unless allowed.include?(vend_type)
+
+        body[:vendType] = vend_type
+      end
+    elsif %w[VTU DATA].include?(service_type)
+      body[:vendType] = 'PREPAID'
     end
 
-    body = body.compact
+    body.delete(:vendType) unless %w[ELECTRICITY TV VTU DATA].include?(service_type)
+    body.delete(:vendType) if body[:vendType].to_s.strip == ''
 
-    assert_vend_type_rules!(vertical, body) if Rails.env.test?
+    assert_vend_type_rules!(service_type, body) if Rails.env.test?
 
     body.transform_values { |v| v.is_a?(String) ? v.strip : v }
   end
 
-module BuyPowerPayloads
-  def self.vtu(order, phone:)
-    raw_vertical = order['service_type'].to_s.strip.upcase
-
-    if raw_vertical.present? && !%w[VTU AIRTIME].include?(raw_vertical)
-      Rails.logger.warn(
-        "[BuyPower] VTU payload called with unexpected service_type=#{raw_vertical}; forcing vertical=VTU"
-      )
-    end
-
-    {
-      amount: order['amount'],
-      orderId: order['id'],
-      phone: phone,
-      vertical: 'VTU',
-      paymentType: order['payment_type'],
-      name: order['name'],
-      email: order['email'],
-      biller: (order['biller'] || order['disco']).to_s.downcase.presence || order['biller'],
-      disco: (order['biller'] || order['disco']).to_s.downcase.presence || order['biller'],
-      meter: phone,
-      vendType: 'PREPAID'
-    }.compact
-  end
-end
   def provider_response_payload(response)
     return response.parsed_response if response.respond_to?(:parsed_response)
     return response.to_h if response.respond_to?(:to_h)
@@ -1027,12 +827,6 @@ end
     message.gsub(/\d{6,}/) { |m| ('*' * [m.length - 4, 0].max) + m[-4, 4] }
   end
 
-  def normalize_provider_payload(payload)
-    return {} if payload.nil?
-    return { 'raw' => payload.to_s } if payload.is_a?(String)
-    payload
-  end
-
   def safe_json_dump(response)
     if response.respond_to?(:body)
       response.body.to_s
@@ -1049,10 +843,6 @@ end
     %w[VTU AIRTIME DATA].include?(service_type.to_s.strip.upcase)
   end
 
-  def vtu_or_airtime?(service_type)
-    %w[VTU AIRTIME].include?(service_type.to_s.strip.upcase)
-  end
-
   def sandbox_vtu_blocked?(body)
     return false unless (Rails.env.development? || Rails.env.staging?)
     return false unless Config::Bills.base_url.to_s.include?('idev.')
@@ -1065,24 +855,14 @@ end
     if %w[VTU AIRTIME DATA].include?(normalized)
       raise "vendType must be PREPAID for #{normalized}" unless body[:vendType].to_s.strip == 'PREPAID'
     elsif normalized == 'TV'
-      raise "vendType must be PREPAID for TV" unless body[:vendType].to_s.strip == 'PREPAID'
+      raise 'vendType must be present for TV' unless body[:vendType].to_s.strip == 'PREPAID'
     elsif normalized == 'ELECTRICITY'
       allowed = %w[PREPAID POSTPAID RECOVERY]
       raise 'vendType must be valid for ELECTRICITY' unless allowed.include?(body[:vendType].to_s.strip)
     end
   end
 
-  def please_requery?(payload)
-    msg =
-      if payload.is_a?(Hash)
-        payload['message'] || payload[:message]
-      else
-        nil
-      end
-    msg.to_s.downcase.include?('please requery')
-  end
-
-  def handle_wallet_success(order, payment_method, use_commission, units, token, transaction_id, message, provider_payload)
+    def handle_wallet_success(order, payment_method, use_commission, units, token, transaction_id, message, provider_payload)
       wallet = order.user.wallet
       amount = order.total_amount.to_d
       bonus_used = order.commission_used.to_d
@@ -1094,7 +874,7 @@ end
       ActiveRecord::Base.transaction do
         wallet.lock!
 
-        updates = {
+        order.update!(
           status: 'completed',
           payment_method: payment_method,
           use_commission: use_commission,
@@ -1103,23 +883,19 @@ end
           token: token,
           transaction_id: transaction_id,
           provider_reference: transaction_id,
+          provider_response: provider_payload,
           reason: message
-        }
-        updates[:provider_response] = provider_payload
-        order.update!(updates)
+        )
 
         BillOrders::Finalizer.call(bill_order: order)
       end
 
-    upsert_transaction_record_provider_meta(order, provider_payload)
     { response: order, status: 'success' }
   end
 
   def handle_wallet_failure(order, payment_method, message, provider_payload, status: 'failed', force_refund: false)
-    user_message = message.presence || PENDING_USER_MESSAGE
-
     if order&.status && BillOrder::TERMINAL_STATUSES.include?(order.status.to_s)
-      return { response: user_message, status: 'ignored' }
+      return { response: message, status: 'ignored' }
     end
 
     wallet = order.user.wallet
@@ -1146,33 +922,21 @@ end
         )
       end
 
-      updates = {
+      order.update!(
         status: status,
         payment_method: payment_method,
-        reason: user_message
-      }
-      updates[:provider_response] = provider_payload
-      order.update!(updates)
+        provider_response: provider_payload,
+        reason: message
+      )
     end
 
-    upsert_transaction_record_provider_meta(order, provider_payload)
-    { response: user_message, status: 'error' }
+    { response: message, status: 'error' }
   end
 
   def enqueue_reconciliation(order)
     return unless order&.id
 
     BuyPowerReconcileJob.set(wait: 2.minutes).perform_later(order.id)
-  rescue StandardError
-    nil
-  end
-
-  def enqueue_processing_retry(order)
-    return unless order&.id
-
-    wait_minutes = ENV.fetch('BUYPOWER_PROCESSING_REQUERY_MINUTES', 10).to_i
-    wait_minutes = 10 if wait_minutes <= 0
-    BuyPowerProcessingRetryJob.set(wait: wait_minutes.minutes).perform_later(order.id)
   rescue StandardError
     nil
   end
@@ -1189,78 +953,5 @@ end
       reference: reference,
       metadata: metadata
     )
-  end
-
-  def log_commission_context(order, user, detail:, use_commission:, wallet_debit:, commission_balance:, available_balance: nil)
-    reward_balance = RewardTransaction.available_sum_for(user.id).to_d rescue 0
-    pin_required = user&.transaction_pin_set?
-    Rails.logger.warn(
-      "[BONUS] confirm_subscription rejection detail=#{detail} bill_order_id=#{order&.id} user_id=#{user&.id} use_commission=#{use_commission} wallet_debit=#{wallet_debit} commission_balance=#{commission_balance} reward_balance=#{reward_balance} available_balance=#{available_balance} pin_required=#{pin_required}"
-    )
-  rescue StandardError => e
-    Rails.logger.error("[BONUS] failed to log commission context #{e.class}: #{e.message}")
-  end
-
-  def upsert_transaction_record_provider_meta(order, provider_payload)
-    return unless order
-
-    response_code, response_message = provider_response_meta(provider_payload)
-    return if response_code.blank? && response_message.blank?
-
-    record = TransactionRecord.find_or_initialize_by(bill_order_id: order.id, event_type: 'bill_payment')
-    record.reference ||= order.idempotency_key.presence || order.provider_reference.presence || order.transaction_id.presence || order.id.to_s
-    record.status ||= order.status.to_s
-    record.amount ||= (order.total_amount.presence || order.amount).to_d
-    record.customer_name ||= order.name
-    record.email ||= order.email
-    record.phone_number ||= order.phone
-    record.description ||= "#{order.service_type} #{order.biller}".strip
-    record.transaction_id ||= order.provider_reference.presence || order.transaction_id
-    record.response_code = response_code
-    record.response_message = response_message
-    record.provider_error_category = categorize_provider_error(response_message, response_code)
-    record.save!
-  rescue StandardError => e
-    Rails.logger.error("[BuyPower] transaction_record meta update failed order=#{order&.id} #{e.class}: #{e.message}")
-  end
-
-  def provider_response_meta(provider_payload)
-    return [nil, nil] unless provider_payload.is_a?(Hash)
-
-    response_code =
-      provider_payload['responseCode'] ||
-      provider_payload[:responseCode] ||
-      provider_payload.dig('data', 'responseCode') ||
-      provider_payload.dig(:data, :responseCode) ||
-      provider_payload['code'] ||
-      provider_payload[:code]
-
-    response_message =
-      provider_payload['message'] ||
-      provider_payload[:message] ||
-      provider_payload.dig('data', 'message') ||
-      provider_payload.dig(:data, :message) ||
-      provider_payload.dig('result', 'message') ||
-      provider_payload.dig(:result, :message) ||
-      provider_payload['error'] ||
-      provider_payload[:error]
-
-    [response_code&.to_s, response_message&.to_s]
-  end
-
-  def categorize_provider_error(message, response_code)
-    text = message.to_s.downcase
-
-    return 'daily_limit' if text.include?('daily transaction count limit')
-    return 'insufficient_funds' if text.include?('insufficient')
-    return 'invalid_account' if text.include?('invalid account') || text.include?('invalid meter') || text.include?('invalid phone')
-    return 'timeout' if text.include?('timeout')
-    return 'provider_unavailable' if text.include?('temporarily unavailable') || text.include?('service unavailable')
-    return 'network_error' if text.include?('network') || text.include?('connection')
-
-    code = response_code.to_i rescue 0
-    return 'provider_error' if code >= 400
-
-    'unknown_error'
   end
 end

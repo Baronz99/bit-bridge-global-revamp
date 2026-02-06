@@ -67,25 +67,20 @@ module Api
 
       def confirm_bill_payment
         payment_method = bill_order_params[:payment_method]
+
         use_commission = ActiveModel::Type::Boolean.new.cast(bill_order_params[:use_commission])
         idempotency_key = request.headers['Idempotency-Key'].to_s.strip
-
-        request_tag = "request_id=#{request.request_id} bill_order_id=#{@bill_order&.id} status=#{@bill_order&.status} biller=#{@bill_order&.biller} amount=#{@bill_order&.amount}"
 
         if idempotency_key.present?
           existing = current_user.bill_orders.find_by(idempotency_key: idempotency_key)
           if existing && existing.id != @bill_order.id
-            status_value = existing.completed? ? 'success' : 'pending'
-            return render json: confirm_payload(
-              bill_order: existing,
-              status: status_value,
+            return render json: {
               success: existing.completed?,
+              data: existing,
               message: existing.completed? ? 'payment confirmed' : 'payment processing'
-            ), status: :ok
+            }, status: :ok
           end
         end
-
-        Rails.logger.info("[ConfirmBillOrder] start #{request_tag} payment_method=#{payment_method} use_commission=#{use_commission} idempotency_key_present=#{idempotency_key.present?}")
 
         service = BuyPowerPaymentService.new
         service_response =
@@ -96,77 +91,14 @@ module Api
             request_id: request.request_id,
             idempotency_key: idempotency_key
           )
-
         case service_response[:status]
         when 'success'
-          render json: confirm_payload(
-            bill_order: service_response[:response],
-            status: 'success',
-            success: true,
-            message: 'payment confirmed'
-          ), status: :ok
+          render json: { success: true, data: service_response[:response], message: 'payment confirmed' }, status: :ok
         when 'pending'
-          render json: confirm_payload(
-            bill_order: @bill_order,
-            status: 'pending',
-            success: false,
-            message: service_response[:response] || 'Payment processing...'
-          ), status: :accepted
+          render json: { success: false, status: 'pending', message: service_response[:response] }, status: :accepted
         else
-          raw_message = service_response[:message] || service_response[:response] || 'Payment confirmation failed'
-          message = normalize_meter_error(@bill_order&.service_type, raw_message)
-          code = service_response[:code].to_i
-          status_symbol = service_response[:status].to_s
-
-          if code == 503
-            Rails.logger.warn("[ConfirmBillOrder] provider_unavailable #{request_tag} message=#{message}")
-            render json: confirm_payload(
-              bill_order: @bill_order,
-              status: 'pending',
-              success: false,
-              message: "Provider temporarily unavailable. Try again. Reference: #{request.request_id}"
-            ), status: :service_unavailable
-          elsif status_symbol == 'error'
-            Rails.logger.warn("[ConfirmBillOrder] error #{request_tag} message=#{message}")
-            render json: confirm_payload(
-              bill_order: @bill_order,
-              status: 'failed',
-              success: false,
-              message: message
-            ), status: :unprocessable_entity
-          else
-            Rails.logger.warn("[ConfirmBillOrder] unexpected_status #{request_tag} status=#{service_response[:status]} message=#{message}")
-            render json: confirm_payload(
-              bill_order: @bill_order,
-              status: 'failed',
-              success: false,
-              message: message
-            ), status: :unprocessable_entity
-          end
+          render json: { success: false, message: service_response[:response] }, status: :unprocessable_entity
         end
-      rescue ActiveRecord::RecordNotFound => e
-        Rails.logger.warn("[ConfirmBillOrder] not_found #{request_tag} error=#{e.message}")
-        render json: confirm_payload(
-          bill_order: nil,
-          status: 'failed',
-          success: false,
-          message: 'Bill order not found'
-        ), status: :not_found
-      rescue StandardError => e
-        Rails.logger.error("[ConfirmBillOrder] exception #{request_tag} error=#{e.class} message=#{e.message} backtrace=#{e.backtrace&.take(5)&.join(' | ')}")
-        render json: confirm_payload(
-          bill_order: @bill_order,
-          status: 'failed',
-          success: false,
-          message: "Confirm failed. Reference: #{request.request_id}"
-        ), status: :unprocessable_entity
-      end
-
-      def normalize_meter_error(service_type, message)
-        return message unless message.to_s.downcase.include?('meter')
-        type = service_type.to_s.strip.upcase
-        return 'Phone number is required' if %w[VTU DATA].include?(type)
-        message
       end
 
       def user
@@ -250,45 +182,20 @@ module Api
         status = service_response&.dig(:status)
 
         if status.nil?
-          render json: confirm_payload(
-            bill_order: @bill_order,
-            status: 'pending',
-            success: false,
-            message: 'Payment pending...'
-          ), status: :service_unavailable
+          render json: { success: false, status: 'pending', message: 'Payment pending...' }, status: :service_unavailable
           return
         end
 
         case status
         when 'success'
-          render json: confirm_payload(
-            bill_order: service_response&.dig(:response),
-            status: 'success',
-            success: true,
-            message: 'payment confirmed'
-          ), status: :ok
+          render json: { success: true, data: service_response&.dig(:response), message: 'payment confirmed' }, status: :ok
         when 'pending'
-          render json: confirm_payload(
-            bill_order: @bill_order,
-            status: 'pending',
-            success: false,
-            message: service_response&.dig(:response) || 'Payment pending. Please try again.'
-          ), status: :service_unavailable
+          render json: { success: false, status: 'pending', message: service_response&.dig(:response) || 'Payment pending. Please try again.' }, status: :service_unavailable
         when 'error'
           message = service_response&.dig(:response) || service_response&.dig(:message) || 'Payment confirmation failed'
-          render json: confirm_payload(
-            bill_order: @bill_order,
-            status: 'failed',
-            success: false,
-            message: message
-          ), status: :unprocessable_entity
+          render json: { success: false, message: message }, status: :unprocessable_entity
         else
-          render json: confirm_payload(
-            bill_order: @bill_order,
-            status: 'pending',
-            success: false,
-            message: 'Payment pending...'
-          ), status: :service_unavailable
+          render json: { success: false, status: 'pending', message: 'Payment pending...' }, status: :service_unavailable
         end
       end
 
@@ -296,30 +203,6 @@ module Api
       def bill_order_params
         params.require(:bill_order).permit(:status, :meter_number, :amount, :meter_type, :phone, :service_type, :use_commission,
                                            :payment_type, :email, :tariff_class, :description, :name, :payment_method, :redirect_url)
-      end
-
-      def confirm_payload(bill_order:, status:, success:, message:)
-        order_id = bill_order&.id
-        reference =
-          bill_order&.provider_reference.presence ||
-          bill_order&.transaction_id.presence ||
-          bill_order&.idempotency_key.presence ||
-          order_id
-
-        {
-          success: success,
-          status: status,
-          message: message,
-          data: bill_order,
-          bill_order_id: order_id,
-          ui: {
-            next_screen: 'transaction_details',
-            order_id: order_id,
-            reference: reference,
-            poll: status == 'pending',
-            poll_interval_ms: 5000
-          }
-        }
       end
     end
   end
