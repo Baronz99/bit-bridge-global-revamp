@@ -370,8 +370,10 @@ module Api
           }, status: :ok
         end
 
+        account_identifier = account.useable_id.presence || account.account_id
+
         service = AnchorService.new
-        service_response = service.fetch_account_detail(account.useable_id, true)
+        service_response = service.fetch_account_detail(account_identifier, true)
 
         if service_response[:status] == :ok
           render json: {

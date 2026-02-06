@@ -628,7 +628,7 @@ class AnchorService
 
   def store_account_details(account_id, user_data)
     new_account = Account.create(user_id: user_data[:user_id], postal_code: user_data[:postal_code],
-                                 bvn: user_data[:bvn], city: user_data[:city], state: user_data[:state], dob: user_data[:dob], address: user_data[:address], account_id: account_id, vendor: user_data[:vendor])
+                                 bvn: user_data[:bvn], city: user_data[:city], state: user_data[:state], dob: user_data[:dob], address: user_data[:address], account_id: account_id, useable_id: account_id, vendor: user_data[:vendor])
 
     raise new_account.errors.full_messages.to_sentence unless new_account.persisted?
 
