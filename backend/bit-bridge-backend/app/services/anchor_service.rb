@@ -111,6 +111,11 @@ class AnchorService
       # return {response: response["data"], message: message, status: :ok}
       { response: account, message: message, status: :ok }
     rescue StandardError => e
+      message = e.message.to_s
+      if message.downcase.include?('kyc already completed') && account.present?
+        account.update(status: 'completed')
+        return { response: account, message: 'Kyc already completed.', status: :ok }
+      end
       { message: e.message || 'bad request', status: :bad_request }
     end
   end
