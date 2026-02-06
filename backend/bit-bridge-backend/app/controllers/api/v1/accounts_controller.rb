@@ -373,6 +373,17 @@ module Api
         account_identifier = account.useable_id.presence || account.account_id
 
         service = AnchorService.new
+
+        if account.status.to_s == 'verifying' || account.status.to_s == 'pending'
+          customer_response = service.fetch_customer_detail(account.account_id)
+          if customer_response[:status] == :ok
+            customer_status = customer_response.dig(:data, 'attributes', 'status').to_s.downcase
+            if %w[approved verified completed active].any? { |v| customer_status.include?(v) }
+              account.update(status: 'completed')
+            end
+          end
+        end
+
         service_response = service.fetch_account_detail(account_identifier, true)
 
         if service_response[:status] == :ok

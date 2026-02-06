@@ -460,6 +460,20 @@ class AnchorService
     { message: e.message.to_s || 'bad request', status: :bad_request }
   end
 
+  def fetch_customer_detail(customer_id)
+    return { message: 'customer_id is required' } if customer_id.blank?
+
+    response = self.class.get("/api/v1/customers/#{customer_id}", headers: @headers)
+    if response.success?
+      { data: response['data'], status: :ok }
+    else
+      error_message = response.dig('errors', 0, 'detail') || response.message || 'Bad request'
+      { message: error_message.to_s, status: :bad_request }
+    end
+  rescue StandardError => e
+    { message: e.message.to_s || 'bad request', status: :bad_request }
+  end
+
   def fund_deposit_account(data)
     account_id = data.dig('attributes', 'payment', 'settlementAccount', 'accountId')
 
