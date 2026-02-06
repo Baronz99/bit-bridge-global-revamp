@@ -382,8 +382,17 @@ module Api
             has_anchor_account: true
           }, status: :ok
         else
+          message = service_response[:message] || service_response[:response]
+          if message.to_s.downcase.include?('no account found')
+            return render json: {
+              data: nil,
+              message: 'No deposit account yet',
+              has_anchor_account: true
+            }, status: :ok
+          end
+
           render json: {
-            message: service_response[:message] || service_response[:response]
+            message: message
           }, status: :unprocessable_entity
         end
       end
