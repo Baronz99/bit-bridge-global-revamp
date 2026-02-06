@@ -4,6 +4,8 @@ require 'uri'
 class BuyPowerPaymentService
   include HTTParty
 
+  ELECTRICITY_METER_TYPES = %w[PREPAID POSTPAID].freeze
+
   # Required env vars:
   # - BUYPOWER_TOKEN
   # - BUYPOWER_BASE_URL
@@ -28,7 +30,26 @@ class BuyPowerPaymentService
     service_type = payment_processor_params[:service_type].to_s
     service_type_upcase = service_type.strip.upcase
     is_electricity = service_type_upcase == 'ELECTRICITY'
-    res = verify_meter(payment_processor_params) if is_electricity && payment_processor_params[:skip] != true
+    normalized_biller =
+      if is_electricity
+        normalize_electricity_biller(payment_processor_params[:biller])
+      else
+        payment_processor_params[:biller]
+      end
+
+    if is_electricity
+      amount_raw = payment_processor_params[:amount]
+      return { response: 'Amount is required', status: 'error' } if amount_raw.nil? || amount_raw == ''
+      return { response: 'Invalid amount', status: 'error' } unless valid_amount?(amount_raw)
+
+      raw_meter_type = payment_processor_params[:meter_type] || payment_processor_params[:vend_type] || payment_processor_params[:vendType]
+      meter_type = normalize_electricity_meter_type(raw_meter_type)
+      return { response: 'meter_type must be PREPAID or POSTPAID', status: 'error' } if meter_type.blank?
+
+      payment_processor_params[:meter_type] = meter_type
+      payment_processor_params[:biller] = normalized_biller
+      res = verify_meter(payment_processor_params) if payment_processor_params[:skip] != true
+    end
 
     resolved_meter_type =
       if is_electricity
@@ -76,6 +97,11 @@ class BuyPowerPaymentService
     address_for_record =
       service_type_upcase == 'TV' ? address_value : (address_value || payment_processor_params[:billersCode])
 
+    if is_electricity
+      resolved_meter_type = normalize_electricity_meter_type(resolved_meter_type)
+      return { response: 'meter_type must be PREPAID or POSTPAID', status: 'error' } if resolved_meter_type.blank?
+    end
+
     bill_order = current_user&.bill_orders&.new(
       meter_number: payment_processor_params[:billersCode],
       meter_type: resolved_meter_type,
@@ -86,7 +112,7 @@ class BuyPowerPaymentService
       email: current_user.email || payment_processor_params[:email],
       amount: payment_processor_params[:amount],
       phone: current_user.user_profile&.phone_number || payment_processor_params[:phone],
-      biller: payment_processor_params[:biller],
+      biller: normalized_biller,
       description: payment_processor_params[:description],
       provider_response: provider_response_value,
       demand_category: res&.dig('demandCategory')
@@ -100,7 +126,7 @@ class BuyPowerPaymentService
       email: payment_processor_params[:email],
       amount: payment_processor_params[:amount],
       phone: payment_processor_params[:phone],
-      biller: payment_processor_params[:biller],
+      biller: normalized_biller,
       description: payment_processor_params[:description],
       provider_response: provider_response_value,
       demand_category: res&.dig('demandCategory')
@@ -118,13 +144,15 @@ class BuyPowerPaymentService
 
   def verify_meter(verify_processor_params)
     meter_number = verify_processor_params[:billersCode]
-    biller = verify_processor_params[:biller]
-    meter_type = verify_processor_params[:meter_type]
+    biller = normalize_electricity_biller(verify_processor_params[:biller])
+    meter_type = normalize_electricity_meter_type(verify_processor_params[:meter_type])
     service_type = verify_processor_params[:service_type].upcase
 
 
 
     begin
+      raise 'meter_type must be PREPAID or POSTPAID' if meter_type.blank?
+
       response = self.class.get(
         "/check/meter?meter=#{meter_number}&disco=#{biller}&vendType=#{meter_type}&vertical=#{service_type}&orderId=false", headers: @get_headers
       )
@@ -741,7 +769,7 @@ end
     if %w[ELECTRICITY TV].include?(service_type)
       raw_vend_type = electric_bill_order['meter_type']
       vend_type = raw_vend_type.to_s.strip.upcase.presence
-      allowed = %w[PREPAID POSTPAID RECOVERY]
+      allowed = service_type == 'ELECTRICITY' ? ELECTRICITY_METER_TYPES : %w[PREPAID POSTPAID RECOVERY]
 
       if service_type == 'TV'
         vend_type = 'PREPAID' unless allowed.include?(vend_type)
@@ -857,9 +885,23 @@ end
     elsif normalized == 'TV'
       raise 'vendType must be present for TV' unless body[:vendType].to_s.strip == 'PREPAID'
     elsif normalized == 'ELECTRICITY'
-      allowed = %w[PREPAID POSTPAID RECOVERY]
+      allowed = ELECTRICITY_METER_TYPES
       raise 'vendType must be valid for ELECTRICITY' unless allowed.include?(body[:vendType].to_s.strip)
     end
+  end
+
+  def normalize_electricity_meter_type(raw_meter_type)
+    meter_type = raw_meter_type.to_s.strip.upcase
+    return meter_type if ELECTRICITY_METER_TYPES.include?(meter_type)
+
+    nil
+  end
+
+  def normalize_electricity_biller(raw_biller)
+    biller = raw_biller.to_s.strip.downcase
+    return 'ph' if biller == 'ph'
+
+    biller
   end
 
     def handle_wallet_success(order, payment_method, use_commission, units, token, transaction_id, message, provider_payload)
