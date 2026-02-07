@@ -929,6 +929,18 @@ end
           reason: message
         )
 
+        if order.service_type.to_s.strip.upcase == 'ELECTRICITY'
+          if token.to_s.strip.blank?
+            Rails.logger.warn(
+              "BuyPower electricity completed without token bill_order_id=#{order.id} provider_reference=#{transaction_id}"
+            )
+          else
+            Rails.logger.info(
+              "BuyPower electricity token persisted bill_order_id=#{order.id} provider_reference=#{transaction_id} token_present=true"
+            )
+          end
+        end
+
         BillOrders::Finalizer.call(bill_order: order)
       end
 

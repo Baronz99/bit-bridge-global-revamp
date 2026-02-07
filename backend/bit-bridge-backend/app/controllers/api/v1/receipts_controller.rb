@@ -439,6 +439,7 @@ module Api
           }.compact,
           meta: {
             token: order.token,
+            token_present: order.token.present?,
             units: order.units,
             meter_number: order.meter_number,
             meter_type: order.meter_type,
@@ -508,6 +509,7 @@ module Api
           },
           meta: {
             token: bill_order&.token,
+            token_present: bill_order&.token.present?,
             units: bill_order&.units,
             meter_number: bill_order&.meter_number,
             meter_type: bill_order&.meter_type,
