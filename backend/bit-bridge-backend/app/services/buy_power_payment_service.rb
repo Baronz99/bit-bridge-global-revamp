@@ -27,6 +27,8 @@ class BuyPowerPaymentService
 
   def process_payment(current_user, payment_processor_params)
     res = nil
+    electricity_verify_pending = false
+    electricity_verify_reason = nil
 
     service_type = payment_processor_params[:service_type].to_s
     service_type_upcase = service_type.strip.upcase
@@ -49,7 +51,17 @@ class BuyPowerPaymentService
 
       payment_processor_params[:meter_type] = meter_type
       payment_processor_params[:biller] = normalized_biller
-      res = verify_meter(payment_processor_params) if payment_processor_params[:skip] != true
+      if payment_processor_params[:skip] != true
+        begin
+          res = verify_meter(payment_processor_params)
+        rescue Timeout::Error, Net::OpenTimeout, Net::ReadTimeout => e
+          electricity_verify_pending = true
+          electricity_verify_reason = 'Meter verification pending. Please try again shortly.'
+          Rails.logger.warn("BuyPower meter verify timeout biller=#{normalized_biller} meter=***#{meter_number_last4(payment_processor_params[:billersCode])} error=#{e.class}")
+        rescue StandardError => e
+          return { response: e.message.to_s, status: 'error' }
+        end
+      end
     end
 
     resolved_meter_type =
@@ -116,7 +128,9 @@ class BuyPowerPaymentService
       biller: normalized_biller,
       description: payment_processor_params[:description],
       provider_response: provider_response_value,
-      demand_category: res&.dig('demandCategory')
+      demand_category: res&.dig('demandCategory'),
+      status: electricity_verify_pending ? 'pending' : 'initialized',
+      reason: electricity_verify_reason
     ) || BillOrder.new(
       meter_number: payment_processor_params[:billersCode],
       meter_type: resolved_meter_type,
@@ -130,13 +144,16 @@ class BuyPowerPaymentService
       biller: normalized_biller,
       description: payment_processor_params[:description],
       provider_response: provider_response_value,
-      demand_category: res&.dig('demandCategory')
+      demand_category: res&.dig('demandCategory'),
+      status: electricity_verify_pending ? 'pending' : 'initialized',
+      reason: electricity_verify_reason
     )
 
 
 
 
     raise bill_order.errors.full_messages.to_sentence unless bill_order.save
+    enqueue_meter_verification(bill_order) if electricity_verify_pending
 
     { response: bill_order, status: 'success' }
   rescue Timeout::Error, Net::OpenTimeout, Net::ReadTimeout => e
@@ -900,6 +917,13 @@ end
     biller
   end
 
+  def meter_number_last4(raw_meter)
+    meter = raw_meter.to_s.gsub(/\s+/, '')
+    return '' if meter.blank?
+
+    meter[-4, 4] || meter
+  end
+
     def handle_wallet_success(order, payment_method, use_commission, units, token, transaction_id, message, provider_payload)
       wallet = order.user.wallet
       amount = order.total_amount.to_d
@@ -993,6 +1017,15 @@ end
         2.minutes
       end
     BuyPowerReconcileJob.set(wait: wait_window).perform_later(order.id)
+  rescue StandardError
+    nil
+  end
+
+  def enqueue_meter_verification(order)
+    return unless order&.id
+    return unless order.service_type.to_s.strip.upcase == 'ELECTRICITY'
+
+    BuyPowerVerifyMeterJob.set(wait: 5.seconds).perform_later(order.id)
   rescue StandardError
     nil
   end
