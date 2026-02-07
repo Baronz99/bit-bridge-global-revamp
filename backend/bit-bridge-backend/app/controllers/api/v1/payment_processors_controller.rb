@@ -120,11 +120,10 @@ end
         if service_response[:status] == 'success'
           render json: { data: service_response[:response], message: 'Transaction initiated' }, status: :created
         else
-          status_code = service_response[:code].presence || :unprocessable_entity
           if debug
-            Rails.logger.warn("[TV_FLOW] returning_#{status_code} reason=#{service_response[:response].inspect}")
+            Rails.logger.warn("[TV_FLOW] returning_422 reason=#{service_response[:response].inspect}")
           end
-          render json: { message: service_response[:response], code: service_response[:code] }, status: status_code
+          render json: { message: service_response[:response] }, status: :unprocessable_entity
         end
       end
 
@@ -208,12 +207,6 @@ end
         service = BuyPowerPaymentService.new
         previous_status = @bill_order&.status
         response_service = service.re_query(@bill_order[:id])
-        if response_service[:status] == :ok
-          persist_electricity_query_result!(
-            bill_order: @bill_order,
-            provider_payload: response_service[:response]
-          )
-        end
         resulting_status = @bill_order&.reload&.status
 
         log_admin_audit_transaction_query(
@@ -237,45 +230,6 @@ end
           :billersCode, :amount, :request_id, :meter_type, :phone, :biller, :email, :status,
           :tariff_class, :service_type, :skip, :description, :type, :use_commission, :vend_type, :vendType
         )
-      end
-
-      def persist_electricity_query_result!(bill_order:, provider_payload:)
-        return unless bill_order
-        return unless bill_order.service_type.to_s.strip.upcase == 'ELECTRICITY'
-
-        payload = provider_payload.is_a?(Hash) ? provider_payload : {}
-        data = payload.dig('result', 'data') || payload['data'] || {}
-        return unless data.is_a?(Hash)
-
-        token = data['token'].to_s.strip
-        return if token.blank?
-
-        units = data['units']
-        provider_txn_id = data['id'].presence || bill_order.provider_reference.presence || bill_order.transaction_id
-        name = data['name'].to_s.strip
-        address = data['address'].to_s.strip
-        message = payload['message'].presence || payload.dig('result', 'message').presence || bill_order.reason
-
-        bill_order.with_lock do
-          bill_order.reload
-          return if bill_order.status.to_s == 'completed' && bill_order.token.to_s.strip.present?
-
-          bill_order.update!(
-            status: 'completed',
-            token: token,
-            units: units.presence || bill_order.units,
-            transaction_id: provider_txn_id,
-            provider_reference: provider_txn_id,
-            provider_response: payload,
-            name: name.presence || bill_order.name,
-            address: address.presence || bill_order.address,
-            reason: message
-          )
-        end
-
-        BillOrders::Finalizer.call(bill_order: bill_order.reload)
-      rescue StandardError => e
-        Rails.logger.error("[payment_processors#query_transaction] electricity persistence failed bill_order_id=#{bill_order&.id} error=#{e.class} message=#{e.message}")
       end
 
       def verify_processor_params

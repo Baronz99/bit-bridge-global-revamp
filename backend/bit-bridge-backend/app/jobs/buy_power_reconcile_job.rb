@@ -57,7 +57,7 @@ class BuyPowerReconcileJob < ApplicationJob
           return
         end
 
-        self.class.set(wait: 10.minutes).perform_later(order.id)
+        self.class.set(wait: next_reconcile_wait(order)).perform_later(order.id)
       end
       return
     end
@@ -130,7 +130,7 @@ class BuyPowerReconcileJob < ApplicationJob
         else
           order.update(provider_response: raw) if raw.present?
         end
-        self.class.set(wait: 10.minutes).perform_later(order.id)
+        self.class.set(wait: next_reconcile_wait(order)).perform_later(order.id)
       end
     end
   end
@@ -293,5 +293,11 @@ class BuyPowerReconcileJob < ApplicationJob
     end
   rescue StandardError => e
     Rails.logger.error("[BuyPowerReconcileJob] ensure_transaction_record failed order=#{order.id} #{e.class}: #{e.message}")
+  end
+
+  def next_reconcile_wait(order)
+    return 30.seconds if order.service_type.to_s.strip.upcase == 'ELECTRICITY'
+
+    10.minutes
   end
 end

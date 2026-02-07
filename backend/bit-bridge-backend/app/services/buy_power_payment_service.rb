@@ -1,7 +1,6 @@
 # frozen_string_literal: true
 
 require 'uri'
-require 'timeout'
 class BuyPowerPaymentService
   include HTTParty
 
@@ -54,7 +53,7 @@ class BuyPowerPaymentService
 
     resolved_meter_type =
       if is_electricity
-        extract_verification_vend_type(res) || payment_processor_params[:meter_type] || 'PREPAID'
+        res&.dig('vendType') || payment_processor_params[:meter_type] || 'PREPAID'
       elsif service_type_upcase == 'TV'
         payment_processor_params[:vend_type] || payment_processor_params[:meter_type] || 'PREPAID'
       else
@@ -68,8 +67,8 @@ class BuyPowerPaymentService
       return { response: 'tariff_class is required', status: 'error' } if payment_processor_params[:tariff_class].blank?
     end
 
-    name_value = extract_verification_name(res)
-    address_value = extract_verification_address(res)
+    name_value = res&.dig('name')
+    address_value = res&.dig('address')
     provider_response_value = nil
     if service_type_upcase == 'TV'
       verify_response =
@@ -94,17 +93,9 @@ class BuyPowerPaymentService
     end
 
     name_for_record =
-      if service_type_upcase == 'TV'
-        name_value
-      else
-        name_value || payment_processor_params[:billersCode]
-      end
+      service_type_upcase == 'TV' ? name_value : (name_value || payment_processor_params[:billersCode])
     address_for_record =
-      if service_type_upcase == 'TV'
-        address_value
-      else
-        address_value || payment_processor_params[:billersCode]
-      end
+      service_type_upcase == 'TV' ? address_value : (address_value || payment_processor_params[:billersCode])
 
     if is_electricity
       resolved_meter_type = normalize_electricity_meter_type(resolved_meter_type)
@@ -124,8 +115,7 @@ class BuyPowerPaymentService
       biller: normalized_biller,
       description: payment_processor_params[:description],
       provider_response: provider_response_value,
-      demand_category: res&.dig('demandCategory'),
-      status: 'initialized'
+      demand_category: res&.dig('demandCategory')
     ) || BillOrder.new(
       meter_number: payment_processor_params[:billersCode],
       meter_type: resolved_meter_type,
@@ -139,8 +129,7 @@ class BuyPowerPaymentService
       biller: normalized_biller,
       description: payment_processor_params[:description],
       provider_response: provider_response_value,
-      demand_category: res&.dig('demandCategory'),
-      status: 'initialized'
+      demand_category: res&.dig('demandCategory')
     )
 
 
@@ -158,14 +147,21 @@ class BuyPowerPaymentService
     biller = normalize_electricity_biller(verify_processor_params[:biller])
     meter_type = normalize_electricity_meter_type(verify_processor_params[:meter_type])
     service_type = verify_processor_params[:service_type].upcase
-    raise 'meter_type must be PREPAID or POSTPAID' if meter_type.blank?
+
+
 
     begin
+      raise 'meter_type must be PREPAID or POSTPAID' if meter_type.blank?
+
       response = self.class.get(
         "/check/meter?meter=#{meter_number}&disco=#{biller}&vendType=#{meter_type}&vertical=#{service_type}&orderId=false", headers: @get_headers
       )
 
+
       raise response['message'] unless response.success?
+
+
+
 
       response
     rescue StandardError => e
@@ -689,6 +685,8 @@ class BuyPowerPaymentService
     { response: e.message.to_s, status: 'error' }
   end
 
+  require 'timeout'
+
 def get_list(service_type, provider)
   return { response: 'provider and service_type are required', status: 'error' } if service_type.blank? || provider.blank?
 
@@ -906,43 +904,6 @@ end
     biller
   end
 
-  def meter_number_last4(raw_meter)
-    meter = raw_meter.to_s.gsub(/\s+/, '')
-    return '' if meter.blank?
-
-    meter[-4, 4] || meter
-  end
-
-  def extract_verification_name(payload)
-    return nil unless payload.is_a?(Hash)
-
-    payload['name'] ||
-      payload['customerName'] ||
-      payload['customer_name'] ||
-      payload.dig('data', 'name') ||
-      payload.dig('data', 'customerName') ||
-      payload.dig('data', 'customer_name') ||
-      payload.dig('result', 'data', 'name') ||
-      payload.dig('result', 'data', 'customerName') ||
-      payload.dig('result', 'data', 'customer_name')
-  end
-
-  def extract_verification_address(payload)
-    return nil unless payload.is_a?(Hash)
-
-    payload['address'] ||
-      payload.dig('data', 'address') ||
-      payload.dig('result', 'data', 'address')
-  end
-
-  def extract_verification_vend_type(payload)
-    return nil unless payload.is_a?(Hash)
-
-    payload['vendType'] ||
-      payload.dig('data', 'vendType') ||
-      payload.dig('result', 'data', 'vendType')
-  end
-
     def handle_wallet_success(order, payment_method, use_commission, units, token, transaction_id, message, provider_payload)
       wallet = order.user.wallet
       amount = order.total_amount.to_d
@@ -1036,15 +997,6 @@ end
         2.minutes
       end
     BuyPowerReconcileJob.set(wait: wait_window).perform_later(order.id)
-  rescue StandardError
-    nil
-  end
-
-  def enqueue_meter_verification(order)
-    return unless order&.id
-    return unless order.service_type.to_s.strip.upcase == 'ELECTRICITY'
-
-    BuyPowerVerifyMeterJob.set(wait: 5.seconds).perform_later(order.id)
   rescue StandardError
     nil
   end
