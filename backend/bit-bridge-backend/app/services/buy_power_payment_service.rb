@@ -990,7 +990,13 @@ end
   def enqueue_reconciliation(order)
     return unless order&.id
 
-    BuyPowerReconcileJob.set(wait: 2.minutes).perform_later(order.id)
+    wait_window =
+      if order.service_type.to_s.strip.upcase == 'ELECTRICITY'
+        30.seconds
+      else
+        2.minutes
+      end
+    BuyPowerReconcileJob.set(wait: wait_window).perform_later(order.id)
   rescue StandardError
     nil
   end
