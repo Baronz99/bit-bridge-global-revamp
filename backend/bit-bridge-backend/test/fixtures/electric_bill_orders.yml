@@ -1,21 +1,19 @@
 # Read about fixtures at https://api.rubyonrails.org/classes/ActiveRecord/FixtureSet.html
 
 one:
-  billersCode: MyString
+  meter_number: MyString
   amount: MyString
   request_id: MyString
-  variation_code: MyString
+  meter_type: PREPAID
   phone: MyString
   serviceID: MyString
   email: MyString
-  type: 
 
 two:
-  billersCode: MyString
+  meter_number: MyString
   amount: MyString
   request_id: MyString
-  variation_code: MyString
+  meter_type: PREPAID
   phone: MyString
   serviceID: MyString
   email: MyString
-  type: 

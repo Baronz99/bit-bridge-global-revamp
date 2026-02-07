@@ -3,9 +3,9 @@
 one:
   transaction_id: MyString
   status: MyString
-  paymentReference: MyString
+  reference: MyStringOne
 
 two:
   transaction_id: MyString
   status: MyString
-  paymentReference: MyString
+  reference: MyStringTwo
