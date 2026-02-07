@@ -66,7 +66,7 @@ class BuyPowerPaymentService
 
     resolved_meter_type =
       if is_electricity
-        res&.dig('vendType') || payment_processor_params[:meter_type] || 'PREPAID'
+        extract_verification_vend_type(res) || payment_processor_params[:meter_type] || 'PREPAID'
       elsif service_type_upcase == 'TV'
         payment_processor_params[:vend_type] || payment_processor_params[:meter_type] || 'PREPAID'
       else
@@ -80,8 +80,8 @@ class BuyPowerPaymentService
       return { response: 'tariff_class is required', status: 'error' } if payment_processor_params[:tariff_class].blank?
     end
 
-    name_value = res&.dig('name')
-    address_value = res&.dig('address')
+    name_value = extract_verification_name(res)
+    address_value = extract_verification_address(res)
     provider_response_value = nil
     if service_type_upcase == 'TV'
       verify_response =
@@ -106,9 +106,21 @@ class BuyPowerPaymentService
     end
 
     name_for_record =
-      service_type_upcase == 'TV' ? name_value : (name_value || payment_processor_params[:billersCode])
+      if service_type_upcase == 'TV'
+        name_value
+      elsif is_electricity && electricity_verify_pending
+        nil
+      else
+        name_value || payment_processor_params[:billersCode]
+      end
     address_for_record =
-      service_type_upcase == 'TV' ? address_value : (address_value || payment_processor_params[:billersCode])
+      if service_type_upcase == 'TV'
+        address_value
+      elsif is_electricity && electricity_verify_pending
+        nil
+      else
+        address_value || payment_processor_params[:billersCode]
+      end
 
     if is_electricity
       resolved_meter_type = normalize_electricity_meter_type(resolved_meter_type)
@@ -922,6 +934,36 @@ end
     return '' if meter.blank?
 
     meter[-4, 4] || meter
+  end
+
+  def extract_verification_name(payload)
+    return nil unless payload.is_a?(Hash)
+
+    payload['name'] ||
+      payload['customerName'] ||
+      payload['customer_name'] ||
+      payload.dig('data', 'name') ||
+      payload.dig('data', 'customerName') ||
+      payload.dig('data', 'customer_name') ||
+      payload.dig('result', 'data', 'name') ||
+      payload.dig('result', 'data', 'customerName') ||
+      payload.dig('result', 'data', 'customer_name')
+  end
+
+  def extract_verification_address(payload)
+    return nil unless payload.is_a?(Hash)
+
+    payload['address'] ||
+      payload.dig('data', 'address') ||
+      payload.dig('result', 'data', 'address')
+  end
+
+  def extract_verification_vend_type(payload)
+    return nil unless payload.is_a?(Hash)
+
+    payload['vendType'] ||
+      payload.dig('data', 'vendType') ||
+      payload.dig('result', 'data', 'vendType')
   end
 
     def handle_wallet_success(order, payment_method, use_commission, units, token, transaction_id, message, provider_payload)
