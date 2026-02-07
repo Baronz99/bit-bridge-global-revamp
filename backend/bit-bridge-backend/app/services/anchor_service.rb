@@ -205,7 +205,8 @@ class AnchorService
   end
 
   def verify_account_details(bank_id, account_number)
-    response = self.class.get("/payments/verify-account/#{bank_id}/#{account_number} ", headers: @headers)
+    path = "/payments/verify-account/#{bank_id}/#{account_number}"
+    response = self.class.get(path, headers: @headers)
 
 
     raise response['message'] || 'bad request' unless response.success?
