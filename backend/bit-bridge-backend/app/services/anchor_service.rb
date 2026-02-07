@@ -205,11 +205,18 @@ class AnchorService
   end
 
   def verify_account_details(bank_id, account_number)
-    path = "/payments/verify-account/#{bank_id}/#{account_number}"
+    path = "/api/v1/payments/verify-account/#{bank_id}/#{account_number}"
     response = self.class.get(path, headers: @headers)
 
 
-    raise response['message'] || 'bad request' unless response.success?
+    unless response.success?
+      message =
+        response.dig('errors', 0, 'detail') ||
+        response['message'] ||
+        response.message ||
+        'bad request'
+      raise message
+    end
 
     { data: response, status: :ok }
   rescue StandardError => e
