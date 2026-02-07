@@ -454,7 +454,7 @@ class AnchorService
   def fetch_account_detail(account_id, view_account = true)
     base_url = "accounts/#{account_id}"
 
-    query = view_account ? "?#{{ include: 'AccountNumber' }.to_query} " : ''
+    query = view_account ? "?#{ { include: 'AccountNumber' }.to_query }" : ''
     fetch('get', base_url, query, nil)
   rescue StandardError => e
     { message: e.message.to_s || 'bad request', status: :bad_request }
