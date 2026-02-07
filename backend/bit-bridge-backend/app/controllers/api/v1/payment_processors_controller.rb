@@ -1,5 +1,4 @@
 # frozen_string_literal: true
-require 'timeout'
 
 module Api
   module V1
@@ -116,9 +115,7 @@ end
           Rails.logger.info("[TV_FLOW] process_payment params=#{safe.inspect}")
         end
         service = BuyPowerPaymentService.new
-        service_response = Timeout.timeout(20) do
-          service.process_payment(current_user, payment_processor_params)
-        end
+        service_response = service.process_payment(current_user, payment_processor_params)
 
         if service_response[:status] == 'success'
           render json: { data: service_response[:response], message: 'Transaction initiated' }, status: :created
@@ -129,8 +126,6 @@ end
           end
           render json: { message: service_response[:response], code: service_response[:code] }, status: status_code
         end
-      rescue Timeout::Error
-        render json: { message: 'Provider timeout. Please try again.', code: 503 }, status: :service_unavailable
       end
 
       def get_balance
