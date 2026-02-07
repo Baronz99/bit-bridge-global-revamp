@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require 'uri'
+require 'timeout'
 class BuyPowerPaymentService
   include HTTParty
 
@@ -150,29 +151,20 @@ class BuyPowerPaymentService
     biller = normalize_electricity_biller(verify_processor_params[:biller])
     meter_type = normalize_electricity_meter_type(verify_processor_params[:meter_type])
     service_type = verify_processor_params[:service_type].upcase
+    raise 'meter_type must be PREPAID or POSTPAID' if meter_type.blank?
 
-
-
-    begin
-      raise 'meter_type must be PREPAID or POSTPAID' if meter_type.blank?
-
-      response = self.class.get(
+    response = Timeout.timeout(PROVIDER_OPEN_TIMEOUT + PROVIDER_READ_TIMEOUT + 2) do
+      self.class.get(
         "/check/meter?meter=#{meter_number}&disco=#{biller}&vendType=#{meter_type}&vertical=#{service_type}&orderId=false",
         headers: @get_headers,
         timeout: PROVIDER_READ_TIMEOUT,
         open_timeout: PROVIDER_OPEN_TIMEOUT
       )
-
-
-      raise response['message'] unless response.success?
-
-
-
-
-      response
-    rescue StandardError => e
-      raise e.message
     end
+
+    raise response['message'] unless response.success?
+
+    response
   end
 
   def verify_tv_account(params)
@@ -690,8 +682,6 @@ class BuyPowerPaymentService
   rescue StandardError => e
     { response: e.message.to_s, status: 'error' }
   end
-
-  require 'timeout'
 
 def get_list(service_type, provider)
   return { response: 'provider and service_type are required', status: 'error' } if service_type.blank? || provider.blank?
