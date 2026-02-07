@@ -22,11 +22,11 @@ export const createPurchaseOrder = createAsyncThunk(
           payload?.meter_type
         let vendType = String(raw || '').trim().toUpperCase()
         if (!vendType) vendType = 'PREPAID'
-        const allowed = ['PREPAID', 'POSTPAID', 'RECOVERY']
-        if (!allowed.includes(vendType)) vendType = 'PREPAID'
-
-        if (serviceType !== 'ELECTRICITY') {
-          // VTU/DATA/CABLE must always be PREPAID
+        if (serviceType === 'ELECTRICITY') {
+          const allowed = ['PREPAID', 'POSTPAID']
+          if (!allowed.includes(vendType)) vendType = 'PREPAID'
+        } else {
+          // VTU/DATA/CABLE/TV must always be PREPAID in this flow
           vendType = 'PREPAID'
         }
 

@@ -34,10 +34,13 @@ const PowerForm = () => {
     dispatch(SET_LOADING(true))
 
     const normalizedAmount = normalizeAmount(values.amount)
+    const vendType = (values.vendType || values.vend_type || values.meter_type).toString().trim().toUpperCase() || 'PREPAID'
 
     dispatch(
       createPurchaseOrder({
         ...values,
+        vendType,
+        meter_type: vendType,
         amount: normalizedAmount,
         biller,
         service_type: 'Electricity',
@@ -125,8 +128,8 @@ const PowerForm = () => {
               className="flex-1 whiteBg"
               label={'Meter Type'}
               options={[
-                { label: 'prepaid', value: 'prepaid' },
-                { value: 'postpaid', label: 'Post Paid' },
+                { label: 'Prepaid', value: 'PREPAID' },
+                { value: 'POSTPAID', label: 'Postpaid' },
               ]}
               name={'meter_type'}
             />

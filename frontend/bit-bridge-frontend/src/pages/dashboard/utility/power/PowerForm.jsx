@@ -41,6 +41,7 @@ const DashboardPowerForm = () => {
       createPurchaseOrder({
         ...values,
         vendType,
+        meter_type: vendType,
         amount: normalizedAmount,
         biller,
         email: user.email,
@@ -131,7 +132,6 @@ const DashboardPowerForm = () => {
               options={[
                 { label: 'Prepaid', value: 'PREPAID' },
                 { value: 'POSTPAID', label: 'Postpaid' },
-                { value: 'RECOVERY', label: 'Recovery' },
               ]}
               name={'vendType'}
               rules={[
