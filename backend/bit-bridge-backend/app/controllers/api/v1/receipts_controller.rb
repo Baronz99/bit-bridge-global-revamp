@@ -411,6 +411,14 @@ module Api
         value_amount = order.amount || order.total_amount
         reward_amount = (order.reward_applied || order.commission_used).to_f
 
+        service_charge_value = order.service_charge.to_d
+        bill_fees =
+          if service_charge_value.positive?
+            [{ label: 'service charge', amount: service_charge_value, currency: currency }]
+          else
+            []
+          end
+
         build_dto(
           reference: record&.reference.presence || original_reference || "bill-#{order.id}",
           kind: 'bill',
@@ -431,10 +439,19 @@ module Api
           }.compact,
           meta: {
             token: order.token,
+            units: order.units,
+            meter_number: order.meter_number,
+            meter_type: order.meter_type,
+            biller: order.biller,
+            service_type: order.service_type,
+            service_charge: service_charge_value,
+            amount: order.amount,
+            total_amount: order.total_amount,
+            transaction_id: order.transaction_id,
             usd_amount: order.usd_amount,
             currency: currency
           }.compact,
-          fees: [],
+          fees: bill_fees,
           legacy: legacy,
           value_amount: value_amount,
           wallet_amount_charged: order.wallet_amount_charged,
@@ -464,6 +481,14 @@ module Api
         value_amount = bill_order&.amount
         reward_amount = bill_order ? ((bill_order.reward_applied || bill_order.commission_used).to_f) : nil
 
+        service_charge_value = bill_order&.service_charge.to_d
+        bill_fees =
+          if service_charge_value.positive?
+            [{ label: 'service charge', amount: service_charge_value, currency: 'NGN' }]
+          else
+            []
+          end
+
         build_dto(
           reference: record.reference || original_reference,
           kind: bill_order ? 'bill' : 'checkout',
@@ -481,8 +506,19 @@ module Api
           provider: {
             reference: record.reference
           },
-          meta: {},
-          fees: [],
+          meta: {
+            token: bill_order&.token,
+            units: bill_order&.units,
+            meter_number: bill_order&.meter_number,
+            meter_type: bill_order&.meter_type,
+            biller: bill_order&.biller,
+            service_type: bill_order&.service_type,
+            service_charge: service_charge_value,
+            amount: bill_order&.amount,
+            total_amount: bill_order&.total_amount,
+            transaction_id: bill_order&.transaction_id
+          }.compact,
+          fees: bill_fees,
           legacy: legacy,
           value_amount: value_amount,
           wallet_amount_charged: bill_order&.wallet_amount_charged,
