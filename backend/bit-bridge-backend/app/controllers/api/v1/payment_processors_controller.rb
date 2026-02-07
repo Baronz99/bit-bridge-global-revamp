@@ -120,10 +120,11 @@ end
         if service_response[:status] == 'success'
           render json: { data: service_response[:response], message: 'Transaction initiated' }, status: :created
         else
+          status_code = service_response[:code].presence || :unprocessable_entity
           if debug
-            Rails.logger.warn("[TV_FLOW] returning_422 reason=#{service_response[:response].inspect}")
+            Rails.logger.warn("[TV_FLOW] returning_#{status_code} reason=#{service_response[:response].inspect}")
           end
-          render json: { message: service_response[:response] }, status: :unprocessable_entity
+          render json: { message: service_response[:response], code: service_response[:code] }, status: status_code
         end
       end
 

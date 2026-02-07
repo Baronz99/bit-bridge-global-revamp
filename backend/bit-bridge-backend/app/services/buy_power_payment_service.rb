@@ -138,6 +138,9 @@ class BuyPowerPaymentService
     raise bill_order.errors.full_messages.to_sentence unless bill_order.save
 
     { response: bill_order, status: 'success' }
+  rescue Timeout::Error, Net::OpenTimeout, Net::ReadTimeout => e
+    Rails.logger.warn("BuyPower process_payment timeout service_type=#{service_type_upcase} error=#{e.class}")
+    { response: 'Provider timeout. Please try again.', status: 'error', code: 503 }
   rescue StandardError => e
     { response: e.message.to_s, status: 'error' }
   end
@@ -154,7 +157,10 @@ class BuyPowerPaymentService
       raise 'meter_type must be PREPAID or POSTPAID' if meter_type.blank?
 
       response = self.class.get(
-        "/check/meter?meter=#{meter_number}&disco=#{biller}&vendType=#{meter_type}&vertical=#{service_type}&orderId=false", headers: @get_headers
+        "/check/meter?meter=#{meter_number}&disco=#{biller}&vendType=#{meter_type}&vertical=#{service_type}&orderId=false",
+        headers: @get_headers,
+        timeout: PROVIDER_READ_TIMEOUT,
+        open_timeout: PROVIDER_OPEN_TIMEOUT
       )
 
 
