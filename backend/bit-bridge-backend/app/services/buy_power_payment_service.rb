@@ -149,9 +149,6 @@ class BuyPowerPaymentService
     raise bill_order.errors.full_messages.to_sentence unless bill_order.save
 
     { response: bill_order, status: 'success' }
-  rescue Timeout::Error, Net::OpenTimeout, Net::ReadTimeout => e
-    Rails.logger.warn("BuyPower process_payment timeout service_type=#{service_type_upcase} error=#{e.class}")
-    { response: 'Provider timeout. Please try again.', status: 'error', code: 503 }
   rescue StandardError => e
     { response: e.message.to_s, status: 'error' }
   end
@@ -163,18 +160,17 @@ class BuyPowerPaymentService
     service_type = verify_processor_params[:service_type].upcase
     raise 'meter_type must be PREPAID or POSTPAID' if meter_type.blank?
 
-    response = Timeout.timeout(PROVIDER_OPEN_TIMEOUT + PROVIDER_READ_TIMEOUT + 2) do
-      self.class.get(
-        "/check/meter?meter=#{meter_number}&disco=#{biller}&vendType=#{meter_type}&vertical=#{service_type}&orderId=false",
-        headers: @get_headers,
-        timeout: PROVIDER_READ_TIMEOUT,
-        open_timeout: PROVIDER_OPEN_TIMEOUT
+    begin
+      response = self.class.get(
+        "/check/meter?meter=#{meter_number}&disco=#{biller}&vendType=#{meter_type}&vertical=#{service_type}&orderId=false", headers: @get_headers
       )
+
+      raise response['message'] unless response.success?
+
+      response
+    rescue StandardError => e
+      raise e.message
     end
-
-    raise response['message'] unless response.success?
-
-    response
   end
 
   def verify_tv_account(params)
