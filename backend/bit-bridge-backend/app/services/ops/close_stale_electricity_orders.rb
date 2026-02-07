@@ -25,12 +25,18 @@ module Ops
 
           reason = failure_reason_for(order)
           payload = provider_payload(order.provider_response)
+          failure_code = BillOrder.infer_failure_code(
+            reason: reason,
+            status: 'failed',
+            provider_payload: payload
+          )
           payload['repair'] = true
           payload['repair_reference'] = close_reference
           payload['repair_at'] = Time.current.utc.iso8601
           payload['repair_actor'] = 'ops_close_stale_electricity'
           payload['previous_status'] = order.status
           payload['previous_reason'] = order.reason
+          payload['failure_code'] = failure_code
 
           if dry_run
             @updated += 1

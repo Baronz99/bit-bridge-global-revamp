@@ -954,6 +954,26 @@ end
 
     wallet = order.user.wallet
     amount = order.total_amount.to_d
+    normalized_payload = provider_response_payload(provider_payload)
+    failure_code = BillOrder.infer_failure_code(
+      reason: message,
+      status: status,
+      provider_payload: normalized_payload
+    )
+    normalized_payload = if normalized_payload.is_a?(Hash)
+                           normalized_payload.merge(
+                             'failure_code' => failure_code,
+                             'failure_stage' => 'vend_confirmation',
+                             'failed_at' => Time.current.utc.iso8601
+                           )
+                         else
+                           {
+                             'failure_code' => failure_code,
+                             'failure_stage' => 'vend_confirmation',
+                             'failed_at' => Time.current.utc.iso8601,
+                             'raw' => normalized_payload
+                           }
+                         end
 
     ActiveRecord::Base.transaction do
       wallet.lock!
@@ -979,7 +999,7 @@ end
       order.update!(
         status: status,
         payment_method: payment_method,
-        provider_response: provider_payload,
+        provider_response: normalized_payload,
         reason: message
       )
     end

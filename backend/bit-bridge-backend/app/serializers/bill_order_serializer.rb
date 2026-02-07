@@ -4,7 +4,9 @@ class BillOrderSerializer < ActiveModel::Serializer
   attributes :id, :status, :meter_number, :amount, :biller, :meter_type, :phone, :service_type, :payment_type, :email,
              :payment_method, :tariff_class, :name, :service_charge, :total_amount, :created_at, :transaction_id, :units, :token, :description, :bill_commission, :reason,
              :provider_response,
-             :receipt_reference
+             :receipt_reference,
+             :failure_reason_code,
+             :failure_reason_text
 
   def receipt_reference
     object.transaction_record&.reference
@@ -15,6 +17,14 @@ class BillOrderSerializer < ActiveModel::Serializer
     return object.provider_response if !Rails.env.production? || ENV['DEBUG_PROVIDER_RESPONSE'].to_s == '1'
 
     sanitize_provider_response(object.provider_response)
+  end
+
+  def failure_reason_code
+    object.failure_reason_code
+  end
+
+  def failure_reason_text
+    object.failure_reason_text
   end
 
   private

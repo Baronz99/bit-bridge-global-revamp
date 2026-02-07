@@ -2,7 +2,27 @@
 
 class BillOrder < ApplicationRecord
   attr_accessor :demand_category, :use_commission, :commission_balance
-  TERMINAL_STATUSES = %w[completed failed refunded declined timedout].freeze
+  TERMINAL_STATUSES = %w[completed failed refunded declined timedout disputed].freeze
+  ALLOWED_STATUS_TRANSITIONS = {
+    'initialized' => %w[initialized pending processing completed failed declined timedout],
+    'pending' => %w[pending processing completed failed declined timedout refunded],
+    'processing' => %w[processing pending completed failed declined timedout refunded],
+    'completed' => %w[completed],
+    'failed' => %w[failed],
+    'declined' => %w[declined],
+    'timedout' => %w[timedout],
+    'refunded' => %w[refunded],
+    'disputed' => %w[disputed]
+  }.freeze
+  FAILURE_REASON_CODES = {
+    insufficient_funds: /insufficient/i,
+    minimum_vend: /minimum vend|below the minimum vend amount/i,
+    provider_reference_timeout: /provider reference was not generated/i,
+    provider_timeout: /timed out|timeout|reconcile stalled/i,
+    payment_not_completed: /payment was not completed|initiated but payment was not completed/i,
+    invalid_customer_details: /invalid account|invalid meter|invalid customer/i,
+    provider_declined: /declined|failed|rejected|cancelled|canceled/i
+  }.freeze
 
   belongs_to :user, optional: true
   has_one :wallet, through: :user
@@ -44,6 +64,7 @@ class BillOrder < ApplicationRecord
   validate :validate_money_scale
 
   before_update :prevent_terminal_status_regression
+  before_update :prevent_invalid_status_transition
   before_update :apply_commission, if: :is_commission?
 
   after_update :save_commission, if: :should_apply_commission?
@@ -120,6 +141,50 @@ class BillOrder < ApplicationRecord
       %w[VTU DATA].include?(service_type)
   end
 
+  def failure_reason_code
+    payload = safe_provider_payload
+    explicit_code = payload['failure_code'].presence || payload[:failure_code].presence
+    return explicit_code if explicit_code.present?
+
+    self.class.infer_failure_code(reason: reason, status: status, provider_payload: payload)
+  end
+
+  def failure_reason_text
+    reason.to_s
+  end
+
+  def self.valid_status_transition?(from_status, to_status)
+    from_value = from_status.to_s
+    to_value = to_status.to_s
+    allowed = ALLOWED_STATUS_TRANSITIONS[from_value] || [from_value]
+    allowed.include?(to_value)
+  end
+
+  def self.infer_failure_code(reason:, status:, provider_payload: nil)
+    reason_text = reason.to_s.strip
+    status_value = status.to_s
+
+    if status_value == 'timedout'
+      return 'provider_timeout'
+    end
+
+    if provider_payload.is_a?(Hash)
+      provider_code =
+        provider_payload['responseCode'] ||
+        provider_payload[:responseCode] ||
+        provider_payload.dig('data', 'responseCode')
+      return 'provider_declined' if provider_code.to_s.casecmp('declined').zero?
+    end
+
+    return 'unknown_failure' if reason_text.empty?
+
+    FAILURE_REASON_CODES.each do |code, pattern|
+      return code.to_s if reason_text.match?(pattern)
+    end
+
+    'unknown_failure'
+  end
+
 
 
   private
@@ -145,6 +210,24 @@ class BillOrder < ApplicationRecord
 
     errors.add(:status, 'is terminal and cannot be changed')
     throw(:abort)
+  end
+
+  def prevent_invalid_status_transition
+    return unless will_save_change_to_status?
+    return if self.class.valid_status_transition?(status_was, status)
+
+    errors.add(:status, "transition #{status_was} -> #{status} is not allowed")
+    throw(:abort)
+  end
+
+  def safe_provider_payload
+    raw = provider_response
+    return raw if raw.is_a?(Hash)
+    return {} if raw.blank?
+
+    JSON.parse(raw)
+  rescue StandardError
+    {}
   end
 
   def create_reward_transaction
