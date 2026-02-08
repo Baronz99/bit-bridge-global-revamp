@@ -32,7 +32,7 @@ class BridgeCardService
     email       = sanitize_text(account_params[:email]) || sanitize_text(account_params[:email_address])
     email       ||= sanitize_text(account_params[:user_email]) || sanitize_text(account_params[:login])
     email       = email.to_s.downcase if email.present?
-    bvn         = sanitize_text(account_params[:bvn])
+    bvn         = sanitize_text(account_params[:bvn]) || fetch_verified_bvn_from_kyc(account_params)
 
     missing = []
     missing << 'first_name' if first_name.blank?
@@ -920,6 +920,19 @@ end
     return nil if %w[none null undefined n/a na nil].include?(text.downcase)
 
     text
+  end
+
+  def fetch_verified_bvn_from_kyc(account_params)
+    user_id = account_params[:user_id].presence || account_params[:id].presence
+    return nil if user_id.blank?
+
+    kyc = UserKyc.find_by(user_id: user_id)
+    return nil if kyc.blank?
+    return nil unless kyc.verified?
+
+    sanitize_text(kyc.decrypted_bvn)
+  rescue StandardError
+    nil
   end
 
  def fetch(method, url, body)
