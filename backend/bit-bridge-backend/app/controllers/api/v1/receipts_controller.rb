@@ -297,6 +297,7 @@ module Api
             unique_transaction_id: txn.unique_transaction_id,
             bridge_card_id: txn.bridge_card_id
           }.merge(conversion_meta).compact,
+          timeline: build_wallet_timeline(txn, record, fx_quote),
           fees: merged_fees,
           legacy: legacy
         )
@@ -404,6 +405,7 @@ module Api
             unique_transaction_id: txn.unique_transaction_id,
             bridge_card_id: txn.bridge_card_id
           }.compact,
+          timeline: build_wallet_timeline(txn, txn.transaction_record, nil),
           fees: fee_array(metadata['fee_breakdown'], currency),
           legacy: legacy
         )
@@ -456,6 +458,7 @@ module Api
             reference: event.provider_transaction_reference || event.transaction_reference,
             card_id: event.card_id
           }.compact,
+          timeline: build_card_timeline(event),
           meta: metadata.compact,
           fees: fee_array(metadata['fee_breakdown'], currency),
           legacy: legacy
@@ -529,6 +532,7 @@ module Api
             usd_amount: order.usd_amount,
             currency: currency
           }.compact,
+          timeline: build_bill_timeline(order, record),
           fees: bill_fees,
           legacy: legacy,
           value_amount: value_amount,
@@ -597,6 +601,7 @@ module Api
             total_amount: bill_order&.total_amount,
             transaction_id: bill_order&.transaction_id
           }.compact,
+          timeline: build_record_timeline(record, bill_order),
           fees: bill_fees,
           legacy: legacy,
           value_amount: value_amount,
@@ -637,6 +642,7 @@ module Api
             circle_id: tx.circle_id,
             circle_name: tx.circle&.name
           }.compact,
+          timeline: build_circle_timeline(tx),
           provider: {},
           meta: {},
           fees: [],
@@ -655,7 +661,7 @@ module Api
         reference.match?(/\A(fbg|bbg)-\d+\z/i)
       end
 
-      def build_dto(reference:, kind:, event:, status:, amount:, currency:, occurred_at:, title:, subtitle:, parties:, provider:, meta:, fees:, legacy:, value_amount: nil, wallet_amount_charged: nil, reward_applied: nil, total_display: nil)
+      def build_dto(reference:, kind:, event:, status:, amount:, currency:, occurred_at:, title:, subtitle:, parties:, provider:, meta:, fees:, legacy:, timeline: nil, value_amount: nil, wallet_amount_charged: nil, reward_applied: nil, total_display: nil)
         fee_array = Array(fees).compact
         total_fees = fee_array.reduce(0) { |sum, f| sum + (f[:amount].to_d rescue 0) }
 
@@ -674,12 +680,245 @@ module Api
           parties: parties.presence || {},
           provider: provider.presence || {},
           meta: meta.presence || {},
+          timeline: Array(timeline).compact,
           legacy: legacy,
           value_amount: value_amount,
           wallet_amount_charged: wallet_amount_charged,
           reward_applied: reward_applied,
           total_display: total_display || value_amount
         }.compact
+      end
+
+      def build_wallet_timeline(txn, record, fx_quote)
+        if fx_quote.present?
+          return build_conversion_timeline(txn, fx_quote)
+        end
+
+        status = txn.status.to_s
+        steps = []
+        steps << timeline_step(
+          step_key: 'transaction_initiated',
+          label: 'Transaction initiated',
+          description: 'Your transaction was created',
+          state: 'completed',
+          occurred_at: txn.created_at,
+          source: 'wallet',
+          sequence: 1
+        )
+        steps << timeline_step(
+          step_key: 'processing',
+          label: 'Processing',
+          description: 'We are processing your transaction',
+          state: status_terminal?(status) ? 'completed' : 'current',
+          occurred_at: record&.updated_at || txn.updated_at || txn.created_at,
+          source: record.present? ? 'transaction_record' : 'wallet',
+          sequence: 2
+        )
+        steps << timeline_step(
+          step_key: terminal_step_key(status),
+          label: terminal_step_label(status),
+          description: terminal_step_description(status),
+          state: status_terminal?(status) ? 'completed' : 'pending',
+          occurred_at: status_terminal?(status) ? (record&.updated_at || txn.updated_at || txn.created_at) : nil,
+          source: 'wallet',
+          sequence: 3
+        )
+        steps.reverse
+      end
+
+      def build_conversion_timeline(txn, fx_quote)
+        status = txn.status.to_s
+        terminal = status_terminal?(status)
+        completed = status_success?(status)
+        final_key = completed ? 'conversion_completed' : terminal ? 'conversion_failed' : 'conversion_completed'
+        final_label = completed ? 'Conversion complete' : terminal ? 'Conversion failed' : 'Conversion complete'
+        final_description = completed ? 'Your currency has been successfully exchanged' : terminal ? 'The conversion did not complete' : 'Awaiting final confirmation'
+
+        [
+          timeline_step(
+            step_key: final_key,
+            label: final_label,
+            description: final_description,
+            state: terminal ? (completed ? 'completed' : 'failed') : 'pending',
+            occurred_at: terminal ? (fx_quote.executed_at || txn.updated_at || fx_quote.updated_at) : nil,
+            source: 'fx',
+            sequence: 3
+          ),
+          timeline_step(
+            step_key: 'processing_conversion',
+            label: 'Processing conversion',
+            description: 'We are exchanging funds at the applied execution rate',
+            state: terminal ? 'completed' : 'current',
+            occurred_at: fx_quote.updated_at || txn.updated_at || fx_quote.created_at,
+            source: 'fx',
+            sequence: 2
+          ),
+          timeline_step(
+            step_key: 'conversion_initiated',
+            label: 'Conversion initiated',
+            description: 'You initiated a currency conversion request',
+            state: 'completed',
+            occurred_at: fx_quote.created_at || txn.created_at,
+            source: 'fx',
+            sequence: 1
+          )
+        ]
+      end
+
+      def build_bill_timeline(order, record)
+        status = order.status.to_s
+        terminal = status_terminal?(status)
+        [
+          timeline_step(
+            step_key: terminal_step_key(status),
+            label: terminal_step_label(status),
+            description: terminal_step_description(status),
+            state: terminal ? (status_success?(status) ? 'completed' : 'failed') : 'pending',
+            occurred_at: terminal ? (order.updated_at || record&.updated_at || order.created_at) : nil,
+            source: 'bill_order',
+            sequence: 3
+          ),
+          timeline_step(
+            step_key: 'processing',
+            label: 'Processing',
+            description: 'Provider processing is in progress',
+            state: terminal ? 'completed' : 'current',
+            occurred_at: record&.updated_at || order.updated_at || order.created_at,
+            source: 'bill_order',
+            sequence: 2
+          ),
+          timeline_step(
+            step_key: 'initiated',
+            label: 'Transaction initiated',
+            description: 'Your bill payment request was created',
+            state: 'completed',
+            occurred_at: order.created_at,
+            source: 'bill_order',
+            sequence: 1
+          )
+        ]
+      end
+
+      def build_record_timeline(record, bill_order)
+        if bill_order.present?
+          return build_bill_timeline(bill_order, record)
+        end
+
+        status = record.status.to_s
+        terminal = status_terminal?(status)
+        [
+          timeline_step(
+            step_key: terminal_step_key(status),
+            label: terminal_step_label(status),
+            description: terminal_step_description(status),
+            state: terminal ? (status_success?(status) ? 'completed' : 'failed') : 'pending',
+            occurred_at: terminal ? (record.updated_at || record.created_at) : nil,
+            source: 'transaction_record',
+            sequence: 3
+          ),
+          timeline_step(
+            step_key: 'processing',
+            label: 'Processing',
+            description: 'Your transaction is being processed',
+            state: terminal ? 'completed' : 'current',
+            occurred_at: record.updated_at || record.created_at,
+            source: 'transaction_record',
+            sequence: 2
+          ),
+          timeline_step(
+            step_key: 'initiated',
+            label: 'Transaction initiated',
+            description: 'Transaction record created',
+            state: 'completed',
+            occurred_at: record.created_at,
+            source: 'transaction_record',
+            sequence: 1
+          )
+        ]
+      end
+
+      def build_card_timeline(event)
+        status = event.status.to_s
+        terminal = status_terminal?(status)
+        [
+          timeline_step(
+            step_key: terminal_step_key(status),
+            label: terminal_step_label(status),
+            description: terminal_step_description(status),
+            state: terminal ? (status_success?(status) ? 'completed' : 'failed') : 'pending',
+            occurred_at: terminal ? (event.transaction_at || event.updated_at || event.created_at) : nil,
+            source: 'card_event',
+            sequence: 3
+          ),
+          timeline_step(
+            step_key: 'processing',
+            label: 'Processing',
+            description: 'Card network processing is in progress',
+            state: terminal ? 'completed' : 'current',
+            occurred_at: event.updated_at || event.created_at,
+            source: 'card_event',
+            sequence: 2
+          ),
+          timeline_step(
+            step_key: 'initiated',
+            label: 'Transaction initiated',
+            description: 'Card transaction initiated',
+            state: 'completed',
+            occurred_at: event.transaction_at || event.created_at,
+            source: 'card_event',
+            sequence: 1
+          )
+        ]
+      end
+
+      def build_circle_timeline(tx)
+        [
+          timeline_step(
+            step_key: 'circle_posted',
+            label: 'Circle transaction posted',
+            description: 'Circle ledger was updated successfully',
+            state: 'completed',
+            occurred_at: tx.occurred_at || tx.created_at,
+            source: 'circle',
+            sequence: 1
+          )
+        ]
+      end
+
+      def timeline_step(step_key:, label:, description:, state:, occurred_at:, source:, sequence:)
+        {
+          step_key: step_key,
+          label: label,
+          description: description,
+          state: state,
+          occurred_at: occurred_at&.iso8601,
+          source: source,
+          sequence: sequence
+        }.compact
+      end
+
+      def status_success?(status)
+        %w[approved completed successful paid ok].include?(status.to_s.downcase)
+      end
+
+      def status_failure?(status)
+        %w[failed declined timedout timeout error cancelled canceled reversed disputed].include?(status.to_s.downcase)
+      end
+
+      def status_terminal?(status)
+        status_success?(status) || status_failure?(status)
+      end
+
+      def terminal_step_key(status)
+        status_success?(status) ? 'completed' : status_failure?(status) ? 'failed' : 'completed'
+      end
+
+      def terminal_step_label(status)
+        status_success?(status) ? 'Completed' : status_failure?(status) ? 'Failed' : 'Completed'
+      end
+
+      def terminal_step_description(status)
+        status_success?(status) ? 'Transaction has completed successfully' : status_failure?(status) ? 'Transaction did not complete successfully' : 'Awaiting completion'
       end
 
       def wallet_label(tx, record)

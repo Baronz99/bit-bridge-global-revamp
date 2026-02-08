@@ -104,6 +104,7 @@ RSpec.describe 'Api::V1::ReceiptsController', type: :request do
       body = JSON.parse(response.body)
       expect(body['data']['reference']).to eq("wallet-tx-#{wallet_tx.id}").or eq(wallet_tx.transaction_record&.reference)
       expect(body['data']['kind']).to eq('wallet')
+      expect(body['data']['timeline']).to be_an(Array)
     end
 
     it 'includes deterministic FX conversion metadata for tunnel wallet transactions' do
@@ -153,6 +154,15 @@ RSpec.describe 'Api::V1::ReceiptsController', type: :request do
       expect(body.dig('data', 'meta', 'fx')).not_to have_key('markup')
       expect(body.dig('data', 'fees', 0, 'label')).to eq('conversion fee')
       expect(body.dig('data', 'fees', 0, 'currency')).to eq('NGN')
+      timeline = body.dig('data', 'timeline')
+      expect(timeline).to be_an(Array)
+      expect(timeline.length).to be >= 3
+      expect(%w[conversion_completed conversion_failed]).to include(timeline[0]['step_key'])
+      expect(%w[completed failed pending]).to include(timeline[0]['state'])
+      expect(timeline[1]['step_key']).to eq('processing_conversion')
+      expect(%w[completed current]).to include(timeline[1]['state'])
+      expect(timeline[2]['step_key']).to eq('conversion_initiated')
+      expect(timeline[2]['state']).to eq('completed')
     end
 
     it 'returns card event receipt dto' do
