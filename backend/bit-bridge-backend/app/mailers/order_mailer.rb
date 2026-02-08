@@ -3,6 +3,7 @@
 class OrderMailer < ApplicationMailer
   def purchase_confirmation(order)
     @order = order
+    @recipient_name = recipient_display_name(user: @order.user, order: @order)
     attach_brand_logo
 
     mail(

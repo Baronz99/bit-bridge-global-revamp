@@ -1,6 +1,6 @@
 BitBridge Global Transaction Receipt
 
-Dear <%= @order.name.presence || 'Customer' %>,
+Dear <%= @recipient_name %>,
 
 <%= @order.status.to_s == 'completed' ? 'Your transaction was completed successfully.' : 'Your transaction status has been updated.' %>
 

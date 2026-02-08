@@ -5,6 +5,7 @@ class TransactionReceiptMailer < ApplicationMailer
     @transaction = Transaction.includes(:wallet, :user, :transaction_record).find(transaction_id)
     @user = @transaction.user
     return if @user&.email.blank?
+    @recipient_name = recipient_display_name(user: @user)
 
     @fx_quote = resolve_fx_quote(@transaction)
     @receipt_reference = @transaction.transaction_record&.reference.presence || "wallet-tx-#{@transaction.id}"
