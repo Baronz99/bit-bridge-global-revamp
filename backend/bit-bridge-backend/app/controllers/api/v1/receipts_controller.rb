@@ -695,31 +695,40 @@ module Api
         end
 
         status = txn.status.to_s
+        profile = wallet_timeline_profile(txn, record)
+        terminal = status_terminal?(status)
+        completed = status_success?(status)
+        final = if terminal
+          completed ? profile[:completed] : profile[:failed]
+        else
+          profile[:pending]
+        end
+
         steps = []
         steps << timeline_step(
-          step_key: 'transaction_initiated',
-          label: 'Transaction initiated',
-          description: 'Your transaction was created',
+          step_key: profile[:initiated][:step_key],
+          label: profile[:initiated][:label],
+          description: profile[:initiated][:description],
           state: 'completed',
           occurred_at: txn.created_at,
           source: 'wallet',
           sequence: 1
         )
         steps << timeline_step(
-          step_key: 'processing',
-          label: 'Processing',
-          description: 'We are processing your transaction',
-          state: status_terminal?(status) ? 'completed' : 'current',
+          step_key: profile[:processing][:step_key],
+          label: profile[:processing][:label],
+          description: profile[:processing][:description],
+          state: terminal ? 'completed' : 'current',
           occurred_at: record&.updated_at || txn.updated_at || txn.created_at,
           source: record.present? ? 'transaction_record' : 'wallet',
           sequence: 2
         )
         steps << timeline_step(
-          step_key: terminal_step_key(status),
-          label: terminal_step_label(status),
-          description: terminal_step_description(status),
-          state: status_terminal?(status) ? 'completed' : 'pending',
-          occurred_at: status_terminal?(status) ? (record&.updated_at || txn.updated_at || txn.created_at) : nil,
+          step_key: final[:step_key],
+          label: final[:label],
+          description: final[:description],
+          state: terminal ? (completed ? 'completed' : 'failed') : 'pending',
+          occurred_at: terminal ? (record&.updated_at || txn.updated_at || txn.created_at) : nil,
           source: 'wallet',
           sequence: 3
         )
@@ -806,35 +815,233 @@ module Api
 
         status = record.status.to_s
         terminal = status_terminal?(status)
+        profile = record_timeline_profile(record)
+        completed = status_success?(status)
+        final = if terminal
+          completed ? profile[:completed] : profile[:failed]
+        else
+          profile[:pending]
+        end
+
         [
           timeline_step(
-            step_key: terminal_step_key(status),
-            label: terminal_step_label(status),
-            description: terminal_step_description(status),
-            state: terminal ? (status_success?(status) ? 'completed' : 'failed') : 'pending',
+            step_key: final[:step_key],
+            label: final[:label],
+            description: final[:description],
+            state: terminal ? (completed ? 'completed' : 'failed') : 'pending',
             occurred_at: terminal ? (record.updated_at || record.created_at) : nil,
             source: 'transaction_record',
             sequence: 3
           ),
           timeline_step(
-            step_key: 'processing',
-            label: 'Processing',
-            description: 'Your transaction is being processed',
+            step_key: profile[:processing][:step_key],
+            label: profile[:processing][:label],
+            description: profile[:processing][:description],
             state: terminal ? 'completed' : 'current',
             occurred_at: record.updated_at || record.created_at,
             source: 'transaction_record',
             sequence: 2
           ),
           timeline_step(
-            step_key: 'initiated',
-            label: 'Transaction initiated',
-            description: 'Transaction record created',
+            step_key: profile[:initiated][:step_key],
+            label: profile[:initiated][:label],
+            description: profile[:initiated][:description],
             state: 'completed',
             occurred_at: record.created_at,
             source: 'transaction_record',
             sequence: 1
           )
         ]
+      end
+
+      def wallet_timeline_profile(txn, record)
+        metadata = txn.metadata.is_a?(Hash) ? txn.metadata : {}
+        subtype = metadata['subtype'].to_s.downcase
+        tx_type = txn.transaction_type.to_s.downcase
+        record_event = record&.event_type.to_s.downcase
+        provider = metadata['provider'].to_s.downcase
+
+        if subtype.include?('virtual_card_funding') || subtype.include?('card_fund')
+          return {
+            initiated: {
+              step_key: 'card_funding_initiated',
+              label: 'Card funding initiated',
+              description: 'You initiated funding for your virtual card'
+            },
+            processing: {
+              step_key: 'card_funding_processing',
+              label: 'Funding in progress',
+              description: 'We are processing your card funding request'
+            },
+            pending: {
+              step_key: 'card_funding_pending',
+              label: 'Funding pending',
+              description: 'Awaiting final card funding confirmation'
+            },
+            completed: {
+              step_key: 'card_funding_completed',
+              label: 'Card funded',
+              description: 'Your virtual card has been funded successfully'
+            },
+            failed: {
+              step_key: 'card_funding_failed',
+              label: 'Card funding failed',
+              description: 'Card funding did not complete successfully'
+            }
+          }
+        end
+
+        if tx_type == 'deposit' || subtype.include?('fund') || record_event.include?('fund') || provider.present?
+          return {
+            initiated: {
+              step_key: 'funding_initiated',
+              label: 'Funding initiated',
+              description: 'We received your wallet funding request'
+            },
+            processing: {
+              step_key: 'funding_processing',
+              label: 'Awaiting settlement',
+              description: 'We are waiting for settlement confirmation from the payment provider'
+            },
+            pending: {
+              step_key: 'funding_pending',
+              label: 'Funding pending',
+              description: 'Funding is still being processed'
+            },
+            completed: {
+              step_key: 'funding_completed',
+              label: 'Wallet funded',
+              description: 'Your wallet has been credited successfully'
+            },
+            failed: {
+              step_key: 'funding_failed',
+              label: 'Funding failed',
+              description: 'Wallet funding did not complete successfully'
+            }
+          }
+        end
+
+        if tx_type == 'withdrawal'
+          return {
+            initiated: {
+              step_key: 'withdrawal_initiated',
+              label: 'Withdrawal initiated',
+              description: 'We received your withdrawal request'
+            },
+            processing: {
+              step_key: 'withdrawal_processing',
+              label: 'Payout in progress',
+              description: 'We are processing payout to your destination account'
+            },
+            pending: {
+              step_key: 'withdrawal_pending',
+              label: 'Withdrawal pending',
+              description: 'Withdrawal is still being processed'
+            },
+            completed: {
+              step_key: 'withdrawal_completed',
+              label: 'Withdrawal complete',
+              description: 'Withdrawal has completed successfully'
+            },
+            failed: {
+              step_key: 'withdrawal_failed',
+              label: 'Withdrawal failed',
+              description: 'Withdrawal did not complete successfully'
+            }
+          }
+        end
+
+        {
+          initiated: {
+            step_key: 'transaction_initiated',
+            label: 'Transaction initiated',
+            description: 'Your transaction was created'
+          },
+          processing: {
+            step_key: 'processing',
+            label: 'Processing',
+            description: 'We are processing your transaction'
+          },
+          pending: {
+            step_key: 'transaction_pending',
+            label: 'Pending',
+            description: 'Awaiting final transaction confirmation'
+          },
+          completed: {
+            step_key: 'completed',
+            label: 'Completed',
+            description: 'Transaction has completed successfully'
+          },
+          failed: {
+            step_key: 'failed',
+            label: 'Failed',
+            description: 'Transaction did not complete successfully'
+          }
+        }
+      end
+
+      def record_timeline_profile(record)
+        reference = record.reference.to_s.downcase
+        event_type = record.event_type.to_s.downcase
+        description = record.description.to_s.downcase
+
+        if reference.start_with?('fbg-') || event_type.include?('fund') || description.include?('fund')
+          return {
+            initiated: {
+              step_key: 'funding_initiated',
+              label: 'Funding initiated',
+              description: 'Funding transaction record was created'
+            },
+            processing: {
+              step_key: 'funding_processing',
+              label: 'Awaiting settlement',
+              description: 'We are waiting for provider settlement confirmation'
+            },
+            pending: {
+              step_key: 'funding_pending',
+              label: 'Funding pending',
+              description: 'Funding is still being processed'
+            },
+            completed: {
+              step_key: 'funding_completed',
+              label: 'Wallet funded',
+              description: 'Funding completed and wallet was credited'
+            },
+            failed: {
+              step_key: 'funding_failed',
+              label: 'Funding failed',
+              description: 'Funding did not complete successfully'
+            }
+          }
+        end
+
+        {
+          initiated: {
+            step_key: 'initiated',
+            label: 'Transaction initiated',
+            description: 'Transaction record created'
+          },
+          processing: {
+            step_key: 'processing',
+            label: 'Processing',
+            description: 'Your transaction is being processed'
+          },
+          pending: {
+            step_key: 'pending',
+            label: 'Pending',
+            description: 'Awaiting final transaction confirmation'
+          },
+          completed: {
+            step_key: 'completed',
+            label: 'Completed',
+            description: 'Transaction has completed successfully'
+          },
+          failed: {
+            step_key: 'failed',
+            label: 'Failed',
+            description: 'Transaction did not complete successfully'
+          }
+        }
       end
 
       def build_card_timeline(event)
