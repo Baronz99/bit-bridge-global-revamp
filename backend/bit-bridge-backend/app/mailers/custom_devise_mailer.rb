@@ -31,16 +31,19 @@ class CustomDeviseMailer < Devise::Mailer
                ENV['FRONTEND_URL'] ||
                'http://127.0.0.1:5173/' # local React dev URL
 
-    reset_url = "#{base_url}reset-password?reset_password_token=#{token}"
+    frontend_base = base_url.to_s.end_with?('/') ? base_url : "#{base_url}/"
+    reset_url = "#{frontend_base}reset-password?reset_password_token=#{token}"
 
     begin
-      attachments.inline['logo'] = File.read(Rails.root.join('app/assets/images/logo1.png'))
+      logo_path = Rails.root.join('app/assets/images/logo1.png')
+      attachments.inline['logo'] = File.read(logo_path) if File.exist?(logo_path)
     rescue StandardError
       # ignore missing logo
     end
 
-    opts[:subject] = 'Reset your password'
+    opts[:subject] = 'BitBridge Global - Reset Your Password'
     @reset_password_link = reset_url
+    @reset_password_within = Devise.reset_password_within
     @token = token
     @user = record
 
