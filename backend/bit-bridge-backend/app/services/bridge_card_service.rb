@@ -61,7 +61,7 @@ class BridgeCardService
       }.to_json
 
       begin
-        response = fetch('post', '/issuing/sandbox/cardholder/register_cardholder_synchronously', body)
+        response = fetch('post', issuing_endpoint('cardholder/register_cardholder_synchronously'), body)
         selected_state = candidate_state
         break
       rescue StandardError => e
@@ -233,7 +233,7 @@ class BridgeCardService
         meta_data: { account_source: 'any_value' }
       }.to_json
 
-      response = fetch('post', '/issuing/sandbox/cards/create_card', body)
+      response = fetch('post', issuing_endpoint('cards/create_card'), body)
 
       # 4) persist locally
       new_card_id = response.dig('data', 'card_id') || card.card_id
@@ -272,7 +272,7 @@ class BridgeCardService
     meta_data: { account_source: 'any_value' }
   }.to_json
 
-  response = fetch('post', '/issuing/sandbox/cards/create_card', body)
+  response = fetch('post', issuing_endpoint('cards/create_card'), body)
 
   card.update!(
   cardholder_id: cardholder_id,
@@ -314,9 +314,9 @@ end
     attempts.each do |query_params|
       url =
         if query_params.present?
-          "/issuing/sandbox/cardholder/get_all_states?#{query_params.to_query}"
+          "#{issuing_endpoint('cardholder/get_all_states')}?#{query_params.to_query}"
         else
-          '/issuing/sandbox/cardholder/get_all_states'
+          issuing_endpoint('cardholder/get_all_states')
         end
 
       response = fetch('get', url, nil)
@@ -604,12 +604,7 @@ end
 
   def freeze_card(card_id)
     raise ArgumentError, 'card_id is required' if card_id.blank?
-    url =
-      if Rails.env.production?
-        "/issuing/cards/freeze_card?card_id=#{card_id}"
-      else
-        "/issuing/sandbox/cards/freeze_card?card_id=#{card_id}"
-      end
+    url = "#{issuing_endpoint('cards/freeze_card')}?card_id=#{card_id}"
     response = fetch('patch', url, nil)
     { data: response['data'], message: response['message'], status: :ok }
   rescue StandardError => e
@@ -618,12 +613,7 @@ end
 
   def unfreeze_card(card_id)
     raise ArgumentError, 'card_id is required' if card_id.blank?
-    url =
-      if Rails.env.production?
-        "/issuing/cards/unfreeze_card?card_id=#{card_id}"
-      else
-        "/issuing/sandbox/cards/unfreeze_card?card_id=#{card_id}"
-      end
+    url = "#{issuing_endpoint('cards/unfreeze_card')}?card_id=#{card_id}"
     response = fetch('patch', url, nil)
     { data: response['data'], message: response['message'], status: :ok }
   rescue StandardError => e
@@ -633,7 +623,8 @@ end
   def mock_debit_transaction(card_id:)
     raise ArgumentError, 'card_id is required' if card_id.blank?
 
-    url = '/issuing/sandbox/cards/mock_debit_transaction'
+    raise StandardError, 'Mock debit is sandbox-only' if Bridgecard::Config.live?
+    url = issuing_endpoint('cards/mock_debit_transaction')
     body = { card_id: card_id }.to_json
     response = fetch('patch', url, body)
 
@@ -743,12 +734,7 @@ end
         transaction_reference: reference,
         currency: currency
       }.to_json
-      url =
-        if Rails.env.production?
-          "/issuing/cards/fund_card_asynchronously"
-        else
-          "/issuing/sandbox/cards/fund_card_asynchronously"
-        end
+      url = issuing_endpoint('cards/fund_card_asynchronously')
       response = fetch('patch', url, body)
       data = response['data'].is_a?(Hash) ? response['data'] : {}
       data['fee_breakdown'] = {
@@ -839,12 +825,7 @@ end
         currency: currency
       }.to_json
 
-      url =
-        if Rails.env.production?
-          '/issuing/cards/unload_card_asynchronously'
-        else
-          '/issuing/sandbox/cards/unload_card_asynchronously'
-        end
+      url = issuing_endpoint('cards/unload_card_asynchronously')
 
       response = fetch('patch', url, body)
       return {
@@ -865,6 +846,11 @@ end
   end
 
   private
+  def issuing_endpoint(path)
+    clean = path.to_s.sub(%r{^/+}, '')
+    Bridgecard::Config.live? ? "/issuing/#{clean}" : "/issuing/sandbox/#{clean}"
+  end
+
   def normalize_state(value)
     raw = value.to_s.strip
     return raw if raw.blank?
@@ -912,7 +898,7 @@ end
       meta_data: { account_source: 'any_value' }
     }.to_json
 
-    fetch('post', '/issuing/sandbox/cards/create_card', body)
+    fetch('post', issuing_endpoint('cards/create_card'), body)
   end
 
  def fetch(method, url, body)
