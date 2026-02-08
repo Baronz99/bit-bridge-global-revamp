@@ -26,6 +26,7 @@ class Transaction < ApplicationRecord
   before_save :set_coupon_bonus, if: :coupon?
   before_save :check_method_payment
   before_save :normalize_money_fields
+  after_commit :enqueue_receipt_email, on: %i[create update]
 
   def validate_transaction_on_create
     return if ledger_hold_reserved?
@@ -103,5 +104,47 @@ class Transaction < ApplicationRecord
  
   def ledger_hold_reserved?
     metadata.is_a?(Hash) && metadata['ledger_hold_reserved'].present?
+  end
+
+  public
+
+  def enqueue_receipt_email
+    return unless receipt_email_eligible?
+
+    SendTransactionReceiptJob.perform_later(id)
+  rescue StandardError
+    nil
+  end
+
+  def receipt_email_eligible?
+    return false unless approved_transition?
+    receipt_email_sendable?
+  end
+
+  def receipt_email_sendable?
+    return false unless approved?
+    return false if email.blank?
+
+    if conversion_transaction?
+      withdrawal?
+    else
+      deposit?
+    end
+  end
+
+  def approved_transition?
+    return false unless approved?
+
+    status_change = previous_changes['status']
+    return true if status_change.present? && status_change.last.to_s == 'approved' && status_change.first.to_s != 'approved'
+
+    previous_changes.key?('id')
+  end
+
+  def conversion_transaction?
+    meta = metadata.is_a?(Hash) ? metadata : {}
+    return true if meta['fx_quote_token'].present?
+
+    address.to_s.include?('Tunnel Conversion')
   end
 end

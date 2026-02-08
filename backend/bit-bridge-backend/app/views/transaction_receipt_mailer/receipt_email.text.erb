@@ -1,0 +1,27 @@
+BitBridge Global <%= @kind_label %> Receipt
+
+Dear <%= @user.user_profile&.name.presence || 'Customer' %>,
+
+Your transaction has been recorded successfully.
+
+Reference: <%= @receipt_reference %>
+Status: <%= @transaction.status.to_s.upcase %>
+Date: <%= @transaction.created_at.strftime('%B %d, %Y %H:%M') %>
+Amount: <%= @transaction.amount.to_f %> <%= @transaction.currency || @transaction.wallet&.currency || 'NGN' %>
+Type: <%= @kind_label %>
+<% if @transaction.address.present? %>
+Description: <%= @transaction.address %>
+<% end %>
+
+<% if @fx_quote.present? %>
+Conversion Details
+------------------
+Direction: <%= @fx_quote.direction == 'ngn_to_usd' ? 'NGN to USD' : 'USD to NGN' %>
+Amount In: <%= @fx_quote.amount_in.to_f %> <%= @fx_quote.direction == 'ngn_to_usd' ? 'NGN' : 'USD' %>
+Fee: <%= @fx_quote.fee_amount.to_f %> <%= @fx_quote.fee_currency %>
+Execution Rate: <%= @fx_quote.execution_rate.to_f %>
+Amount Out: <%= @fx_quote.amount_out.to_f %> <%= @fx_quote.direction == 'ngn_to_usd' ? 'USD' : 'NGN' %>
+<% end %>
+
+BitBridge Global
+https://www.bitbridgeglobal.com

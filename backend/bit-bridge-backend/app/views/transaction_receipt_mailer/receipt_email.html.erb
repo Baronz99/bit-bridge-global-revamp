@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+  <style>
+    body { font-family: Arial, sans-serif; line-height: 1.6; color: #1f2937; max-width: 600px; margin: 0 auto; padding: 20px; background-color: #f8fafc; }
+    .header { padding: 20px; text-align: center; background: #0b1220; color: #ffffff; border-radius: 8px 8px 0 0; }
+    .logo { max-width: 120px; height: 80px; display: block; margin: 0 auto 8px; }
+    .content { padding: 24px; background-color: #ffffff; border: 1px solid #e5e7eb; border-top: none; }
+    .details { margin: 16px 0; border: 1px solid #e5e7eb; border-radius: 6px; padding: 14px; }
+    .highlight { color: #0b63ce; font-weight: 700; }
+    .section-title { margin-top: 16px; font-weight: 700; color: #0b1220; }
+    .cta { display: inline-block; margin-top: 10px; background: #0b63ce; color: #ffffff !important; text-decoration: none; padding: 10px 14px; border-radius: 6px; font-weight: 700; }
+    .footer { margin-top: 18px; padding-top: 16px; border-top: 1px solid #e5e7eb; font-size: 12px; color: #6b7280; text-align: center; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <% if attachments['logo'].present? %>
+      <%= image_tag attachments['logo'].url, class: 'logo', alt: 'BitBridge Global Logo' %>
+    <% end %>
+    <h1><%= @kind_label %> Receipt</h1>
+  </div>
+
+  <div class="content">
+    <p>Dear <%= @user.user_profile&.name.presence || 'Customer' %>,</p>
+    <p><span class="highlight">BitBridge Global</span> has recorded your transaction successfully.</p>
+
+    <div class="details">
+      <p><strong>Reference:</strong> <%= @receipt_reference %></p>
+      <p><strong>Status:</strong> <%= @transaction.status.to_s.upcase %></p>
+      <p><strong>Date:</strong> <%= @transaction.created_at.strftime('%B %d, %Y %H:%M') %></p>
+      <p><strong>Amount:</strong> <%= number_to_currency(@transaction.amount.to_f, unit: "#{@transaction.currency || @transaction.wallet&.currency || 'NGN'} ", delimiter: ',', precision: 2) %></p>
+      <p><strong>Type:</strong> <%= @kind_label %></p>
+      <% if @transaction.address.present? %>
+        <p><strong>Description:</strong> <%= @transaction.address %></p>
+      <% end %>
+    </div>
+
+    <% if @fx_quote.present? %>
+      <p class="section-title">Conversion Details</p>
+      <div class="details">
+        <p><strong>Direction:</strong> <%= @fx_quote.direction == 'ngn_to_usd' ? 'NGN to USD' : 'USD to NGN' %></p>
+        <p><strong>Amount In:</strong> <%= @fx_quote.amount_in.to_f %> <%= @fx_quote.direction == 'ngn_to_usd' ? 'NGN' : 'USD' %></p>
+        <p><strong>Fee:</strong> <%= @fx_quote.fee_amount.to_f %> <%= @fx_quote.fee_currency %></p>
+        <p><strong>Execution Rate:</strong> <%= @fx_quote.execution_rate.to_f %></p>
+        <p><strong>Amount Out:</strong> <%= @fx_quote.amount_out.to_f %> <%= @fx_quote.direction == 'ngn_to_usd' ? 'USD' : 'NGN' %></p>
+      </div>
+    <% end %>
+
+    <% if @frontend_url.present? %>
+      <a class="cta" href="<%= @frontend_url %>">Open BitBridge Global</a>
+    <% end %>
+
+    <p>Need help? Contact <a href="mailto:support@bitbridgeglobal.com">support@bitbridgeglobal.com</a>.</p>
+  </div>
+
+  <div class="footer">
+    <p>&copy; <%= Time.current.year %> BitBridge Global. All rights reserved.</p>
+    <p><a href="https://www.bitbridgeglobal.com">www.bitbridgeglobal.com</a></p>
+  </div>
+</body>
+</html>
