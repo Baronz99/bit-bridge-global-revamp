@@ -149,6 +149,8 @@ RSpec.describe 'Api::V1::ReceiptsController', type: :request do
       expect(body.dig('data', 'meta', 'conversion_direction')).to eq('ngn_to_usd')
       expect(body.dig('data', 'meta', 'fx', 'quote_token')).to eq(fx_quote.token)
       expect(body.dig('data', 'meta', 'fx', 'execution_rate')).to eq(1575.0)
+      expect(body.dig('data', 'meta', 'fx')).not_to have_key('base_rate')
+      expect(body.dig('data', 'meta', 'fx')).not_to have_key('markup')
       expect(body.dig('data', 'fees', 0, 'label')).to eq('conversion fee')
       expect(body.dig('data', 'fees', 0, 'currency')).to eq('NGN')
     end

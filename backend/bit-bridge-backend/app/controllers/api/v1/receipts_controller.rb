@@ -334,8 +334,6 @@ module Api
               fee_amount: fx_quote.fee_amount&.to_f,
               fee_currency: fx_quote.fee_currency,
               amount_after_fee: fx_quote.amount_after_fee&.to_f,
-              base_rate: fx_quote.base_rate&.to_f,
-              markup: fx_quote.markup&.to_f,
               execution_rate: fx_quote.execution_rate&.to_f,
               amount_out: fx_quote.amount_out&.to_f,
               executed_at: fx_quote.executed_at&.iso8601,
