@@ -39,6 +39,7 @@ module Api
         transaction_reference = data['transaction_reference'].to_s
 
         card = card_id.present? ? Card.find_by(card_id: card_id) : nil
+        card ||= Card.find_by(cardholder_id: cardholder_id) if cardholder_id.present?
         user_id = card&.user_id
 
         card_event = CardEvent.upsert_bridgecard_event!(
@@ -74,6 +75,7 @@ module Api
         when 'card_credit_event.successful', 'card_credit_event.failed'
           # stored via CardEvent upsert
         end
+        update_cardholder_verification_state(card: card, event: event, data: data)
 
         head :ok
       end
@@ -375,6 +377,47 @@ module Api
         else
           Rails.logger.error("❌ Monnify deposit failed user_id=#{user.id} errors=#{transaction.errors.full_messages.to_sentence}")
         end
+      end
+
+      def update_cardholder_verification_state(card:, event:, data:)
+        return if card.blank?
+
+        state = cardholder_state_from_event(event.to_s)
+        return if state.blank?
+
+        meta = card.meta_data.is_a?(Hash) ? card.meta_data.dup : {}
+        meta['cardholder_kyc_status'] = state
+        meta['cardholder_status_updated_at'] = Time.current.iso8601
+
+        reason = data['message'].presence || data['reason'].presence || data['decline_reason'].presence
+        meta['cardholder_kyc_reason'] = reason if reason.present?
+
+        attrs = { meta_data: meta }
+        if card.card_id.blank?
+          attrs[:status] =
+            case state
+            when 'verified' then 'pending'
+            when 'failed' then 'failed'
+            when 'manual_review' then 'manual_review'
+            when 'pending_verification' then 'pending_verification'
+            end
+        end
+
+        card.update!(attrs.compact)
+      rescue StandardError => e
+        Rails.logger.warn("[BridgecardWebhook] cardholder_state_update_failed message=#{e.message}")
+      end
+
+      def cardholder_state_from_event(event_name)
+        return nil unless event_name.include?('cardholder')
+
+        normalized = event_name.downcase
+        return 'manual_review' if normalized.include?('manual_review')
+        return 'verified' if normalized.match?(/(successful|verified|approved)/)
+        return 'failed' if normalized.match?(/(failed|rejected|declined)/)
+        return 'pending_verification' if normalized.match?(/(pending|processing|initiated)/)
+
+        nil
       end
 
       def normalize_monnify_amount(amount, currency)

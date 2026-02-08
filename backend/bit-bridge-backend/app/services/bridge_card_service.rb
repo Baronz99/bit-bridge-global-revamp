@@ -17,64 +17,25 @@ class BridgeCardService
   # -----------------------------
   # CARDHOLDER
   # -----------------------------
-  def register_cardholder_synchronously(account_params)
-    first_name  = sanitize_text(account_params[:first_name])
-    last_name   = sanitize_text(account_params[:last_name])
-    address     =
-      sanitize_text(account_params[:address]) ||
-      sanitize_text(account_params[:address_line1]) ||
-      sanitize_text(account_params[:deliveryAddress])
-    phone       = sanitize_text(account_params[:phone_number]) || sanitize_text(account_params[:phone])
-    city        = sanitize_text(account_params[:city])
-    state_variants = build_state_variants(account_params[:state])
-    house_no    = sanitize_text(account_params[:house_no])
-    postal_code = sanitize_text(account_params[:postal_code])
-    email       = sanitize_text(account_params[:email]) || sanitize_text(account_params[:email_address])
-    email       ||= sanitize_text(account_params[:user_email]) || sanitize_text(account_params[:login])
-    email       = email.to_s.downcase if email.present?
-    bvn         = sanitize_text(account_params[:bvn]) || fetch_verified_bvn_from_kyc(account_params)
+  def register_cardholder(account_params, mode: :async)
+    registration_mode = mode.to_s.downcase == 'sync' ? :sync : :async
 
-    missing = []
-    missing << 'first_name' if first_name.blank?
-    missing << 'last_name' if last_name.blank?
-    missing << 'address' if address.blank?
-    missing << 'city' if city.blank?
-    missing << 'state' if state_variants.blank?
-    missing << 'phone_number' if phone.blank?
-    missing << 'email' if email.blank?
-    missing << 'bvn' if bvn.blank?
-    raise ArgumentError, "Missing required cardholder fields: #{missing.join(', ')}" if missing.any?
+    normalized = normalize_cardholder_params(account_params)
+    validate_cardholder_required!(normalized, mode: registration_mode)
 
     response = nil
     last_error = nil
-    selected_state = state_variants.first
+    selected_state = normalized[:state_variants].first
 
-    state_variants.each do |candidate_state|
-      address_payload = {
-        address: address,
-        city: city,
-        state: candidate_state,
-        country: 'Nigeria',
-        postal_code: postal_code,
-        house_no: house_no
-      }.compact
-
-      body = {
-        first_name: first_name,
-        last_name: last_name,
-        address: address_payload,
-        phone: phone,
-        email_address: email,
-        identity: {
-          id_type: 'NIGERIAN_BVN_VERIFICATION',
-          bvn: bvn,
-          selfie_image: 'https://image.com'
-        },
-        meta_data: { account_source: 'any_value' }
-      }.to_json
+    normalized[:state_variants].each do |candidate_state|
+      body = build_cardholder_payload(normalized.merge(selected_state: candidate_state)).to_json
+      endpoint =
+        registration_mode == :sync ?
+          issuing_endpoint('cardholder/register_cardholder_synchronously') :
+          issuing_endpoint('cardholder/register_cardholder')
 
       begin
-        response = fetch('post', issuing_endpoint('cardholder/register_cardholder_synchronously'), body)
+        response = fetch('post', endpoint, body)
         selected_state = candidate_state
         break
       rescue StandardError => e
@@ -87,24 +48,21 @@ class BridgeCardService
 
     raise(last_error) if response.blank?
 
-    card_params = {
-      first_name: first_name,
-      last_name: last_name,
-      address: address,
-      phone: phone,
-      city: city,
-      state: selected_state,
-      postal: postal_code,
-      bvn: bvn,
-      house_no: house_no,
-      cardholder_id: response.dig('data', 'cardholder_id'),
-      user_id: account_params[:user_id]
-    }
+    cardholder_id = response.dig('data', 'cardholder_id')
+    card = upsert_cardholder_record!(
+      normalized: normalized,
+      selected_state: selected_state,
+      cardholder_id: cardholder_id,
+      mode: registration_mode
+    )
 
-    card = Card.create!(card_params)
     { data: card, message: response['message'], status: :ok }
   rescue StandardError => e
     { message: e.message, status: :unprocessable_entity }
+  end
+
+  def register_cardholder_synchronously(account_params)
+    register_cardholder(account_params, mode: :sync)
   end
 
   # -----------------------------
@@ -920,6 +878,158 @@ end
     return nil if %w[none null undefined n/a na nil].include?(text.downcase)
 
     text
+  end
+
+  def normalize_cardholder_params(account_params)
+    first_name = sanitize_text(account_params[:first_name])
+    last_name = sanitize_text(account_params[:last_name])
+    address =
+      sanitize_text(account_params[:address]) ||
+      sanitize_text(account_params[:address_line1]) ||
+      sanitize_text(account_params[:deliveryAddress])
+    phone = sanitize_text(account_params[:phone_number]) || sanitize_text(account_params[:phone])
+    city = sanitize_text(account_params[:city])
+    state_variants = build_state_variants(account_params[:state])
+    house_no = sanitize_text(account_params[:house_no])
+    postal_code = sanitize_text(account_params[:postal_code])
+    country = sanitize_text(account_params[:country]) || 'Nigeria'
+    email = sanitize_text(account_params[:email]) || sanitize_text(account_params[:email_address])
+    email ||= sanitize_text(account_params[:user_email]) || sanitize_text(account_params[:login])
+    email = email.to_s.downcase if email.present?
+    id_type = sanitize_text(account_params[:id_type]) || 'NIGERIAN_BVN_VERIFICATION'
+    bvn = sanitize_text(account_params[:bvn]) || fetch_verified_bvn_from_kyc(account_params)
+    id_no = sanitize_text(account_params[:id_no])
+    id_image = sanitize_text(account_params[:id_image])
+    selfie_image = sanitize_text(account_params[:selfie_image])
+    account_source = sanitize_text(account_params[:account_source]) || 'mobile'
+    user_id = account_params[:user_id].presence || account_params[:id].presence
+
+    {
+      first_name: first_name,
+      last_name: last_name,
+      address: address,
+      phone: phone,
+      city: city,
+      state_variants: state_variants,
+      house_no: house_no,
+      postal_code: postal_code,
+      country: country,
+      email: email,
+      id_type: id_type,
+      bvn: bvn,
+      id_no: id_no,
+      id_image: id_image,
+      selfie_image: selfie_image,
+      account_source: account_source,
+      user_id: user_id
+    }
+  end
+
+  def validate_cardholder_required!(normalized, mode:)
+    missing = []
+    missing << 'first_name' if normalized[:first_name].blank?
+    missing << 'last_name' if normalized[:last_name].blank?
+    missing << 'address' if normalized[:address].blank?
+    missing << 'city' if normalized[:city].blank?
+    missing << 'state' if normalized[:state_variants].blank?
+    missing << 'phone_number' if normalized[:phone].blank?
+    missing << 'email' if normalized[:email].blank?
+    missing << 'id_type' if normalized[:id_type].blank?
+
+    id_type = normalized[:id_type].to_s.upcase
+    if id_type == 'NIGERIAN_BVN_VERIFICATION'
+      missing << 'bvn' if normalized[:bvn].blank?
+      missing << 'selfie_image' if normalized[:selfie_image].blank?
+    else
+      missing << 'id_no' if normalized[:id_no].blank?
+      missing << 'id_image' if normalized[:id_image].blank?
+      missing << 'bvn' if id_type.start_with?('NIGERIAN_') && normalized[:bvn].blank?
+      missing << 'selfie_image' if mode.to_sym == :sync && normalized[:selfie_image].blank?
+    end
+
+    raise ArgumentError, "Missing required cardholder fields: #{missing.join(', ')}" if missing.any?
+  end
+
+  def build_cardholder_payload(normalized)
+    identity = { id_type: normalized[:id_type] }
+    id_type = normalized[:id_type].to_s.upcase
+
+    if id_type == 'NIGERIAN_BVN_VERIFICATION'
+      identity[:bvn] = normalized[:bvn]
+      identity[:selfie_image] = normalized[:selfie_image]
+    else
+      identity[:id_no] = normalized[:id_no]
+      identity[:id_image] = normalized[:id_image]
+      identity[:bvn] = normalized[:bvn] if normalized[:bvn].present?
+      identity[:selfie_image] = normalized[:selfie_image] if normalized[:selfie_image].present?
+    end
+
+    {
+      first_name: normalized[:first_name],
+      last_name: normalized[:last_name],
+      address: {
+        address: normalized[:address],
+        city: normalized[:city],
+        state: normalized[:selected_state],
+        country: normalized[:country],
+        postal_code: normalized[:postal_code],
+        house_no: normalized[:house_no]
+      }.compact,
+      phone: normalized[:phone],
+      email_address: normalized[:email],
+      identity: identity.compact,
+      meta_data: {
+        account_source: normalized[:account_source],
+        user_id: normalized[:user_id]
+      }.compact
+    }
+  end
+
+  def upsert_cardholder_record!(normalized:, selected_state:, cardholder_id:, mode:)
+    user_id = normalized[:user_id]
+    raise ArgumentError, 'user_id is required for cardholder registration' if user_id.blank?
+
+    card =
+      if cardholder_id.present?
+        Card.find_by(cardholder_id: cardholder_id) || Card.where(user_id: user_id).order(created_at: :desc).first
+      else
+        Card.where(user_id: user_id).order(created_at: :desc).first
+      end
+    card ||= Card.new(user_id: user_id)
+
+    meta = card.meta_data.is_a?(Hash) ? card.meta_data.dup : {}
+    cardholder_status = mode.to_sym == :sync ? 'verified' : 'pending_verification'
+    meta['cardholder_kyc_status'] = cardholder_status
+    meta['cardholder_registration_mode'] = mode.to_s
+    meta['cardholder_status_updated_at'] = Time.current.iso8601
+
+    card.assign_attributes(
+      first_name: normalized[:first_name],
+      last_name: normalized[:last_name],
+      address: normalized[:address],
+      phone: normalized[:phone],
+      city: normalized[:city],
+      state: selected_state,
+      postal: normalized[:postal_code],
+      bvn: normalized[:bvn],
+      house_no: normalized[:house_no],
+      id_type: normalized[:id_type],
+      account_source: normalized[:account_source],
+      cardholder_id: cardholder_id.presence || card.cardholder_id,
+      meta_data: meta
+    )
+
+    if card.card_id.blank?
+      card.status =
+        case cardholder_status
+        when 'verified' then 'pending'
+        when 'pending_verification' then 'pending_verification'
+        else card.status
+        end
+    end
+
+    card.save!
+    card
   end
 
   def fetch_verified_bvn_from_kyc(account_params)

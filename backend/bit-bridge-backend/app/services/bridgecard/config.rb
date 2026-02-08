@@ -24,6 +24,9 @@ module Bridgecard
       if live? && token.blank?
         raise Error, 'Bridgecard live token is missing'
       end
+      if live? && token_sandbox_like?(token)
+        raise Error, 'Bridgecard token appears to be sandbox while BRIDGECARD_ENV=live'
+      end
 
       token
     end
@@ -70,6 +73,13 @@ module Bridgecard
         token_source: token_source,
         livemode_expected: live?
       }
+    end
+
+    def self.token_sandbox_like?(token)
+      value = token.to_s.downcase
+      return false if value.blank?
+
+      value.include?('sandbox') || value.include?('test')
     end
   end
 end

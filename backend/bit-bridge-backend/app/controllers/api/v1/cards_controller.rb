@@ -84,8 +84,16 @@ module Api
 
         processed[:email] ||= processed[:email_address].presence || current_user.email
         processed[:phone] ||= processed[:phone_number].presence
+        processed[:user_id] ||= current_user.id
 
-        service_response = service.register_cardholder_synchronously(processed)
+        registration_mode =
+          if card_params[:registration_mode].to_s.casecmp('sync').zero?
+            :sync
+          else
+            :async
+          end
+
+        service_response = service.register_cardholder(processed, mode: registration_mode)
 
         if service_response[:status] == :ok
           render json: { data: service_response[:data], message: service_response[:message] }, status: :ok
@@ -119,6 +127,16 @@ module Api
 
         service = BridgeCardService.new
         recent_card = current_user.cards.order(created_at: :asc).last
+
+        if recent_card.present? && recent_card.card_id.blank?
+          meta = recent_card.meta_data.is_a?(Hash) ? recent_card.meta_data : {}
+          kyc_status = meta['cardholder_kyc_status'].to_s
+          if %w[pending_verification manual_review failed].include?(kyc_status)
+            return render json: {
+              message: "Cardholder verification is #{kyc_status.tr('_', ' ')}. Complete verification before card creation."
+            }, status: :unprocessable_entity
+          end
+        end
 
         processed = normalized_card_params
 
@@ -458,6 +476,7 @@ module Api
           :house_no, :bvn, :account_source,
           :wallet_type,
           :first_name, :last_name, :phone, :phone_number, :email_address, :country, :id_type, :selfie_image,
+          :id_no, :id_image, :registration_mode,
           :address_line1,
           :email, :limit, :deliveryAddress, :design, :agreeTos,
           meta_data: [:any_key]
