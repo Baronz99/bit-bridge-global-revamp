@@ -1,126 +1,60 @@
 <!DOCTYPE html>
 <html>
-
 <head>
-    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
-    <style>
-        body {
-            font-family: 'Arial', sans-serif;
-            line-height: 1.6;
-            color: #333333;
-            max-width: 600px;
-            margin: 0 auto;
-            padding: 20px;
-            background-color: #f9f9f9;
-        }
-
-        .header {
-            padding: 20px;
-            text-align: center;
-            background: #333333;
-            color: white;
-            border-radius: 5px 5px 0 0;
-        }
-
-        .logo {
-            max-width: 120px;
-            width: 100%;
-            height: 80px;
-            background: gray
-        }
-
-        .content {
-            padding: 25px;
-            background-color: white;
-        }
-
-        .order-details {
-            margin: 20px 0;
-            border: 1px solid #e0e0e0;
-            border-radius: 5px;
-            padding: 15px;
-        }
-
-        .button {
-            display: inline-block;
-            padding: 12px 24px;
-            background-color: #0056b3;
-            color: white;
-            text-decoration: none;
-            border-radius: 4px;
-            font-weight: bold;
-            margin: 15px 0;
-        }
-
-        .footer {
-            margin-top: 20px;
-            padding-top: 20px;
-            border-top: 1px solid #e0e0e0;
-            font-size: 12px;
-            color: #777777;
-            text-align: center;
-        }
-
-        .highlight {
-            color: #0056b3;
-            font-weight: bold;
-        }
-    </style>
+  <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+  <style>
+    body { font-family: Arial, sans-serif; line-height: 1.6; color: #1f2937; max-width: 600px; margin: 0 auto; padding: 20px; background-color: #f8fafc; }
+    .header { padding: 20px; text-align: center; background: #0b1220; color: #ffffff; border-radius: 8px 8px 0 0; }
+    .logo { max-width: 120px; height: 80px; display: block; margin: 0 auto 8px; }
+    .content { padding: 24px; background-color: #ffffff; border: 1px solid #e5e7eb; border-top: none; }
+    .order-details { margin: 16px 0; border: 1px solid #e5e7eb; border-radius: 6px; padding: 14px; }
+    .highlight { color: #0b63ce; font-weight: 700; }
+    .footer { margin-top: 18px; padding-top: 16px; border-top: 1px solid #e5e7eb; font-size: 12px; color: #6b7280; text-align: center; }
+  </style>
 </head>
-
 <body>
-    <div class="header">
-        <%= image_tag attachments["logo"].url, class: "logo", style:"height: 80px; display: block;",  alt: "Company Logo"  %>
-        <h1>Purchase Confirmation</h1>
+  <div class="header">
+    <% if attachments['logo'].present? %>
+      <%= image_tag attachments['logo'].url, class: 'logo', alt: 'BitBridge Global Logo' %>
+    <% end %>
+    <h1><%= @order.status.to_s == 'completed' ? 'Transaction Receipt' : 'Transaction Update' %></h1>
+  </div>
+
+  <div class="content">
+    <p>Dear <%= @order.name.presence || 'Customer' %>,</p>
+
+    <p>
+      <span class="highlight">BitBridge Global</span>
+      <%= @order.status.to_s == 'completed' ? 'has successfully processed your transaction.' : 'has updated your transaction status.' %>
+    </p>
+
+    <div class="order-details">
+      <h3>Order #<%= @order.transaction_id.presence || @order.id %></h3>
+      <p><strong>Status:</strong> <%= @order.status.to_s.upcase %></p>
+      <p><strong>Date:</strong> <%= @order.created_at.strftime('%B %d, %Y %H:%M') %></p>
+      <p><strong>Amount:</strong> <%= number_to_currency(@order.amount.to_f, unit: 'NGN ', delimiter: ',', precision: 2) %></p>
+      <p><strong>Service Charge:</strong> <%= number_to_currency(@order.service_charge.to_f, unit: 'NGN ', delimiter: ',', precision: 2) %></p>
+      <p><strong>Total Charged:</strong> <%= number_to_currency(@order.total_amount.to_f, unit: 'NGN ', delimiter: ',', precision: 2) %></p>
+      <p><strong>Payment Method:</strong> <%= @order.payment_method %></p>
+      <p><strong>Biller:</strong> <%= @order.biller %></p>
+      <p><strong>Service Type:</strong> <%= @order.service_type %></p>
+
+      <% if @order.service_type.to_s == 'ELECTRICITY' && @order.token.present? %>
+        <p style="font-size: 18px; color: #0b63ce;"><strong>Token:</strong> <%= @order.token %></p>
+      <% end %>
+
+      <% if @order.reason.present? %>
+        <p><strong>Reason:</strong> <%= @order.reason %></p>
+      <% end %>
     </div>
 
-    <div class="content">
-        <p>Dear <%= @order.name %>,</p>
+    <p>For any questions, contact us at <a href="mailto:support@bitbridgeglobal.com">support@bitbridgeglobal.com</a>.</p>
+    <p>Thank you for choosing BitBridge Global.</p>
+  </div>
 
-        <p>Thank you for your purchase with <span class="highlight">BitBridge Global</span>. Your order has been successfully processed.</p>
-
-        <div class="order-details">
-            <h3>Order #<%= @order.transaction_id %></h3>
-            <p><strong>Date:</strong> <%= @order.created_at.strftime("%B %d, %Y %H:%M") %></p>
-            <p><strong>Total Amount:</strong> <%= number_to_currency(@order.total_amount, unit: "₦", delimiter: ",", precision: 2) %></p>
-
-            <p><strong>Payment Method:</strong> <%= @order.payment_method %></p>
-
-            <h1>
-
-
-            </h1>
-
-            <p><strong>Biller:</strong> <%= @order.biller%></p>
-            <p><strong>Service Type:</strong> <%= @order.service_type%></p>
-
-            <% if @order.token.present? %>
-            <p style="font-size: 20px; color: #0056b3;">
-                <strong>Token:</strong> <%= @order.token %>
-            </p>
-            <% end %>
-
-
-
-
-        </div>
-
-
-        <p>For any questions about your order, please contact our support team at <a href="mailto:support@bitbridgeglobal.com">support@bitbridgeglobal.com</a>.</p>
-
-        <p>Thank you for choosing BitBridge Global!</p>
-    </div>
-
-    <div class="footer">
-        <p>&copy; <%= Time.current.year %> BitBridge Global. All rights reserved.</p>
-        <p>
-            BitBridge Global Inc.<br>
-        </p>
-        <p>
-            <a href="https://www.bitbridgeglobal.com">www.bitbridgeglobal.com</a> |
-            <a href="mailto:info@bitbridgeglobal.com">info@bitbridgeglobal.com</a>
-        </p>
-    </div>
+  <div class="footer">
+    <p>&copy; <%= Time.current.year %> BitBridge Global. All rights reserved.</p>
+    <p><a href="https://www.bitbridgeglobal.com">www.bitbridgeglobal.com</a></p>
+  </div>
 </body>
-
 </html>

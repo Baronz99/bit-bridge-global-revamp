@@ -3,6 +3,7 @@
 class BillOrder < ApplicationRecord
   attr_accessor :demand_category, :use_commission, :commission_balance
   TERMINAL_STATUSES = %w[completed failed refunded declined timedout disputed].freeze
+  RECEIPT_EMAIL_STATUSES = %w[completed failed declined timedout refunded].freeze
   ALLOWED_STATUS_TRANSITIONS = {
     'initialized' => %w[initialized pending processing completed failed declined timedout],
     'pending' => %w[pending processing completed failed declined timedout refunded],
@@ -69,6 +70,7 @@ class BillOrder < ApplicationRecord
 
   after_update :save_commission, if: :should_apply_commission?
   after_commit :create_reward_transaction, on: :update
+  after_commit :enqueue_receipt_email_if_terminal, on: :update
 
 
 
@@ -188,6 +190,22 @@ class BillOrder < ApplicationRecord
 
 
   private
+
+  def enqueue_receipt_email_if_terminal
+    return unless saved_change_to_status?
+    return unless RECEIPT_EMAIL_STATUSES.include?(status.to_s)
+    return if email.blank?
+    return if receipt_email_already_sent?
+
+    SendOrderReceiptJob.perform_later(id)
+  rescue StandardError => e
+    Rails.logger.error("[BillOrder] enqueue_receipt_email_if_terminal failed order=#{id} error=#{e.class}: #{e.message}")
+  end
+
+  def receipt_email_already_sent?
+    receipt_meta = safe_provider_payload['receipt_email']
+    receipt_meta.is_a?(Hash) && receipt_meta['status'] == 'sent'
+  end
 
   def net_total
     amount.to_f + calc_service_charge.to_f

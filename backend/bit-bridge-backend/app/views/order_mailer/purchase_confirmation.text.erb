@@ -1,27 +1,26 @@
-Purchase Confirmation - BitBridge Global
+BitBridge Global Transaction Receipt
 
-Dear <%= @order.name %>,
+Dear <%= @order.name.presence || 'Customer' %>,
 
-Thank you for your purchase with BitBridge Global. Your order has been successfully processed.
+<%= @order.status.to_s == 'completed' ? 'Your transaction was completed successfully.' : 'Your transaction status has been updated.' %>
 
-Order Details:
+Order Details
 -------------
-Order Number: <%= @order.transaction_id %>
-Date: <%= @order.created_at.strftime("%B %d, %Y %H:%M") %>
-Total Amount: <%= number_to_currency(@order.amount) %>
+Order Number: <%= @order.transaction_id.presence || @order.id %>
+Status: <%= @order.status.to_s.upcase %>
+Date: <%= @order.created_at.strftime('%B %d, %Y %H:%M') %>
+Amount: <%= number_to_currency(@order.amount.to_f, unit: 'NGN ', delimiter: ',', precision: 2) %>
+Service Charge: <%= number_to_currency(@order.service_charge.to_f, unit: 'NGN ', delimiter: ',', precision: 2) %>
+Total Charged: <%= number_to_currency(@order.total_amount.to_f, unit: 'NGN ', delimiter: ',', precision: 2) %>
 Payment Method: <%= @order.payment_method %>
+Biller: <%= @order.biller %>
+Service Type: <%= @order.service_type %>
+<% if @order.service_type.to_s == 'ELECTRICITY' && @order.token.present? %>
+Token: <%= @order.token %>
+<% end %>
+<% if @order.reason.present? %>
+Reason: <%= @order.reason %>
+<% end %>
 
-
-
-For any questions about your order, please contact our support team at support@bitbridgeglobal.com.
-
-Thank you for choosing BitBridge Global!
-
----
-© <%= Time.current.year %> BitBridge Global. All rights reserved.
-BitBridge Global Inc.
-123 Financial District, Suite 456
-New York, NY 10005, USA
-
+Need help? support@bitbridgeglobal.com
 Website: https://www.bitbridgeglobal.com
-Email: info@bitbridgeglobal.com
