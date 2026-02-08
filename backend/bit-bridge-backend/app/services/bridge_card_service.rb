@@ -18,38 +18,51 @@ class BridgeCardService
   # CARDHOLDER
   # -----------------------------
   def register_cardholder_synchronously(account_params)
-    first_name  = account_params[:first_name]
-    last_name   = account_params[:last_name]
+    first_name  = sanitize_text(account_params[:first_name])
+    last_name   = sanitize_text(account_params[:last_name])
     address     =
-      account_params[:address].presence ||
-      account_params[:address_line1].presence ||
-      account_params[:deliveryAddress].presence
-    phone       = account_params[:phone_number] || account_params[:phone]
-    city        = account_params[:city]
+      sanitize_text(account_params[:address]) ||
+      sanitize_text(account_params[:address_line1]) ||
+      sanitize_text(account_params[:deliveryAddress])
+    phone       = sanitize_text(account_params[:phone_number]) || sanitize_text(account_params[:phone])
+    city        = sanitize_text(account_params[:city])
     state_variants = build_state_variants(account_params[:state])
-    house_no    = account_params[:house_no]
-    postal_code = account_params[:postal_code]
-    email       = account_params[:email].presence || account_params[:email_address].presence
-    email       ||= account_params[:user_email].presence || account_params[:login].presence
-    email       = email.to_s.strip.downcase if email.present?
-    bvn         = account_params[:bvn]
+    house_no    = sanitize_text(account_params[:house_no])
+    postal_code = sanitize_text(account_params[:postal_code])
+    email       = sanitize_text(account_params[:email]) || sanitize_text(account_params[:email_address])
+    email       ||= sanitize_text(account_params[:user_email]) || sanitize_text(account_params[:login])
+    email       = email.to_s.downcase if email.present?
+    bvn         = sanitize_text(account_params[:bvn])
+
+    missing = []
+    missing << 'first_name' if first_name.blank?
+    missing << 'last_name' if last_name.blank?
+    missing << 'address' if address.blank?
+    missing << 'city' if city.blank?
+    missing << 'state' if state_variants.blank?
+    missing << 'phone_number' if phone.blank?
+    missing << 'email' if email.blank?
+    missing << 'bvn' if bvn.blank?
+    raise ArgumentError, "Missing required cardholder fields: #{missing.join(', ')}" if missing.any?
 
     response = nil
     last_error = nil
     selected_state = state_variants.first
 
     state_variants.each do |candidate_state|
+      address_payload = {
+        address: address,
+        city: city,
+        state: candidate_state,
+        country: 'Nigeria',
+        postal_code: postal_code,
+        house_no: house_no
+      }.compact
+
       body = {
         first_name: first_name,
         last_name: last_name,
-        address: {
-          address: address,
-          city: city,
-          state: candidate_state,
-          country: 'Nigeria',
-          postal_code: postal_code,
-          house_no: house_no
-        },
+        address: address_payload,
         phone: phone,
         email_address: email,
         identity: {
@@ -865,7 +878,7 @@ end
   end
 
   def build_state_variants(value)
-    raw = value.to_s.strip
+    raw = sanitize_text(value).to_s
     normalized = normalize_state(raw)
 
     variants = [raw, normalized].compact.map(&:strip).reject(&:blank?)
@@ -899,6 +912,14 @@ end
     }.to_json
 
     fetch('post', issuing_endpoint('cards/create_card'), body)
+  end
+
+  def sanitize_text(value)
+    text = value.to_s.strip
+    return nil if text.blank?
+    return nil if %w[none null undefined n/a na nil].include?(text.downcase)
+
+    text
   end
 
  def fetch(method, url, body)
