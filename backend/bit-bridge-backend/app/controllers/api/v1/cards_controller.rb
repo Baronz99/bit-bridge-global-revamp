@@ -457,7 +457,8 @@ module Api
           :status, :postal_code, :user_id, :address, :city, :state, :postal,
           :house_no, :bvn, :account_source,
           :wallet_type,
-          :first_name, :last_name, :phone, :email_address, :country, :id_type, :selfie_image,
+          :first_name, :last_name, :phone, :phone_number, :email_address, :country, :id_type, :selfie_image,
+          :address_line1,
           :email, :limit, :deliveryAddress, :design, :agreeTos,
           meta_data: [:any_key]
         )

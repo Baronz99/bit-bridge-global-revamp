@@ -20,7 +20,10 @@ class BridgeCardService
   def register_cardholder_synchronously(account_params)
     first_name  = account_params[:first_name]
     last_name   = account_params[:last_name]
-    address     = account_params[:address]
+    address     =
+      account_params[:address].presence ||
+      account_params[:address_line1].presence ||
+      account_params[:deliveryAddress].presence
     phone       = account_params[:phone_number] || account_params[:phone]
     city        = account_params[:city]
     state_variants = build_state_variants(account_params[:state])
