@@ -106,6 +106,53 @@ RSpec.describe 'Api::V1::ReceiptsController', type: :request do
       expect(body['data']['kind']).to eq('wallet')
     end
 
+    it 'includes deterministic FX conversion metadata for tunnel wallet transactions' do
+      skip('Factories not available in this environment') unless user
+      wallet = build_wallet(user, currency: 'NGN')
+      fx_quote = FxQuote.create!(
+        user: user,
+        direction: 'ngn_to_usd',
+        base_rate: 1500,
+        markup: 75,
+        execution_rate: 1575,
+        base_rate_raw: 1500,
+        markup_raw: 75,
+        execution_rate_raw: 1575,
+        fee_amount: 100,
+        fee_amount_raw: 100,
+        fee_currency: 'NGN',
+        amount_in: 10_000,
+        amount_in_raw: 10_000,
+        amount_after_fee: 9_900,
+        amount_after_fee_raw: 9_900,
+        amount_out: 6.2857,
+        amount_out_raw: 6.2857,
+        expires_at: 5.minutes.from_now,
+        executed_at: Time.current
+      )
+      wallet_tx = Transaction.create!(
+        wallet: wallet,
+        amount: 10_000,
+        transaction_type: :withdrawal,
+        status: :declined,
+        address: 'Tunnel Conversion (NGN -> USD)',
+        metadata: {
+          fx_quote_token: fx_quote.token,
+          fx_execution_reference: SecureRandom.uuid
+        }
+      )
+
+      get "/api/v1/receipts/wallet-tx-#{wallet_tx.id}", headers: auth_headers(user)
+      expect(response).to have_http_status(:ok)
+      body = JSON.parse(response.body)
+      expect(body.dig('data', 'meta', 'conversion')).to eq(true)
+      expect(body.dig('data', 'meta', 'conversion_direction')).to eq('ngn_to_usd')
+      expect(body.dig('data', 'meta', 'fx', 'quote_token')).to eq(fx_quote.token)
+      expect(body.dig('data', 'meta', 'fx', 'execution_rate')).to eq(1575.0)
+      expect(body.dig('data', 'fees', 0, 'label')).to eq('conversion fee')
+      expect(body.dig('data', 'fees', 0, 'currency')).to eq('NGN')
+    end
+
     it 'returns card event receipt dto' do
       skip('Factories not available in this environment') unless user
       card = build_card(user, card_id: 'card-evt-1')

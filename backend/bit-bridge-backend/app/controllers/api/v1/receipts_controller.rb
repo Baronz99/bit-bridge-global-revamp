@@ -244,6 +244,13 @@ module Api
         amount = txn.amount
         currency = txn.currency || txn.wallet&.currency || 'NGN'
         title = wallet_label(txn, record)
+        fx_quote = resolve_fx_quote_for_receipt(metadata)
+        conversion_meta = build_conversion_meta(txn, metadata, fx_quote)
+        conversion_fees = conversion_fee_array(currency, fx_quote)
+        merged_fees = merge_fee_arrays(
+          fee_array(metadata['fee_breakdown'], currency),
+          conversion_fees
+        )
 
         legacy = {
           reference: "wallet-tx-#{txn.id}",
@@ -260,7 +267,8 @@ module Api
           meta: {
             transaction_record_reference: record&.reference,
             unique_transaction_id: txn.unique_transaction_id,
-            bridge_card_id: txn.bridge_card_id
+            bridge_card_id: txn.bridge_card_id,
+            conversion: conversion_meta
           }.compact
         }.compact
 
@@ -288,10 +296,81 @@ module Api
             transaction_record_reference: record&.reference,
             unique_transaction_id: txn.unique_transaction_id,
             bridge_card_id: txn.bridge_card_id
-          }.compact,
-          fees: fee_array(metadata['fee_breakdown'], currency),
+          }.merge(conversion_meta).compact,
+          fees: merged_fees,
           legacy: legacy
         )
+      end
+
+      def resolve_fx_quote_for_receipt(metadata)
+        token = metadata['fx_quote_token'].to_s.strip
+        return nil if token.blank?
+
+        FxQuote.find_by(user_id: current_user.id, token: token)
+      rescue StandardError
+        nil
+      end
+
+      def conversion_direction_from_address(address)
+        normalized = address.to_s.upcase
+        return 'ngn_to_usd' if normalized.include?('(NGN -> USD)')
+        return 'usd_to_ngn' if normalized.include?('(USD -> NGN)')
+
+        ''
+      end
+
+      def build_conversion_meta(txn, metadata, fx_quote)
+        direction = fx_quote&.direction.presence || conversion_direction_from_address(txn.address)
+        return {} if direction.blank? && metadata['fx_execution_reference'].to_s.strip.blank?
+
+        fx_payload =
+          if fx_quote
+            {
+              quote_token: fx_quote.token,
+              direction: fx_quote.direction,
+              from: fx_quote.direction == 'ngn_to_usd' ? 'NGN' : 'USD',
+              to: fx_quote.direction == 'ngn_to_usd' ? 'USD' : 'NGN',
+              amount_in: fx_quote.amount_in&.to_f,
+              fee_amount: fx_quote.fee_amount&.to_f,
+              fee_currency: fx_quote.fee_currency,
+              amount_after_fee: fx_quote.amount_after_fee&.to_f,
+              base_rate: fx_quote.base_rate&.to_f,
+              markup: fx_quote.markup&.to_f,
+              execution_rate: fx_quote.execution_rate&.to_f,
+              amount_out: fx_quote.amount_out&.to_f,
+              executed_at: fx_quote.executed_at&.iso8601,
+              expires_at: fx_quote.expires_at&.iso8601
+            }.compact
+          else
+            {}
+          end
+
+        {
+          conversion: true,
+          conversion_direction: direction,
+          fx_quote_token: metadata['fx_quote_token'],
+          fx_execution_reference: metadata['fx_execution_reference'],
+          fx: fx_payload
+        }.compact
+      end
+
+      def conversion_fee_array(currency, fx_quote)
+        return [] unless fx_quote
+        return [] unless fx_quote.fee_amount.to_d.positive?
+        return [] unless fx_quote.fee_currency.to_s.upcase == currency.to_s.upcase
+
+        [{
+          label: 'conversion fee',
+          amount: fx_quote.fee_amount,
+          currency: fx_quote.fee_currency
+        }]
+      end
+
+      def merge_fee_arrays(primary_fees, fallback_fees)
+        existing = Array(primary_fees).compact
+        return existing if existing.present?
+
+        Array(fallback_fees).compact
       end
 
       def receipt_from_card_funding(txn, card_event, original_reference:)

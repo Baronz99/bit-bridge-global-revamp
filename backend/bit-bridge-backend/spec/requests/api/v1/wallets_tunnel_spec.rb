@@ -131,6 +131,39 @@ RSpec.describe 'Tunnel conversions', type: :request do
     expect(quote_payload['amount_in']).to eq(5_000.0)
   end
 
+  it 'converts USD to NGN after USD wallet is funded' do
+    post '/api/v1/wallets/tunnel/convert',
+         params: {
+           amount_ngn: 10_000,
+           transaction_pin: '1234'
+         },
+         headers: auth_headers(user)
+
+    expect(response).to have_http_status(:ok)
+
+    ngn_before = user.ngn_wallet.reload.balance.to_d
+    usd_before = user.usd_wallet.reload.balance.to_d
+    expect(usd_before).to be > 0
+
+    post '/api/v1/wallets/tunnel/convert-back',
+         params: {
+           amount_usd: 2,
+           transaction_pin: '1234'
+         },
+         headers: auth_headers(user)
+
+    expect(response).to have_http_status(:ok)
+
+    body = JSON.parse(response.body)
+    quote_payload = body.dig('data', 'quote') || {}
+    expect(quote_payload['from']).to eq('USD')
+    expect(quote_payload['to']).to eq('NGN')
+    expect(quote_payload['amount_in']).to eq(2.0)
+
+    expect(user.usd_wallet.reload.balance.to_d).to be < usd_before
+    expect(user.ngn_wallet.reload.balance.to_d).to be > ngn_before
+  end
+
   it 'executes conversion only once per quote token' do
     fx_quote = FxQuote.create!(
       user: user,
