@@ -31,14 +31,17 @@ Rails.application.configure do
 
   smtp_user = ENV['SMTP_USERNAME'] || Rails.application.credentials.dig(:smtp, :user_name)
   smtp_password = ENV['SMTP_PASSWORD'] || Rails.application.credentials.dig(:smtp, :password)
+  smtp_port = ENV.fetch('SMTP_PORT', '587').to_i
+  use_ssl = (smtp_port == 465)
 
   config.action_mailer.smtp_settings = {
     address: ENV.fetch('SMTP_ADDRESS', 'smtp.hostinger.com'),
-    port: ENV.fetch('SMTP_PORT', 587),
+    port: smtp_port,
     user_name: smtp_user,
     password: smtp_password,
-    authentication: ENV.fetch('SMTP_AUTH', 'plain'),
-    enable_starttls_auto: true
+    authentication: ENV.fetch('SMTP_AUTH', 'plain').to_sym,
+    ssl: use_ssl,
+    enable_starttls_auto: !use_ssl
   }
 
   # Code is not reloaded between requests in production.
