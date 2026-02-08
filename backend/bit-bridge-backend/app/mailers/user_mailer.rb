@@ -3,7 +3,7 @@
 class UserMailer < ApplicationMailer
   def welcome_email(user)
     @user = user
-    attachments.inline['logo'] = File.read(Rails.root.join('app/assets/images/logo1.png'))
+    attach_brand_logo
 
     @url = 'https://bitbridgeglobal.com'
     @confirmation_url = confirm_url(@user.confirmation_token)
@@ -11,7 +11,7 @@ class UserMailer < ApplicationMailer
   end
 
   def login_alert(user)
-    attachments.inline['logo'] = File.read(Rails.root.join('app/assets/images/logo1.png'))
+    attach_brand_logo
     @user = user
     mail(to: @user.email, subject: 'Login Alert to BitBridge Global')
   end
@@ -19,12 +19,7 @@ class UserMailer < ApplicationMailer
   def send_password_reset(user, token)
     @user = user
     @url  = password_reset_url(@user, token)
-    begin
-      logo_path = Rails.root.join('app/assets/images/logo1.png')
-      attachments.inline['logo'] = File.read(logo_path) if File.exist?(logo_path)
-    rescue StandardError
-      # keep password reset flow resilient even if logo asset is unavailable
-    end
+    attach_brand_logo
     @reset_password_within = Devise.reset_password_within
     mail(to: @user.email, subject: 'BitBridge Global - Reset Your Password')
   end

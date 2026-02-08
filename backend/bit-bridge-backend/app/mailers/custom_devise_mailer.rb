@@ -11,11 +11,7 @@ class CustomDeviseMailer < Devise::Mailer
 
     frontend_url = "#{base_url}confirmation?confirmation_token=#{token}"
 
-    begin
-      attachments.inline['logo'] = File.read(Rails.root.join('app/assets/images/logo1.png'))
-    rescue StandardError
-      # if logo missing in dev, don't crash mailer
-    end
+    attach_brand_logo
 
     opts[:subject] = 'Confirm your account'
     @confirmation_link = frontend_url
@@ -34,12 +30,7 @@ class CustomDeviseMailer < Devise::Mailer
     frontend_base = base_url.to_s.end_with?('/') ? base_url : "#{base_url}/"
     reset_url = "#{frontend_base}reset-password?reset_password_token=#{token}"
 
-    begin
-      logo_path = Rails.root.join('app/assets/images/logo1.png')
-      attachments.inline['logo'] = File.read(logo_path) if File.exist?(logo_path)
-    rescue StandardError
-      # ignore missing logo
-    end
+    attach_brand_logo
 
     opts[:subject] = 'BitBridge Global - Reset Your Password'
     @reset_password_link = reset_url

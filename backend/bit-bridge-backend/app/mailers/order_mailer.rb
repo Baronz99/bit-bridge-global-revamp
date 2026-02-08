@@ -3,8 +3,7 @@
 class OrderMailer < ApplicationMailer
   def purchase_confirmation(order)
     @order = order
-    logo_path = Rails.root.join('app/assets/images/logo1.png')
-    attachments.inline['logo'] = File.read(logo_path) if File.exist?(logo_path)
+    attach_brand_logo
 
     mail(
       to: @order.email,
