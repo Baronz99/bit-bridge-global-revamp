@@ -15,6 +15,11 @@ module Api
         def update
           rate = params[:base_usd_ngn_rate] || params.dig(:fx_setting, :base_usd_ngn_rate)
           divisor = params[:provider_fx_divisor] || params.dig(:fx_setting, :provider_fx_divisor)
+          if bridgecard_base_lock_enabled? && rate.present?
+            return render json: { message: 'Base FX rate is locked to Bridgecard provider' },
+                          status: :unprocessable_entity
+          end
+
           rate = rate.to_d
 
           unless rate.between?(500, 5000)
@@ -81,6 +86,10 @@ module Api
         def apply_provider
           if @setting.provider_usd_ngn_rate.blank?
             return render json: { message: 'Provider FX rate not available yet' },
+                          status: :unprocessable_entity
+          end
+          if provider_stale?(@setting)
+            return render json: { message: 'Bridgecard provider feed is stale. Refresh first.' },
                           status: :unprocessable_entity
           end
 
@@ -155,6 +164,11 @@ module Api
           end
 
           updates = {}
+          if apply_ngn && bridgecard_base_lock_enabled?
+            return render json: { message: 'Base FX rate is locked to Bridgecard provider' },
+                          status: :unprocessable_entity
+          end
+
           if apply_ngn && rates['NGN'].present?
             ngn_value = rates['NGN'].to_d
             unless ngn_value.between?(300, 5000)
@@ -227,6 +241,10 @@ module Api
             updated_at: setting.updated_at&.iso8601,
             provider: serialize_provider(setting),
             bridgecard_provider: provider_payload(setting),
+            base_source_lock: {
+              enabled: bridgecard_base_lock_enabled?,
+              source: bridgecard_base_lock_enabled? ? 'bridgecard' : 'manual'
+            },
             base: serialize_base(setting),
             provider_feed: serialize_provider(setting),
             card_fees: card_fees_payload(setting)
@@ -281,6 +299,11 @@ module Api
 
         def provider_stale?(setting)
           setting.provider_updated_at.blank? || setting.provider_updated_at < 12.hours.ago
+        end
+
+        def bridgecard_base_lock_enabled?
+          ENV['FX_BASE_RATE_SOURCE'].to_s.casecmp('bridgecard').zero? ||
+            ActiveModel::Type::Boolean.new.cast(ENV['FX_BASE_RATE_BRIDGECARD_LOCK'])
         end
 
         def rate_in_range?(code, value)

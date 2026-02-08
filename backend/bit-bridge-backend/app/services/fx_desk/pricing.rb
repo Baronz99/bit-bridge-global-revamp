@@ -13,11 +13,14 @@ module FxDesk
     end
 
     def base_rate
+      setting = FxSetting.current
       raw_rate =
         if @base_rate_override.present?
           @base_rate_override
+        elsif bridgecard_base_lock_enabled? && bridgecard_provider_usable?(setting)
+          setting.provider_usd_ngn_rate
         else
-          FxSetting.current.base_usd_ngn_rate
+          setting.base_usd_ngn_rate
         end
 
       raw_rate.to_d.round(46)
@@ -119,6 +122,23 @@ module FxDesk
         amount_out_raw: amount_out_raw,
         as_of: Time.current
       }
+    end
+
+    private
+
+    def bridgecard_base_lock_enabled?
+      ENV['FX_BASE_RATE_SOURCE'].to_s.casecmp('bridgecard').zero? ||
+        ActiveModel::Type::Boolean.new.cast(ENV['FX_BASE_RATE_BRIDGECARD_LOCK'])
+    end
+
+    def bridgecard_provider_usable?(setting)
+      return false unless setting.provider_source.to_s.casecmp('bridgecard').zero?
+      return false if setting.provider_usd_ngn_rate.blank?
+      return false if setting.provider_updated_at.blank?
+
+      max_age_seconds = ENV.fetch('FX_PROVIDER_MAX_AGE_SECONDS', '300').to_i
+      max_age_seconds = 300 if max_age_seconds <= 0
+      setting.provider_updated_at >= max_age_seconds.seconds.ago
     end
   end
 end

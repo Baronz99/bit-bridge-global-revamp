@@ -58,4 +58,40 @@ RSpec.describe FxDesk::Pricing do
     expect(usd_quote[:amount_after_fee]).to eq(FxDesk::Money.usd(usd_quote[:amount_after_fee_raw]))
     expect(usd_quote[:amount_out]).to eq(FxDesk::Money.ngn(usd_quote[:amount_out_raw]))
   end
+
+  it 'uses fresh Bridgecard provider rate as base when lock is enabled' do
+    old_source = ENV['FX_BASE_RATE_SOURCE']
+    old_max_age = ENV['FX_PROVIDER_MAX_AGE_SECONDS']
+    ENV['FX_BASE_RATE_SOURCE'] = 'bridgecard'
+    ENV['FX_PROVIDER_MAX_AGE_SECONDS'] = '300'
+    FxSetting.current.update!(
+      base_usd_ngn_rate: 1500,
+      provider_source: 'bridgecard',
+      provider_usd_ngn_rate: 1600,
+      provider_updated_at: Time.current
+    )
+
+    expect(pricing.base_rate).to eq(1600.to_d)
+  ensure
+    ENV['FX_BASE_RATE_SOURCE'] = old_source
+    ENV['FX_PROVIDER_MAX_AGE_SECONDS'] = old_max_age
+  end
+
+  it 'falls back to stored base rate when Bridgecard feed is stale in lock mode' do
+    old_source = ENV['FX_BASE_RATE_SOURCE']
+    old_max_age = ENV['FX_PROVIDER_MAX_AGE_SECONDS']
+    ENV['FX_BASE_RATE_SOURCE'] = 'bridgecard'
+    ENV['FX_PROVIDER_MAX_AGE_SECONDS'] = '300'
+    FxSetting.current.update!(
+      base_usd_ngn_rate: 1500,
+      provider_source: 'bridgecard',
+      provider_usd_ngn_rate: 1600,
+      provider_updated_at: 10.minutes.ago
+    )
+
+    expect(pricing.base_rate).to eq(1500.to_d)
+  ensure
+    ENV['FX_BASE_RATE_SOURCE'] = old_source
+    ENV['FX_PROVIDER_MAX_AGE_SECONDS'] = old_max_age
+  end
 end

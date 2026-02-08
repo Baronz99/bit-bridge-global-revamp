@@ -53,7 +53,7 @@ RSpec.describe 'Admin FX settings provider', type: :request do
 
   it 'applies provider FX rate to base rate' do
     setting = FxSetting.current
-    setting.update!(provider_usd_ngn_rate: 741.0)
+    setting.update!(provider_usd_ngn_rate: 741.0, provider_updated_at: Time.current)
 
     post '/api/v1/admin/fx-settings/apply-provider', headers: headers
 
@@ -61,6 +61,17 @@ RSpec.describe 'Admin FX settings provider', type: :request do
     body = JSON.parse(response.body)
     expect(body['message']).to be_present
     expect(body.dig('data', 'base_usd_ngn_rate')).to eq(741.0)
+  end
+
+  it 'rejects apply-provider when bridgecard provider feed is stale' do
+    setting = FxSetting.current
+    setting.update!(provider_usd_ngn_rate: 741.0, provider_updated_at: 2.days.ago)
+
+    post '/api/v1/admin/fx-settings/apply-provider', headers: headers
+
+    expect(response).to have_http_status(:unprocessable_entity)
+    body = JSON.parse(response.body)
+    expect(body['message']).to match(/stale/i)
   end
 
   it 'parses string raw values from provider feed' do
@@ -91,5 +102,20 @@ RSpec.describe 'Admin FX settings provider', type: :request do
     body = JSON.parse(response.body)
     expect(body['message']).to eq('Bridgecard rate limited')
     expect(body.dig('data', 'provider')).to be_present
+  end
+
+  it 'blocks manual base update when bridgecard lock is enabled' do
+    old_source = ENV['FX_BASE_RATE_SOURCE']
+    ENV['FX_BASE_RATE_SOURCE'] = 'bridgecard'
+
+    patch '/api/v1/admin/fx-settings',
+          params: { base_usd_ngn_rate: 1550 },
+          headers: headers
+
+    expect(response).to have_http_status(:unprocessable_entity)
+    body = JSON.parse(response.body)
+    expect(body['message']).to match(/locked/i)
+  ensure
+    ENV['FX_BASE_RATE_SOURCE'] = old_source
   end
 end

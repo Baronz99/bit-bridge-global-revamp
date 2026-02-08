@@ -110,4 +110,20 @@ RSpec.describe 'Admin FX settings exchange rate provider', type: :request do
     expect(setting.base_fx_rates['EURUSD']).to eq(1.11111111)
     expect(setting.base_fx_rates['USDNGN']).to eq(1500.0)
   end
+
+  it 'blocks exchangerate apply from updating NGN base when bridgecard lock is enabled' do
+    old_source = ENV['FX_BASE_RATE_SOURCE']
+    ENV['FX_BASE_RATE_SOURCE'] = 'bridgecard'
+    FxSetting.current.update!(provider_updated_at: Time.current, provider_rates: { 'NGN' => 1500, 'EUR' => 0.9 })
+
+    post '/api/v1/admin/fx-settings/provider/apply',
+         params: { apply: { ngn_to_usd_base: true, currencies: ['EUR'] } },
+         headers: headers
+
+    expect(response).to have_http_status(:unprocessable_entity)
+    body = JSON.parse(response.body)
+    expect(body['message']).to match(/locked/i)
+  ensure
+    ENV['FX_BASE_RATE_SOURCE'] = old_source
+  end
 end
