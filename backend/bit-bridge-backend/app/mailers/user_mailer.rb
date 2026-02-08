@@ -19,7 +19,14 @@ class UserMailer < ApplicationMailer
   def send_password_reset(user, token)
     @user = user
     @url  = password_reset_url(@user, token)
-    mail(to: @user.email, subject: 'Reset Your Password')
+    begin
+      logo_path = Rails.root.join('app/assets/images/logo1.png')
+      attachments.inline['logo'] = File.read(logo_path) if File.exist?(logo_path)
+    rescue StandardError
+      # keep password reset flow resilient even if logo asset is unavailable
+    end
+    @reset_password_within = Devise.reset_password_within
+    mail(to: @user.email, subject: 'BitBridge Global - Reset Your Password')
   end
 
   private
