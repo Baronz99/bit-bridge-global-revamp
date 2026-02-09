@@ -112,6 +112,8 @@ export default function VirtualCardApplication() {
   const hasCardId = Boolean(card?.card_id)
   const showCardholderForm = !hasCardholder
   const showCreateForm = hasCardholder && !hasCardId
+  const requiresSelfie =
+    String(formData.id_type || '').toUpperCase() === 'NIGERIAN_BVN_VERIFICATION'
   const lastFunding = Number(cardInsights?.last_funding_amount || 0)
   const hasLastFunding = lastFunding > 0
   const todaysSpend = 0
@@ -345,6 +347,7 @@ export default function VirtualCardApplication() {
       phone: user.user_profile.phone_number || '',
       email_address: user.email || '',
       country: 'Nigeria',
+      selfie_image: user?.user_profile?.selfie_image || prev.selfie_image || '',
     }))
   }, [user])
 
@@ -356,6 +359,7 @@ export default function VirtualCardApplication() {
       city: card?.city || '',
       state: card?.state || '',
       bvn: card?.bvn || '',
+      selfie_image: card?.selfie_image || prev.selfie_image || '',
       address: card?.address || '',
       house_no: card?.house_no || '',
       postal_code: card?.postal_code || '',
@@ -399,6 +403,9 @@ const setPin = (nextPin) => {
 
 
   function validateCardholder() {
+    if (requiresSelfie && !String(formData.selfie_image || '').trim()) {
+      return 'Selfie image is required for BVN cardholder verification.'
+    }
     if (!formData.agreeTos) return 'You must agree to the terms.'
     return null
   }
@@ -2127,6 +2134,19 @@ const setPin = (nextPin) => {
                     placeholder="BVN"
                     className="p-2.5 rounded-md bg-slate-800 border border-slate-700 text-sm w-full"
                   />
+                </div>
+                <div className="mt-4">
+                  <input
+                    name="selfie_image"
+                    value={formData.selfie_image}
+                    onChange={handleChange}
+                    placeholder="Selfie image URL or reference"
+                    className="p-2.5 rounded-md bg-slate-800 border border-slate-700 text-sm w-full"
+                    required={requiresSelfie}
+                  />
+                  <p className="text-[11px] text-slate-400 mt-1">
+                    Required for BVN cardholder verification.
+                  </p>
                 </div>
               </div>
 
