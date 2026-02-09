@@ -10,6 +10,7 @@ module Api
                     only: %i[
                       create
                       get_account_number
+                      provision_account_number
                       initiate_fund_transfer
                       verify_kyc
                       create_counter_party
@@ -88,7 +89,9 @@ module Api
           end
           render json: {
             data:     service_response[:response],
-            messsage: 'Account created'
+            message:  'Account created',
+            messsage: 'Account created',
+            flow: anchor_flow_snapshot(account, has_deposit_account: true)
           }, status: :ok
         else
           raw_message = service_response[:message] || service_response[:response]
@@ -109,6 +112,12 @@ module Api
           render json: anchor_error_payload(code, raw_message, retryable: retryable),
                  status: :unprocessable_entity
         end
+      end
+
+      # Preferred verb for state-changing account provisioning.
+      # Kept separate to preserve compatibility with existing GET clients.
+      def provision_account_number
+        get_account_number
       end
 
       def show
@@ -366,7 +375,8 @@ module Api
           return render json: {
             data:    nil,
             message: 'No Anchor account yet',
-            has_anchor_account: false
+            has_anchor_account: false,
+            flow: anchor_flow_snapshot(nil)
           }, status: :ok
         end
 
@@ -389,8 +399,10 @@ module Api
         if service_response[:status] == :ok
           render json: {
             data:     service_response[:data],
+            message:  'Account Numbers fetched',
             messsage: 'Account Numbers fetched',
-            has_anchor_account: true
+            has_anchor_account: true,
+            flow: anchor_flow_snapshot(account, has_deposit_account: true)
           }, status: :ok
         else
           message = service_response[:message] || service_response[:response]
@@ -398,7 +410,8 @@ module Api
             return render json: {
               data: nil,
               message: 'No deposit account yet',
-              has_anchor_account: true
+              has_anchor_account: true,
+              flow: anchor_flow_snapshot(account, has_deposit_account: false)
             }, status: :ok
           end
 
@@ -460,7 +473,11 @@ module Api
           return render json: {
             message: 'Complete your profile to create an Anchor account.',
             error_code: 'ANCHOR_ONBOARDING_INCOMPLETE',
-            missing_fields: missing_fields
+            missing_fields: missing_fields,
+            flow: {
+              state: 'blocked_profile_incomplete',
+              next_action: 'complete_profile'
+            }
           }, status: :unprocessable_entity
         end
 
@@ -470,7 +487,11 @@ module Api
         if service_response[:status] == :ok
           render json: {
             data:    service_response[:response],
-            message: 'User onboarded successfully'
+            message: 'User onboarded successfully',
+            flow: {
+              state: 'customer_created_no_deposit_account',
+              next_action: 'provision_account_number'
+            }
           }, status: :ok
         else
           duplicate_phone_error = duplicate_anchor_phone_error?(service_response[:message])
@@ -482,7 +503,11 @@ module Api
             )
             return render json: {
               message: 'This phone number already exists in Anchor Sandbox.',
-              error_code: 'ANCHOR_PHONE_EXISTS'
+              error_code: 'ANCHOR_PHONE_EXISTS',
+              flow: {
+                state: 'blocked_phone_exists',
+                next_action: 'contact_support_or_retry_detail_fetch'
+              }
             }, status: :conflict
           end
 
@@ -498,7 +523,12 @@ module Api
           )
 
           render json: {
-            message: service_response[:message].presence || 'Unable to create Anchor account.'
+            message: service_response[:message].presence || 'Unable to create Anchor account.',
+            error_code: 'ANCHOR_ONBOARDING_FAILED',
+            flow: {
+              state: 'temporary_provider_failure',
+              next_action: 'retry_create_anchor_account'
+            }
           }, status: :unprocessable_entity
         end
       end
@@ -739,13 +769,49 @@ module Api
       def anchor_error_payload(code, message, retryable:)
         {
           error: code,
+          error_code: code,
           errors: [message.presence || 'Unable to generate account number'],
           meta: {
             provider: 'anchor',
             request_id: request.request_id,
-            retryable: retryable
+            retryable: retryable,
+            flow: anchor_error_flow(code)
           }
         }
+      end
+
+      def anchor_flow_snapshot(account, has_deposit_account: false)
+        if account.nil?
+          return {
+            state: 'not_started',
+            next_action: 'create_anchor_account'
+          }
+        end
+
+        return {
+          state: 'customer_created_no_deposit_account',
+          next_action: 'provision_account_number'
+        } unless has_deposit_account
+
+        {
+          state: 'provisioned',
+          next_action: 'none'
+        }
+      end
+
+      def anchor_error_flow(code)
+        case code
+        when 'anchor_account_missing'
+          { state: 'not_started', next_action: 'create_anchor_account' }
+        when 'anchor_kyc_incomplete'
+          { state: 'blocked_kyc', next_action: 'complete_kyc' }
+        when 'anchor_phone_already_exists'
+          { state: 'blocked_phone_exists', next_action: 'contact_support_or_retry_detail_fetch' }
+        when 'provider_unavailable'
+          { state: 'temporary_provider_failure', next_action: 'retry_provision' }
+        else
+          { state: 'customer_created_no_deposit_account', next_action: 'retry_provision' }
+        end
       end
 
       def log_anchor_account_number_failure(status:, code:, message:, account_id:, retryable: nil, provider_status: nil, provider_body: nil)
@@ -823,7 +889,11 @@ module Api
         render json: {
           error: 'kyc_required',
           required_level: required_level,
-          message: 'Please complete Tier 2 verification before generating or using an Anchor virtual account.'
+          message: 'Please complete Tier 2 verification before generating or using an Anchor virtual account.',
+          flow: {
+            state: 'blocked_kyc',
+            next_action: 'complete_kyc'
+          }
         }, status: :forbidden
       end
     end

@@ -3,34 +3,41 @@
 require 'rails_helper'
 
 RSpec.describe 'Anchor account number', type: :request do
+  def build_user(*traits)
+    create(:user, *traits, email: "user-#{SecureRandom.hex(6)}@example.com")
+  end
+
   describe 'GET /api/v1/accounts/get_account_number' do
     it 'requires Tier 2 (forbidden when not verified)' do
-      user = create(:user) # not tier2
+      user = build_user # not tier2
       get '/api/v1/accounts/get_account_number', headers: auth_headers(user)
       expect(response).to have_http_status(:forbidden)
       body = JSON.parse(response.body)
       expect(body['error']).to eq('kyc_required')
+      expect(body.dig('flow', 'state')).to eq('blocked_kyc')
     end
 
     it 'returns 404 when current user has no anchor account' do
-      user = create(:user, :tier2)
+      user = build_user(:tier2)
       get '/api/v1/accounts/get_account_number', headers: auth_headers(user)
       expect(response).to have_http_status(:not_found)
       body = JSON.parse(response.body)
       expect(body['errors']).to include('No Anchor account present')
+      expect(body['error_code']).to eq('anchor_account_missing')
+      expect(body.dig('meta', 'flow', 'state')).to eq('not_started')
     end
 
     it 'returns 404 when another users anchor account exists (scoped to current_user)' do
-      other = create(:user, :tier2)
+      other = build_user(:tier2)
       Account.create!(user: other, vendor: 'anchor', account_type: :individual, useable_id: 'abc123')
 
-      user = create(:user, :tier2)
+      user = build_user(:tier2)
       get '/api/v1/accounts/get_account_number', headers: auth_headers(user)
       expect(response).to have_http_status(:not_found)
     end
 
     it 'returns anchor_phone_already_exists code when provider rejects duplicate phone' do
-      user = create(:user, :tier2)
+      user = build_user(:tier2)
       Account.create!(user: user, vendor: 'anchor', account_type: :individual, useable_id: 'abc123')
       allow_any_instance_of(AnchorService).to receive(:create_account_number).and_return(
         { status: :bad_request, message: 'PhoneNumber already exist in this organization' }
@@ -40,13 +47,15 @@ RSpec.describe 'Anchor account number', type: :request do
       expect(response).to have_http_status(:unprocessable_entity)
       body = JSON.parse(response.body)
       expect(body['error']).to eq('anchor_phone_already_exists')
+      expect(body['error_code']).to eq('anchor_phone_already_exists')
       expect(body['errors'].first).to match(/phone/i)
       expect(body.dig('meta', 'provider')).to eq('anchor')
       expect(body.dig('meta', 'retryable')).to eq(false)
+      expect(body.dig('meta', 'flow', 'state')).to eq('blocked_phone_exists')
     end
 
     it 'returns provider_unavailable code when provider is down' do
-      user = create(:user, :tier2)
+      user = build_user(:tier2)
       Account.create!(user: user, vendor: 'anchor', account_type: :individual, useable_id: 'abc123')
       allow_any_instance_of(AnchorService).to receive(:create_account_number).and_return(
         { status: :bad_request, message: '503 Service unavailable', provider_status: 503, provider_body: { error: 'unavailable' } }
@@ -56,11 +65,13 @@ RSpec.describe 'Anchor account number', type: :request do
       expect(response).to have_http_status(:unprocessable_entity)
       body = JSON.parse(response.body)
       expect(body['error']).to eq('provider_unavailable')
+      expect(body['error_code']).to eq('provider_unavailable')
       expect(body.dig('meta', 'retryable')).to eq(true)
+      expect(body.dig('meta', 'flow', 'state')).to eq('temporary_provider_failure')
     end
 
     it 'returns anchor_phone_already_exists for alternate phone message' do
-      user = create(:user, :tier2)
+      user = build_user(:tier2)
       Account.create!(user: user, vendor: 'anchor', account_type: :individual, useable_id: 'abc123')
       allow_any_instance_of(AnchorService).to receive(:create_account_number).and_return(
         { status: :bad_request, message: 'phone number already attached to customer', provider_status: 400, provider_body: { errors: [{ detail: 'phone number already attached' }] } }
@@ -70,11 +81,12 @@ RSpec.describe 'Anchor account number', type: :request do
       expect(response).to have_http_status(:unprocessable_entity)
       body = JSON.parse(response.body)
       expect(body['error']).to eq('anchor_phone_already_exists')
+      expect(body['error_code']).to eq('anchor_phone_already_exists')
       expect(body.dig('meta', 'retryable')).to eq(false)
     end
 
     it 'returns anchor_account_number_failed with request_id on generic errors' do
-      user = create(:user, :tier2)
+      user = build_user(:tier2)
       Account.create!(user: user, vendor: 'anchor', account_type: :individual, useable_id: 'abc123')
       allow_any_instance_of(AnchorService).to receive(:create_account_number).and_return(
         { status: :bad_request, message: 'unknown error' }
@@ -84,12 +96,13 @@ RSpec.describe 'Anchor account number', type: :request do
       expect(response).to have_http_status(:unprocessable_entity)
       body = JSON.parse(response.body)
       expect(body['error']).to eq('anchor_account_number_failed')
+      expect(body['error_code']).to eq('anchor_account_number_failed')
       expect(body.dig('meta', 'retryable')).to eq(true)
       expect(body.dig('meta', 'request_id')).to be_present
     end
 
     it 'fails when provider returns success without account_number' do
-      user = create(:user, :tier2)
+      user = build_user(:tier2)
       Account.create!(user: user, vendor: 'anchor', account_type: :individual, useable_id: 'abc123')
       allow_any_instance_of(AnchorService).to receive(:create_account_number).and_return(
         { status: :ok, response: Account.new(account_number: nil), provider_status: 200, provider_body: {} }
@@ -99,13 +112,14 @@ RSpec.describe 'Anchor account number', type: :request do
       expect(response).to have_http_status(:unprocessable_entity)
       body = JSON.parse(response.body)
       expect(body['error']).to eq('anchor_account_number_failed')
+      expect(body['error_code']).to eq('anchor_account_number_failed')
       expect(body.dig('meta', 'provider')).to eq('anchor')
       expect(body.dig('meta', 'request_id')).to be_present
       expect(body.dig('meta', 'retryable')).to eq(true)
     end
 
     it 'passes the Account object via keyword args to AnchorService' do
-      user = create(:user, :tier2)
+      user = build_user(:tier2)
       account = Account.create!(user: user, vendor: 'anchor', account_type: :individual, useable_id: 'abc123')
 
       expect_any_instance_of(AnchorService).to receive(:create_account_number)
@@ -117,10 +131,13 @@ RSpec.describe 'Anchor account number', type: :request do
 
       get '/api/v1/accounts/get_account_number', headers: auth_headers(user)
       expect(response).to have_http_status(:ok)
+      body = JSON.parse(response.body)
+      expect(body['message']).to eq('Account created')
+      expect(body.dig('flow', 'state')).to eq('provisioned')
     end
 
     it 'returns 200 when eligible and service succeeds' do
-      user = create(:user, :tier2)
+      user = build_user(:tier2)
       Account.create!(user: user, vendor: 'anchor', account_type: :individual, useable_id: 'abc123')
       payload = { 'account_number' => '1234567890' }
       allow_any_instance_of(AnchorService).to receive(:create_account_number).and_wrap_original do |m, **kwargs|
@@ -132,6 +149,36 @@ RSpec.describe 'Anchor account number', type: :request do
       expect(response).to have_http_status(:ok)
       body = JSON.parse(response.body)
       expect(body['data']['account_number']).to eq(payload['account_number'])
+      expect(body['message']).to eq('Account created')
+      expect(body.dig('flow', 'state')).to eq('provisioned')
+    end
+  end
+
+  describe 'POST /api/v1/accounts/provision_account_number' do
+    it 'requires Tier 2 (forbidden when not verified)' do
+      user = build_user
+      post '/api/v1/accounts/provision_account_number', headers: auth_headers(user)
+      expect(response).to have_http_status(:forbidden)
+      body = JSON.parse(response.body)
+      expect(body['error']).to eq('kyc_required')
+      expect(body.dig('flow', 'state')).to eq('blocked_kyc')
+    end
+
+    it 'returns 200 when eligible and service succeeds' do
+      user = build_user(:tier2)
+      Account.create!(user: user, vendor: 'anchor', account_type: :individual, useable_id: 'abc123')
+
+      allow_any_instance_of(AnchorService).to receive(:create_account_number).and_wrap_original do |_m, **kwargs|
+        kwargs[:account].update!(account_number: '1234567890')
+        { status: :ok, response: kwargs[:account] }
+      end
+
+      post '/api/v1/accounts/provision_account_number', headers: auth_headers(user)
+      expect(response).to have_http_status(:ok)
+      body = JSON.parse(response.body)
+      expect(body['data']['account_number']).to eq('1234567890')
+      expect(body['message']).to eq('Account created')
+      expect(body.dig('flow', 'state')).to eq('provisioned')
     end
   end
 end
