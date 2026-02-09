@@ -160,6 +160,8 @@ class AnchorService
       useable_id = response.dig('data', 'id')
       account_number = response.dig('data', 'attributes', 'accountNumber')
       account_name = response.dig('data', 'attributes', 'accountName')
+      full_account_number = fetch_account_number_by_account_id(useable_id)
+      resolved_account_number = full_account_number.presence || account_number
 
 
       provider_status = response.code
@@ -167,7 +169,7 @@ class AnchorService
 
       raise response.dig('errors', 0, 'detail') || 'bad request' unless response.success?
 
-      if account_number.blank?
+      if resolved_account_number.blank?
         return {
           status: :bad_request,
           message: 'Anchor returned no account number',
@@ -176,7 +178,7 @@ class AnchorService
         }
       end
 
-      unless account_record.update(account_number: account_number, account_type: type, status: 'completed',
+      unless account_record.update(account_number: resolved_account_number, account_type: type, status: 'completed',
                                    active: true, bank_name: bank_name, account_name: account_name, useable_id: useable_id)
 
         account_record.errors.full_messages.to_sentence || 'bad request'
@@ -681,6 +683,22 @@ class AnchorService
     end
   rescue StandardError => e
     raise StandardError, e.message
+  end
+
+  def fetch_account_number_by_account_id(account_id)
+    return nil if account_id.blank?
+
+    response = self.class.get('/api/v1/account-numbers', headers: @headers, query: { AccountId: account_id })
+    return nil unless response.success?
+
+    data = response['data']
+    if data.is_a?(Array)
+      data.first&.dig('attributes', 'accountNumber')
+    else
+      data&.dig('attributes', 'accountNumber')
+    end
+  rescue StandardError
+    nil
   end
 
   def normalize_anchor_amount(amount, currency)
