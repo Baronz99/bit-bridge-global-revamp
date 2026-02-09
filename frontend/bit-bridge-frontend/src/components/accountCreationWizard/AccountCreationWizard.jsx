@@ -21,6 +21,8 @@ const AccountCreationWizard = ({ formData, setFormData, current, setCurrent, set
   const [form] = Form.useForm()
   // const [formData, setFormData] = useState({})
   const [accountDetails] = useState(null)
+  const isAnchor = formData?.vendor === 'anchor'
+  const reviewData = isAnchor ? formData : {}
 
   useEffect(() => {
     Object.values(formData).length > 0 && form.setFieldsValue(formData)
@@ -167,7 +169,7 @@ const AccountCreationWizard = ({ formData, setFormData, current, setCurrent, set
         <div className="space-y-3">
           <h2 className="text-lg font-semibold mb-4 text-alt">Review your information</h2>
           <div className="bg-gray- rounded-xl p-4">
-            {Object.entries(formData)?.map(([key, val]) => {
+            {Object.entries(reviewData)?.map(([key, val]) => {
               // if it's a Day.js object, format it
               const displayVal = dayjs.isDayjs(val) ? val.format('YYYY-MM-DD') : val || '—'
 

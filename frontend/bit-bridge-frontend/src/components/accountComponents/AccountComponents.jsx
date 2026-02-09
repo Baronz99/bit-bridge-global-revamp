@@ -63,7 +63,7 @@ const AccountNumbers = ({ accounts, generate, onView, showView = true }) => {
                     </>
                   ) : accountVendors[accountIndex] === 'anchor' ? (
                     <button
-                      onClick={() => generate(accountIndex, accounts[i])}
+                      onClick={() => generate(accountIndex, filteredAccounts[i])}
                       className="text-slate-400 text-base font-normal hover:text-alt italic"
                     >
                       + Continue

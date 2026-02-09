@@ -18,7 +18,6 @@ import AppModal from '../../components/modal/Modal'
 
 import ClassicBtn from '../../components/button/ClassicButton'
 import pickColorStyle from '../../utils/slect-color'
-import AccountCreationWizard from '../../components/accountCreationWizard/AccountCreationWizard'
 import AccountNumbers from '../../components/accountComponents/AccountComponents'
 import { getAccounts, getUserAccount } from '../../redux/actions/account'
 
@@ -51,14 +50,11 @@ const HomeDashboard = () => {
   const navigate = useNavigate()
 
   const [open, setIsOpen] = useState(false)
-  const [isAncorModal, setIsAncorModal] = useState(false)
   const [openAccount, setIsOpenAccount] = useState(false)
   const [selectedBiller, setSelectedBillier] = useState()
   const [selectedItem, setSelectedItem] = useState('Top Up')
   const [balanceMode, setBalanceMode] = useState('bridge')
-  const [current, setCurrent] = useState(1)
   const [showAccountNumber, setShowAccountNumber] = useState(false)
-  const [formData, setFormData] = useState({})
   const [accountDetails, setAccountDetails] = useState(null)
 
   // ✅ DISMISSIBLE ONBOARDING BANNER STATE (localStorage-backed)
@@ -130,12 +126,11 @@ const HomeDashboard = () => {
 
   // 🔐 KYC gate for virtual accounts
 const handleGenerate = (i, data = {}) => {
-  const vendor = items[i]?.name
+  const vendor = data?.vendor
   const needsTier2 = needsTier2Access(user)
 
-  // 🚫 Monnify intentionally disabled
-  if (vendor === 'monnify') {
-    toast.info('Monnify virtual account creation is currently disabled.', {
+  if (vendor && vendor !== 'anchor') {
+    toast.info('Only Anchor virtual account creation is currently available.', {
       position: 'top-right',
       autoClose: 4000,
       pauseOnHover: true,
@@ -143,35 +138,17 @@ const handleGenerate = (i, data = {}) => {
     return
   }
 
-  // 🏦 Anchor
-  if (vendor === 'anchor') {
-    // Require Tier 2
-    if (needsTier2) {
-      toast.info(withTier2MissingDetails(user, 'Complete Tier 2 verification'), {
-        position: 'top-right',
-        autoClose: 4000,
-        pauseOnHover: true,
-      })
-      return
-    }
-
-    // ✅ Correct behavior — open Anchor wizard
-    navigate('/dashboard/virtual-accounts')
+  if (needsTier2) {
+    toast.info(withTier2MissingDetails(user, 'Complete Tier 2 verification'), {
+      position: 'top-right',
+      autoClose: 4000,
+      pauseOnHover: true,
+    })
     return
   }
 
-
-    // Passed KYC gate → open Anchor wizard
-    setFormData(data)
-    setCurrent(
-      data?.status === 'verifying'
-        ? 2
-        : data?.status === 'unverified'
-        ? 1
-        : 0
-    )
-    setIsAncorModal(true)
-  }
+  navigate('/dashboard/virtual-accounts')
+}
 
   const maskAccountNumber = (num) => {
     if (!num) return ''
@@ -659,23 +636,6 @@ const handleGenerate = (i, data = {}) => {
             </ClassicBtn>
           </div>
         </div>
-      </AppModal>
-
-      {/* Anchor KYC / account creation wizard */}
-      <AppModal
-        title={'Generate Account'}
-        isModalOpen={isAncorModal}
-        handleCancel={() => setIsAncorModal((prev) => !prev)}
-      >
-        <AccountCreationWizard
-          setFormData={setFormData}
-          formData={formData}
-          current={current}
-          setCurrent={setCurrent}
-          setIsOpenAccount={setIsOpenAccount}
-          openAccount={openAccount}
-          setIsAncorModal={setIsAncorModal}
-        />
       </AppModal>
 
     </>
