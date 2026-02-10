@@ -19,6 +19,19 @@ const Deposits = () => {
   const wallet_type = (ctx?.wallet_type || 'ngn').toLowerCase() === 'usd' ? 'usd' : 'ngn'
 
   const currencyForFormat = useMemo(() => (wallet_type === 'usd' ? 'usd' : 'ngn'), [wallet_type])
+  const visibleTransactions = useMemo(
+    () => (Array.isArray(transactions) ? transactions.filter((item) => item?.show_in_primary_feed !== false) : []),
+    [transactions]
+  )
+  const displayAmount = (item) => item?.display_total ?? item?.display_amount ?? item?.amount
+  const displayStatus = (item) => String(item?.lifecycle_state || item?.status || 'pending').toLowerCase()
+  const statusForStyle = (item) => {
+    const state = displayStatus(item)
+    if (state === 'completed') return 'approved'
+    if (state === 'reserved') return 'initialized'
+    if (state === 'released') return 'failed'
+    return state
+  }
 
   useEffect(() => {
     dispatch(
@@ -92,11 +105,11 @@ const Deposits = () => {
                         <Loading />
                       </td>
                     </tr>
-                  ) : transactions?.length > 0 ? (
-                    transactions.map((item) => (
+                  ) : visibleTransactions?.length > 0 ? (
+                    visibleTransactions.map((item) => (
                       <tr key={item?.id}>
                         <td className="whitespace-nowrap border-b border-gray-200 px-3 py-3 text-sm text-gray-300 font-semibold">
-                          <p className="font-bold">{nairaFormat(item.amount, currencyForFormat)}</p>
+                          <p className="font-bold">{nairaFormat(displayAmount(item), currencyForFormat)}</p>
                         </td>
 
                         <td className="whitespace-nowrap border-b border-gray-200 px-3 py-3 text-sm text-gray-100 font-semibold">
@@ -105,10 +118,13 @@ const Deposits = () => {
 
                         <td className="relative whitespace-nowrap border-b border-gray-200 py-3 pr-4 pl-3 text-left text-gray-900 text-sm sm:pr-8 lg:pr-8">
                           <span
-                            className={`${statusStyleCard(item?.status)} py-1 w-full max-w-[200px] block m-auto text-center px-3 border rounded-3xl`}
+                            className={`${statusStyleCard(statusForStyle(item))} py-1 w-full max-w-[200px] block m-auto text-center px-3 border rounded-3xl`}
                           >
-                            {item?.status}
+                            {displayStatus(item)}
                           </span>
+                          {item?.display_message ? (
+                            <p className="text-xs text-slate-400 mt-2">{item.display_message}</p>
+                          ) : null}
                         </td>
 
                         <td className="relative whitespace-nowrap border-b text-left border-gray-200 py-3 pr-4 pl-3 text-gray-300 text-sm sm:pr-8 lg:pr-8">
