@@ -29,7 +29,7 @@ module Api
         begin
           anchor_service = AnchorService.new
           @accounts.select { |account| account.vendor.to_s == 'anchor' }.each do |account|
-            anchor_service.sync_anchor_deposit_account!(account)
+            anchor_service.send(:sync_anchor_deposit_account!, account)
           end
         rescue StandardError => e
           Rails.logger.warn("[AccountsController] user_accounts anchor sync skipped message=#{e.message}") if defined?(Rails) && Rails.logger
