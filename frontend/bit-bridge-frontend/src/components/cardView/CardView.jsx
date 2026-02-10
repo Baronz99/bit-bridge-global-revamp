@@ -9,6 +9,7 @@ import ShadowValue from '../../components/ShadowValue'
 import client from '../../api/client'
 import { toast } from 'react-toastify'
 import { needsTier2Access, withTier2MissingDetails } from '../../utils/kycGate'
+import SelfieCapture from '../Kyc/SelfieCapture'
 
 //  Use your reusable masked PIN input (4 digits)
 import TransactionPinInput from '../../components/pin/TransactionPinInput' // adjust if needed
@@ -63,6 +64,7 @@ export default function VirtualCardApplication() {
   const [withdrawAmount, setWithdrawAmount] = useState('')
   const [withdrawResult, setWithdrawResult] = useState(null)
   const [creationFeeUsd, setCreationFeeUsd] = useState(CARD_CREATION_FEE_USD)
+  const [cardholderCameraError, setCardholderCameraError] = useState('')
   const gateToastShownRef = useRef(false)
     const [showRevealPinModal, setShowRevealPinModal] = useState(false)
   const [revealPin, setRevealPin] = useState('') // PIN used ONLY for reveal
@@ -413,6 +415,7 @@ const setPin = (nextPin) => {
   // Register cardholder
   async function handleSubmitCardholder(e) {
     e.preventDefault()
+    setCardholderCameraError('')
     const err = validateCardholder()
     if (err) return setSuccess({ ok: false, message: err })
 
@@ -2136,17 +2139,24 @@ const setPin = (nextPin) => {
                   />
                 </div>
                 <div className="mt-4">
-                  <input
-                    name="selfie_image"
-                    value={formData.selfie_image}
-                    onChange={handleChange}
-                    placeholder="Selfie image URL or reference"
-                    className="p-2.5 rounded-md bg-slate-800 border border-slate-700 text-sm w-full"
-                    required={requiresSelfie}
+                  <SelfieCapture
+                    value={formData.selfie_image || null}
+                    onChange={(dataUrl) => {
+                      setFormData((prev) => ({ ...prev, selfie_image: dataUrl || '' }))
+                      setCardholderCameraError('')
+                    }}
+                    onError={(msg) => setCardholderCameraError(msg || '')}
+                    title="Live selfie"
+                    hint="Use good lighting, center your face, and hold still."
                   />
-                  <p className="text-[11px] text-slate-400 mt-1">
-                    Required for BVN cardholder verification.
-                  </p>
+                  {requiresSelfie ? (
+                    <p className="text-[11px] text-slate-400 mt-2">Required for BVN cardholder verification.</p>
+                  ) : null}
+                  {cardholderCameraError ? (
+                    <div className="mt-2 rounded-md border border-red-700/40 bg-red-900/20 p-2 text-xs text-red-200">
+                      {cardholderCameraError}
+                    </div>
+                  ) : null}
                 </div>
               </div>
 
@@ -2211,6 +2221,7 @@ const setPin = (nextPin) => {
                         city: '',
                         state: '',
                         postal_code: '',
+                        selfie_image: '',
                         meta_data: { any_key: '' },
                         agreeTos: false,
                       }))
