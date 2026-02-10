@@ -151,7 +151,13 @@ module Transfers
           updates[:transaction_id] = provider_transfer_id if provider_transfer_id.present? && record.transaction_id.blank?
           record.update!(updates)
 
-          bill_order = record.bill_order
+          bill_order =
+            record.bill_order ||
+            (
+              transfer_reference.present? ?
+                BillOrder.find_by(user_id: principal_tx.wallet.user_id, meter_number: transfer_reference) :
+                nil
+            )
           if bill_order.present? && !BillOrder::TERMINAL_STATUSES.include?(bill_order.status.to_s)
             bill_order.update!(status: 'completed')
           end
