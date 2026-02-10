@@ -130,10 +130,7 @@ module Api
 
       # POST /api/v1/cards/create_card
       def create_card
-        raw_pin =
-          params.dig(:card, :transaction_pin).presence ||
-          params.dig(:card, :pin).presence ||
-          ''
+        raw_pin = params.dig(:card, :transaction_pin).presence || ''
 
         return unless require_transaction_pin!(raw_pin)
 
@@ -161,6 +158,7 @@ module Api
 
         processed[:card_currency] = 'USD'
         processed[:wallet_type] = 'usd'
+        processed[:pin] = processed[:card_pin].presence || processed[:pin].presence
 
         service_response = service.create_card(processed, recent_card)
 
@@ -483,7 +481,7 @@ module Api
         params.require(:card).permit(
           :cardholder_id, :card_id, :transaction_reference, :card_type, :card_brand,
           :card_currency, :card_limit, :funding_amount, :amount, :currency,
-          :transaction_pin,
+          :transaction_pin, :pin, :card_pin,
           :status, :postal_code, :user_id, :address, :city, :state, :postal,
           :house_no, :bvn, :account_source,
           :wallet_type,
