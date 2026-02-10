@@ -85,12 +85,12 @@ class TransactionSerializer < ActiveModel::Serializer
   end
 
   def display_amount
-    return amount unless anchor_transfer_component?
+    return object.amount unless anchor_transfer_component?
 
-    return amount if transfer_component == 'reversal'
+    return object.amount if transfer_component == 'reversal'
     return nil if transfer_component == 'fee'
 
-    amount
+    object.amount
   end
 
   def display_total
