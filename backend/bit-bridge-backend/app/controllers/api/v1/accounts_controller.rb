@@ -273,8 +273,7 @@ module Api
           source_name:           anchor_account.account_name,
           account_id:            anchor_account.id,
           wallet_id:             current_user.ngn_wallet.id,
-          source_account_number: anchor_account.account_number,
-          account_name:          anchor_account.account_name
+          source_account_number: anchor_account.account_number
         )
         transfer_params[:inter_bank] = bool.cast(transfer_params[:inter_bank])
         transfer_params[:save_beneficiary] = bool.cast(transfer_params[:save_beneficiary])
@@ -864,6 +863,12 @@ module Api
 
         if bank_code.blank?
           render json: { message: 'bank_code is required' }, status: :unprocessable_entity
+          return false
+        end
+
+        if account_params[:account_name].to_s.strip.blank?
+          render json: { message: 'account_name is required. Resolve account details first.' },
+                 status: :unprocessable_entity
           return false
         end
 
