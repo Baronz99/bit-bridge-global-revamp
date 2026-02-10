@@ -1,4 +1,5 @@
 # frozen_string_literal: true
+require 'aes-everywhere'
 
 class BridgeCardService
   include HTTParty
@@ -8,6 +9,10 @@ class BridgeCardService
   DEFAULT_CARD_LIMIT = '500000'
   CARD_CREATION_FEE_USD = 4
   CARD_ACTIVATION_MIN_USD = 5
+  CARD_MIN_FUNDING_USD_BY_LIMIT = {
+    500_000 => 3,
+    1_000_000 => 4
+  }.freeze
 
   def initialize
     @headers = nil
@@ -146,19 +151,13 @@ class BridgeCardService
     end
 
   raw_limit = params[:card_limit].presence || '500000'
-  card_limit =
-    if wallet_type == 'usd'
-      limit_value = BigDecimal(raw_limit.to_s) rescue 0.to_d
-      # Bridge expects cents for USD limits.
-      limit_value < 100_000 ? (limit_value * 100).to_i : limit_value.to_i
-    else
-      raw_limit
-    end
+  card_limit_cents = normalize_card_limit_cents(raw_limit)
+  card_limit = wallet_type == 'usd' ? card_limit_cents : raw_limit
   transaction_reference = params[:transaction_reference].presence || SecureRandom.uuid
 
   amount_usd = BigDecimal(params[:amount].to_s) rescue 0.to_d
   amount_cents = (amount_usd * 100).to_i
-  pin = params[:pin].to_s
+  encrypted_pin = encrypt_pin_for_bridge(params[:pin])
 
   if wallet_type == 'usd'
     usd_wallet = user.usd_wallet
@@ -169,7 +168,7 @@ class BridgeCardService
     setting = FxSetting.current
     fee_cents = setting.card_creation_fee_usd_cents.to_i
     fee_cents = (CARD_CREATION_FEE_USD * 100).to_i if fee_cents <= 0
-    min_funding_cents = (CARD_ACTIVATION_MIN_USD * 100).to_i
+    min_funding_cents = minimum_funding_cents_for_limit(card_limit_cents)
     meta = card.meta_data.is_a?(Hash) ? card.meta_data.dup : {}
     fee_charged = meta['creation_fee_charged'] == true
     requires_funding = amount_cents >= min_funding_cents
@@ -217,7 +216,7 @@ class BridgeCardService
         )
         return {
           data: card,
-          message: "Card created. Fund at least USD #{CARD_ACTIVATION_MIN_USD} to activate.",
+          message: "Card created. Fund at least USD #{(min_funding_cents / 100.0).to_i} to activate.",
           status: :ok
         }
       end
@@ -244,8 +243,13 @@ class BridgeCardService
         card_limit: card_limit,
         transaction_reference: transaction_reference,
         funding_amount: amount_cents,
-        pin: pin,
-        meta_data: { account_source: 'any_value' }
+        pin: encrypted_pin,
+        meta_data: build_card_create_metadata(
+          user: user,
+          card: card,
+          wallet_type: wallet_type,
+          transaction_reference: transaction_reference
+        )
       }.to_json
 
       response = fetch('post', issuing_endpoint('cards/create_card'), body)
@@ -283,8 +287,13 @@ class BridgeCardService
     card_limit: card_limit,
     transaction_reference: transaction_reference,
     funding_amount: amount_cents,
-    pin: pin,
-    meta_data: { account_source: 'any_value' }
+    pin: encrypted_pin,
+    meta_data: build_card_create_metadata(
+      user: user,
+      card: card,
+      wallet_type: wallet_type,
+      transaction_reference: transaction_reference
+    )
   }.to_json
 
   response = fetch('post', issuing_endpoint('cards/create_card'), body)
@@ -901,6 +910,7 @@ end
 
 
   def bridge_create_card!(cardholder_id:, card_type:, card_brand:, card_currency:, card_limit:, transaction_reference:, funding_amount:, pin:)
+    encrypted_pin = encrypt_pin_for_bridge(pin)
     body = {
       cardholder_id: cardholder_id,
       card_type: card_type,
@@ -909,11 +919,58 @@ end
       card_limit: card_limit,
       transaction_reference: transaction_reference,
       funding_amount: funding_amount.to_s,
-      pin: pin,
-      meta_data: { account_source: 'any_value' }
+      pin: encrypted_pin,
+      meta_data: {
+        account_source: 'mobile',
+        transaction_reference: transaction_reference
+      }
     }.to_json
 
     fetch('post', issuing_endpoint('cards/create_card'), body)
+  end
+
+  def normalize_card_limit_cents(raw_limit)
+    limit_value = BigDecimal(raw_limit.to_s) rescue 0.to_d
+    return 500_000 if limit_value <= 0
+
+    # Bridge expects cents for USD card limits.
+    limit_value < 100_000 ? (limit_value * 100).to_i : limit_value.to_i
+  end
+
+  def minimum_funding_cents_for_limit(limit_cents)
+    usd = CARD_MIN_FUNDING_USD_BY_LIMIT.fetch(limit_cents.to_i, CARD_ACTIVATION_MIN_USD)
+    (usd * 100).to_i
+  end
+
+  def bridge_pin_encryption_secret
+    if Bridgecard::Config.live?
+      ENV['BRIDGECARD_LIVE_SECRET'].presence || ENV['BRIDGECARD_LIVE_TOKEN'].presence
+    else
+      ENV['BRIDGECARD_TEST_SECRET'].presence ||
+        ENV['BRIDGE_CARD_TOKEN'].presence ||
+        ENV['BRIDGE_TOKEN'].presence
+    end
+  end
+
+  def encrypt_pin_for_bridge(pin_value)
+    pin = pin_value.to_s.strip
+    return '' if pin.blank?
+    raise ArgumentError, 'PIN must be exactly 4 digits' unless pin.match?(/\A\d{4}\z/)
+
+    secret = bridge_pin_encryption_secret.to_s.strip
+    raise StandardError, 'Bridgecard secret key is missing for PIN encryption' if secret.blank?
+
+    AES256.encrypt(pin, secret)
+  end
+
+  def build_card_create_metadata(user:, card:, wallet_type:, transaction_reference:)
+    {
+      account_source: 'mobile',
+      user_id: user.id,
+      local_card_id: card.id,
+      wallet_type: wallet_type,
+      transaction_reference: transaction_reference
+    }
   end
 
   def sanitize_text(value)
