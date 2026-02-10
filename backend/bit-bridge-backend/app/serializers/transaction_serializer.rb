@@ -59,13 +59,13 @@ class TransactionSerializer < ActiveModel::Serializer
   end
 
   def lifecycle_state
-    return status unless anchor_transfer_component?
+    return object.status.to_s unless anchor_transfer_component?
 
     case transfer_component
     when 'reversal'
       'released'
     else
-      case status.to_s
+      case object.status.to_s
       when 'pending'
         'reserved'
       when 'approved'
@@ -73,7 +73,7 @@ class TransactionSerializer < ActiveModel::Serializer
       when 'failed', 'declined'
         'failed'
       else
-        status.to_s
+        object.status.to_s
       end
     end
   end
