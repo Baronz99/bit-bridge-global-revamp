@@ -85,6 +85,7 @@ module Api
         processed[:email] ||= processed[:email_address].presence || current_user.email
         processed[:phone] ||= processed[:phone_number].presence
         processed[:user_id] ||= current_user.id
+        processed[:request_id] ||= request.request_id
 
         registration_mode =
           if card_params[:registration_mode].to_s.casecmp('sync').zero?
@@ -93,11 +94,22 @@ module Api
             :async
           end
 
+        Rails.logger.info(
+          "[CardsController] register_cardholder request_id=#{request.request_id} " \
+          "user_id=#{current_user.id} mode=#{registration_mode} " \
+          "id_type=#{processed[:id_type].presence || 'NIGERIAN_BVN_VERIFICATION'} " \
+          "selfie_present=#{processed[:selfie_image].to_s.strip.present?}"
+        )
+
         service_response = service.register_cardholder(processed, mode: registration_mode)
 
         if service_response[:status] == :ok
           render json: { data: service_response[:data], message: service_response[:message] }, status: :ok
         else
+          Rails.logger.warn(
+            "[CardsController] register_cardholder_failed request_id=#{request.request_id} " \
+            "user_id=#{current_user.id} mode=#{registration_mode} message=#{service_response[:message].inspect}"
+          )
           render json: { message: service_response[:message] }, status: :unprocessable_entity
         end
       end

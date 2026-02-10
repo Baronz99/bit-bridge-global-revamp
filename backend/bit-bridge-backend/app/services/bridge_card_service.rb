@@ -19,8 +19,16 @@ class BridgeCardService
   # -----------------------------
   def register_cardholder(account_params, mode: :async)
     registration_mode = mode.to_s.downcase == 'sync' ? :sync : :async
+    normalized = {}
 
     normalized = normalize_cardholder_params(account_params)
+    request_id = sanitize_text(account_params[:request_id])
+    log_cardholder_context(
+      stage: 'normalize',
+      request_id: request_id,
+      mode: registration_mode,
+      normalized: normalized
+    )
     validate_cardholder_required!(normalized, mode: registration_mode)
 
     response = nil
@@ -28,18 +36,47 @@ class BridgeCardService
     selected_state = normalized[:state_variants].first
 
     normalized[:state_variants].each do |candidate_state|
-      body = build_cardholder_payload(normalized.merge(selected_state: candidate_state)).to_json
+      payload = build_cardholder_payload(normalized.merge(selected_state: candidate_state))
+      body = payload.to_json
       endpoint =
         registration_mode == :sync ?
           issuing_endpoint('cardholder/register_cardholder_synchronously') :
           issuing_endpoint('cardholder/register_cardholder')
 
+      log_cardholder_context(
+        stage: 'provider_request',
+        request_id: request_id,
+        mode: registration_mode,
+        normalized: normalized,
+        endpoint: endpoint,
+        candidate_state: candidate_state,
+        payload: payload
+      )
+
       begin
         response = fetch('post', endpoint, body)
+        log_cardholder_context(
+          stage: 'provider_response_ok',
+          request_id: request_id,
+          mode: registration_mode,
+          normalized: normalized,
+          endpoint: endpoint,
+          candidate_state: candidate_state,
+          response: response
+        )
         selected_state = candidate_state
         break
       rescue StandardError => e
         last_error = e
+        log_cardholder_context(
+          stage: 'provider_response_error',
+          request_id: request_id,
+          mode: registration_mode,
+          normalized: normalized,
+          endpoint: endpoint,
+          candidate_state: candidate_state,
+          error: e
+        )
         next if e.message.to_s.match?(/invalid state/i)
 
         raise
@@ -58,6 +95,13 @@ class BridgeCardService
 
     { data: card, message: response['message'], status: :ok }
   rescue StandardError => e
+    log_cardholder_context(
+      stage: 'register_cardholder_failed',
+      request_id: sanitize_text(account_params[:request_id]),
+      mode: registration_mode,
+      normalized: normalized,
+      error: e
+    )
     { message: e.message, status: :unprocessable_entity }
   end
 
@@ -1199,5 +1243,92 @@ end
       new_balance = wallet.balance.to_d - (cents.to_d / 100)
       wallet.update!(balance: new_balance)
     end
+  end
+
+  def log_cardholder_context(stage:, request_id:, mode:, normalized:, endpoint: nil, candidate_state: nil, payload: nil, response: nil, error: nil)
+    return unless defined?(Rails) && Rails.logger
+
+    profile = {
+      request_id: request_id,
+      mode: mode.to_s,
+      user_id: normalized[:user_id],
+      id_type: normalized[:id_type],
+      email_masked: mask_email(normalized[:email]),
+      phone_masked: mask_phone(normalized[:phone]),
+      bvn_present: normalized[:bvn].present?,
+      selfie_present: normalized[:selfie_image].present?,
+      selfie_format: selfie_format(normalized[:selfie_image]),
+      selfie_length: normalized[:selfie_image].to_s.length,
+      state_variants_count: normalized[:state_variants].to_a.size
+    }
+
+    payload_summary = nil
+    if payload.is_a?(Hash)
+      identity = payload[:identity].is_a?(Hash) ? payload[:identity] : {}
+      payload_summary = {
+        payload_keys: payload.keys,
+        identity_keys: identity.keys,
+        payload_selfie_present: identity[:selfie_image].to_s.strip.present?,
+        payload_selfie_format: selfie_format(identity[:selfie_image]),
+        payload_selfie_length: identity[:selfie_image].to_s.length
+      }
+    end
+
+    response_summary = nil
+    if response.present?
+      response_hash = response.respond_to?(:parsed_response) ? response.parsed_response : response
+      response_summary = {
+        message: response_hash.is_a?(Hash) ? response_hash['message'] : nil,
+        has_data: response_hash.is_a?(Hash) && response_hash['data'].present?,
+        cardholder_id_present: response_hash.is_a?(Hash) && response_hash.dig('data', 'cardholder_id').present?
+      }
+    end
+
+    error_summary = nil
+    if error.present?
+      error_summary = {
+        class: error.class.to_s,
+        message: sanitize_error_snippet(error.message)
+      }
+    end
+
+    Rails.logger.info(
+      "[BridgeCardService] cardholder_trace stage=#{stage} " \
+      "endpoint=#{endpoint} candidate_state=#{candidate_state} " \
+      "profile=#{profile.inspect} payload=#{payload_summary.inspect} " \
+      "response=#{response_summary.inspect} error=#{error_summary.inspect}"
+    )
+  rescue StandardError => e
+    Rails.logger.warn("[BridgeCardService] cardholder_trace_log_failed message=#{e.message}")
+  end
+
+  def selfie_format(value)
+    text = value.to_s.strip
+    return 'absent' if text.blank?
+    return 'data_url' if text.start_with?('data:image/')
+    return 'https_url' if text.match?(/\Ahttps?:\/\//i)
+    return 'base64_raw' if text.match?(/\A[A-Za-z0-9+\/=\s]+\z/) && text.length > 100
+
+    'other'
+  end
+
+  def mask_email(email)
+    text = email.to_s.strip
+    return nil if text.blank?
+
+    local, domain = text.split('@', 2)
+    return '[invalid]' if domain.blank?
+    return "***@#{domain}" if local.blank?
+
+    visible = [local.length, 2].min
+    "#{local[0, visible]}***@#{domain}"
+  end
+
+  def mask_phone(phone)
+    digits = phone.to_s.gsub(/\D/, '')
+    return nil if digits.blank?
+    return "****#{digits[-4, 4]}" if digits.length >= 4
+
+    '****'
   end
 end
