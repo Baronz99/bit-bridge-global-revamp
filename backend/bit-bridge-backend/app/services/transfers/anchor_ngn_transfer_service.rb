@@ -45,8 +45,9 @@ module Transfers
         return insufficient_funds_error(total_fee, total_debit, available_balance, fee_breakdown)
       end
 
+      hold_entry = nil
       begin
-        WalletLedgerEntry.ensure_hold!(
+        hold_entry = WalletLedgerEntry.ensure_hold!(
           wallet: @sender_wallet,
           bill_order: transfer_order,
           amount: total_debit,
@@ -70,10 +71,25 @@ module Transfers
       anchor_response = AnchorService.new.initiate_transfer(anchor_request_payload(transfer_reference))
 
       if anchor_response[:status] == :ok
-        finalize_success!(principal_tx, fee_tx, anchor_response, transfer_reference, transfer_order, total_debit)
+        finalize_success!(
+          principal_tx,
+          fee_tx,
+          anchor_response,
+          transfer_reference,
+          transfer_order,
+          total_debit,
+          hold_entry: hold_entry
+        )
       else
-        release_hold!(transfer_reference, total_debit, transfer_order)
-        finalize_failure!(principal_tx, fee_tx, anchor_response[:message], transfer_reference)
+        release_entry = release_hold!(transfer_reference, total_debit, transfer_order)
+        finalize_failure!(
+          principal_tx,
+          fee_tx,
+          anchor_response[:message],
+          transfer_reference,
+          hold_entry: hold_entry,
+          release_entry: release_entry
+        )
       end
     rescue ActiveRecord::RecordInvalid => e
       release_hold!(transfer_reference, total_debit, transfer_order)
@@ -227,7 +243,12 @@ module Transfers
           total_debit: format_ngn(total_debit, decimals: 2).to_f,
           fee_breakdown: fee_breakdown,
           status: status,
-          provider: 'anchor'
+          provider: 'anchor',
+          balance_snapshot: {
+            reserve: ledger_snapshot_hash(find_ledger_entry(transfer_reference, :hold)),
+            settle: ledger_snapshot_hash(find_ledger_entry(transfer_reference, :debit)),
+            release: ledger_snapshot_hash(find_ledger_entry(transfer_reference, :release))
+          }
         }
       }
     end
@@ -289,7 +310,7 @@ module Transfers
       )
     end
 
-    def finalize_success!(principal_tx, fee_tx, anchor_response, transfer_reference, transfer_order, total_debit)
+    def finalize_success!(principal_tx, fee_tx, anchor_response, transfer_reference, transfer_order, total_debit, hold_entry: nil)
       provider_reference = anchor_response.dig(:data, :transfer_id)
       provider_status = anchor_response.dig(:data, :status).to_s.downcase
       status = provider_status == 'pending' ? 'pending' : 'approved'
@@ -314,8 +335,9 @@ module Transfers
       total_fee = fee_tx.amount.to_d
       total_debit = total_debit.to_d
 
+      debit_entry = nil
       if transfer_order.present?
-        WalletLedgerEntry.record_debit!(
+        debit_entry = WalletLedgerEntry.record_debit!(
           wallet: @sender_wallet,
           bill_order: transfer_order,
           amount: total_debit,
@@ -334,12 +356,16 @@ module Transfers
           total_debit: format_ngn(total_debit, decimals: 2).to_f,
           fee_breakdown: fee_tx.metadata.fetch('fee_breakdown', {}),
           status: status,
-          provider: 'anchor'
+          provider: 'anchor',
+          balance_snapshot: {
+            reserve: ledger_snapshot_hash(hold_entry || find_ledger_entry(transfer_reference, :hold)),
+            settle: ledger_snapshot_hash(debit_entry || find_ledger_entry(transfer_reference, :debit))
+          }
         }
       }
     end
 
-    def finalize_failure!(principal_tx, fee_tx, error_message, transfer_reference)
+    def finalize_failure!(principal_tx, fee_tx, error_message, transfer_reference, hold_entry: nil, release_entry: nil)
       principal_tx.update!(
         status: 'failed',
         metadata: principal_tx.metadata.merge(provider_status: 'failed', provider_error: error_message)
@@ -358,7 +384,11 @@ module Transfers
           message: error_message.presence || 'Transfer failed',
           transfer_reference: transfer_reference,
           status: 'failed',
-          provider: 'anchor'
+          provider: 'anchor',
+          balance_snapshot: {
+            reserve: ledger_snapshot_hash(hold_entry || find_ledger_entry(transfer_reference, :hold)),
+            release: ledger_snapshot_hash(release_entry || find_ledger_entry(transfer_reference, :release))
+          }
         }
       }
     end
@@ -433,7 +463,9 @@ module Transfers
       order = bill_order.presence || BillOrder.find_by(user: @user, meter_number: transfer_reference)
       return if order.blank? || !transfer_hold_exists?(order)
       return if WalletLedgerEntry.debit_exists?(wallet: @sender_wallet, bill_order: order)
-      return if WalletLedgerEntry.release_exists?(wallet: @sender_wallet, bill_order: order)
+      if WalletLedgerEntry.release_exists?(wallet: @sender_wallet, bill_order: order)
+        return WalletLedgerEntry.find_by(wallet: @sender_wallet, bill_order: order, entry_type: :release)
+      end
 
       WalletLedgerEntry.release_hold!(
         wallet: @sender_wallet,
@@ -450,6 +482,33 @@ module Transfers
                     .where("metadata ->> 'subtype' = ?", subtype)
                     .order(created_at: :desc)
                     .first
+    end
+
+    def find_ledger_entry(transfer_reference, entry_type)
+      return nil if transfer_reference.blank?
+
+      @sender_wallet.wallet_ledger_entries
+                    .where(entry_type: entry_type)
+                    .where("metadata ->> 'transfer_reference' = ?", transfer_reference)
+                    .order(created_at: :desc)
+                    .first
+    end
+
+    def ledger_snapshot_hash(entry)
+      return nil if entry.blank?
+      return nil unless entry.respond_to?(:before_book_balance) && entry.respond_to?(:after_book_balance)
+
+      {
+        entry_type: entry.entry_type,
+        before_event_balance: {
+          book: entry.before_book_balance&.to_f,
+          available: entry.before_available_balance&.to_f
+        }.compact,
+        after_event_balance: {
+          book: entry.after_book_balance&.to_f,
+          available: entry.after_available_balance&.to_f
+        }.compact
+      }
     end
 
     def self.update_failed!(transaction, reason:, provider_status:)

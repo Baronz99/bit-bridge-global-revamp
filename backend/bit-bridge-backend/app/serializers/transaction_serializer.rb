@@ -21,6 +21,7 @@ class TransactionSerializer < ActiveModel::Serializer
              :transfer_component,
              :lifecycle_state,
              :show_in_primary_feed,
+             :balance_snapshot,
              :display_amount,
              :display_total,
              :display_breakdown,
@@ -128,6 +129,26 @@ class TransactionSerializer < ActiveModel::Serializer
     end
   end
 
+  def balance_snapshot
+    return nil unless anchor_transfer_component?
+    return nil unless snapshot_columns_available?
+
+    entry = relevant_ledger_entry
+    return nil unless entry
+
+    {
+      entry_type: entry.entry_type,
+      before_event_balance: {
+        book: entry.before_book_balance&.to_f,
+        available: entry.before_available_balance&.to_f
+      }.compact,
+      after_event_balance: {
+        book: entry.after_book_balance&.to_f,
+        available: entry.after_available_balance&.to_f
+      }.compact
+    }
+  end
+
   private
 
   def transfer_meta
@@ -149,6 +170,38 @@ class TransactionSerializer < ActiveModel::Serializer
         .order(created_at: :desc)
         .limit(1)
         .pick(:amount).to_d
+  end
+
+  def relevant_ledger_entry
+    type = ledger_entry_type_for_snapshot
+    return nil if type.blank? || transfer_reference.blank?
+
+    WalletLedgerEntry
+      .where(wallet_id: object.wallet_id, entry_type: type)
+      .where("metadata ->> 'transfer_reference' = ?", transfer_reference)
+      .order(created_at: :desc)
+      .first
+  end
+
+  def ledger_entry_type_for_snapshot
+    return 'release' if transfer_component == 'reversal'
+    return nil unless transfer_component == 'principal'
+
+    case lifecycle_state
+    when 'reserved'
+      'hold'
+    when 'completed'
+      'debit'
+    when 'released', 'failed'
+      'release'
+    else
+      nil
+    end
+  end
+
+  def snapshot_columns_available?
+    WalletLedgerEntry.column_names.include?('before_book_balance') &&
+      WalletLedgerEntry.column_names.include?('after_book_balance')
   end
 
   has_one :wallet

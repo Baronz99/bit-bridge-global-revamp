@@ -3,8 +3,9 @@
 require 'rails_helper'
 
 RSpec.describe Transfers::AnchorNgnTransferService do
-  let(:user) { create(:user, :tier2, :with_pin) }
+  let(:user) { create(:user, :tier2, :with_pin, email: "anchor-transfer-#{SecureRandom.hex(4)}@example.com") }
   let(:wallet) { user.ngn_wallet }
+  let(:snapshot_columns_available) { WalletLedgerEntry.column_names.include?('before_book_balance') }
   let(:bank_payload) do
     {
       bank_code: '000',
@@ -118,6 +119,11 @@ RSpec.describe Transfers::AnchorNgnTransferService do
 
     expect(result[:status]).to eq(:ok)
     expect(result[:body][:fee_breakdown]).to include('total_fee')
+    if snapshot_columns_available
+      expect(result[:body][:balance_snapshot]).to be_a(Hash)
+      expect(result[:body][:balance_snapshot][:reserve]).to be_present
+      expect(result[:body][:balance_snapshot][:settle]).to be_present
+    end
 
     principal = wallet.transactions.where("metadata ->> 'subtype' = ?", 'principal').last
     fee = wallet.transactions.where("metadata ->> 'subtype' = ?", 'fee').last
@@ -159,6 +165,11 @@ RSpec.describe Transfers::AnchorNgnTransferService do
     )
 
     expect(result[:status]).to eq(:bad_gateway)
+    if snapshot_columns_available
+      expect(result[:body][:balance_snapshot]).to be_a(Hash)
+      expect(result[:body][:balance_snapshot][:reserve]).to be_present
+      expect(result[:body][:balance_snapshot][:release]).to be_present
+    end
     reversals = wallet.transactions.where("metadata ->> 'subtype' = ?", 'reversal')
     expect(reversals.count).to eq(2)
     expect(reversals.pluck(:unique_transaction_id)).to contain_exactly(

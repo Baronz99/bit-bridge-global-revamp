@@ -19,6 +19,7 @@ class WalletLedgerEntry < ApplicationRecord
   validate :validate_money_scale
 
   before_save :normalize_money_fields
+  around_create :capture_balance_snapshot
   after_commit :warn_missing_amount_cents, on: :create
 
   scope :holds, -> { where(entry_type: :hold) }
@@ -149,6 +150,24 @@ class WalletLedgerEntry < ApplicationRecord
   end
 
   private
+
+  def capture_balance_snapshot
+    return yield unless wallet.present?
+    return yield unless has_attribute?(:before_book_balance) && has_attribute?(:before_available_balance)
+
+    wallet.with_lock do
+      self.before_book_balance = MoneyScale.normalize(wallet.ledger_raw_balance)
+      self.before_available_balance = MoneyScale.normalize(wallet.ledger_available_balance)
+
+      yield
+
+      wallet.reload
+      updates = {}
+      updates[:after_book_balance] = MoneyScale.normalize(wallet.ledger_raw_balance) if has_attribute?(:after_book_balance)
+      updates[:after_available_balance] = MoneyScale.normalize(wallet.ledger_available_balance) if has_attribute?(:after_available_balance)
+      update_columns(updates) if updates.any?
+    end
+  end
 
   def bill_order_required?
     !%w[credit adjustment].include?(entry_type.to_s)

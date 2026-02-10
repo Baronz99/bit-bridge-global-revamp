@@ -247,6 +247,7 @@ module Api
         title = wallet_label(txn, record)
         fx_quote = resolve_fx_quote_for_receipt(metadata)
         conversion_meta = build_conversion_meta(txn, metadata, fx_quote)
+        balance_snapshot = resolve_wallet_balance_snapshot(txn, metadata)
         conversion_fees = conversion_fee_array(currency, fx_quote)
         merged_fees = merge_fee_arrays(
           fee_array(metadata['fee_breakdown'], currency),
@@ -270,6 +271,7 @@ module Api
             unique_transaction_id: txn.unique_transaction_id,
             bridge_card_id: txn.bridge_card_id,
             anchor: anchor_details,
+            balance_snapshot: balance_snapshot,
             conversion: conversion_meta
           }.compact
         }.compact
@@ -305,7 +307,8 @@ module Api
             transaction_record_reference: record&.reference,
             unique_transaction_id: txn.unique_transaction_id,
             bridge_card_id: txn.bridge_card_id,
-            anchor: anchor_details
+            anchor: anchor_details,
+            balance_snapshot: balance_snapshot
           }.merge(conversion_meta).compact,
           timeline: build_wallet_timeline(txn, record, fx_quote),
           fees: merged_fees,
@@ -1207,6 +1210,57 @@ module Api
           beneficiary_account_number: virtual_account['account_number'] || record&.account_number,
           beneficiary_account_name: virtual_account['account_name']
         }.compact
+      end
+
+      def resolve_wallet_balance_snapshot(txn, metadata)
+        return nil unless wallet_ledger_snapshot_columns_available?
+
+        transfer_reference = metadata['transfer_reference'].to_s
+        return nil if transfer_reference.blank?
+
+        subtype = metadata['subtype'].to_s
+        entry_type = resolve_snapshot_entry_type(subtype, txn.status.to_s)
+        return nil if entry_type.blank?
+
+        entry = WalletLedgerEntry
+                .where(wallet_id: txn.wallet_id, entry_type: entry_type)
+                .where("metadata ->> 'transfer_reference' = ?", transfer_reference)
+                .order(created_at: :desc)
+                .first
+        return nil unless entry
+
+        {
+          entry_type: entry.entry_type,
+          before_event_balance: {
+            book: entry.before_book_balance&.to_f,
+            available: entry.before_available_balance&.to_f
+          }.compact,
+          after_event_balance: {
+            book: entry.after_book_balance&.to_f,
+            available: entry.after_available_balance&.to_f
+          }.compact
+        }
+      end
+
+      def resolve_snapshot_entry_type(subtype, status)
+        normalized_subtype = subtype.to_s.downcase
+        normalized_status = status.to_s.downcase
+
+        return 'release' if normalized_subtype == 'reversal'
+        return nil unless normalized_subtype == 'principal'
+        return 'hold' if normalized_status == 'pending'
+        return 'debit' if normalized_status == 'approved'
+
+        if %w[failed declined].include?(normalized_status)
+          return 'release'
+        end
+
+        nil
+      end
+
+      def wallet_ledger_snapshot_columns_available?
+        WalletLedgerEntry.column_names.include?('before_book_balance') &&
+          WalletLedgerEntry.column_names.include?('after_book_balance')
       end
     end
   end

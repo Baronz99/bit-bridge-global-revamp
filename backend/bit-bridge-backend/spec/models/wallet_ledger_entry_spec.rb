@@ -3,7 +3,7 @@
 require 'rails_helper'
 
 RSpec.describe WalletLedgerEntry, type: :model do
-  let(:user) { create(:user) }
+  let(:user) { create(:user, email: "ledger-entry-#{SecureRandom.hex(4)}@example.com") }
   let(:wallet) { user.ngn_wallet }
 
   def build_order
@@ -69,5 +69,38 @@ RSpec.describe WalletLedgerEntry, type: :model do
         metadata: { 'source' => 'anchor_transfer' }
       )
     end.to raise_error(ActiveRecord::RecordInvalid, /Cannot record debit after hold was released/)
+  end
+
+  it 'captures before and after balances for hold and debit entries' do
+    skip 'wallet_ledger_entries balance snapshot columns not migrated in this DB' unless
+      WalletLedgerEntry.column_names.include?('before_book_balance')
+
+    wallet.transactions.create!(
+      transaction_type: 'deposit',
+      status: 'approved',
+      amount: 1_000,
+      coin_type: 'bank',
+      address: 'seed'
+    )
+
+    order = build_order
+    hold = WalletLedgerEntry.ensure_hold!(wallet: wallet, bill_order: order, amount: 200)
+
+    expect(hold.before_book_balance.to_d).to eq(1_000.to_d)
+    expect(hold.after_book_balance.to_d).to eq(1_000.to_d)
+    expect(hold.before_available_balance.to_d).to eq(1_000.to_d)
+    expect(hold.after_available_balance.to_d).to eq(800.to_d)
+
+    debit = WalletLedgerEntry.record_debit!(
+      wallet: wallet,
+      bill_order: order,
+      amount: 200,
+      metadata: { 'source' => 'anchor_transfer' }
+    )
+
+    expect(debit.before_book_balance.to_d).to eq(1_000.to_d)
+    expect(debit.after_book_balance.to_d).to eq(800.to_d)
+    expect(debit.before_available_balance.to_d).to eq(800.to_d)
+    expect(debit.after_available_balance.to_d).to eq(800.to_d)
   end
 end

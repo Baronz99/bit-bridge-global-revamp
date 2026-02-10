@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[7.1].define(version: 2026_02_04_225500) do
+ActiveRecord::Schema[7.1].define(version: 2026_02_10_233000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pgcrypto"
   enable_extension "plpgsql"
@@ -815,6 +815,10 @@ ActiveRecord::Schema[7.1].define(version: 2026_02_04_225500) do
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
     t.bigint "amount_cents"
+    t.decimal "before_book_balance", precision: 18, scale: 2
+    t.decimal "after_book_balance", precision: 18, scale: 2
+    t.decimal "before_available_balance", precision: 18, scale: 2
+    t.decimal "after_available_balance", precision: 18, scale: 2
     t.index ["bill_order_id", "entry_type"], name: "index_wallet_ledger_entries_on_bill_order_id_and_entry_type", unique: true, where: "(bill_order_id IS NOT NULL)"
     t.index ["wallet_id", "bill_order_id", "entry_type"], name: "idx_unique_wallet_ledger_logical_entry", unique: true
     t.index ["wallet_id", "bill_order_id", "entry_type"], name: "idx_wallet_ledger_unique_bill_order_entry_partial", unique: true, where: "(bill_order_id IS NOT NULL)"
@@ -840,12 +844,14 @@ ActiveRecord::Schema[7.1].define(version: 2026_02_04_225500) do
     t.string "source", null: false
     t.jsonb "headers"
     t.jsonb "payload"
-    t.datetime "created_at", null: false
-    t.datetime "updated_at", null: false
     t.datetime "processed_at"
     t.string "processing_error"
-    t.jsonb "payload_json"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
     t.string "event_type"
+    t.jsonb "payload_json"
+    t.index ["created_at"], name: "index_webhook_events_on_created_at"
+    t.index ["source"], name: "index_webhook_events_on_source"
   end
 
   add_foreign_key "accounts", "users"
