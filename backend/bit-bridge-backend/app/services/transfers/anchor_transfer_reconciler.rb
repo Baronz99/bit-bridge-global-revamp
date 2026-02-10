@@ -36,7 +36,11 @@ module Transfers
         provider_status = extract_status(response[:data])
         case provider_status
         when 'successful', 'success', 'completed', 'approved'
-          approve_transfer!(transaction, provider_status)
+          Transfers::AnchorNgnTransferService.mark_success!(
+            transaction,
+            provider_status: provider_status,
+            provider_transfer_id: transaction.transfer_id
+          )
           results[:approved] += 1
         when 'failed', 'reversed', 'rejected', 'cancelled'
           Transfers::AnchorNgnTransferService.reverse_transfer!(
@@ -75,30 +79,5 @@ module Transfers
       raw.to_s.downcase
     end
 
-    def approve_transfer!(principal_tx, provider_status)
-      meta = principal_tx.metadata.is_a?(Hash) ? principal_tx.metadata.dup : {}
-      meta['provider_status'] = provider_status
-      principal_tx.update!(status: 'approved', metadata: meta)
-
-      fee_tx = fee_transaction(principal_tx)
-      return unless fee_tx
-
-      fee_meta = fee_tx.metadata.is_a?(Hash) ? fee_tx.metadata.dup : {}
-      fee_meta['provider_status'] = provider_status
-      fee_tx.update!(status: 'approved', metadata: fee_meta)
-    end
-
-    def fee_transaction(principal_tx)
-      reference =
-        principal_tx.metadata.is_a?(Hash) ? principal_tx.metadata['transfer_reference'] : nil
-      return nil if reference.blank?
-
-      Transaction
-        .where(wallet_id: principal_tx.wallet_id)
-        .where("metadata ->> 'transfer_reference' = ?", reference)
-        .where("metadata ->> 'subtype' = ?", 'fee')
-        .order(created_at: :desc)
-        .first
-    end
   end
 end

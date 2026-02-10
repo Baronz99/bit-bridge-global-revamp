@@ -109,6 +109,56 @@ module Transfers
       end
     end
 
+    def self.mark_success!(principal_tx, provider_status:, provider_transfer_id: nil)
+      return if principal_tx.blank?
+
+      transfer_reference =
+        principal_tx.metadata.is_a?(Hash) ? principal_tx.metadata['transfer_reference'] : nil
+
+      ActiveRecord::Base.transaction do
+        principal_meta = principal_tx.metadata.is_a?(Hash) ? principal_tx.metadata.dup : {}
+        principal_meta['provider_status'] = provider_status if provider_status.present?
+        principal_meta['provider_transfer_id'] = provider_transfer_id if provider_transfer_id.present?
+        principal_tx.update!(
+          status: 'approved',
+          transfer_id: provider_transfer_id.presence || principal_tx.transfer_id,
+          metadata: principal_meta
+        )
+
+        fee_tx =
+          if transfer_reference.present?
+            Transaction
+              .where(wallet_id: principal_tx.wallet_id)
+              .where("metadata ->> 'transfer_reference' = ?", transfer_reference)
+              .where("metadata ->> 'subtype' = ?", 'fee')
+              .order(created_at: :desc)
+              .first
+          end
+
+        if fee_tx
+          fee_meta = fee_tx.metadata.is_a?(Hash) ? fee_tx.metadata.dup : {}
+          fee_meta['provider_status'] = provider_status if provider_status.present?
+          fee_meta['provider_transfer_id'] = provider_transfer_id if provider_transfer_id.present?
+          fee_tx.update!(status: 'approved', metadata: fee_meta)
+        end
+
+        record =
+          principal_tx.transaction_record ||
+          (transfer_reference.present? ? TransactionRecord.find_by(reference: transfer_reference) : nil)
+
+        if record
+          updates = { status: 'approved' }
+          updates[:transaction_id] = provider_transfer_id if provider_transfer_id.present? && record.transaction_id.blank?
+          record.update!(updates)
+
+          bill_order = record.bill_order
+          if bill_order.present? && !BillOrder::TERMINAL_STATUSES.include?(bill_order.status.to_s)
+            bill_order.update!(status: 'completed')
+          end
+        end
+      end
+    end
+
     private
 
     def min_amount_error

@@ -633,18 +633,20 @@ class AnchorService
 
     raise 'Missing transfer ID in webhook payload' unless transfer_id
 
-    transaction =  Transaction.find_by(transfer_id: transfer_id)
+    transaction = Transaction.find_by(transfer_id: transfer_id)
     raise "Transaction not found for transfer ID: #{transfer_id}" unless transaction
 
+    provider_status =
+      data['type'].to_s.presence ||
+      data.dig('attributes', 'status').to_s.presence ||
+      'successful'
 
-    if transaction.update(status: 'approved')
-      Rails.logger.info("✅ Transaction #{transaction.id} (Transfer #{transfer_id}) approved successfully.")
-
-    else
-      error_message = transaction.errors.full_messages.to_sentence
-      Rails.logger.error("❌ Failed to approve transaction #{transaction.id}: #{error_message}")
-
-    end
+    Transfers::AnchorNgnTransferService.mark_success!(
+      transaction,
+      provider_status: provider_status,
+      provider_transfer_id: transfer_id
+    )
+    Rails.logger.info("Anchor transfer approved transfer_id=#{transfer_id} transaction_id=#{transaction.id} status=#{provider_status}")
   end
 
   def fail_transfer_withdrawal(data)
@@ -820,3 +822,4 @@ class AnchorService
     0
   end
 end
+
