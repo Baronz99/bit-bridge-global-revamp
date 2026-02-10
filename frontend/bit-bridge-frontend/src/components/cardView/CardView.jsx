@@ -15,7 +15,6 @@ import TransactionPinInput from '../../components/pin/TransactionPinInput' // ad
 
 const PIN_LENGTH = 4
 const CARD_CREATION_FEE_USD = 4
-const CARD_MIN_FUNDING_USD = 5
 const DEBUG_STRIP = false
 
 export default function VirtualCardApplication() {
@@ -95,6 +94,7 @@ export default function VirtualCardApplication() {
     card_currency: 'USD',
     card_type: 'Virtual',
     card_limit: 5000,
+    card_pin: '',
 
     // funding fields
     amount: '',
@@ -139,7 +139,8 @@ export default function VirtualCardApplication() {
   const feeAmount = Number(creationFeeUsd || 0)
   const isExistingCard = hasCardId && !isPendingFunding
   const feeDue = isExistingCard ? 0 : creationFeeCharged ? 0 : feeAmount
-  const minFunding = CARD_MIN_FUNDING_USD
+  const selectedCardLimitUsd = Number(formData.card_limit || 5000)
+  const minFunding = selectedCardLimitUsd >= 10000 ? 4 : 3
   const totalDebit = feeDue + (fundingAmount > 0 ? fundingAmount : 0)
   const fundingBelowMin = fundingAmount > 0 && fundingAmount < minFunding
   const withdrawAmountValue = Number(withdrawAmount || 0)
@@ -390,6 +391,11 @@ const setPin = (nextPin) => {
   if (clean.length === PIN_LENGTH) setCardRevealError(null)
 }
 
+const setCardPin = (nextPin) => {
+  const clean = String(nextPin || '').replace(/\D/g, '').slice(0, PIN_LENGTH)
+  setFormData((prev) => ({ ...prev, card_pin: clean }))
+}
+
 
   const setRevealPinValue = (nextPin) => {
     const clean = String(nextPin || '').replace(/\D/g, '').slice(0, PIN_LENGTH)
@@ -476,6 +482,13 @@ const setPin = (nextPin) => {
       return setSuccessCreate({ ok: false, message: `Enter your ${PIN_LENGTH}-digit transaction PIN.` })
     }
 
+    if ((formData.card_pin || '').length > 0 && (formData.card_pin || '').length !== PIN_LENGTH) {
+      setSubmitting(false)
+      return setSuccessCreate({ ok: false, message: `Card PIN must be exactly ${PIN_LENGTH} digits.` })
+    }
+
+    const normalizedCardLimitCents = selectedCardLimitUsd >= 10000 ? '1000000' : '500000'
+
     if (isExistingCard) {
       client
         .post('/cards/fund_wallet', {
@@ -510,6 +523,8 @@ const setPin = (nextPin) => {
         card: {
           ...formData,
           card_currency: 'USD',
+          card_limit: normalizedCardLimitCents,
+          card_pin: (formData.card_pin || '').length === PIN_LENGTH ? formData.card_pin : undefined,
           wallet_type: 'usd',
         },
       })
@@ -1462,12 +1477,35 @@ const setPin = (nextPin) => {
                           </div>
                         </div>
                         <div>
+                          <label className="block text-xs mb-1 text-slate-300">Card limit</label>
+                          <select
+                            name="card_limit"
+                            value={String(formData.card_limit || 5000)}
+                            onChange={handleChange}
+                            className="w-full bg-slate-800 border border-slate-700 rounded-md p-2.5 text-sm"
+                          >
+                            <option value="5000">$5,000</option>
+                            <option value="10000">$10,000</option>
+                          </select>
+                        </div>
+                        <div>
                           <label className="block text-xs mb-1 text-slate-300">
                             Transaction PIN ({PIN_LENGTH} digits)
                           </label>
                           <TransactionPinInput
                             value={formData.transaction_pin}
                             onChange={setPin}
+                            length={PIN_LENGTH}
+                            disabled={submitting}
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs mb-1 text-slate-300">
+                            Card PIN ({PIN_LENGTH} digits, optional)
+                          </label>
+                          <TransactionPinInput
+                            value={formData.card_pin}
+                            onChange={setCardPin}
                             length={PIN_LENGTH}
                             disabled={submitting}
                           />
@@ -2345,10 +2383,35 @@ const setPin = (nextPin) => {
               </div>
 
               <div>
+                <label className="block text-xs mb-1 text-slate-300">Card limit</label>
+                <select
+                  name="card_limit"
+                  value={String(formData.card_limit || 5000)}
+                  onChange={handleChange}
+                  className="w-full bg-slate-800 border border-slate-700 rounded-md p-2.5 text-sm"
+                >
+                  <option value="5000">$5,000</option>
+                  <option value="10000">$10,000</option>
+                </select>
+              </div>
+
+              <div>
                 <label className="block text-xs mb-1 text-slate-300">Transaction PIN ({PIN_LENGTH} digits)</label>
                 <TransactionPinInput
                   value={formData.transaction_pin}
                   onChange={setPin}
+                  length={PIN_LENGTH}
+                  disabled={submitting}
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs mb-1 text-slate-300">
+                  Card PIN ({PIN_LENGTH} digits, optional)
+                </label>
+                <TransactionPinInput
+                  value={formData.card_pin}
+                  onChange={setCardPin}
                   length={PIN_LENGTH}
                   disabled={submitting}
                 />
