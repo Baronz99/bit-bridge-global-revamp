@@ -872,12 +872,6 @@ module Api
           return false
         end
 
-        if !inter_bank && counter_party_id.blank?
-          render json: { message: 'counter_party_id is required for NIP transfers' },
-                 status: :unprocessable_entity
-          return false
-        end
-
         numeric_amount = amount.to_d rescue nil
         if numeric_amount.nil? || numeric_amount <= 0
           render json: { message: 'amount must be greater than 0' }, status: :unprocessable_entity
