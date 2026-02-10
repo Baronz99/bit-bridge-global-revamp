@@ -106,7 +106,7 @@ class BridgecardWebhookVerifier
   end
 
   def debug_enabled?
-    flag = ENV['BRIDGECARD_WEBHOOK_DEBUG'].to_s.strip.downcase
+    flag = ENV['BRIDGECARD_WEBHOOK_DIAGNOSTICS'].to_s.strip.downcase
     %w[1 true yes on].include?(flag)
   end
 end
