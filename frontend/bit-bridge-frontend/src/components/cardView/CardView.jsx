@@ -65,6 +65,7 @@ export default function VirtualCardApplication() {
   const [withdrawResult, setWithdrawResult] = useState(null)
   const [creationFeeUsd, setCreationFeeUsd] = useState(CARD_CREATION_FEE_USD)
   const [cardholderCameraError, setCardholderCameraError] = useState('')
+  const [refreshingVerification, setRefreshingVerification] = useState(false)
   const gateToastShownRef = useRef(false)
     const [showRevealPinModal, setShowRevealPinModal] = useState(false)
   const [revealPin, setRevealPin] = useState('') // PIN used ONLY for reveal
@@ -136,6 +137,22 @@ export default function VirtualCardApplication() {
     card?.status || cardDetails?.status || cardDetails?.card_status || ''
   const normalizedStatus = statusFromApi.toString().toLowerCase()
   const isPendingFunding = normalizedStatus === 'pending_funding'
+  const cardholderKycStatus = String(card?.meta_data?.cardholder_kyc_status || '').toLowerCase()
+  const cardholderStatusUpdatedAt = card?.meta_data?.cardholder_status_updated_at || null
+  const cardholderVerificationPending = ['pending_verification', 'manual_review'].includes(cardholderKycStatus)
+  const cardholderVerificationFailed = cardholderKycStatus === 'failed'
+  const cardholderVerificationBlockedCreate =
+    cardholderVerificationPending || cardholderVerificationFailed
+  const cardholderStatusLabel =
+    cardholderKycStatus === 'pending_verification'
+      ? 'Pending verification'
+      : cardholderKycStatus === 'manual_review'
+      ? 'Manual review'
+      : cardholderKycStatus === 'failed'
+      ? 'Verification failed'
+      : cardholderKycStatus === 'verified'
+      ? 'Verified'
+      : null
   const frozenBy = card?.frozen_by || card?.frozenBy || ''
   const frozenReason = card?.frozen_reason || card?.frozenReason || ''
   const creationFeeCharged = Boolean(card?.meta_data?.creation_fee_charged)
@@ -427,8 +444,10 @@ const setPin = (nextPin) => {
       .then(() => {
         setSuccess({
           ok: true,
-          message: `Cardholder profile submitted (${cardType}).`,
+          message:
+            'Cardholder profile submitted. Verification is in progress and can take a few minutes before card creation is enabled.',
         })
+        dispatch(getUserCard())
       })
       .catch((err) => {
         setSuccess({
@@ -442,6 +461,16 @@ const setPin = (nextPin) => {
   // Create / fund card
   async function handleSubmitCreateCard(e) {
     e.preventDefault()
+
+    if (cardholderVerificationBlockedCreate && !isExistingCard) {
+      return setSuccessCreate({
+        ok: false,
+        message:
+          cardholderVerificationFailed
+            ? 'Cardholder verification failed. Re-submit cardholder details before card creation.'
+            : 'Cardholder verification is still in progress. Refresh status and retry when verified.',
+      })
+    }
 
     setSubmitting(true)
     setSuccessCreate(null)
@@ -541,6 +570,23 @@ const setPin = (nextPin) => {
       .finally(() => setSubmitting(false))
   }
 
+  const formatStatusTime = (value) => {
+    if (!value) return null
+    const d = new Date(value)
+    if (Number.isNaN(d.getTime())) return null
+    return d.toLocaleString()
+  }
+
+  const handleRefreshCardholderStatus = async () => {
+    if (refreshingVerification) return
+    setRefreshingVerification(true)
+    try {
+      await dispatch(getUserCard())
+    } finally {
+      setRefreshingVerification(false)
+    }
+  }
+
   async function handleSubmitUnloadCard(e) {
     e.preventDefault()
     setSubmitting(true)
@@ -590,6 +636,7 @@ const setPin = (nextPin) => {
 
   const canCreate =
     !!tunnelWallet?.id &&
+    (isExistingCard || !cardholderVerificationBlockedCreate) &&
     (formData.transaction_pin || '').length === PIN_LENGTH &&
     (isExistingCard ? fundingAmount > 0 : !fundingBelowMin) &&
     tunnelUsdBalance >= requiredBalance
@@ -2325,6 +2372,31 @@ const setPin = (nextPin) => {
             {!tunnelWallet?.id && (
               <div className="mb-4 rounded-xl border border-orange-700/40 bg-orange-900/20 p-3 text-xs text-orange-200">
                 Tunnel wallet is not active. Open <b>Wallet / Tunnel</b> and tap "Activate Tunnel".
+              </div>
+            )}
+            {cardholderVerificationBlockedCreate && !isExistingCard && (
+              <div className="mb-4 rounded-xl border border-sky-700/40 bg-sky-900/20 p-3 text-xs text-sky-100">
+                <div className="font-semibold">
+                  Cardholder verification status: {cardholderStatusLabel || 'In progress'}
+                </div>
+                <div className="mt-1 text-[11px] text-sky-200/90">
+                  {cardholderVerificationFailed
+                    ? 'Verification failed at provider. Re-submit cardholder details to continue.'
+                    : 'Verification is processing. Card creation is unlocked automatically after provider confirmation webhook.'}
+                </div>
+                {formatStatusTime(cardholderStatusUpdatedAt) && (
+                  <div className="mt-1 text-[11px] text-sky-200/80">
+                    Last update: {formatStatusTime(cardholderStatusUpdatedAt)}
+                  </div>
+                )}
+                <button
+                  type="button"
+                  onClick={handleRefreshCardholderStatus}
+                  disabled={refreshingVerification}
+                  className="mt-2 inline-flex items-center rounded-md border border-sky-400/50 px-2.5 py-1 text-[11px] font-semibold text-sky-100 hover:bg-sky-800/40 disabled:opacity-60"
+                >
+                  {refreshingVerification ? 'Refreshing...' : 'Refresh verification status'}
+                </button>
               </div>
             )}
 
