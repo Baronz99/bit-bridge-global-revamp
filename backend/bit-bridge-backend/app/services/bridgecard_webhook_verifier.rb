@@ -3,6 +3,7 @@
 require 'openssl'
 require 'base64'
 require 'digest'
+require 'aes-everywhere'
 
 class BridgecardWebhookVerifier
   def initialize(body:, signature:, secrets:)
@@ -16,6 +17,9 @@ class BridgecardWebhookVerifier
       log_diagnostics(stage: 'precheck_failed', normalized_signature: nil, attempted: [])
       return false
     end
+
+    decrypt_match = valid_by_decrypt_compare?
+    return true if decrypt_match
 
     signature_hex = normalize_signature(@signature)
     if signature_hex.nil?
@@ -40,6 +44,33 @@ class BridgecardWebhookVerifier
   end
 
   private
+
+  def valid_by_decrypt_compare?
+    webhook_secret = @secrets.first.to_s
+    decrypt_keys = @secrets.drop(1)
+    return false if webhook_secret.empty? || decrypt_keys.empty?
+
+    attempted = []
+    matched = decrypt_keys.any? do |key|
+      decrypted = decrypt_signature(@signature, key)
+      attempted << {
+        key_len: key.length,
+        key_hex: hex_string?(key.strip),
+        decrypt_present: decrypted.present?,
+        decrypt_len: decrypted.to_s.length
+      }
+      decrypted.present? && secure_compare(decrypted, webhook_secret)
+    end
+
+    log_diagnostics(stage: 'decrypt_compare_failed', normalized_signature: nil, attempted: attempted) unless matched
+    matched
+  end
+
+  def decrypt_signature(signature, key)
+    AES256.decrypt(signature.to_s, key.to_s)
+  rescue StandardError
+    nil
+  end
 
   def compute_cmac_hex(secret, body)
     key = decode_key(secret)

@@ -44,11 +44,15 @@ module Bridgecard
       if live?
         [
           ENV['BRIDGECARD_LIVE_WEBHOOK_SECRET'],
-          ENV['BRIDGECARD_LIVE_SECRET']
+          ENV['BRIDGECARD_LIVE_SECRET'],
+          ENV['BRIDGECARD_LIVE_TOKEN']
         ].compact
       else
         [
-          ENV['BRIDGECARD_TEST_WEBHOOK_SECRET']
+          ENV['BRIDGECARD_TEST_WEBHOOK_SECRET'],
+          ENV['BRIDGECARD_TEST_SECRET'],
+          ENV['BRIDGE_CARD_TOKEN'],
+          ENV['BRIDGE_TOKEN']
         ].compact
       end
     end
