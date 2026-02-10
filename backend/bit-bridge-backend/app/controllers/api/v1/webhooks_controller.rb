@@ -40,6 +40,7 @@ module Api
 
         card = card_id.present? ? Card.find_by(card_id: card_id) : nil
         card ||= Card.find_by(cardholder_id: cardholder_id) if cardholder_id.present?
+        card = resolve_card_for_bridge_event(card: card, data: data)
         user_id = card&.user_id
 
         card_event = CardEvent.upsert_bridgecard_event!(
@@ -55,6 +56,11 @@ module Api
           handle_card_unload_success(data)
         when 'card_unload_event.failed'
           handle_card_unload_failed(data)
+        when 'card_creation_event.successful'
+          reconcile_card_from_creation_event(card: card, data: data)
+          reconcile_missing_creation_fee_debit(card: card, data: data)
+        when 'card_credit_event.successful'
+          reconcile_missing_card_funding_debit(card: card, data: data)
         when 'card_debit_event.successful'
           begin
             Cards::Ledger::PostCardSettlement.call(card: card, card_event: card_event)
@@ -502,6 +508,126 @@ module Api
         return if txn.status == 'failed'
 
         txn.update!(status: 'failed')
+      end
+
+      def resolve_card_for_bridge_event(card:, data:)
+        return card if card.present?
+        return nil unless data.is_a?(Hash)
+
+        meta = data['meta_data'].is_a?(Hash) ? data['meta_data'] : {}
+        local_card_id = meta['local_card_id'].to_s.strip
+        user_id = meta['user_id'].to_s.strip
+        cardholder_id = data['cardholder_id'].to_s.strip
+
+        return Card.find_by(id: local_card_id) if local_card_id.present?
+
+        if user_id.present?
+          scoped = Card.where(user_id: user_id)
+          found = scoped.find_by(cardholder_id: cardholder_id) if cardholder_id.present?
+          found ||= scoped.order(created_at: :desc).find_by(card_id: nil)
+          return found if found.present?
+        end
+
+        return Card.find_by(cardholder_id: cardholder_id) if cardholder_id.present?
+
+        nil
+      end
+
+      def reconcile_card_from_creation_event(card:, data:)
+        return if card.blank? || !data.is_a?(Hash)
+
+        provider_card_id = data['card_id'].to_s.strip
+        return if provider_card_id.blank?
+
+        meta = card.meta_data.is_a?(Hash) ? card.meta_data.dup : {}
+        meta['bridgecard_last_create_reference'] = data['transaction_reference'] if data['transaction_reference'].present?
+        meta['bridgecard_last_create_event_at'] = Time.current.iso8601
+
+        attrs = {
+          card_id: provider_card_id,
+          cardholder_id: data['cardholder_id'].presence || card.cardholder_id,
+          card_currency: data['currency'].presence || card.card_currency,
+          status: data['is_active'] == true ? 'active' : card.status,
+          meta_data: meta
+        }
+        attrs[:card_limit] = data['card_limit'] if data['card_limit'].present?
+        attrs[:card_type] = data['card_type'] if data['card_type'].present?
+        attrs[:card_brand] = data['card_brand'].presence || data['brand'].presence || card.card_brand
+        card.update!(attrs.compact)
+      rescue StandardError => e
+        Rails.logger.warn("[BridgecardWebhook] card_create_reconcile_failed card_id=#{card&.id} message=#{e.message}")
+      end
+
+      def reconcile_missing_creation_fee_debit(card:, data:)
+        return if card.blank?
+
+        user = card.user
+        wallet = user&.usd_wallet
+        return if wallet.blank?
+
+        meta = card.meta_data.is_a?(Hash) ? card.meta_data.dup : {}
+        return if meta['creation_fee_charged'] == true
+
+        fee_cents = FxSetting.current.card_creation_fee_usd_cents.to_i
+        fee_cents = 400 if fee_cents <= 0
+        return if fee_cents <= 0
+        return if wallet.balance_cents.to_i < fee_cents
+
+        reference_seed = data.is_a?(Hash) ? data['transaction_reference'].to_s : ''
+        fee_reference = meta['creation_fee_reference'].presence || "card-fee-reconcile-#{reference_seed.presence || card.id}"
+        return if wallet.transactions.exists?(unique_transaction_id: fee_reference)
+
+        ActiveRecord::Base.transaction do
+          wallet.transactions.create!(
+            transaction_type: 'withdrawal',
+            status: 'approved',
+            amount: (fee_cents / 100.0).round(2),
+            coin_type: 'bank',
+            address: 'Virtual Card Creation Fee',
+            unique_transaction_id: fee_reference,
+            bridge_card_id: card.card_id,
+            metadata: { source: 'bridgecard_reconcile' }
+          )
+          wallet.debit_cents!(fee_cents)
+        end
+
+        meta['creation_fee_charged'] = true
+        meta['creation_fee_cents'] = fee_cents
+        meta['creation_fee_reference'] = fee_reference
+        meta['creation_fee_charged_at'] = Time.current
+        card.update!(meta_data: meta)
+      rescue StandardError => e
+        Rails.logger.warn("[BridgecardWebhook] creation_fee_reconcile_failed card_id=#{card&.id} message=#{e.message}")
+      end
+
+      def reconcile_missing_card_funding_debit(card:, data:)
+        return if card.blank? || !data.is_a?(Hash)
+
+        reference = data['transaction_reference'].to_s.strip
+        amount_cents = data['amount'].to_i
+        return if reference.blank? || amount_cents <= 0
+
+        wallet = card.user&.usd_wallet
+        return if wallet.blank?
+        return if wallet.transactions.exists?(unique_transaction_id: reference)
+        return if wallet.balance_cents.to_i < amount_cents
+
+        amount_usd = (amount_cents / 100.0).round(2)
+        ActiveRecord::Base.transaction do
+          wallet.transactions.create!(
+            transaction_type: 'withdrawal',
+            status: 'approved',
+            amount: amount_usd,
+            coin_type: 'bank',
+            address: 'Virtual Card Funding (USD)',
+            unique_transaction_id: reference,
+            bridge_card_id: card.card_id,
+            metadata: { source: 'bridgecard_reconcile' }
+          )
+          wallet.debit_cents!(amount_cents)
+        end
+      rescue StandardError => e
+        Rails.logger.warn("[BridgecardWebhook] funding_reconcile_failed card_id=#{card&.id} reference=#{reference} message=#{e.message}")
       end
     end
   end

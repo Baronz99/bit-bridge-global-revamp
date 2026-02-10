@@ -277,6 +277,7 @@ module Api
           event_time = event.transaction_at || event.created_at
           label = event.description.presence || event.event.to_s.tr('._', ' ').strip
           metadata = event.metadata.is_a?(Hash) ? event.metadata : {}
+          normalized_event_amount = bridge_event_amount_usd(event)
 
           fx_payload =
             if event.merchant_currency.present? || metadata['fx_discovery_present']
@@ -294,7 +295,7 @@ module Api
           payload = {
             id: "evt-#{event.id}",
             address: label,
-            amount: event.amount,
+            amount: normalized_event_amount,
             status: event.status,
             created_at: event_time,
             source: 'bridge',
@@ -365,13 +366,19 @@ module Api
           card_events
           .where(card_transaction_type: 'CREDIT')
           .where(status: 'successful')
-          .sum(:amount)
+          .to_a
+          .sum { |event| bridge_event_amount_usd(event) || 0.to_d }
 
         total_funded = total_funded_txn + total_funded_events
 
         render json: {
           data: {
-            last_funding_amount: last_funding&.amount,
+            last_funding_amount:
+              if last_funding.respond_to?(:card_transaction_type)
+                bridge_event_amount_usd(last_funding)
+              else
+                last_funding&.amount
+              end,
             last_funding_at: last_funding.respond_to?(:transaction_at) ? last_funding&.transaction_at : last_funding&.created_at,
             total_funded: total_funded,
             history_count: txns.size + card_events.size
@@ -481,6 +488,18 @@ module Api
 
       def normalized_card_params
         card_params.to_h.symbolize_keys
+      end
+
+      def bridge_event_amount_usd(event)
+        return nil if event.blank? || event.amount.nil?
+
+        amount = BigDecimal(event.amount.to_s) rescue nil
+        return nil if amount.nil?
+
+        currency = event.currency.to_s.upcase
+        return amount.to_f unless currency == 'USD'
+
+        (amount / 100).to_f
       end
     end
   end
