@@ -160,8 +160,11 @@ class AnchorService
       useable_id = response.dig('data', 'id')
       account_number = response.dig('data', 'attributes', 'accountNumber')
       account_name = response.dig('data', 'attributes', 'accountName')
-      full_account_number = fetch_account_number_by_account_id(useable_id)
-      resolved_account_number = full_account_number.presence || account_number
+      account_number_details = fetch_account_number_details_by_account_id(useable_id)
+      resolved_account_number = account_number_details[:account_number].presence || account_number
+      resolved_bank_name = account_number_details[:bank_name].presence || bank_name
+      resolved_bank_code = account_number_details[:bank_code].presence || account_record.bank_code
+      resolved_account_name = account_number_details[:account_name].presence || account_name
 
 
       provider_status = response.code
@@ -179,7 +182,8 @@ class AnchorService
       end
 
       unless account_record.update(account_number: resolved_account_number, account_type: type, status: 'completed',
-                                   active: true, bank_name: bank_name, account_name: account_name, useable_id: useable_id)
+                                   active: true, bank_name: resolved_bank_name, bank_code: resolved_bank_code,
+                                   account_name: resolved_account_name, useable_id: useable_id)
 
         account_record.errors.full_messages.to_sentence || 'bad request'
       end
@@ -686,19 +690,48 @@ class AnchorService
   end
 
   def fetch_account_number_by_account_id(account_id)
+    details = fetch_account_number_details_by_account_id(account_id)
+    details[:account_number]
+  end
+
+  def fetch_account_number_details_by_account_id(account_id)
     return nil if account_id.blank?
 
     response = self.class.get('/api/v1/account-numbers', headers: @headers, query: { AccountId: account_id })
     return nil unless response.success?
 
     data = response['data']
-    if data.is_a?(Array)
-      data.first&.dig('attributes', 'accountNumber')
-    else
-      data&.dig('attributes', 'accountNumber')
-    end
+    row = data.is_a?(Array) ? data.first : data
+    attributes = row.is_a?(Hash) ? (row['attributes'] || {}) : {}
+    bank = attributes['bank'].is_a?(Hash) ? attributes['bank'] : {}
+
+    {
+      account_number: attributes['accountNumber'],
+      bank_name: bank['name'],
+      bank_code: bank['code'],
+      account_name: attributes['name'].presence || attributes['accountName'].presence
+    }.compact
   rescue StandardError
     nil
+  end
+
+  def sync_anchor_deposit_account!(account_record)
+    return account_record if account_record.blank? || account_record.useable_id.blank?
+
+    details = fetch_account_number_details_by_account_id(account_record.useable_id)
+    return account_record if details.blank?
+
+    updates = {}
+    updates[:account_number] = details[:account_number] if details[:account_number].present? && details[:account_number] != account_record.account_number
+    updates[:bank_name] = details[:bank_name] if details[:bank_name].present? && details[:bank_name] != account_record.bank_name
+    updates[:bank_code] = details[:bank_code] if details[:bank_code].present? && details[:bank_code] != account_record.bank_code
+    updates[:account_name] = details[:account_name] if details[:account_name].present? && details[:account_name] != account_record.account_name
+
+    account_record.update(updates) if updates.any?
+    account_record
+  rescue StandardError => e
+    Rails.logger.warn("[AnchorService] sync_anchor_deposit_account failed account_id=#{account_record&.id} message=#{e.message}") if defined?(Rails) && Rails.logger
+    account_record
   end
 
   def normalize_anchor_amount(amount, currency)
