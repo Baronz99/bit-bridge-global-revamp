@@ -130,10 +130,6 @@ module Api
 
       # POST /api/v1/cards/create_card
       def create_card
-        raw_pin = params.dig(:card, :transaction_pin).presence || ''
-
-        return unless require_transaction_pin!(raw_pin)
-
         service = BridgeCardService.new
         recent_card = current_user.cards.order(created_at: :asc).last
 
@@ -176,13 +172,6 @@ module Api
 
       # POST /api/v1/cards/fund_wallet
       def fund_wallet
-        raw_pin =
-          params.dig(:card, :transaction_pin).presence ||
-          params.dig(:card, :pin).presence ||
-          ''
-
-        return unless require_transaction_pin!(raw_pin)
-
         service = BridgeCardService.new
         service_response = service.fund_wallet(normalized_card_params, current_user)
 
@@ -195,13 +184,6 @@ module Api
 
       # POST /api/v1/cards/unload_wallet
       def unload_wallet
-        raw_pin =
-          params.dig(:card, :transaction_pin).presence ||
-          params.dig(:card, :pin).presence ||
-          ''
-
-        return unless require_transaction_pin!(raw_pin)
-
         service = BridgeCardService.new
         service_response = service.unload_wallet(normalized_card_params, current_user)
 

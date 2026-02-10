@@ -98,7 +98,6 @@ export default function VirtualCardApplication() {
 
     // funding fields
     amount: '',
-    transaction_pin: '', //  backend expects 4 digits
     wallet_type: 'usd',   //  force tunnel
   })
 
@@ -385,12 +384,6 @@ export default function VirtualCardApplication() {
     }))
   }
 
-const setPin = (nextPin) => {
-  const clean = String(nextPin || '').replace(/\D/g, '').slice(0, PIN_LENGTH)
-  setFormData((prev) => ({ ...prev, transaction_pin: clean }))
-  if (clean.length === PIN_LENGTH) setCardRevealError(null)
-}
-
 const setCardPin = (nextPin) => {
   const clean = String(nextPin || '').replace(/\D/g, '').slice(0, PIN_LENGTH)
   setFormData((prev) => ({ ...prev, card_pin: clean }))
@@ -477,11 +470,6 @@ const setCardPin = (nextPin) => {
       })
     }
 
-    if ((formData.transaction_pin || '').length !== PIN_LENGTH) {
-      setSubmitting(false)
-      return setSuccessCreate({ ok: false, message: `Enter your ${PIN_LENGTH}-digit transaction PIN.` })
-    }
-
     if ((formData.card_pin || '').length !== PIN_LENGTH) {
       setSubmitting(false)
       return setSuccessCreate({ ok: false, message: `Enter your ${PIN_LENGTH}-digit card PIN.` })
@@ -496,7 +484,6 @@ const setCardPin = (nextPin) => {
             card_id: card?.card_id,
             amount: amt,
             currency: 'USD',
-            transaction_pin: formData.transaction_pin,
             wallet_type: 'usd',
           },
         })
@@ -562,18 +549,12 @@ const setCardPin = (nextPin) => {
       return setWithdrawResult({ ok: false, message: 'Enter a valid withdrawal amount.' })
     }
 
-    if ((formData.transaction_pin || '').length !== PIN_LENGTH) {
-      setSubmitting(false)
-      return setWithdrawResult({ ok: false, message: `Enter your ${PIN_LENGTH}-digit transaction PIN.` })
-    }
-
     client
       .post('/cards/unload_wallet', {
         card: {
           card_id: card?.card_id,
           amount: amt,
           currency: 'USD',
-          transaction_pin: formData.transaction_pin,
           wallet_type: 'usd',
         },
       })
@@ -595,14 +576,11 @@ const setCardPin = (nextPin) => {
 
   const canCreate =
     !!tunnelWallet?.id &&
-    (formData.transaction_pin || '').length === PIN_LENGTH &&
     (formData.card_pin || '').length === PIN_LENGTH &&
     (isExistingCard ? fundingAmount > 0 : !fundingBelowMin) &&
     tunnelUsdBalance >= requiredBalance
   const canWithdraw =
-    (formData.transaction_pin || '').length === PIN_LENGTH &&
-    withdrawAmountValue > 0 &&
-    hasCardId
+    withdrawAmountValue > 0 && hasCardId
 
   const onCardMove = (event) => {
     const rect = event.currentTarget.getBoundingClientRect()
@@ -1491,17 +1469,6 @@ const setCardPin = (nextPin) => {
                         </div>
                         <div>
                           <label className="block text-xs mb-1 text-slate-300">
-                            Transaction PIN ({PIN_LENGTH} digits)
-                          </label>
-                          <TransactionPinInput
-                            value={formData.transaction_pin}
-                            onChange={setPin}
-                            length={PIN_LENGTH}
-                            disabled={submitting}
-                          />
-                        </div>
-                        <div>
-                          <label className="block text-xs mb-1 text-slate-300">
                             Card PIN ({PIN_LENGTH} digits)
                           </label>
                           <TransactionPinInput
@@ -1558,17 +1525,6 @@ const setCardPin = (nextPin) => {
                           <p className="mt-1 text-[11px] text-slate-500">
                             Funds move from your card balance to your Tunnel wallet after confirmation.
                           </p>
-                        </div>
-                        <div>
-                          <label className="block text-xs mb-1 text-slate-300">
-                            Transaction PIN ({PIN_LENGTH} digits)
-                          </label>
-                          <TransactionPinInput
-                            value={formData.transaction_pin}
-                            onChange={setPin}
-                            length={PIN_LENGTH}
-                            disabled={submitting}
-                          />
                         </div>
                         <button
                           type="submit"
@@ -2394,16 +2350,6 @@ const setCardPin = (nextPin) => {
                   <option value="5000">$5,000</option>
                   <option value="10000">$10,000</option>
                 </select>
-              </div>
-
-              <div>
-                <label className="block text-xs mb-1 text-slate-300">Transaction PIN ({PIN_LENGTH} digits)</label>
-                <TransactionPinInput
-                  value={formData.transaction_pin}
-                  onChange={setPin}
-                  length={PIN_LENGTH}
-                  disabled={submitting}
-                />
               </div>
 
               <div>
