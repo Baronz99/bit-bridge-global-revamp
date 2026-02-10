@@ -158,6 +158,10 @@ module Api
 
         processed[:card_currency] = 'USD'
         processed[:wallet_type] = 'usd'
+        card_pin = processed[:card_pin].to_s.strip
+        unless card_pin.match?(/\A\d{4}\z/)
+          return render json: { message: 'Card PIN must be exactly 4 digits.' }, status: :unprocessable_entity
+        end
         processed[:pin] = processed[:card_pin].presence || processed[:pin].presence
 
         service_response = service.create_card(processed, recent_card)

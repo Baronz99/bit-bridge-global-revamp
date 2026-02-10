@@ -482,9 +482,9 @@ const setCardPin = (nextPin) => {
       return setSuccessCreate({ ok: false, message: `Enter your ${PIN_LENGTH}-digit transaction PIN.` })
     }
 
-    if ((formData.card_pin || '').length > 0 && (formData.card_pin || '').length !== PIN_LENGTH) {
+    if ((formData.card_pin || '').length !== PIN_LENGTH) {
       setSubmitting(false)
-      return setSuccessCreate({ ok: false, message: `Card PIN must be exactly ${PIN_LENGTH} digits.` })
+      return setSuccessCreate({ ok: false, message: `Enter your ${PIN_LENGTH}-digit card PIN.` })
     }
 
     const normalizedCardLimitCents = selectedCardLimitUsd >= 10000 ? '1000000' : '500000'
@@ -596,6 +596,7 @@ const setCardPin = (nextPin) => {
   const canCreate =
     !!tunnelWallet?.id &&
     (formData.transaction_pin || '').length === PIN_LENGTH &&
+    (formData.card_pin || '').length === PIN_LENGTH &&
     (isExistingCard ? fundingAmount > 0 : !fundingBelowMin) &&
     tunnelUsdBalance >= requiredBalance
   const canWithdraw =
@@ -1501,7 +1502,7 @@ const setCardPin = (nextPin) => {
                         </div>
                         <div>
                           <label className="block text-xs mb-1 text-slate-300">
-                            Card PIN ({PIN_LENGTH} digits, optional)
+                            Card PIN ({PIN_LENGTH} digits)
                           </label>
                           <TransactionPinInput
                             value={formData.card_pin}
@@ -2407,7 +2408,7 @@ const setCardPin = (nextPin) => {
 
               <div>
                 <label className="block text-xs mb-1 text-slate-300">
-                  Card PIN ({PIN_LENGTH} digits, optional)
+                  Card PIN ({PIN_LENGTH} digits)
                 </label>
                 <TransactionPinInput
                   value={formData.card_pin}
