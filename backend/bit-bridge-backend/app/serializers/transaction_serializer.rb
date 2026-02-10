@@ -16,7 +16,15 @@ class TransactionSerializer < ActiveModel::Serializer
              :bank,
              :wallet_id,
              :bridge_card_id,
-             :wallet_type
+             :wallet_type,
+             :transfer_reference,
+             :transfer_component,
+             :lifecycle_state,
+             :show_in_primary_feed,
+             :display_amount,
+             :display_total,
+             :display_breakdown,
+             :display_message
 
   def wallet_type
     object.wallet&.wallet_type
@@ -40,6 +48,107 @@ class TransactionSerializer < ActiveModel::Serializer
     return 'NGN' if object.wallet&.ngn?
 
     nil
+  end
+
+  def transfer_reference
+    transfer_meta['transfer_reference']
+  end
+
+  def transfer_component
+    transfer_meta['subtype']
+  end
+
+  def lifecycle_state
+    return status unless anchor_transfer_component?
+
+    case transfer_component
+    when 'reversal'
+      'released'
+    else
+      case status.to_s
+      when 'pending'
+        'reserved'
+      when 'approved'
+        'completed'
+      when 'failed', 'declined'
+        'failed'
+      else
+        status.to_s
+      end
+    end
+  end
+
+  def show_in_primary_feed
+    return true unless anchor_transfer_component?
+
+    transfer_component != 'fee'
+  end
+
+  def display_amount
+    return amount unless anchor_transfer_component?
+
+    return amount if transfer_component == 'reversal'
+    return nil if transfer_component == 'fee'
+
+    amount
+  end
+
+  def display_total
+    return nil unless anchor_transfer_component?
+    return nil unless transfer_component == 'principal'
+
+    (object.amount.to_d + sibling_fee_amount.to_d).to_f
+  rescue StandardError
+    nil
+  end
+
+  def display_breakdown
+    return nil unless anchor_transfer_component?
+    return nil unless transfer_component == 'principal'
+
+    {
+      principal: object.amount.to_f,
+      fee: sibling_fee_amount.to_f,
+      total: display_total
+    }
+  end
+
+  def display_message
+    return nil unless anchor_transfer_component?
+
+    case lifecycle_state
+    when 'reserved'
+      'Transfer initiated. Funds reserved.'
+    when 'completed'
+      'Transfer completed.'
+    when 'released'
+      'Transfer failed. Funds released.'
+    when 'failed'
+      'Transfer failed.'
+    end
+  end
+
+  private
+
+  def transfer_meta
+    @transfer_meta ||= object.metadata.is_a?(Hash) ? object.metadata : {}
+  end
+
+  def anchor_transfer_component?
+    transfer_meta['provider'] == 'anchor' && transfer_meta['transfer_reference'].present?
+  end
+
+  def sibling_fee_amount
+    return 0.to_d if transfer_reference.blank?
+
+    @sibling_fee_amount ||=
+      Transaction
+        .where(wallet_id: object.wallet_id)
+        .where("metadata ->> 'transfer_reference' = ?", transfer_reference)
+        .where("metadata ->> 'subtype' = ?", 'fee')
+        .order(created_at: :desc)
+        .limit(1)
+        .pick(:amount).to_d
   end
 
   has_one :wallet
