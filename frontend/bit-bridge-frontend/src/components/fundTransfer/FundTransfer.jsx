@@ -435,7 +435,7 @@ export default function MoneyTransferFlow({ setIsfundTransferOpen }) {
                 )}
                 {accountLookupStatus === 'success' && formData.account_name && (
                   <div className="inline-flex items-center gap-2 rounded-full bg-green-900/30 border border-green-600 px-3 py-1 text-xs text-green-200">
-                    Account verified
+                    Account verified: {formData.account_name}
                   </div>
                 )}
                 {accountLookupStatus === 'error' && (
