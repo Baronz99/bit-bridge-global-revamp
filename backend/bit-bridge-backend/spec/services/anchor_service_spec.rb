@@ -18,7 +18,7 @@ RSpec.describe AnchorService do
   end
 
   let(:service) { described_class.new }
-  let(:user) { create(:user) }
+  let(:user) { create(:user, email: "anchor-#{SecureRandom.hex(6)}@example.com") }
   let(:wallet) { user.ngn_wallet }
   let(:account) { Account.create!(user: user, useable_id: 'acc_123') }
   let(:transfer_id) { 'tr_in_123' }
@@ -92,6 +92,9 @@ RSpec.describe AnchorService do
     record = TransactionRecord.find_by(reference: 'anchor-ref-1')
     expect(record).to be_present
     expect(record.event_type).to start_with('anchor.webhook')
+    expect(record.exchange.metadata['provider']).to eq('anchor')
+    expect(record.exchange.metadata['anchor_payment_reference']).to eq('anchor-ref-1')
+    expect(record.exchange.metadata.dig('anchor_sender', 'bank_name')).to eq('Test Bank')
   end
 
   it 'keeps naira amounts when configured' do

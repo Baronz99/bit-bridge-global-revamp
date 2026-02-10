@@ -37,6 +37,39 @@
       <% end %>
     </div>
 
+    <% if @anchor_details.present? %>
+      <p class="section-title">Bank Transfer Details</p>
+      <div class="details">
+        <% if @anchor_details[:payment_id].present? %>
+          <p><strong>Provider Payment ID:</strong> <%= @anchor_details[:payment_id] %></p>
+        <% end %>
+        <% if @anchor_details[:payment_reference].present? %>
+          <p><strong>Provider Reference:</strong> <%= @anchor_details[:payment_reference] %></p>
+        <% end %>
+        <% if @anchor_details[:paid_at].present? %>
+          <p><strong>Provider Paid At:</strong> <%= @anchor_details[:paid_at] %></p>
+        <% end %>
+        <% if @anchor_details[:narration].present? %>
+          <p><strong>Narration:</strong> <%= @anchor_details[:narration] %></p>
+        <% end %>
+        <% if @anchor_details[:sender_name].present? %>
+          <p><strong>Sender Name:</strong> <%= @anchor_details[:sender_name] %></p>
+        <% end %>
+        <% if @anchor_details[:sender_account_number].present? %>
+          <p><strong>Sender Account:</strong> <%= @anchor_details[:sender_account_number] %></p>
+        <% end %>
+        <% if @anchor_details[:sender_bank_name].present? %>
+          <p><strong>Sender Bank:</strong> <%= @anchor_details[:sender_bank_name] %></p>
+        <% end %>
+        <% if @anchor_details[:beneficiary_account_name].present? %>
+          <p><strong>Beneficiary Name:</strong> <%= @anchor_details[:beneficiary_account_name] %></p>
+        <% end %>
+        <% if @anchor_details[:beneficiary_account_number].present? %>
+          <p><strong>Beneficiary Account:</strong> <%= @anchor_details[:beneficiary_account_number] %></p>
+        <% end %>
+      </div>
+    <% end %>
+
     <% if @fx_quote.present? %>
       <p class="section-title">Conversion Details</p>
       <div class="details">

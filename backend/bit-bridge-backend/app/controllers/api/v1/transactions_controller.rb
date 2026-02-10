@@ -210,9 +210,10 @@ module Api
       def build_receipt(txn)
         metadata = txn.metadata.is_a?(Hash) ? txn.metadata : {}
         record = txn.transaction_record
+        anchor_details = extract_anchor_receipt_details(metadata, record)
         circle_tx = resolve_circle_transaction(txn, metadata)
         fx_quote = resolve_fx_quote(txn, metadata)
-        provider_reference = resolve_provider_reference(record, metadata, txn)
+        provider_reference = anchor_details[:payment_reference] || resolve_provider_reference(record, metadata, txn)
         provider_name = resolve_provider_name(record, metadata)
         provider_status = record&.status || resolve_anchor_status(provider_reference) || metadata['provider_status']
         amount = txn.amount.presence || record&.amount
@@ -236,7 +237,16 @@ module Api
           provider: {
             name: provider_name,
             reference: provider_reference,
-            status: provider_status
+            status: provider_status,
+            payment_id: anchor_details[:payment_id],
+            settlement_account_id: anchor_details[:settlement_account_id]
+          }.compact,
+          parties: {
+            sender_name: anchor_details[:sender_name],
+            sender_account_number: anchor_details[:sender_account_number],
+            sender_bank_name: anchor_details[:sender_bank_name],
+            beneficiary_account_number: anchor_details[:beneficiary_account_number],
+            beneficiary_account_name: anchor_details[:beneficiary_account_name]
           }.compact,
           idempotency_key: metadata['idempotency_key'] || circle_tx&.idempotency_key,
           linked: {
@@ -247,6 +257,9 @@ module Api
           }.compact,
           fx: serialize_fx_quote(fx_quote),
           customer: serialize_customer(record),
+          meta: {
+            anchor: anchor_details
+          }.compact,
           timeline: build_timeline(txn, record, provider_reference, circle_tx, fx_quote)
         }.compact
       end
@@ -284,6 +297,28 @@ module Api
         return metadata['provider'] if metadata['provider'].present?
 
         nil
+      end
+
+      def extract_anchor_receipt_details(metadata, record)
+        data = metadata.is_a?(Hash) ? metadata : {}
+        sender = data['anchor_sender'].is_a?(Hash) ? data['anchor_sender'] : {}
+        virtual_account = data['anchor_virtual_account'].is_a?(Hash) ? data['anchor_virtual_account'] : {}
+
+        {
+          payment_id: data['anchor_payment_id'],
+          payment_reference: data['anchor_payment_reference'] || record&.reference,
+          payment_type: data['anchor_payment_type'],
+          narration: data['anchor_narration'] || record&.description,
+          paid_at: data['anchor_paid_at'],
+          provider_created_at: data['anchor_created_at'],
+          fee: data['anchor_fee'],
+          settlement_account_id: data['anchor_settlement_account_id'],
+          sender_name: sender['account_name'] || record&.customer_name,
+          sender_account_number: sender['account_number'],
+          sender_bank_name: sender['bank_name'] || record&.bank,
+          beneficiary_account_number: virtual_account['account_number'] || record&.account_number,
+          beneficiary_account_name: virtual_account['account_name']
+        }.compact
       end
 
       def resolve_anchor_status(reference)

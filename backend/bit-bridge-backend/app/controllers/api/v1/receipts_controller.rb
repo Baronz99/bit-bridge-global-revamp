@@ -241,6 +241,7 @@ module Api
       def receipt_from_transaction(txn, original_reference:)
         metadata = txn.metadata.is_a?(Hash) ? txn.metadata : {}
         record = txn.transaction_record
+        anchor_details = extract_anchor_receipt_details(metadata, record)
         amount = txn.amount
         currency = txn.currency || txn.wallet&.currency || 'NGN'
         title = wallet_label(txn, record)
@@ -268,6 +269,7 @@ module Api
             transaction_record_reference: record&.reference,
             unique_transaction_id: txn.unique_transaction_id,
             bridge_card_id: txn.bridge_card_id,
+            anchor: anchor_details,
             conversion: conversion_meta
           }.compact
         }.compact
@@ -281,21 +283,29 @@ module Api
           currency: currency,
           occurred_at: txn.created_at,
           title: title,
-          subtitle: metadata['description'] || txn.address,
+          subtitle: metadata['description'] || anchor_details[:narration] || txn.address,
           parties: {
             from: txn.address,
             wallet_type: txn.wallet&.wallet_type,
             account_name: record&.customer_name,
-            account_number: record&.account_number
+            account_number: record&.account_number,
+            sender_name: anchor_details[:sender_name],
+            sender_account_number: anchor_details[:sender_account_number],
+            sender_bank_name: anchor_details[:sender_bank_name],
+            beneficiary_account_number: anchor_details[:beneficiary_account_number],
+            beneficiary_account_name: anchor_details[:beneficiary_account_name]
           }.compact,
           provider: {
             name: metadata['provider'],
-            reference: metadata['transfer_reference'] || record&.reference
+            reference: anchor_details[:payment_reference] || metadata['transfer_reference'] || record&.reference,
+            payment_id: anchor_details[:payment_id],
+            settlement_account_id: anchor_details[:settlement_account_id]
           }.compact,
           meta: {
             transaction_record_reference: record&.reference,
             unique_transaction_id: txn.unique_transaction_id,
-            bridge_card_id: txn.bridge_card_id
+            bridge_card_id: txn.bridge_card_id,
+            anchor: anchor_details
           }.merge(conversion_meta).compact,
           timeline: build_wallet_timeline(txn, record, fx_quote),
           fees: merged_fees,
@@ -545,6 +555,15 @@ module Api
       def receipt_from_transaction_record(record, original_reference:)
         bill_order = record.bill_order
         amount = record.amount || bill_order&.total_amount || bill_order&.amount
+        txn = record.exchange
+        txn_meta = txn&.metadata.is_a?(Hash) ? txn.metadata : {}
+        anchor_details = extract_anchor_receipt_details(txn_meta, record)
+        provider_name =
+          if record.event_type.to_s.start_with?('anchor.')
+            'anchor'
+          else
+            nil
+          end
         legacy = {
           reference: record.reference,
           type: bill_order ? 'bill' : 'checkout',
@@ -552,7 +571,7 @@ module Api
           status: record.status.presence || 'pending',
           amount: amount,
           currency: 'NGN',
-          description: record.description || bill_order&.biller || bill_order&.service_type,
+          description: record.description || anchor_details[:narration] || bill_order&.biller || bill_order&.service_type,
           created_at: record.created_at,
           transaction_reference: record.reference,
           recipient: bill_order&.meter_number ||
@@ -580,13 +599,21 @@ module Api
           currency: 'NGN',
           occurred_at: record.created_at,
           title: record.description || bill_order&.biller || bill_order&.service_type,
-          subtitle: bill_order&.service_type,
+          subtitle: anchor_details[:narration] || bill_order&.service_type,
           parties: {
             recipient: bill_order&.meter_number || bill_order&.phone_number,
-            biller: bill_order&.biller
+            biller: bill_order&.biller,
+            sender_name: anchor_details[:sender_name],
+            sender_account_number: anchor_details[:sender_account_number],
+            sender_bank_name: anchor_details[:sender_bank_name],
+            beneficiary_account_number: anchor_details[:beneficiary_account_number],
+            beneficiary_account_name: anchor_details[:beneficiary_account_name]
           }.compact,
           provider: {
-            reference: record.reference
+            name: provider_name,
+            reference: anchor_details[:payment_reference] || record.reference,
+            payment_id: anchor_details[:payment_id],
+            settlement_account_id: anchor_details[:settlement_account_id]
           },
           meta: {
             token: bill_order&.token,
@@ -599,7 +626,8 @@ module Api
             service_charge: service_charge_value,
             amount: bill_order&.amount,
             total_amount: bill_order&.total_amount,
-            transaction_id: bill_order&.transaction_id
+            transaction_id: bill_order&.transaction_id,
+            anchor: anchor_details
           }.compact,
           timeline: build_record_timeline(record, bill_order),
           fees: bill_fees,
@@ -1157,6 +1185,28 @@ module Api
         else
           []
         end
+      end
+
+      def extract_anchor_receipt_details(metadata, record)
+        data = metadata.is_a?(Hash) ? metadata : {}
+        sender = data['anchor_sender'].is_a?(Hash) ? data['anchor_sender'] : {}
+        virtual_account = data['anchor_virtual_account'].is_a?(Hash) ? data['anchor_virtual_account'] : {}
+
+        {
+          payment_id: data['anchor_payment_id'],
+          payment_reference: data['anchor_payment_reference'] || record&.reference,
+          payment_type: data['anchor_payment_type'],
+          narration: data['anchor_narration'] || record&.description,
+          paid_at: data['anchor_paid_at'],
+          provider_created_at: data['anchor_created_at'],
+          fee: data['anchor_fee'],
+          settlement_account_id: data['anchor_settlement_account_id'],
+          sender_name: sender['account_name'] || record&.customer_name,
+          sender_account_number: sender['account_number'],
+          sender_bank_name: sender['bank_name'] || record&.bank,
+          beneficiary_account_number: virtual_account['account_number'] || record&.account_number,
+          beneficiary_account_name: virtual_account['account_name']
+        }.compact
       end
     end
   end

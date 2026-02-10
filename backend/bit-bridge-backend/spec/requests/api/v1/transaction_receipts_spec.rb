@@ -5,9 +5,9 @@ require 'rails_helper'
 RSpec.describe 'Transaction receipts', type: :request do
   include ActiveSupport::Testing::TimeHelpers
 
-  let(:user) { create(:user, :tier2, :with_pin) }
-  let(:other_user) { create(:user, :tier2, :with_pin) }
-  let(:admin) { create(:user, role: 'super_admin') }
+  let(:user) { create(:user, :tier2, :with_pin, email: "receipt-user-#{SecureRandom.hex(5)}@example.com") }
+  let(:other_user) { create(:user, :tier2, :with_pin, email: "receipt-other-#{SecureRandom.hex(5)}@example.com") }
+  let(:admin) { create(:user, role: 'super_admin', email: "receipt-admin-#{SecureRandom.hex(5)}@example.com") }
 
   def create_wallet_transaction(for_user:, amount: 100)
     wallet = for_user.ngn_wallet
@@ -122,5 +122,44 @@ RSpec.describe 'Transaction receipts', type: :request do
     timeline = body['data']['timeline']
     expect(timeline.first['event_type']).to eq('anchor.webhook.payment.settled')
     expect(timeline.last['event_type']).to eq('wallet.transaction.created')
+  end
+
+  it 'returns anchor bank transfer details on receipt' do
+    tx = create_wallet_transaction(for_user: user, amount: 1000)
+    tx.update!(
+      metadata: {
+        provider: 'anchor',
+        anchor_payment_id: '1770730762674302-anc_inb_trsf',
+        anchor_payment_reference: '177068004048618-ref',
+        anchor_narration: 'NIP Transfer test',
+        anchor_sender: {
+          account_number: '0210998196',
+          account_name: 'OKAFOR CYRIL EMEKA',
+          bank_name: 'GTBank Plc'
+        },
+        anchor_virtual_account: {
+          account_number: '6178433884',
+          account_name: 'Okafor Cyril'
+        },
+        anchor_settlement_account_id: '17706800403623-anc_acc'
+      }
+    )
+    TransactionRecord.create!(
+      exchange_id: tx.id,
+      reference: '177068004048618-ref',
+      status: 'approved',
+      event_type: 'anchor.webhook.payment.settled'
+    )
+
+    get "/api/v1/transactions/#{tx.id}/receipt", headers: auth_headers(user)
+
+    expect(response).to have_http_status(:ok)
+    body = JSON.parse(response.body)
+    expect(body.dig('data', 'provider', 'name')).to eq('anchor')
+    expect(body.dig('data', 'provider', 'payment_id')).to eq('1770730762674302-anc_inb_trsf')
+    expect(body.dig('data', 'provider', 'reference')).to eq('177068004048618-ref')
+    expect(body.dig('data', 'parties', 'sender_bank_name')).to eq('GTBank Plc')
+    expect(body.dig('data', 'parties', 'sender_account_number')).to eq('0210998196')
+    expect(body.dig('data', 'parties', 'beneficiary_account_number')).to eq('6178433884')
   end
 end

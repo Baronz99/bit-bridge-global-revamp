@@ -489,7 +489,8 @@ class AnchorService
   end
 
   def fund_deposit_account(data)
-    account_id = data.dig('attributes', 'payment', 'settlementAccount', 'accountId')
+    payment = data.dig('attributes', 'payment') || {}
+    account_id = payment.dig('settlementAccount', 'accountId')
 
     Rails.logger.info("✅  Anchor webhook userId: ======================== #{account_id} ")
 
@@ -499,19 +500,26 @@ class AnchorService
 
     Rails.logger.info("❌ Anchor account  does not exist ======================== #{account}") unless account
 
-    raw_amount = data['attributes']['payment']['amount']
-    currency = data.dig('attributes', 'payment', 'currency') || 'NGN'
+    raw_amount = payment['amount']
+    currency = payment['currency'] || 'NGN'
     amount, scale = normalize_anchor_amount(raw_amount, currency)
-    receiver_account_number = data.dig('attributes', 'payment', 'virtualNuban', 'accountNumber') || 'N/A'
-    receiver_account_name = data.dig('attributes', 'payment', 'virtualNuban', 'accountName') || 'N/A'
+    receiver_account_number = payment.dig('virtualNuban', 'accountNumber') || 'N/A'
+    receiver_account_name = payment.dig('virtualNuban', 'accountName') || 'N/A'
+    receiver_account_id = payment.dig('virtualNuban', 'accountId')
     bank = 'Anchor'
     bank_code = 'anchor'
     status =  'approved'
-    description = data.dig('attributes', 'payment', 'narration')
-    sender_account_number = data.dig('attributes', 'payment', 'counterParty', 'accountNumber')
-    sender_name = data.dig('attributes', 'payment', 'counterParty', 'accountName')
-    sender_bank = data.dig('attributes', 'payment', 'counterParty', 'bank', 'name')
-    reference =   data.dig('attributes', 'payment', 'paymentReference')
+    description = payment['narration']
+    sender_account_number = payment.dig('counterParty', 'accountNumber')
+    sender_name = payment.dig('counterParty', 'accountName')
+    sender_bank = payment.dig('counterParty', 'bank', 'name')
+    reference = payment['paymentReference']
+    payment_id = payment['paymentId']
+    paid_at = payment['paidAt']
+    provider_created_at = payment['createdAt']
+    settlement_account_id = payment.dig('settlementAccount', 'accountId')
+    payment_fee = payment['fee']
+    payment_type = payment['type']
 
     transaction_record = TransactionRecord.find_by(reference: reference)
     if transaction_record.present?
@@ -545,6 +553,25 @@ class AnchorService
       status: 'approved',
       coin_type: 'bank',
       metadata: {
+        provider: 'anchor',
+        anchor_payment_id: payment_id,
+        anchor_payment_reference: reference,
+        anchor_narration: description,
+        anchor_paid_at: paid_at,
+        anchor_created_at: provider_created_at,
+        anchor_fee: payment_fee,
+        anchor_payment_type: payment_type,
+        anchor_sender: {
+          account_number: sender_account_number,
+          account_name: sender_name,
+          bank_name: sender_bank
+        },
+        anchor_virtual_account: {
+          account_number: receiver_account_number,
+          account_name: receiver_account_name,
+          account_id: receiver_account_id
+        },
+        anchor_settlement_account_id: settlement_account_id,
         anchor_amount_raw: raw_amount,
         anchor_amount_scale: scale,
         currency: currency
@@ -570,12 +597,12 @@ class AnchorService
     transaction_record.update!(
       exchange: transaction,
       status: status,
-      description: description,
-      customer_name: receiver_account_name,
+      description: description.presence || 'Anchor inbound transfer',
+      customer_name: sender_name.presence || receiver_account_name,
       reference: reference,
       account_number: receiver_account_number,
       bank_code: bank_code,
-      bank: bank,
+      bank: sender_bank.presence || bank,
       amount: amount
     )
   rescue StandardError => e

@@ -13,6 +13,38 @@ Type: <%= @kind_label %>
 Description: <%= @transaction.address %>
 <% end %>
 
+<% if @anchor_details.present? %>
+Bank Transfer Details
+---------------------
+<% if @anchor_details[:payment_id].present? %>
+Provider Payment ID: <%= @anchor_details[:payment_id] %>
+<% end %>
+<% if @anchor_details[:payment_reference].present? %>
+Provider Reference: <%= @anchor_details[:payment_reference] %>
+<% end %>
+<% if @anchor_details[:paid_at].present? %>
+Provider Paid At: <%= @anchor_details[:paid_at] %>
+<% end %>
+<% if @anchor_details[:narration].present? %>
+Narration: <%= @anchor_details[:narration] %>
+<% end %>
+<% if @anchor_details[:sender_name].present? %>
+Sender Name: <%= @anchor_details[:sender_name] %>
+<% end %>
+<% if @anchor_details[:sender_account_number].present? %>
+Sender Account: <%= @anchor_details[:sender_account_number] %>
+<% end %>
+<% if @anchor_details[:sender_bank_name].present? %>
+Sender Bank: <%= @anchor_details[:sender_bank_name] %>
+<% end %>
+<% if @anchor_details[:beneficiary_account_name].present? %>
+Beneficiary Name: <%= @anchor_details[:beneficiary_account_name] %>
+<% end %>
+<% if @anchor_details[:beneficiary_account_number].present? %>
+Beneficiary Account: <%= @anchor_details[:beneficiary_account_number] %>
+<% end %>
+<% end %>
+
 <% if @fx_quote.present? %>
 Conversion Details
 ------------------
