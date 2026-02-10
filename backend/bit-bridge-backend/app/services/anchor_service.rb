@@ -257,28 +257,45 @@ class AnchorService
   end
 
   def create_counter_party(transfer_params)
-    account_name = transfer_params['account_name'].present? ? transfer_params['account_name'] : 'nil'
+    params_hash = transfer_params.respond_to?(:to_h) ? transfer_params.to_h : transfer_params
+    params_hash = params_hash.with_indifferent_access
+    account_name = params_hash[:account_name].to_s.strip
     body = {
       data: {
         type: 'CounterParty',
         attributes: {
-          bankCode: transfer_params['bank_code'],
-          accountNumber: transfer_params['account_number'],
+          bankCode: params_hash[:bank_code],
+          accountNumber: params_hash[:account_number],
           verifyName: true
         }
       }
     }
 
-    # Add accountName only if present
-    # body[:data][:attributes][:accountName] = transfer_params['account_name'] if transfer_params['account_name'].present?
-    body[:data][:attributes][:accountName] = account_name
-    body = body.to_json
+    # Let Anchor resolve canonical account name from bank rails when verifyName is enabled.
+    body[:data][:attributes][:accountName] = account_name if account_name.present?
+    body_json = body.to_json
 
     begin
-      response = fetch('post', 'counterparties', nil, body)
-      anchor_id = response.dig(:data, 'id')
+      response = self.class.post('/api/v1/counterparties', headers: @headers, body: body_json)
+      unless response.success?
+        provider_status = response.code
+        provider_body = response.parsed_response || response.body
+        error_message = response.dig('errors', 0, 'detail') || response['message'] || response.message || 'bad request'
+        Rails.logger.warn(
+          "Anchor counterparty failed bank_code=#{params_hash[:bank_code]} account=#{params_hash[:account_number]} " \
+          "status=#{provider_status} message=#{error_message}"
+        )
+        return {
+          message: error_message.to_s,
+          status: :bad_request,
+          provider_status: provider_status,
+          provider_body: provider_body
+        }
+      end
+
+      anchor_id = response.dig('data', 'id')
       Rails.logger.info("Anchor counterparty created id=#{anchor_id}") if anchor_id
-      response
+      { data: response['data'], status: :ok }
     rescue StandardError => e
       { message: e.message.to_s || 'bad request', status: :bad_request }
     end
@@ -355,12 +372,14 @@ class AnchorService
     source_name = transfer_params[:source_name]
     source_account_number = transfer_params[:source_account_number]
     initials = recipient_name.to_s.strip.split(' ').map { |name| name[0] }.join.downcase
-    reference = transfer_params[:reference].presence || "fbg#{Time.now.to_i}#{initials}"
+    raw_reference = transfer_params[:reference].presence || "fbg#{Time.now.to_i}#{initials}"
+    reference = normalize_transfer_reference(raw_reference)
     counter_party_id = transfer_params[:counter_party_id]
     counter_party_id_type = 'CounterParty'
     bank_code = transfer_params[:bank_code]
     bank = 'anchor'
     recipient_bank = transfer_params[:bank] || transfer_params['bank']
+    amount_kobo = ngn_to_kobo(transfer_params[:amount])
     relationships = if transfer_type == 'NIPTransfer'
                       {
                         account: {
@@ -398,9 +417,9 @@ class AnchorService
       data: {
         type: transfer_type,
         attributes: {
-          amount: transfer_params[:amount],
+          amount: amount_kobo,
           currency: 'NGN',
-          reason: transfer_params[:description].blank? ? 'Fund Transfer' : transfer_params[:description],
+          reason: sanitize_transfer_reason(transfer_params[:description]),
           reference: reference
         },
         relationships: relationships
@@ -420,7 +439,7 @@ class AnchorService
 
       Rails.logger.info(
         "Anchor transfer created transfer_id=#{transfer_id} counter_party_id=#{counter_party_id} " \
-        "reference=#{reference}"
+        "reference=#{reference} amount_kobo=#{amount_kobo} type=#{transfer_type}"
       )
 
       {
@@ -440,7 +459,7 @@ class AnchorService
       }
     rescue StandardError => e
       Rails.logger.error(
-        "Anchor transfer failed counter_party_id=#{counter_party_id} reference=#{reference} " \
+        "Anchor transfer failed counter_party_id=#{counter_party_id} reference=#{reference} amount_kobo=#{amount_kobo} " \
         "error=#{e.message}"
       )
       { message: e.message.presence || 'Bad request', status: :bad_request }
@@ -780,5 +799,24 @@ class AnchorService
     [raw, 'naira']
   rescue ArgumentError
     [amount, 'unknown']
+  end
+
+  def normalize_transfer_reference(reference)
+    cleaned = reference.to_s.downcase.gsub(/[^a-z0-9]/, '')
+    cleaned = "fbg#{Time.now.to_i}" if cleaned.blank?
+    cleaned[0, 100]
+  end
+
+  def sanitize_transfer_reason(reason)
+    value = reason.to_s.strip
+    value = 'Fund Transfer' if value.blank?
+    value[0, 100]
+  end
+
+  def ngn_to_kobo(amount)
+    value = BigDecimal(amount.to_s)
+    (value * 100).round(0).to_i
+  rescue ArgumentError, TypeError
+    0
   end
 end
