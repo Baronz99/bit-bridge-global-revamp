@@ -28,10 +28,17 @@ module Api
         transaction_type = params[:transaction_type]
         status = params[:status]
         wallet_type = params[:wallet_type].to_s.downcase
+        limit = [params[:limit].to_i.positive? ? params[:limit].to_i : 40, 100].min
+        cursor = parse_transactions_cursor(params[:cursor])
 
-        scope = current_user.transactions.with_attached_proof.order(created_at: :desc)
+        scope = current_user
+          .transactions
+          .with_attached_proof
+          .includes(:wallet, :transaction_record)
+          .order(created_at: :desc, id: :desc)
         scope = scope.where(transaction_type: transaction_type) if transaction_type.present?
         scope = scope.where(status: status) if status.present?
+        scope = scope.where('transactions.created_at < ?', cursor) if cursor
 
         if wallet_type.present?
           wallet_type = 'usd' if wallet_type == 'usdt'
@@ -40,7 +47,13 @@ module Api
           end
         end
 
-        render json: { data: ActiveModelSerializers::SerializableResource.new(scope) }
+        items = scope.limit(limit).to_a
+        next_cursor = items.last&.created_at&.iso8601
+
+        render json: {
+          data: ActiveModelSerializers::SerializableResource.new(items),
+          next_cursor: next_cursor
+        }
       end
 
       def show
@@ -540,6 +553,13 @@ module Api
         else
           current_user.ngn_wallet
         end
+      end
+
+      def parse_transactions_cursor(raw)
+        return nil if raw.blank?
+        Time.iso8601(raw.to_s)
+      rescue ArgumentError
+        nil
       end
     end
   end

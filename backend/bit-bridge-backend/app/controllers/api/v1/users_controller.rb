@@ -12,22 +12,40 @@ module Api
       # ========= PROFILE / BASIC CRUD =========
 
       def user_profile
-  return render json: { error: 'User not found or not authenticated' }, status: :unauthorized if current_user.nil?
+        return render json: { error: 'User not found or not authenticated' }, status: :unauthorized if current_user.nil?
 
-  response.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
-  response.headers['Pragma'] = 'no-cache'
-  response.headers['Expires'] = '0'
+        response.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
+        response.headers['Pragma'] = 'no-cache'
+        response.headers['Expires'] = '0'
 
-  serialized = UserSerializer.new(current_user).serializable_hash
+        user = User.includes(:user_profile, :user_kyc, :wallet, :accounts).find(current_user.id)
+        profile = user.user_profile
+        kyc = user.user_kyc
+        ngn_wallet = user.wallet
+        account = user.accounts.order(created_at: :desc).first
 
-  # If serializer returns JSON:API style: { data: { attributes: {...} } }
-  attrs =
-    serialized.dig(:data, :attributes) ||
-    serialized.dig('data', 'attributes') ||
-    serialized
-
-  render json: { data: attrs }, status: :ok
-end
+        render json: {
+          data: {
+            id: user.id,
+            email: user.email,
+            active: user.active,
+            role: user.role,
+            onboarding_stage: user.onboarding_stage,
+            primary_use_case: user.primary_use_case,
+            kyc_level: user.kyc_level,
+            id_type: user.id_type,
+            phone_verified: profile&.phone_verified_at.present?,
+            phone_verified_at: profile&.phone_verified_at,
+            transaction_pin_set: user.transaction_pin_set?,
+            transaction_pin_locked: user.transaction_pin_locked?,
+            transaction_pin_lock_remaining_seconds: user.transaction_pin_lock_remaining_seconds,
+            wallet: serialize_compact_wallet(ngn_wallet),
+            account: serialize_compact_account(account),
+            user_profile: serialize_compact_profile(profile),
+            user_kyc: serialize_compact_kyc(kyc)
+          }.compact
+        }, status: :ok
+      end
 
 
 
@@ -395,6 +413,71 @@ end
 
       private
 
+      def serialize_compact_wallet(wallet)
+        return nil unless wallet
+
+        {
+          id: wallet.id,
+          wallet_type: wallet.wallet_type,
+          currency: wallet.currency,
+          balance: wallet.balance,
+          available_balance: wallet.respond_to?(:ledger_available_balance) ? wallet.ledger_available_balance : wallet.balance,
+          commission: wallet.commission,
+          total_bills: wallet.respond_to?(:total_bills) ? wallet.total_bills : nil,
+          withdrawn: wallet.respond_to?(:withdrawn) ? wallet.withdrawn : nil,
+          total_deposit: wallet.respond_to?(:total_deposit) ? wallet.total_deposit : nil
+        }.compact
+      end
+
+      def serialize_compact_account(account)
+        return nil unless account
+
+        {
+          id: account.id,
+          account_name: account.account_name,
+          account_number: account.account_number,
+          bank_name: account.bank_name,
+          bank_code: account.bank_code,
+          vendor: account.vendor,
+          currency: account.currency
+        }.compact
+      end
+
+      def serialize_compact_profile(profile)
+        return nil unless profile
+
+        {
+          id: profile.id,
+          first_name: profile.first_name,
+          last_name: profile.last_name,
+          phone_number: profile.phone_number,
+          phone_e164: profile.phone_e164,
+          phone_verified_at: profile.phone_verified_at,
+          date_of_birth: profile.date_of_birth,
+          gender: profile.gender,
+          address_line1: profile.address_line1,
+          address_line2: profile.address_line2,
+          city: profile.city,
+          state: profile.state,
+          country: profile.country,
+          postal_code: profile.postal_code,
+          proof_of_address_type: profile.proof_of_address_type
+        }.compact
+      end
+
+      def serialize_compact_kyc(kyc)
+        return nil unless kyc
+
+        {
+          bvn_status: kyc.bvn_status,
+          bvn_last4: kyc.bvn_last4,
+          bvn_verified_at: kyc.bvn_verified_at,
+          bvn_last_result_reason: kyc.bvn_last_result_reason,
+          tier3_status: kyc.tier3_status,
+          tier3_verified_at: kyc.tier3_verified_at
+        }.compact
+      end
+
       def set_user
         @user = User.find_by(id: params[:id])
       end
@@ -570,5 +653,4 @@ end
     end
   end
 end
-
 

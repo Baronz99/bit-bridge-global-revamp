@@ -52,9 +52,9 @@ module Api
 
         render json: {
           data: {
-            bridge: WalletSerializer.new(bridge).as_json,
-            tunnel: tunnel ? WalletSerializer.new(tunnel).as_json : nil,
-            wallets: wallets.map { |w| WalletSerializer.new(w).as_json }
+            bridge: wallet_summary(bridge),
+            tunnel: tunnel ? wallet_summary(tunnel) : nil,
+            wallets: wallets.map { |w| wallet_summary(w) }
           }
         }, status: :ok
       end
@@ -397,6 +397,21 @@ module Api
 
       def set_wallet
         @wallet = Wallet.for_api.find(params[:id])
+      end
+
+      def wallet_summary(wallet)
+        return nil unless wallet
+
+        {
+          id: wallet.id,
+          wallet_type: wallet.wallet_type,
+          currency: wallet.currency,
+          balance: wallet.balance,
+          balance_cents: wallet.usd? ? wallet.balance_cents.to_i : nil,
+          available_balance: wallet.ngn? ? wallet.ledger_available_balance.to_f : wallet.cents_to_money(wallet.balance_cents).to_f,
+          book_balance: wallet.balance.to_f,
+          outstanding_hold: wallet.respond_to?(:ledger_outstanding_hold) ? wallet.ledger_outstanding_hold.to_f : 0.0
+        }.compact
       end
 
       def wallet_params
