@@ -4,7 +4,7 @@ require 'rails_helper'
 require 'securerandom'
 
 RSpec.describe Wallet, type: :model do
-  let(:user) { create(:user) }
+  let(:user) { create(:user, email: "wallet-spec-#{SecureRandom.hex(4)}@example.com") }
   let(:wallet) { user.wallet }
 
   def deposit(amount = 10_000)
@@ -145,7 +145,7 @@ RSpec.describe Wallet, type: :model do
       expect(wallet.reload.ledger_available_balance).to eq(10_000.to_d)
     end
 
-    it 'restores negative raw balance to zero after an adjustment' do
+    it 'does not subtract ledger-reserved withdrawals directly from ledger balances' do
       Transaction.create!(
         wallet: wallet,
         amount: 12_000,
@@ -155,27 +155,17 @@ RSpec.describe Wallet, type: :model do
         metadata: { 'ledger_hold_reserved' => true }
       )
 
-      expect(wallet.reload.ledger_raw_balance).to eq((-2_000).to_d)
-      expect(wallet.reload.ledger_available_balance).to eq(0.to_d)
-
-      WalletLedgerEntry.record_adjustment!(
-        wallet: wallet,
-        amount: 2_000,
-        reference: "neg_reset:spec:#{wallet.id}"
-      )
-
-      expect(wallet.reload.ledger_raw_balance).to eq(0.to_d)
-      expect(wallet.reload.ledger_available_balance).to eq(0.to_d)
+      expect(wallet.reload.ledger_raw_balance).to eq(10_000.to_d)
+      expect(wallet.reload.ledger_available_balance).to eq(10_000.to_d)
     end
 
-    it 'subtracts withdrawals from ledger balances' do
+    it 'subtracts non-reserved withdrawals from ledger balances' do
       Transaction.create!(
         wallet: wallet,
         amount: 4_000,
         status: :approved,
         transaction_type: :withdrawal,
-        address: 'test',
-        metadata: { 'ledger_hold_reserved' => true }
+        address: 'test'
       )
 
       expect(wallet.reload.ledger_raw_balance).to eq(6_000.to_d)
@@ -208,7 +198,7 @@ RSpec.describe Wallet, type: :model do
 
   describe 'currency normalization' do
     it 'normalizes currency to uppercase and strips whitespace' do
-      new_user = create(:user)
+      new_user = create(:user, email: "wallet-currency-#{SecureRandom.hex(4)}@example.com")
       Wallet.where(user_id: new_user.id).delete_all
 
       new_wallet = Wallet.new(user: new_user, wallet_type: :ngn, currency: ' ngn ')

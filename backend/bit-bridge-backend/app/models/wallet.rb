@@ -71,8 +71,12 @@ class Wallet < ApplicationRecord
 
   # Pending withdrawals reduce *available* funds (keep as you had)
   def ledger_withdrawals_total
+    withdrawal_scope = transactions.where(transaction_type: :withdrawal, status: %i[pending approved])
+    # Anchor transfer withdrawals are reservation records; ledger hold/debit entries are the source of truth.
+    withdrawal_scope = withdrawal_scope.where("COALESCE(metadata ->> 'ledger_hold_reserved', 'false') != 'true'")
+
     sum_money(
-      transactions.where(transaction_type: :withdrawal, status: %i[pending approved]),
+      withdrawal_scope,
       cents_column: :amount_cents,
       decimal_column: :amount
     )
