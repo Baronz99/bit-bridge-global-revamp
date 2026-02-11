@@ -128,11 +128,16 @@ class TimelineQuery
     safe_description = record&.description.presence || tx.address
     metadata = tx.metadata.is_a?(Hash) ? tx.metadata.symbolize_keys : {}
 
+    amount_cents = amount_to_cents(tx.amount)
+    if anchor_transfer_component?(metadata) && metadata[:subtype].to_s == 'principal'
+      amount_cents = amount_to_cents(tx.amount.to_d + sibling_fee_amount(tx, metadata).to_d)
+    end
+
     {
       id: "wallet-tx-#{tx.id}",
       kind: 'wallet_transaction',
       label: wallet_label(tx, record),
-      amount_cents: amount_to_cents(tx.amount),
+      amount_cents: amount_cents,
       status: tx.status,
       occurred_at: tx.created_at,
       actor: actor_json(tx.user),
@@ -155,6 +160,9 @@ class TimelineQuery
         account_number: record&.account_number,
 
         unique_transaction_id: tx.unique_transaction_id,
+        transfer_reference: metadata[:transfer_reference],
+        transfer_component: metadata[:subtype],
+        show_in_primary_feed: !(anchor_transfer_component?(metadata) && metadata[:subtype].to_s == 'fee'),
 
         # used for card receipt / card history correlation (provider-side)
         bridge_card_id: tx.bridge_card_id
@@ -274,6 +282,7 @@ class TimelineQuery
       .joins(:wallet)
       .includes(:wallet, :transaction_record, :user)
       .where(wallets: { user_id: @user.id })
+      .where.not("metadata ->> 'subtype' = ?", 'fee')
   end
 
   def bill_orders
@@ -283,7 +292,10 @@ class TimelineQuery
   end
 
   def bill_orders_unscoped
-    BillOrder.includes(:user, :transaction_record).where(user_id: @user.id)
+    BillOrder
+      .includes(:user, :transaction_record)
+      .where(user_id: @user.id)
+      .where("COALESCE(metadata ->> 'source', '') <> ?", 'anchor_transfer')
   end
 
   # -------------------------
@@ -317,6 +329,22 @@ class TimelineQuery
   def amount_to_cents(amount)
     return nil if amount.nil?
     (amount.to_d * 100).to_i
+  end
+
+  def anchor_transfer_component?(metadata)
+    metadata[:provider].to_s == 'anchor' && metadata[:transfer_reference].present?
+  end
+
+  def sibling_fee_amount(tx, metadata)
+    return 0.to_d unless metadata[:transfer_reference].present?
+
+    Transaction
+      .where(wallet_id: tx.wallet_id)
+      .where("metadata ->> 'transfer_reference' = ?", metadata[:transfer_reference])
+      .where("metadata ->> 'subtype' = ?", 'fee')
+      .order(created_at: :desc)
+      .limit(1)
+      .pick(:amount).to_d
   end
 
   # Collapse wallet + circle legs that belong to the same group_reference (circle funding)
