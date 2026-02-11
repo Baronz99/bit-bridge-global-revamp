@@ -50,12 +50,6 @@
         <% if @balance_snapshot[:after_available].present? %>
           <p><strong>After (Available):</strong> <%= number_to_currency(@balance_snapshot[:after_available].to_f, unit: currency_unit, delimiter: ',', precision: 2) %></p>
         <% end %>
-        <% if @balance_snapshot[:before_book].present? %>
-          <p><strong>Before (Book):</strong> <%= number_to_currency(@balance_snapshot[:before_book].to_f, unit: currency_unit, delimiter: ',', precision: 2) %></p>
-        <% end %>
-        <% if @balance_snapshot[:after_book].present? %>
-          <p><strong>After (Book):</strong> <%= number_to_currency(@balance_snapshot[:after_book].to_f, unit: currency_unit, delimiter: ',', precision: 2) %></p>
-        <% end %>
       </div>
     <% end %>
 

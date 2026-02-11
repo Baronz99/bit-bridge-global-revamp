@@ -71,10 +71,8 @@ class TransactionReceiptMailer < ApplicationMailer
   end
 
   def resolve_balance_snapshot(transaction)
-    if transaction.respond_to?(:before_book_balance) && transaction.before_book_balance.present?
+    if transaction.respond_to?(:before_available_balance) && transaction.before_available_balance.present?
       return {
-        before_book: transaction.before_book_balance,
-        after_book: transaction.after_book_balance,
         before_available: transaction.before_available_balance,
         after_available: transaction.after_available_balance
       }

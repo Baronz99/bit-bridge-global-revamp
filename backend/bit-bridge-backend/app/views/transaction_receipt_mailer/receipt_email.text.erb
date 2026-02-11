@@ -23,12 +23,6 @@ Before (Available): <%= @balance_snapshot[:before_available].to_f %> <%= @transa
 <% if @balance_snapshot[:after_available].present? %>
 After (Available): <%= @balance_snapshot[:after_available].to_f %> <%= @transaction.currency || @transaction.wallet&.currency || 'NGN' %>
 <% end %>
-<% if @balance_snapshot[:before_book].present? %>
-Before (Book): <%= @balance_snapshot[:before_book].to_f %> <%= @transaction.currency || @transaction.wallet&.currency || 'NGN' %>
-<% end %>
-<% if @balance_snapshot[:after_book].present? %>
-After (Book): <%= @balance_snapshot[:after_book].to_f %> <%= @transaction.currency || @transaction.wallet&.currency || 'NGN' %>
-<% end %>
 <% end %>
 
 <% if @anchor_details.present? %>

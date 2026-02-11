@@ -136,11 +136,9 @@ class TransactionSerializer < ActiveModel::Serializer
         return {
           entry_type: entry.entry_type,
           before_event_balance: {
-            book: entry.before_book_balance&.to_f,
             available: entry.before_available_balance&.to_f
           }.compact,
           after_event_balance: {
-            book: entry.after_book_balance&.to_f,
             available: entry.after_available_balance&.to_f
           }.compact
         }
@@ -152,11 +150,9 @@ class TransactionSerializer < ActiveModel::Serializer
     {
       entry_type: 'transaction',
       before_event_balance: {
-        book: object.before_book_balance&.to_f,
         available: object.before_available_balance&.to_f
       }.compact,
       after_event_balance: {
-        book: object.after_book_balance&.to_f,
         available: object.after_available_balance&.to_f
       }.compact
     }
@@ -213,13 +209,13 @@ class TransactionSerializer < ActiveModel::Serializer
   end
 
   def ledger_snapshot_columns_available?
-    WalletLedgerEntry.column_names.include?('before_book_balance') &&
-      WalletLedgerEntry.column_names.include?('after_book_balance')
+    WalletLedgerEntry.column_names.include?('before_available_balance') &&
+      WalletLedgerEntry.column_names.include?('after_available_balance')
   end
 
   def transaction_snapshot_columns_available?
-    object.respond_to?(:before_book_balance) &&
-      object.respond_to?(:after_book_balance)
+    object.respond_to?(:before_available_balance) &&
+      object.respond_to?(:after_available_balance)
   end
 
   has_one :wallet

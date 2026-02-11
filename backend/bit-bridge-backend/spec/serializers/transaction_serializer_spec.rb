@@ -46,7 +46,7 @@ RSpec.describe TransactionSerializer, type: :serializer do
 
   it 'includes ledger balance snapshot for anchor principal transfer rows' do
     skip 'wallet_ledger_entries balance snapshot columns not migrated in this DB' unless
-      WalletLedgerEntry.column_names.include?('before_book_balance')
+      WalletLedgerEntry.column_names.include?('before_available_balance')
 
     wallet = user.ngn_wallet
     wallet.transactions.create!(
@@ -97,13 +97,15 @@ RSpec.describe TransactionSerializer, type: :serializer do
 
     expect(snapshot).to be_present
     expect(snapshot[:entry_type]).to eq('hold')
+    expect(snapshot.dig(:before_event_balance, :book)).to be_nil
+    expect(snapshot.dig(:after_event_balance, :book)).to be_nil
     expect(snapshot.dig(:before_event_balance, :available)).to eq(1_000.0)
     expect(snapshot.dig(:after_event_balance, :available)).to eq(850.0)
   end
 
   it 'includes transaction balance snapshot for non-anchor transactions' do
     skip 'transaction balance snapshot columns not migrated in this DB' unless
-      Transaction.column_names.include?('before_book_balance')
+      Transaction.column_names.include?('before_available_balance')
 
     wallet = user.ngn_wallet
     wallet.transactions.create!(
@@ -127,7 +129,9 @@ RSpec.describe TransactionSerializer, type: :serializer do
 
     expect(snapshot).to be_present
     expect(snapshot[:entry_type]).to eq('transaction')
-    expect(snapshot.dig(:before_event_balance, :book)).to eq(500.0)
-    expect(snapshot.dig(:after_event_balance, :book)).to eq(600.0)
+    expect(snapshot.dig(:before_event_balance, :book)).to be_nil
+    expect(snapshot.dig(:after_event_balance, :book)).to be_nil
+    expect(snapshot.dig(:before_event_balance, :available)).to eq(500.0)
+    expect(snapshot.dig(:after_event_balance, :available)).to eq(600.0)
   end
 end

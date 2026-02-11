@@ -1228,11 +1228,9 @@ module Api
               return {
                 entry_type: entry.entry_type,
                 before_event_balance: {
-                  book: entry.before_book_balance&.to_f,
                   available: entry.before_available_balance&.to_f
                 }.compact,
                 after_event_balance: {
-                  book: entry.after_book_balance&.to_f,
                   available: entry.after_available_balance&.to_f
                 }.compact
               }
@@ -1240,16 +1238,14 @@ module Api
           end
         end
 
-        return nil unless txn.respond_to?(:before_book_balance) && txn.respond_to?(:after_book_balance)
+        return nil unless txn.respond_to?(:before_available_balance) && txn.respond_to?(:after_available_balance)
 
         {
           entry_type: 'transaction',
           before_event_balance: {
-            book: txn.before_book_balance&.to_f,
             available: txn.before_available_balance&.to_f
           }.compact,
           after_event_balance: {
-            book: txn.after_book_balance&.to_f,
             available: txn.after_available_balance&.to_f
           }.compact
         }
@@ -1272,8 +1268,8 @@ module Api
       end
 
       def wallet_ledger_snapshot_columns_available?
-        WalletLedgerEntry.column_names.include?('before_book_balance') &&
-          WalletLedgerEntry.column_names.include?('after_book_balance')
+        WalletLedgerEntry.column_names.include?('before_available_balance') &&
+          WalletLedgerEntry.column_names.include?('after_available_balance')
       end
     end
   end
