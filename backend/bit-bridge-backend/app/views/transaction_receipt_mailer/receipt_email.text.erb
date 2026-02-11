@@ -14,22 +14,6 @@ Type: <%= @kind_label %>
 Description: <%= @transaction.address %>
 <% end %>
 
-<% if @event_contract.present? %>
-Event Classification
---------------------
-Schema: <%= @event_contract[:schema_version] %>
-Family: <%= @event_contract[:event_family] %>
-Phase: <%= @event_contract[:event_phase] %>
-Direction: <%= @event_contract[:direction] %>
-Provider: <%= @event_contract[:provider] %>
-<% if @event_contract[:provider_event_id].present? %>
-Provider Event ID: <%= @event_contract[:provider_event_id] %>
-<% end %>
-<% if @event_contract[:provider_reference].present? %>
-Provider Reference: <%= @event_contract[:provider_reference] %>
-<% end %>
-<% end %>
-
 <% if @balance_snapshot.present? %>
 Balance Snapshot
 ----------------
