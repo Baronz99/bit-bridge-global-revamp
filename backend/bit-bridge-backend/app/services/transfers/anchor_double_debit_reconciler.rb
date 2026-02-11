@@ -101,6 +101,7 @@ module Transfers
         .where("metadata ->> 'provider' = ?", 'anchor')
         .where("metadata ->> 'subtype' IN (?)", %w[principal fee])
         .where("metadata ->> 'transfer_reference' = ?", transfer_reference)
+        .reorder(nil)
 
       updated = 0
       skipped = 0
