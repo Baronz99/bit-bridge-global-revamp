@@ -44,11 +44,17 @@
       <p class="section-title">Balance Snapshot</p>
       <div class="details">
         <% currency_unit = "#{@transaction.currency || @transaction.wallet&.currency || 'NGN'} " %>
-        <% if @balance_snapshot[:before_available].present? %>
-          <p><strong>Before (Available):</strong> <%= number_to_currency(@balance_snapshot[:before_available].to_f, unit: currency_unit, delimiter: ',', precision: 2) %></p>
-        <% end %>
-        <% if @balance_snapshot[:after_available].present? %>
-          <p><strong>After (Available):</strong> <%= number_to_currency(@balance_snapshot[:after_available].to_f, unit: currency_unit, delimiter: ',', precision: 2) %></p>
+        <% before_available = @balance_snapshot[:before_available] %>
+        <% after_available = @balance_snapshot[:after_available] %>
+        <% if before_available.present? && after_available.present? && before_available.to_d == after_available.to_d %>
+          <p><strong>Available Balance:</strong> <%= number_to_currency(after_available.to_f, unit: currency_unit, delimiter: ',', precision: 2) %></p>
+        <% else %>
+          <% if before_available.present? %>
+            <p><strong>Before (Available):</strong> <%= number_to_currency(before_available.to_f, unit: currency_unit, delimiter: ',', precision: 2) %></p>
+          <% end %>
+          <% if after_available.present? %>
+            <p><strong>After (Available):</strong> <%= number_to_currency(after_available.to_f, unit: currency_unit, delimiter: ',', precision: 2) %></p>
+          <% end %>
         <% end %>
       </div>
     <% end %>

@@ -17,11 +17,17 @@ Description: <%= @transaction.address %>
 <% if @balance_snapshot.present? %>
 Balance Snapshot
 ----------------
-<% if @balance_snapshot[:before_available].present? %>
-Before (Available): <%= @balance_snapshot[:before_available].to_f %> <%= @transaction.currency || @transaction.wallet&.currency || 'NGN' %>
+<% before_available = @balance_snapshot[:before_available] %>
+<% after_available = @balance_snapshot[:after_available] %>
+<% if before_available.present? && after_available.present? && before_available.to_d == after_available.to_d %>
+Available Balance: <%= after_available.to_f %> <%= @transaction.currency || @transaction.wallet&.currency || 'NGN' %>
+<% else %>
+<% if before_available.present? %>
+Before (Available): <%= before_available.to_f %> <%= @transaction.currency || @transaction.wallet&.currency || 'NGN' %>
 <% end %>
-<% if @balance_snapshot[:after_available].present? %>
-After (Available): <%= @balance_snapshot[:after_available].to_f %> <%= @transaction.currency || @transaction.wallet&.currency || 'NGN' %>
+<% if after_available.present? %>
+After (Available): <%= after_available.to_f %> <%= @transaction.currency || @transaction.wallet&.currency || 'NGN' %>
+<% end %>
 <% end %>
 <% end %>
 
