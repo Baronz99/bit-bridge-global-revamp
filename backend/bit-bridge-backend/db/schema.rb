@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[7.1].define(version: 2026_02_10_233000) do
+ActiveRecord::Schema[7.1].define(version: 2026_02_11_002000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pgcrypto"
   enable_extension "plpgsql"
@@ -680,6 +680,10 @@ ActiveRecord::Schema[7.1].define(version: 2026_02_10_233000) do
     t.jsonb "metadata", default: {}, null: false
     t.bigint "amount_cents"
     t.bigint "bonus_cents"
+    t.decimal "before_book_balance", precision: 18, scale: 2
+    t.decimal "after_book_balance", precision: 18, scale: 2
+    t.decimal "before_available_balance", precision: 18, scale: 2
+    t.decimal "after_available_balance", precision: 18, scale: 2
     t.index ["account_id"], name: "index_transactions_on_account_id"
     t.index ["bridge_card_id"], name: "index_transactions_on_bridge_card_id"
     t.index ["transfer_id"], name: "index_transactions_on_transfer_id", unique: true

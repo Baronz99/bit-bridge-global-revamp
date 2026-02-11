@@ -1213,31 +1213,44 @@ module Api
       end
 
       def resolve_wallet_balance_snapshot(txn, metadata)
-        return nil unless wallet_ledger_snapshot_columns_available?
+        if wallet_ledger_snapshot_columns_available?
+          transfer_reference = metadata['transfer_reference'].to_s
+          subtype = metadata['subtype'].to_s
+          entry_type = resolve_snapshot_entry_type(subtype, txn.status.to_s)
 
-        transfer_reference = metadata['transfer_reference'].to_s
-        return nil if transfer_reference.blank?
+          if transfer_reference.present? && entry_type.present?
+            entry = WalletLedgerEntry
+                    .where(wallet_id: txn.wallet_id, entry_type: entry_type)
+                    .where("metadata ->> 'transfer_reference' = ?", transfer_reference)
+                    .order(created_at: :desc)
+                    .first
+            if entry
+              return {
+                entry_type: entry.entry_type,
+                before_event_balance: {
+                  book: entry.before_book_balance&.to_f,
+                  available: entry.before_available_balance&.to_f
+                }.compact,
+                after_event_balance: {
+                  book: entry.after_book_balance&.to_f,
+                  available: entry.after_available_balance&.to_f
+                }.compact
+              }
+            end
+          end
+        end
 
-        subtype = metadata['subtype'].to_s
-        entry_type = resolve_snapshot_entry_type(subtype, txn.status.to_s)
-        return nil if entry_type.blank?
-
-        entry = WalletLedgerEntry
-                .where(wallet_id: txn.wallet_id, entry_type: entry_type)
-                .where("metadata ->> 'transfer_reference' = ?", transfer_reference)
-                .order(created_at: :desc)
-                .first
-        return nil unless entry
+        return nil unless txn.respond_to?(:before_book_balance) && txn.respond_to?(:after_book_balance)
 
         {
-          entry_type: entry.entry_type,
+          entry_type: 'transaction',
           before_event_balance: {
-            book: entry.before_book_balance&.to_f,
-            available: entry.before_available_balance&.to_f
+            book: txn.before_book_balance&.to_f,
+            available: txn.before_available_balance&.to_f
           }.compact,
           after_event_balance: {
-            book: entry.after_book_balance&.to_f,
-            available: entry.after_available_balance&.to_f
+            book: txn.after_book_balance&.to_f,
+            available: txn.after_available_balance&.to_f
           }.compact
         }
       end

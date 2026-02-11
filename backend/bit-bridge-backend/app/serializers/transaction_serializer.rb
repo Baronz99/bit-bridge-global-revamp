@@ -130,21 +130,34 @@ class TransactionSerializer < ActiveModel::Serializer
   end
 
   def balance_snapshot
-    return nil unless anchor_transfer_component?
-    return nil unless snapshot_columns_available?
+    if anchor_transfer_component? && ledger_snapshot_columns_available?
+      entry = relevant_ledger_entry
+      if entry
+        return {
+          entry_type: entry.entry_type,
+          before_event_balance: {
+            book: entry.before_book_balance&.to_f,
+            available: entry.before_available_balance&.to_f
+          }.compact,
+          after_event_balance: {
+            book: entry.after_book_balance&.to_f,
+            available: entry.after_available_balance&.to_f
+          }.compact
+        }
+      end
+    end
 
-    entry = relevant_ledger_entry
-    return nil unless entry
+    return nil unless transaction_snapshot_columns_available?
 
     {
-      entry_type: entry.entry_type,
+      entry_type: 'transaction',
       before_event_balance: {
-        book: entry.before_book_balance&.to_f,
-        available: entry.before_available_balance&.to_f
+        book: object.before_book_balance&.to_f,
+        available: object.before_available_balance&.to_f
       }.compact,
       after_event_balance: {
-        book: entry.after_book_balance&.to_f,
-        available: entry.after_available_balance&.to_f
+        book: object.after_book_balance&.to_f,
+        available: object.after_available_balance&.to_f
       }.compact
     }
   end
@@ -199,9 +212,14 @@ class TransactionSerializer < ActiveModel::Serializer
     end
   end
 
-  def snapshot_columns_available?
+  def ledger_snapshot_columns_available?
     WalletLedgerEntry.column_names.include?('before_book_balance') &&
       WalletLedgerEntry.column_names.include?('after_book_balance')
+  end
+
+  def transaction_snapshot_columns_available?
+    object.respond_to?(:before_book_balance) &&
+      object.respond_to?(:after_book_balance)
   end
 
   has_one :wallet

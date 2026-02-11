@@ -26,6 +26,7 @@ class Transaction < ApplicationRecord
   before_save :set_coupon_bonus, if: :coupon?
   before_save :check_method_payment
   before_save :normalize_money_fields
+  around_create :capture_balance_snapshot
   after_commit :enqueue_receipt_email, on: %i[create update]
 
   def validate_transaction_on_create
@@ -104,6 +105,40 @@ class Transaction < ApplicationRecord
  
   def ledger_hold_reserved?
     metadata.is_a?(Hash) && metadata['ledger_hold_reserved'].present?
+  end
+
+  def capture_balance_snapshot
+    return yield unless wallet.present?
+    return yield unless has_attribute?(:before_book_balance) && has_attribute?(:before_available_balance)
+
+    wallet.with_lock do
+      self.before_book_balance = current_book_balance_for_snapshot
+      self.before_available_balance = current_available_balance_for_snapshot
+
+      yield
+
+      wallet.reload
+      updates = {}
+      updates[:after_book_balance] = current_book_balance_for_snapshot if has_attribute?(:after_book_balance)
+      updates[:after_available_balance] = current_available_balance_for_snapshot if has_attribute?(:after_available_balance)
+      update_columns(updates) if updates.any?
+    end
+  end
+
+  def current_book_balance_for_snapshot
+    if wallet.ngn?
+      MoneyScale.normalize(wallet.ledger_raw_balance)
+    else
+      MoneyScale.normalize(wallet.balance)
+    end
+  end
+
+  def current_available_balance_for_snapshot
+    if wallet.ngn?
+      MoneyScale.normalize(wallet.ledger_available_balance)
+    else
+      MoneyScale.normalize(wallet.balance)
+    end
   end
 
   public

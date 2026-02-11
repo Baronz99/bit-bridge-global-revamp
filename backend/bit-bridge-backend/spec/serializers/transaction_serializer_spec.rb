@@ -100,4 +100,34 @@ RSpec.describe TransactionSerializer, type: :serializer do
     expect(snapshot.dig(:before_event_balance, :available)).to eq(1_000.0)
     expect(snapshot.dig(:after_event_balance, :available)).to eq(850.0)
   end
+
+  it 'includes transaction balance snapshot for non-anchor transactions' do
+    skip 'transaction balance snapshot columns not migrated in this DB' unless
+      Transaction.column_names.include?('before_book_balance')
+
+    wallet = user.ngn_wallet
+    wallet.transactions.create!(
+      transaction_type: 'deposit',
+      status: 'approved',
+      coin_type: 'bank',
+      amount: 500,
+      address: 'Seed'
+    )
+
+    tx = wallet.transactions.create!(
+      transaction_type: 'deposit',
+      status: 'approved',
+      coin_type: 'bank',
+      amount: 100,
+      address: 'Inbound'
+    )
+
+    payload = described_class.new(tx).as_json
+    snapshot = payload[:balance_snapshot]
+
+    expect(snapshot).to be_present
+    expect(snapshot[:entry_type]).to eq('transaction')
+    expect(snapshot.dig(:before_event_balance, :book)).to eq(500.0)
+    expect(snapshot.dig(:after_event_balance, :book)).to eq(600.0)
+  end
 end
