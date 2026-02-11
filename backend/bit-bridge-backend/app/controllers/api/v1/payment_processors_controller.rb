@@ -21,7 +21,9 @@ module Api
       end
 
       def show
-        render json: { data: BillOrderSerializer.new(@bill_order) }
+        with_perf_trace('payment_processors.show', id: params[:id].to_s) do
+          render json: { data: BillOrderSerializer.new(@bill_order) }
+        end
       end
 
       def approve_data
@@ -290,6 +292,32 @@ end
             provider_response: provider_response
           }
         )
+      end
+
+      def with_perf_trace(label, metadata = {})
+        return yield unless perf_trace_enabled?
+
+        start = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+        sql_count = 0
+        sql_time_ms = 0.0
+        callback = lambda do |_name, started, finished, _unique_id, payload|
+          next if payload[:name] == 'SCHEMA' || payload[:cached]
+
+          sql_count += 1
+          sql_time_ms += (finished - started) * 1000.0
+        end
+
+        result = nil
+        ActiveSupport::Notifications.subscribed(callback, 'sql.active_record') do
+          result = yield
+        end
+        total_ms = ((Process.clock_gettime(Process::CLOCK_MONOTONIC) - start) * 1000.0).round(1)
+        Rails.logger.info("[PERF][#{label}] total_ms=#{total_ms} sql_count=#{sql_count} sql_ms=#{sql_time_ms.round(1)} meta=#{metadata.inspect}")
+        result
+      end
+
+      def perf_trace_enabled?
+        Rails.env.development? || ActiveModel::Type::Boolean.new.cast(ENV['DEBUG_PERF'])
       end
     end
   end

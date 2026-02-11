@@ -15,17 +15,19 @@ module Api
       # - txn-<uuid> (Transaction id alias)
       # - raw provider references (transfer refs, etc)
       def show
-        reference =
-          params[:reference].presence ||
-          params[:id].presence
+        with_perf_trace('receipts.show', reference: params[:id].to_s) do
+          reference =
+            params[:reference].presence ||
+            params[:id].presence
 
-        reference = reference.to_s.strip
-        return render json: { message: 'Receipt reference is required.' }, status: :bad_request if reference.blank?
+          reference = reference.to_s.strip
+          return render json: { message: 'Receipt reference is required.' }, status: :bad_request if reference.blank?
 
-        receipt = resolve_receipt(reference)
-        return render json: { message: 'Receipt not found.' }, status: :not_found if receipt.nil?
+          receipt = resolve_receipt(reference)
+          return render json: { message: 'Receipt not found.' }, status: :not_found if receipt.nil?
 
-        render json: { message: 'ok', data: receipt }, status: :ok
+          render json: { message: 'ok', data: receipt }, status: :ok
+        end
       end
 
       private
@@ -182,6 +184,32 @@ module Api
           .includes(:circle, :user)
           .where(circle_id: current_user.circles.select(:id))
           .find_by(id: id)
+      end
+
+      def with_perf_trace(label, metadata = {})
+        return yield unless perf_trace_enabled?
+
+        start = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+        sql_count = 0
+        sql_time_ms = 0.0
+        callback = lambda do |_name, started, finished, _unique_id, payload|
+          next if payload[:name] == 'SCHEMA' || payload[:cached]
+
+          sql_count += 1
+          sql_time_ms += (finished - started) * 1000.0
+        end
+
+        result = nil
+        ActiveSupport::Notifications.subscribed(callback, 'sql.active_record') do
+          result = yield
+        end
+        total_ms = ((Process.clock_gettime(Process::CLOCK_MONOTONIC) - start) * 1000.0).round(1)
+        Rails.logger.info("[PERF][#{label}] total_ms=#{total_ms} sql_count=#{sql_count} sql_ms=#{sql_time_ms.round(1)} meta=#{metadata.inspect}")
+        result
+      end
+
+      def perf_trace_enabled?
+        Rails.env.development? || ActiveModel::Type::Boolean.new.cast(ENV['DEBUG_PERF'])
       end
 
       # ----------------------------
