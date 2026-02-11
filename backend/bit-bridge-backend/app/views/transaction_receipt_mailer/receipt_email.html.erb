@@ -19,7 +19,10 @@
     <% if attachments['logo'].present? %>
       <%= image_tag attachments['logo'].url, class: 'logo', alt: 'BitBridge Global Logo' %>
     <% end %>
-    <h1><%= @kind_label %> Receipt</h1>
+    <h1><%= @email_header %></h1>
+    <% if @email_subheader.present? %>
+      <p><%= @email_subheader %></p>
+    <% end %>
   </div>
 
   <div class="content">
@@ -36,6 +39,25 @@
         <p><strong>Description:</strong> <%= @transaction.address %></p>
       <% end %>
     </div>
+
+    <% if @balance_snapshot.present? %>
+      <p class="section-title">Balance Snapshot</p>
+      <div class="details">
+        <% currency_unit = "#{@transaction.currency || @transaction.wallet&.currency || 'NGN'} " %>
+        <% if @balance_snapshot[:before_available].present? %>
+          <p><strong>Before (Available):</strong> <%= number_to_currency(@balance_snapshot[:before_available].to_f, unit: currency_unit, delimiter: ',', precision: 2) %></p>
+        <% end %>
+        <% if @balance_snapshot[:after_available].present? %>
+          <p><strong>After (Available):</strong> <%= number_to_currency(@balance_snapshot[:after_available].to_f, unit: currency_unit, delimiter: ',', precision: 2) %></p>
+        <% end %>
+        <% if @balance_snapshot[:before_book].present? %>
+          <p><strong>Before (Book):</strong> <%= number_to_currency(@balance_snapshot[:before_book].to_f, unit: currency_unit, delimiter: ',', precision: 2) %></p>
+        <% end %>
+        <% if @balance_snapshot[:after_book].present? %>
+          <p><strong>After (Book):</strong> <%= number_to_currency(@balance_snapshot[:after_book].to_f, unit: currency_unit, delimiter: ',', precision: 2) %></p>
+        <% end %>
+      </div>
+    <% end %>
 
     <% if @anchor_details.present? %>
       <p class="section-title">Bank Transfer Details</p>

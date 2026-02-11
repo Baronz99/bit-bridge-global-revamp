@@ -48,6 +48,33 @@ RSpec.describe SendTransactionReceiptJob, type: :job do
 
     tx.reload
     expect(ActionMailer::Base.deliveries.size).to eq(1)
+    expect(ActionMailer::Base.deliveries.last.subject).to include('Wallet Credit Receipt')
+    expect(tx.metadata.dig('receipt_email', 'status')).to eq('sent')
+  end
+
+  it 'sends receipt email for approved outbound withdrawal (non-conversion)' do
+    wallet = ensure_wallet(user, wallet_type: :ngn, currency: 'NGN')
+    wallet.transactions.create!(
+      transaction_type: :deposit,
+      status: :approved,
+      amount: 5_000,
+      coin_type: :bank,
+      address: 'Seed balance'
+    )
+    tx = Transaction.create!(
+      wallet: wallet,
+      amount: 1200,
+      transaction_type: :withdrawal,
+      coin_type: :bank,
+      status: :approved,
+      address: 'Bank transfer payout'
+    )
+
+    described_class.perform_now(tx.id)
+
+    tx.reload
+    expect(ActionMailer::Base.deliveries.size).to eq(1)
+    expect(ActionMailer::Base.deliveries.last.subject).to include('Wallet Debit Receipt')
     expect(tx.metadata.dig('receipt_email', 'status')).to eq('sent')
   end
 
@@ -128,5 +155,31 @@ RSpec.describe SendTransactionReceiptJob, type: :job do
 
     described_class.perform_now(tx.id)
     expect(ActionMailer::Base.deliveries).to be_empty
+  end
+
+  it 'does not send receipt for non-primary fee component transactions' do
+    wallet = ensure_wallet(user, wallet_type: :ngn, currency: 'NGN')
+    wallet.transactions.create!(
+      transaction_type: :deposit,
+      status: :approved,
+      amount: 1_000,
+      coin_type: :bank,
+      address: 'Seed balance'
+    )
+    tx = Transaction.create!(
+      wallet: wallet,
+      amount: 150,
+      transaction_type: :withdrawal,
+      coin_type: :bank,
+      status: :approved,
+      address: 'Anchor transfer fee',
+      metadata: { 'subtype' => 'fee' }
+    )
+
+    described_class.perform_now(tx.id)
+
+    tx.reload
+    expect(ActionMailer::Base.deliveries).to be_empty
+    expect(tx.metadata.dig('receipt_email', 'status')).to be_nil
   end
 end

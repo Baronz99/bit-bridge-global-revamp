@@ -159,11 +159,12 @@ class Transaction < ApplicationRecord
   def receipt_email_sendable?
     return false unless approved?
     return false if email.blank?
+    return false if suppress_component_receipt?
 
     if conversion_transaction?
       withdrawal?
     else
-      deposit?
+      deposit? || withdrawal?
     end
   end
 
@@ -181,5 +182,11 @@ class Transaction < ApplicationRecord
     return true if meta['fx_quote_token'].present?
 
     address.to_s.include?('Tunnel Conversion')
+  end
+
+  def suppress_component_receipt?
+    meta = metadata.is_a?(Hash) ? metadata : {}
+    subtype = meta['subtype'].to_s
+    %w[fee provider_fee bitbridge_fee fx_markup].include?(subtype)
   end
 end

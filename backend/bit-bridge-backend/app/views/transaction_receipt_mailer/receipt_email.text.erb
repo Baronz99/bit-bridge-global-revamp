@@ -2,7 +2,8 @@ BitBridge Global <%= @kind_label %> Receipt
 
 Dear <%= @recipient_name %>,
 
-Your transaction has been recorded successfully.
+<%= @email_header %>
+<%= @email_subheader %>
 
 Reference: <%= @receipt_reference %>
 Status: <%= @transaction.status.to_s.upcase %>
@@ -11,6 +12,23 @@ Amount: <%= @transaction.amount.to_f %> <%= @transaction.currency || @transactio
 Type: <%= @kind_label %>
 <% if @transaction.address.present? %>
 Description: <%= @transaction.address %>
+<% end %>
+
+<% if @balance_snapshot.present? %>
+Balance Snapshot
+----------------
+<% if @balance_snapshot[:before_available].present? %>
+Before (Available): <%= @balance_snapshot[:before_available].to_f %> <%= @transaction.currency || @transaction.wallet&.currency || 'NGN' %>
+<% end %>
+<% if @balance_snapshot[:after_available].present? %>
+After (Available): <%= @balance_snapshot[:after_available].to_f %> <%= @transaction.currency || @transaction.wallet&.currency || 'NGN' %>
+<% end %>
+<% if @balance_snapshot[:before_book].present? %>
+Before (Book): <%= @balance_snapshot[:before_book].to_f %> <%= @transaction.currency || @transaction.wallet&.currency || 'NGN' %>
+<% end %>
+<% if @balance_snapshot[:after_book].present? %>
+After (Book): <%= @balance_snapshot[:after_book].to_f %> <%= @transaction.currency || @transaction.wallet&.currency || 'NGN' %>
+<% end %>
 <% end %>
 
 <% if @anchor_details.present? %>

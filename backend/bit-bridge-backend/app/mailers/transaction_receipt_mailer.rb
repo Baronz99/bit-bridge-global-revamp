@@ -11,13 +11,17 @@ class TransactionReceiptMailer < ApplicationMailer
     @anchor_details = resolve_anchor_details(@transaction)
     @receipt_reference = @transaction.transaction_record&.reference.presence || "wallet-tx-#{@transaction.id}"
     @frontend_url = ENV.fetch('FRONTEND_URL', 'https://www.bitbridgeglobal.com').to_s.split(',').first.to_s.strip
-    @kind_label = @transaction.conversion_transaction? ? 'FX Conversion' : 'Wallet Deposit'
+    @profile = transaction_profile(@transaction, @anchor_details)
+    @kind_label = @profile[:kind_label]
+    @email_header = @profile[:header]
+    @email_subheader = @profile[:subheader]
+    @balance_snapshot = resolve_balance_snapshot(@transaction)
 
     attach_brand_logo
 
     mail(
       to: @user.email,
-      subject: "BitBridge Global - #{@kind_label} Receipt (##{@receipt_reference})"
+      subject: "BitBridge Global - #{@profile[:subject]} (##{@receipt_reference})"
     )
   end
 
@@ -53,6 +57,87 @@ class TransactionReceiptMailer < ApplicationMailer
 
     details.presence
   rescue StandardError
+    nil
+  end
+
+  def transaction_profile(transaction, anchor_details)
+    metadata = transaction.metadata.is_a?(Hash) ? transaction.metadata : {}
+    record = transaction.transaction_record
+    provider = metadata['provider'].to_s.downcase
+    subtype = metadata['subtype'].to_s.downcase
+    event_type = record&.event_type.to_s.downcase
+
+    if transaction.conversion_transaction?
+      direction = @fx_quote&.direction.to_s
+      conversion_label =
+        case direction
+        when 'ngn_to_usd' then 'NGN to USD'
+        when 'usd_to_ngn' then 'USD to NGN'
+        else 'Wallet Conversion'
+        end
+
+      return {
+        subject: 'Conversion Receipt',
+        kind_label: 'FX Conversion',
+        header: 'Conversion Completed',
+        subheader: "#{conversion_label} conversion settled successfully."
+      }
+    end
+
+    if provider == 'anchor' && transaction.deposit?
+      return {
+        subject: 'Inbound Transfer Receipt',
+        kind_label: 'Inbound Bank Transfer',
+        header: 'Inbound Transfer Settled',
+        subheader: "Funds received from #{anchor_details&.dig(:sender_name) || 'bank transfer'}."
+      }
+    end
+
+    if provider == 'anchor' && transaction.withdrawal? && subtype == 'principal'
+      return {
+        subject: 'Outbound Transfer Receipt',
+        kind_label: 'Outbound Bank Transfer',
+        header: 'Outbound Transfer Completed',
+        subheader: 'Your transfer has been processed successfully.'
+      }
+    end
+
+    if transaction.deposit? && event_type.start_with?('checkout')
+      return {
+        subject: 'Wallet Funding Receipt',
+        kind_label: 'Wallet Funding',
+        header: 'Wallet Funding Completed',
+        subheader: 'Your checkout payment has been posted to your wallet.'
+      }
+    end
+
+    if transaction.deposit?
+      return {
+        subject: 'Wallet Credit Receipt',
+        kind_label: 'Wallet Credit',
+        header: 'Wallet Credit Posted',
+        subheader: 'Funds were added to your wallet successfully.'
+      }
+    end
+
+    {
+      subject: 'Wallet Debit Receipt',
+      kind_label: 'Wallet Debit',
+      header: 'Wallet Debit Posted',
+      subheader: 'Funds were debited from your wallet successfully.'
+    }
+  end
+
+  def resolve_balance_snapshot(transaction)
+    if transaction.respond_to?(:before_book_balance) && transaction.before_book_balance.present?
+      return {
+        before_book: transaction.before_book_balance,
+        after_book: transaction.after_book_balance,
+        before_available: transaction.before_available_balance,
+        after_available: transaction.after_available_balance
+      }
+    end
+
     nil
   end
 end
