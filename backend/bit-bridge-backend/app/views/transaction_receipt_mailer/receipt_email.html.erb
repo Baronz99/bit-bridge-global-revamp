@@ -40,6 +40,23 @@
       <% end %>
     </div>
 
+    <% if @event_contract.present? %>
+      <p class="section-title">Event Classification</p>
+      <div class="details">
+        <p><strong>Schema:</strong> <%= @event_contract[:schema_version] %></p>
+        <p><strong>Family:</strong> <%= @event_contract[:event_family] %></p>
+        <p><strong>Phase:</strong> <%= @event_contract[:event_phase] %></p>
+        <p><strong>Direction:</strong> <%= @event_contract[:direction] %></p>
+        <p><strong>Provider:</strong> <%= @event_contract[:provider] %></p>
+        <% if @event_contract[:provider_event_id].present? %>
+          <p><strong>Provider Event ID:</strong> <%= @event_contract[:provider_event_id] %></p>
+        <% end %>
+        <% if @event_contract[:provider_reference].present? %>
+          <p><strong>Provider Reference:</strong> <%= @event_contract[:provider_reference] %></p>
+        <% end %>
+      </div>
+    <% end %>
+
     <% if @balance_snapshot.present? %>
       <p class="section-title">Balance Snapshot</p>
       <div class="details">

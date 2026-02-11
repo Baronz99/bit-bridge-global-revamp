@@ -11,21 +11,31 @@ class TransactionReceiptMailer < ApplicationMailer
     @anchor_details = resolve_anchor_details(@transaction)
     @receipt_reference = @transaction.transaction_record&.reference.presence || "wallet-tx-#{@transaction.id}"
     @frontend_url = ENV.fetch('FRONTEND_URL', 'https://www.bitbridgeglobal.com').to_s.split(',').first.to_s.strip
-    @profile = transaction_profile(@transaction, @anchor_details)
-    @kind_label = @profile[:kind_label]
-    @email_header = @profile[:header]
-    @email_subheader = @profile[:subheader]
+    @event_contract = Notifications::TransactionEmailEventContract.build(
+      transaction: @transaction,
+      anchor_details: @anchor_details,
+      fx_quote: @fx_quote
+    )
+    @kind_label = @event_contract[:kind_label]
+    @email_header = @event_contract[:header]
+    @email_subheader = @event_contract[:subheader]
     @balance_snapshot = resolve_balance_snapshot(@transaction)
 
     attach_brand_logo
 
     mail(
       to: @user.email,
-      subject: "BitBridge Global - #{@profile[:subject]} (##{@receipt_reference})"
+      subject: "BitBridge Global - #{build_subject_title(@event_contract)} (##{@receipt_reference})"
     )
   end
 
   private
+
+  def build_subject_title(contract)
+    currency = (@transaction.currency || @transaction.wallet&.currency || 'NGN').to_s
+    amount = format('%.2f', @transaction.amount.to_f)
+    "#{contract[:title]} - #{currency} #{amount}"
+  end
 
   def resolve_fx_quote(transaction)
     meta = transaction.metadata.is_a?(Hash) ? transaction.metadata : {}
@@ -58,74 +68,6 @@ class TransactionReceiptMailer < ApplicationMailer
     details.presence
   rescue StandardError
     nil
-  end
-
-  def transaction_profile(transaction, anchor_details)
-    metadata = transaction.metadata.is_a?(Hash) ? transaction.metadata : {}
-    record = transaction.transaction_record
-    provider = metadata['provider'].to_s.downcase
-    subtype = metadata['subtype'].to_s.downcase
-    event_type = record&.event_type.to_s.downcase
-
-    if transaction.conversion_transaction?
-      direction = @fx_quote&.direction.to_s
-      conversion_label =
-        case direction
-        when 'ngn_to_usd' then 'NGN to USD'
-        when 'usd_to_ngn' then 'USD to NGN'
-        else 'Wallet Conversion'
-        end
-
-      return {
-        subject: 'Conversion Receipt',
-        kind_label: 'FX Conversion',
-        header: 'Conversion Completed',
-        subheader: "#{conversion_label} conversion settled successfully."
-      }
-    end
-
-    if provider == 'anchor' && transaction.deposit?
-      return {
-        subject: 'Inbound Transfer Receipt',
-        kind_label: 'Inbound Bank Transfer',
-        header: 'Inbound Transfer Settled',
-        subheader: "Funds received from #{anchor_details&.dig(:sender_name) || 'bank transfer'}."
-      }
-    end
-
-    if provider == 'anchor' && transaction.transaction_type.to_s == 'withdrawal' && subtype == 'principal'
-      return {
-        subject: 'Outbound Transfer Receipt',
-        kind_label: 'Outbound Bank Transfer',
-        header: 'Outbound Transfer Completed',
-        subheader: 'Your transfer has been processed successfully.'
-      }
-    end
-
-    if transaction.deposit? && event_type.start_with?('checkout')
-      return {
-        subject: 'Wallet Funding Receipt',
-        kind_label: 'Wallet Funding',
-        header: 'Wallet Funding Completed',
-        subheader: 'Your checkout payment has been posted to your wallet.'
-      }
-    end
-
-    if transaction.deposit?
-      return {
-        subject: 'Wallet Credit Receipt',
-        kind_label: 'Wallet Credit',
-        header: 'Wallet Credit Posted',
-        subheader: 'Funds were added to your wallet successfully.'
-      }
-    end
-
-    {
-      subject: 'Wallet Debit Receipt',
-      kind_label: 'Wallet Debit',
-      header: 'Wallet Debit Posted',
-      subheader: 'Funds were debited from your wallet successfully.'
-    }
   end
 
   def resolve_balance_snapshot(transaction)
