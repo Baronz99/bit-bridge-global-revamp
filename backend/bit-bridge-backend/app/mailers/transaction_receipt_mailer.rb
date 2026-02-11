@@ -93,7 +93,7 @@ class TransactionReceiptMailer < ApplicationMailer
       }
     end
 
-    if provider == 'anchor' && transaction.withdrawal? && subtype == 'principal'
+    if provider == 'anchor' && transaction.transaction_type.to_s == 'withdrawal' && subtype == 'principal'
       return {
         subject: 'Outbound Transfer Receipt',
         kind_label: 'Outbound Bank Transfer',
