@@ -22,6 +22,7 @@ module Api
 
         # ✅ Generate a Devise-JWT compatible token
         access_token, _payload = Warden::JWTAuth::UserEncoder.new.call(user, :user, nil)
+        refresh_token = user.generate_refresh_token
 
         if user.admin?
           user.update_columns(
@@ -29,13 +30,14 @@ module Api
             admin_role: user.admin_role.presence || user[:admin_role]
           )
         end
+        serialized_user = UserSerializer.new(user).as_json
 
         render json: {
+          status: { code: 200, message: 'Logged in successfully.' },
           token: access_token,
-          user: {
-            id: user.id,
-            email: user.email
-          }
+          access_token: access_token,
+          refresh_token: refresh_token,
+          user: serialized_user
         }, status: :ok
       rescue StandardError => e
         Rails.logger.error("[API LOGIN] #{e.class}: #{e.message}")

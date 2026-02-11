@@ -11,7 +11,13 @@ RSpec.describe 'Auth endpoints', type: :request do
     expect(response).to have_http_status(:ok)
     body = JSON.parse(response.body)
     expect(body['token']).to be_present
-    expect(body.dig('user', 'email')).to eq(user.email)
+    expect(body['access_token']).to be_present
+    expect(body['refresh_token']).to be_present
+    serialized_email =
+      body.dig('user', 'email') ||
+      body.dig('user', 'data', 'attributes', 'email') ||
+      body.dig('user', 'data', 'email')
+    expect(serialized_email).to eq(user.email)
   end
 
   it 'refreshes access token via api/v1/refresh' do

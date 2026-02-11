@@ -112,28 +112,16 @@ const UseCaseSetup = () => {
 
       // 1) Save basic profile (FormData)
       if (hasBasicProfile) {
-        const formData = new FormData()
-
-        // Keep existing behavior: don't force id_type
-        if (user?.id_type) formData.append('user[id_type]', user.id_type)
-
-        // ✅ Only send fields if they have values (prevents clearing)
-        if (first_name) formData.append('user[user_profile_attributes][first_name]', first_name)
-        if (last_name) formData.append('user[user_profile_attributes][last_name]', last_name)
-
-        // Keep phone unchanged here (your original logic)
+        // Keep phone unchanged here (preserve existing phone while updating names/dob)
         const existingPhone =
           user?.user_profile?.phone_number || user?.phone_number || ''
-        if (existingPhone) {
-          formData.append('user[user_profile_attributes][phone_number]', existingPhone)
-        }
+        const payload = {}
+        if (first_name) payload.first_name = first_name
+        if (last_name) payload.last_name = last_name
+        if (existingPhone) payload.phone_number = existingPhone
+        if (date_of_birth) payload.date_of_birth = date_of_birth
 
-        // ✅ IMPORTANT: only send DOB if it has a value
-        if (date_of_birth) {
-          formData.append('user[user_profile_attributes][date_of_birth]', date_of_birth)
-        }
-
-        await updateBasicProfile(formData, true)
+        await updateBasicProfile(payload)
       }
 
       // 2) Save primary use case
