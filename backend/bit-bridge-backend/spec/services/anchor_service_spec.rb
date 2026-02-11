@@ -20,7 +20,7 @@ RSpec.describe AnchorService do
   let(:service) { described_class.new }
   let(:user) { create(:user, email: "anchor-#{SecureRandom.hex(6)}@example.com") }
   let(:wallet) { user.ngn_wallet }
-  let(:account) { Account.create!(user: user, useable_id: 'acc_123') }
+  let(:account) { Account.create!(user: user, useable_id: 'acc_123', vendor: 'anchor') }
   let(:transfer_id) { 'tr_in_123' }
 
   it 'persists inbound transfers and is idempotent for the same reference' do
@@ -68,12 +68,13 @@ RSpec.describe AnchorService do
   end
 
   it 'sets anchor webhook event_type on payment settled' do
-    account = Account.create!(user: user, useable_id: 'acc_999')
+    account = Account.create!(user: user, useable_id: 'acc_999', vendor: 'anchor')
     user.ngn_wallet
     payload = {
       'attributes' => {
         'payment' => {
           'settlementAccount' => { 'accountId' => account.useable_id },
+          'paymentId' => 'pay_001',
           'amount' => '1500',
           'currency' => 'NGN',
           'virtualNuban' => { 'accountNumber' => '0123456789', 'accountName' => 'Receiver' },
@@ -89,12 +90,55 @@ RSpec.describe AnchorService do
     }
 
     service.fund_deposit_account(payload)
-    record = TransactionRecord.find_by(reference: 'anchor-ref-1')
+    record = TransactionRecord.find_by(transaction_id: 'pay_001')
     expect(record).to be_present
     expect(record.event_type).to start_with('anchor.webhook')
+    expect(record.reference).to eq('pay_001')
     expect(record.exchange.metadata['provider']).to eq('anchor')
     expect(record.exchange.metadata['anchor_payment_reference']).to eq('anchor-ref-1')
     expect(record.exchange.metadata.dig('anchor_sender', 'bank_name')).to eq('Test Bank')
+  end
+
+  it 'credits two distinct inbound payments even when paymentReference is reused' do
+    account = Account.create!(user: user, useable_id: 'acc_dup', vendor: 'anchor')
+    user.ngn_wallet
+
+    first_payload = {
+      'attributes' => {
+        'payment' => {
+          'settlementAccount' => { 'accountId' => account.useable_id },
+          'paymentId' => 'pay_dup_1',
+          'paymentReference' => 'same-ref-1',
+          'amount' => '1000',
+          'currency' => 'NGN',
+          'virtualNuban' => { 'accountNumber' => '0000000001', 'accountName' => 'Receiver' },
+          'counterParty' => { 'accountNumber' => '1234567890', 'accountName' => 'Sender', 'bank' => { 'name' => 'Test Bank' } }
+        }
+      }
+    }
+
+    second_payload = {
+      'attributes' => {
+        'payment' => {
+          'settlementAccount' => { 'accountId' => account.useable_id },
+          'paymentId' => 'pay_dup_2',
+          'paymentReference' => 'same-ref-1',
+          'amount' => '2000',
+          'currency' => 'NGN',
+          'virtualNuban' => { 'accountNumber' => '0000000001', 'accountName' => 'Receiver' },
+          'counterParty' => { 'accountNumber' => '1234567890', 'accountName' => 'Sender', 'bank' => { 'name' => 'Test Bank' } }
+        }
+      }
+    }
+
+    expect do
+      service.fund_deposit_account(first_payload)
+      service.fund_deposit_account(second_payload)
+    end.to change(Transaction, :count).by(2)
+      .and change(TransactionRecord, :count).by(2)
+
+    expect(TransactionRecord.find_by(transaction_id: 'pay_dup_1')).to be_present
+    expect(TransactionRecord.find_by(transaction_id: 'pay_dup_2')).to be_present
   end
 
   it 'keeps naira amounts when configured' do

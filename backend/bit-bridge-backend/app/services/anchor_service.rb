@@ -510,14 +510,23 @@ class AnchorService
   def fund_deposit_account(data)
     payment = data.dig('attributes', 'payment') || {}
     account_id = payment.dig('settlementAccount', 'accountId')
+    virtual_account_id = payment.dig('virtualNuban', 'accountId')
+    virtual_account_number = payment.dig('virtualNuban', 'accountNumber')
 
     Rails.logger.info("✅  Anchor webhook userId: ======================== #{account_id} ")
 
-    account = Account.find_by(useable_id: account_id)
+    account = resolve_anchor_account(
+      settlement_account_id: account_id,
+      virtual_account_id: virtual_account_id,
+      virtual_account_number: virtual_account_number
+    )
 
 
 
-    Rails.logger.info("❌ Anchor account  does not exist ======================== #{account}") unless account
+    unless account
+      raise "Anchor settlement account not mapped settlement_account_id=#{account_id} " \
+            "virtual_account_id=#{virtual_account_id} virtual_account_number=#{virtual_account_number}"
+    end
 
     raw_amount = payment['amount']
     currency = payment['currency'] || 'NGN'
@@ -540,7 +549,11 @@ class AnchorService
     payment_fee = payment['fee']
     payment_type = payment['type']
 
-    transaction_record = TransactionRecord.find_by(reference: reference)
+    transaction_record = if payment_id.present?
+                           TransactionRecord.find_by(transaction_id: payment_id)
+                         else
+                           TransactionRecord.find_by(reference: reference)
+                         end
     if transaction_record.present?
       if transaction_record.event_type != 'anchor.webhook.payment.settled'
         transaction_record.update(event_type: 'anchor.webhook.payment.settled')
@@ -598,8 +611,10 @@ class AnchorService
     }
 
 
+    record_reference = payment_id.presence || reference
     transaction_record = TransactionRecord.create!(
-      reference: reference,
+      reference: record_reference,
+      transaction_id: payment_id,
       status: status,
       event_type: 'anchor.webhook.payment.settled'
     )
@@ -618,14 +633,16 @@ class AnchorService
       status: status,
       description: description.presence || 'Anchor inbound transfer',
       customer_name: sender_name.presence || receiver_account_name,
-      reference: reference,
+      reference: record_reference,
+      transaction_id: payment_id,
       account_number: receiver_account_number,
       bank_code: bank_code,
       bank: sender_bank.presence || bank,
       amount: amount
     )
   rescue StandardError => e
-    puts e.message
+    Rails.logger.error("[AnchorWebhook] fund_deposit_account failed message=#{e.message}")
+    raise
   end
 
   def confirm_transfer_withdrawal(data)
@@ -780,6 +797,27 @@ class AnchorService
   rescue StandardError => e
     Rails.logger.warn("[AnchorService] sync_anchor_deposit_account failed account_id=#{account_record&.id} message=#{e.message}") if defined?(Rails) && Rails.logger
     account_record
+  end
+
+  def resolve_anchor_account(settlement_account_id:, virtual_account_id:, virtual_account_number:)
+    scope = Account.where(vendor: 'anchor')
+
+    if settlement_account_id.present?
+      account = scope.find_by(useable_id: settlement_account_id)
+      return account if account
+    end
+
+    if virtual_account_id.present?
+      account = scope.find_by(useable_id: virtual_account_id)
+      return account if account
+    end
+
+    if virtual_account_number.present?
+      account = scope.find_by(account_number: virtual_account_number)
+      return account if account
+    end
+
+    nil
   end
 
   def normalize_anchor_amount(amount, currency)

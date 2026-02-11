@@ -25,6 +25,23 @@ RSpec.describe AnchorWebhookProcessor do
       expect(event.processed_at).to be_present
     end
 
+    it 'uses paymentId as webhook reference when provided' do
+      payload = {
+        'type' => 'payment.settled',
+        'attributes' => { 'payment' => { 'paymentId' => 'pay-id-1', 'paymentReference' => 'pay-ref-1' } }
+      }
+
+      service = instance_double(AnchorService)
+      allow(AnchorService).to receive(:new).and_return(service)
+      allow(service).to receive(:fund_deposit_account)
+
+      described_class.call(payload: payload, raw_body: payload.to_json)
+
+      event = AnchorWebhookEvent.find_by(event_type: 'payment.settled', reference: 'pay-id-1')
+      expect(event).to be_present
+      expect(event.status).to eq('processed')
+    end
+
     it 'marks webhook as failed when processor raises' do
       payload = {
         'type' => 'payment.settled',
@@ -46,7 +63,7 @@ RSpec.describe AnchorWebhookProcessor do
     end
 
     it 'updates account status for customer.identification.approved' do
-      user = create(:user)
+      user = create(:user, email: "anchor-webhook-#{SecureRandom.hex(4)}@example.com")
       account = Account.create!(
         user: user,
         vendor: 'anchor',

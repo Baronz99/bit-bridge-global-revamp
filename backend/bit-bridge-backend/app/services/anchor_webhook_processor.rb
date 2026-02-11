@@ -35,11 +35,12 @@ class AnchorWebhookProcessor
 
   def extract_reference(payload, raw_body)
     transfer_id = payload.dig('relationships', 'transfer', 'data', 'id')
+    payment_id = payload.dig('attributes', 'payment', 'paymentId')
     payment_reference = payload.dig('attributes', 'payment', 'paymentReference')
     account_id = payload.dig('relationships', 'customer', 'data', 'id')
     event_id = payload['id']
 
-    reference = transfer_id || payment_reference || account_id || event_id
+    reference = transfer_id || payment_id || payment_reference || account_id || event_id
     return reference.to_s if reference.present?
 
     digest = Digest::SHA256.hexdigest(raw_body.to_s)
