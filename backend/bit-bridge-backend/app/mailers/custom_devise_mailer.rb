@@ -5,11 +5,7 @@ class CustomDeviseMailer < Devise::Mailer
 
   # ===== EMAIL CONFIRMATION =====
   def confirmation_instructions(record, token, opts = {})
-    base_url = Rails.application.credentials[:frontend_url] ||
-               ENV['FRONTEND_URL'] ||
-               'http://127.0.0.1:5173/' # local React dev URL
-
-    frontend_url = "#{base_url}confirmation?confirmation_token=#{token}"
+    frontend_url = "#{normalized_frontend_base_url}confirmation?confirmation_token=#{token}"
 
     attach_brand_logo
 
@@ -23,11 +19,7 @@ class CustomDeviseMailer < Devise::Mailer
 
   # ===== FORGOT PASSWORD / RESET PASSWORD =====
   def reset_password_instructions(record, token, opts = {})
-    base_url = Rails.application.credentials[:frontend_url] ||
-               ENV['FRONTEND_URL'] ||
-               'http://127.0.0.1:5173/' # local React dev URL
-
-    frontend_base = base_url.to_s.end_with?('/') ? base_url : "#{base_url}/"
+    frontend_base = normalized_frontend_base_url
     reset_url = "#{frontend_base}reset-password?reset_password_token=#{token}"
 
     attach_brand_logo
@@ -50,5 +42,14 @@ class CustomDeviseMailer < Devise::Mailer
     attachments.inline['logo'] = File.read(logo_path)
   rescue StandardError => e
     Rails.logger.warn("[CustomDeviseMailer] attach_brand_logo failed: #{e.class} #{e.message}")
+  end
+
+  def normalized_frontend_base_url
+    raw = Rails.application.credentials[:frontend_url].presence ||
+          ENV["FRONTEND_URL"].presence ||
+          "http://127.0.0.1:5173/"
+
+    first = raw.to_s.split(",").map(&:strip).reject(&:empty?).first || "http://127.0.0.1:5173/"
+    first.end_with?("/") ? first : "#{first}/"
   end
 end
