@@ -31,6 +31,7 @@ Rails.application.routes.draw do
 
   devise_scope :user do
     get  "confirmation", to: "users/confirmations#show"
+    get  "api/v1/confirmation", to: "users/confirmations#show", defaults: { format: :json }
     post "refresh",      to: "users/sessions#refresh"
     post "api/v1/signup", to: "users/registrations#create", defaults: { format: :json }
   end
@@ -52,7 +53,6 @@ Rails.application.routes.draw do
       post   "/login",        to: "sessions#create"
       post   "refresh",       to: "users/sessions#refresh"
       delete "logout",        to: "users/sessions#destroy"
-      get    "confirmation",  to: "users/confirmations#show"
       post   "auth/verify_password", to: "auth#verify_password"
 
       # Timeline
