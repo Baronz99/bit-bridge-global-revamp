@@ -32,6 +32,7 @@ Rails.application.routes.draw do
   devise_scope :user do
     get  "confirmation", to: "users/confirmations#show"
     post "refresh",      to: "users/sessions#refresh"
+    post "api/v1/signup", to: "users/registrations#create", defaults: { format: :json }
   end
 
   get "tokens", to: "api/v1/tokens#token"
@@ -49,7 +50,6 @@ Rails.application.routes.draw do
 
       # Auth
       post   "/login",        to: "sessions#create"
-      post   "signup",        to: "users/registrations#create"
       post   "refresh",       to: "users/sessions#refresh"
       delete "logout",        to: "users/sessions#destroy"
       get    "confirmation",  to: "users/confirmations#show"
