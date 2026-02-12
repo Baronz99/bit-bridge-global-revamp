@@ -6,6 +6,10 @@ FactoryBot.define do
     password { 'password123' }
     password_confirmation { 'password123' }
 
+    trait :confirmed do
+      confirmed_at { Time.current }
+    end
+
     trait :tier2 do
       kyc_level { 'tier_2' }
     end

@@ -20,6 +20,13 @@ module Api
           return render json: { error: 'Invalid email or password' }, status: :unauthorized
         end
 
+        unless user.confirmed?
+          return render json: {
+            error: 'email_not_confirmed',
+            message: 'Please confirm your email before logging in.'
+          }, status: :forbidden
+        end
+
         # ✅ Generate a Devise-JWT compatible token
         access_token, _payload = Warden::JWTAuth::UserEncoder.new.call(user, :user, nil)
         refresh_token = user.generate_refresh_token

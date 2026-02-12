@@ -1,9 +1,18 @@
 # frozen_string_literal: true
 
 require 'rails_helper'
+require 'securerandom'
 
 RSpec.describe 'Auth endpoints', type: :request do
-  let(:user) { create(:user, password: 'password123', password_confirmation: 'password123') }
+  let(:user) do
+    create(
+      :user,
+      :confirmed,
+      email: "confirmed_#{SecureRandom.hex(6)}@example.com",
+      password: 'password123',
+      password_confirmation: 'password123'
+    )
+  end
 
   it 'logs in via api/v1/login' do
     post '/api/v1/login', params: { email: user.email, password: 'password123' }
@@ -28,5 +37,23 @@ RSpec.describe 'Auth endpoints', type: :request do
     expect(response).to have_http_status(:ok)
     body = JSON.parse(response.body)
     expect(body['access_token']).to be_present
+  end
+
+  it 'rejects login for unconfirmed users' do
+    unconfirmed_user = build(
+      :user,
+      email: "unconfirmed_#{SecureRandom.hex(6)}@example.com",
+      password: 'password123',
+      password_confirmation: 'password123'
+    )
+    unconfirmed_user.skip_confirmation_notification!
+    unconfirmed_user.save!
+
+    post '/api/v1/login', params: { email: unconfirmed_user.email, password: 'password123' }
+
+    expect(response).to have_http_status(:forbidden)
+    body = JSON.parse(response.body)
+    expect(body['error']).to eq('email_not_confirmed')
+    expect(body['message']).to be_present
   end
 end
