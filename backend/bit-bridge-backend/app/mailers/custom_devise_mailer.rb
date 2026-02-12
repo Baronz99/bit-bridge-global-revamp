@@ -40,4 +40,15 @@ class CustomDeviseMailer < Devise::Mailer
 
     mail(to: record.email, subject: opts[:subject])
   end
+
+  private
+
+  def attach_brand_logo
+    logo_path = Rails.root.join('app/assets/images/bitbridge-logo.png')
+    return unless File.exist?(logo_path)
+
+    attachments.inline['bitbridge-logo.png'] = File.read(logo_path)
+  rescue StandardError => e
+    Rails.logger.warn("[CustomDeviseMailer] attach_brand_logo failed: #{e.class} #{e.message}")
+  end
 end

@@ -240,6 +240,18 @@ class User < ApplicationRecord
     find_by(refresh_token: raw)
   end
 
+  # Deliver Devise notifications asynchronously and never block auth flows
+  # (signup/password reset) on mail transport/template failures.
+  def send_devise_notification(notification, *args)
+    devise_mailer.send(notification, self, *args).deliver_later
+  rescue StandardError => e
+    Rails.logger.error(
+      "[DeviseNotification] notification=#{notification} user_id=#{id} " \
+      "error=#{e.class} message=#{e.message}"
+    )
+    nil
+  end
+
   # =========================
   # Transaction PIN helpers
   # =========================
