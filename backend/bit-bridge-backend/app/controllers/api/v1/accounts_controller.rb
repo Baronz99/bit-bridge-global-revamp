@@ -256,6 +256,56 @@ module Api
       end
 
       # ✅ PIN enforced here (with lockouts)
+      def transfer_quote
+        current_level = current_user&.kyc_rank.to_i
+        required_level = 2
+        unless current_level >= required_level
+          return render json: {
+            message: 'Complete Tier 2 verification to use bank transfer.',
+            error_code: 'TIER_INELIGIBLE',
+            current_level: current_level,
+            required_level: required_level
+          }, status: :forbidden
+        end
+
+        raw_amount = params[:amount]
+        amount = parse_quote_amount(raw_amount)
+        if amount.nil? || amount <= 0
+          return render json: {
+            message: 'amount must be a numeric value greater than 0',
+            error_code: 'AMOUNT_INVALID',
+            attempted_amount: raw_amount
+          }, status: :unprocessable_entity
+        end
+
+        daily = Transfers::NgnTransferDailyLimit.snapshot(user: current_user, attempted_amount: amount)
+        fee_quote = quote_fee_for_amount(amount)
+
+        render json: {
+          eligible: true,
+          tier: current_user.kyc_level.to_s,
+          business_timezone: daily[:business_timezone],
+          day_start: daily[:day_start]&.iso8601,
+          day_end: daily[:day_end]&.iso8601,
+          daily_limit: daily[:daily_limit].to_f,
+          daily_spent: daily[:daily_spent].to_f,
+          daily_remaining: daily[:daily_remaining].to_f,
+          attempted_amount: daily[:attempted_amount].to_f,
+          currency: 'NGN',
+          as_of: daily[:as_of]&.iso8601,
+          fee: fee_quote[:fee],
+          total_debit: fee_quote[:total_debit],
+          fee_is_estimate: fee_quote[:fee_is_estimate],
+          fee_breakdown: fee_quote[:fee_breakdown]
+        }, status: :ok
+      rescue StandardError => e
+        Rails.logger.error("[AccountsController] transfer_quote_failed user_id=#{current_user&.id} message=#{e.message}")
+        render json: {
+          message: 'Unable to compute transfer quote right now',
+          error_code: 'quote_unavailable'
+        }, status: :unprocessable_entity
+      end
+
       def initiate_fund_transfer
         anchor_account = current_user.accounts.find_by(vendor: 'anchor')
 
@@ -933,6 +983,36 @@ module Api
         render json: { message: message, error_code: code }, status: status
       end
 
+      def parse_quote_amount(raw_amount)
+        BigDecimal(raw_amount.to_s)
+      rescue ArgumentError, TypeError
+        nil
+      end
+
+      def quote_fee_for_amount(amount)
+        fee_breakdown = Pricing::Engine.transfer_fee_breakdown_ngn(amount)
+        total_fee = fee_breakdown.fetch(:total_fee).to_d
+        {
+          fee: total_fee.to_f,
+          total_debit: (amount + total_fee).to_f,
+          fee_is_estimate: false,
+          fee_breakdown: {
+            platform_fee: fee_breakdown.fetch(:platform_fee).to_d.to_f,
+            stamp_duty_fee: fee_breakdown.fetch(:stamp_duty_fee).to_d.to_f,
+            total_fee: total_fee.to_f
+          }
+        }
+      rescue StandardError
+        {
+          fee: nil,
+          total_debit: nil,
+          fee_is_estimate: true,
+          fee_breakdown: {
+            message: 'Fee confirmed on transfer submission'
+          }
+        }
+      end
+
       # 🔒 Anchor KYC guard
       def ensure_anchor_kyc!
         # For create, only enforce when vendor is actually "anchor"
@@ -946,7 +1026,9 @@ module Api
         return if current_user&.kyc_at_least?(required_level)
 
         render json: {
+          error_code: 'TIER_INELIGIBLE',
           error: 'kyc_required',
+          current_level: current_user&.kyc_level.to_s.presence || 'tier_0',
           required_level: required_level,
           message: 'Please complete Tier 2 verification before generating or using an Anchor virtual account.',
           flow: {

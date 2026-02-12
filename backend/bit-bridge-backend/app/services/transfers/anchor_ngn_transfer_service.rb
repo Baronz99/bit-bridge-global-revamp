@@ -32,13 +32,22 @@ module Transfers
       fee_breakdown = Pricing::Engine.transfer_fee_breakdown_ngn(@amount_ngn)
       total_fee = fee_breakdown.fetch(:total_fee)
       total_debit = @amount_ngn + total_fee
-      transfer_order = ensure_transfer_bill_order(transfer_reference, total_debit)
 
       existing_principal = find_transfer_tx(transfer_reference, 'principal')
       existing_fee = find_transfer_tx(transfer_reference, 'fee')
       return existing_transfer_response(transfer_reference) if existing_principal.present? || existing_fee.present?
 
+      daily_limit = Transfers::NgnTransferDailyLimit.snapshot(
+        user: @user,
+        attempted_amount: total_debit
+      )
+      if daily_limit[:exceeded]
+        return daily_limit_exceeded_error(daily_limit)
+      end
+
+      transfer_order = find_transfer_bill_order(transfer_reference)
       return existing_transfer_response(transfer_reference) if transfer_hold_exists?(transfer_order)
+      transfer_order = ensure_transfer_bill_order(transfer_reference, total_debit)
 
       available_balance = @sender_wallet.ledger_available_balance
       if available_balance < total_debit
@@ -94,6 +103,9 @@ module Transfers
     rescue ActiveRecord::RecordInvalid => e
       release_hold!(transfer_reference, total_debit, transfer_order)
       { status: :unprocessable_entity, body: { message: e.record.errors.full_messages.to_sentence } }
+    rescue ActiveRecord::RecordNotUnique
+      existing_transfer_response(transfer_reference) ||
+        { status: :ok, body: { message: 'Transfer already processed', transfer_reference: transfer_reference } }
     end
 
     def self.reverse_transfer!(principal_tx, reason: nil, provider_status: nil)
@@ -249,6 +261,20 @@ module Transfers
             settle: ledger_snapshot_hash(find_ledger_entry(transfer_reference, :debit)),
             release: ledger_snapshot_hash(find_ledger_entry(transfer_reference, :release))
           }
+        }
+      }
+    end
+
+    def daily_limit_exceeded_error(limit_snapshot)
+      {
+        status: :unprocessable_entity,
+        body: {
+          message: 'Daily transfer limit exceeded.',
+          error_code: 'DAILY_LIMIT_EXCEEDED',
+          daily_limit: format_ngn(limit_snapshot[:daily_limit], decimals: 2).to_f,
+          daily_spent: format_ngn(limit_snapshot[:daily_spent], decimals: 2).to_f,
+          daily_remaining: format_ngn(limit_snapshot[:daily_remaining], decimals: 2).to_f,
+          attempted_amount: format_ngn(limit_snapshot[:attempted_amount], decimals: 2).to_f
         }
       }
     end
@@ -433,6 +459,10 @@ module Transfers
       WalletLedgerEntry.holds
                         .where(wallet_id: @sender_wallet.id, bill_order_id: bill_order.id)
                         .exists?
+    end
+
+    def find_transfer_bill_order(transfer_reference)
+      BillOrder.find_by(user: @user, meter_number: transfer_reference)
     end
 
     def ensure_transfer_bill_order(transfer_reference, total_debit)

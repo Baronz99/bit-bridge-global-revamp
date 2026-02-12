@@ -145,6 +145,7 @@ Rails.application.routes.draw do
           get  :verify_transfer
           post :initiate_fund_transfer
           post :create_counter_party
+          get  :transfer_quote
         end
 
         member do

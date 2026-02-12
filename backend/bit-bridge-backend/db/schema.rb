@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[7.1].define(version: 2026_02_11_002000) do
+ActiveRecord::Schema[7.1].define(version: 2026_02_12_152000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pgcrypto"
   enable_extension "plpgsql"
@@ -687,6 +687,7 @@ ActiveRecord::Schema[7.1].define(version: 2026_02_11_002000) do
     t.index ["account_id"], name: "index_transactions_on_account_id"
     t.index ["bridge_card_id"], name: "index_transactions_on_bridge_card_id"
     t.index ["transfer_id"], name: "index_transactions_on_transfer_id", unique: true
+    t.index ["wallet_id", "unique_transaction_id"], name: "idx_unique_anchor_transfer_component_per_wallet", unique: true, where: "((unique_transaction_id IS NOT NULL) AND ((metadata ->> 'provider'::text) = 'anchor'::text))"
     t.index ["wallet_id"], name: "index_transactions_on_wallet_id"
   end
 
@@ -848,14 +849,12 @@ ActiveRecord::Schema[7.1].define(version: 2026_02_11_002000) do
     t.string "source", null: false
     t.jsonb "headers"
     t.jsonb "payload"
-    t.datetime "processed_at"
-    t.string "processing_error"
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
-    t.string "event_type"
+    t.datetime "processed_at"
+    t.string "processing_error"
     t.jsonb "payload_json"
-    t.index ["created_at"], name: "index_webhook_events_on_created_at"
-    t.index ["source"], name: "index_webhook_events_on_source"
+    t.string "event_type"
   end
 
   add_foreign_key "accounts", "users"

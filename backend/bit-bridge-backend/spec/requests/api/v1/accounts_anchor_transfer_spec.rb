@@ -179,6 +179,16 @@ RSpec.describe 'Anchor NGN transfers', type: :request do
     expect(body['error_code']).to eq('transaction_pin_required')
   end
 
+  it 'blocks Tier 1 users from initiating transfer' do
+    user.update!(kyc_level: 'tier_1')
+    post_transfer(500)
+
+    expect(response).to have_http_status(:forbidden)
+    body = JSON.parse(response.body)
+    expect(body['error_code']).to eq('TIER_INELIGIBLE')
+    expect(body['required_level']).to eq('tier_2')
+  end
+
   it 'returns 422 when pin is invalid' do
     post_transfer(500, { pin: '0000' })
 
@@ -235,14 +245,94 @@ RSpec.describe 'Anchor NGN transfers', type: :request do
     transfer_reference = 'ref-123'
     post_transfer(10_000, { transfer_reference: transfer_reference })
     expect(response).to have_http_status(:ok)
+    first_body = JSON.parse(response.body)
 
     initial_count = wallet.transactions.where("metadata ->> 'transfer_reference' = ?", transfer_reference).count
 
     post_transfer(10_000, { transfer_reference: transfer_reference })
     expect(response).to have_http_status(:ok)
+    second_body = JSON.parse(response.body)
 
     final_count = wallet.transactions.where("metadata ->> 'transfer_reference' = ?", transfer_reference).count
     expect(final_count).to eq(initial_count)
+    expect(second_body['transfer_reference']).to eq(first_body['transfer_reference'])
+    expect(second_body['message']).to eq('Transfer already processed')
+  end
+
+  it 'enforces Tier 2 daily transfer limit at 500,000 NGN' do
+    user.update!(kyc_level: 'tier_2')
+    anchor_service = instance_double(AnchorService)
+    allow(AnchorService).to receive(:new).and_return(anchor_service)
+    allow(anchor_service).to receive(:initiate_transfer).and_return(
+      status: :ok,
+      data: { transfer_id: 'tr_tier2', status: 'approved' }
+    )
+    allow(Transfers::NgnTransferDailyLimit).to receive(:snapshot).and_return(
+      {
+        daily_limit: 500_000.to_d,
+        daily_spent: 499_850.to_d,
+        daily_remaining: 150.to_d,
+        attempted_amount: 150.to_d,
+        exceeded: false
+      },
+      {
+        daily_limit: 500_000.to_d,
+        daily_spent: 500_000.to_d,
+        daily_remaining: 0.to_d,
+        attempted_amount: 150.to_d,
+        exceeded: true
+      }
+    )
+
+    post_transfer(150, { transfer_reference: 'tier2-allowed' })
+    expect(response).to have_http_status(:ok)
+
+    post_transfer(150, { transfer_reference: 'tier2-blocked' })
+    expect(response).to have_http_status(:unprocessable_entity)
+    body = JSON.parse(response.body)
+    expect(body['error_code']).to eq('DAILY_LIMIT_EXCEEDED')
+    expect(body['daily_limit']).to eq(500_000.0)
+    expect(body['daily_spent']).to eq(500_000.0)
+    expect(body['daily_remaining']).to eq(0.0)
+    expect(body['attempted_amount']).to eq(150.0)
+  end
+
+  it 'enforces Tier 3 daily transfer limit at 3,000,000 NGN' do
+    user.update!(kyc_level: 'tier_3')
+    anchor_service = instance_double(AnchorService)
+    allow(AnchorService).to receive(:new).and_return(anchor_service)
+    allow(anchor_service).to receive(:initiate_transfer).and_return(
+      status: :ok,
+      data: { transfer_id: 'tr_tier3', status: 'approved' }
+    )
+    allow(Transfers::NgnTransferDailyLimit).to receive(:snapshot).and_return(
+      {
+        daily_limit: 3_000_000.to_d,
+        daily_spent: 2_999_850.to_d,
+        daily_remaining: 150.to_d,
+        attempted_amount: 150.to_d,
+        exceeded: false
+      },
+      {
+        daily_limit: 3_000_000.to_d,
+        daily_spent: 3_000_000.to_d,
+        daily_remaining: 0.to_d,
+        attempted_amount: 150.to_d,
+        exceeded: true
+      }
+    )
+
+    post_transfer(150, { transfer_reference: 'tier3-allowed' })
+    expect(response).to have_http_status(:ok)
+
+    post_transfer(150, { transfer_reference: 'tier3-blocked' })
+    expect(response).to have_http_status(:unprocessable_entity)
+    body = JSON.parse(response.body)
+    expect(body['error_code']).to eq('DAILY_LIMIT_EXCEEDED')
+    expect(body['daily_limit']).to eq(3_000_000.0)
+    expect(body['daily_spent']).to eq(3_000_000.0)
+    expect(body['daily_remaining']).to eq(0.0)
+    expect(body['attempted_amount']).to eq(150.0)
   end
 
   it 'does not create a beneficiary unless save_beneficiary is true' do
