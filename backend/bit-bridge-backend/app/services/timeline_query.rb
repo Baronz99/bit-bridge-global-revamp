@@ -292,10 +292,18 @@ class TimelineQuery
   end
 
   def bill_orders_unscoped
-    BillOrder
+    scope =
+      BillOrder
       .includes(:user, :transaction_record)
       .where(user_id: @user.id)
-      .where("COALESCE(metadata ->> 'source', '') <> ?", 'anchor_transfer')
+
+    return scope unless bill_order_metadata_column?
+
+    scope.where("COALESCE(metadata ->> 'source', '') <> ?", 'anchor_transfer')
+  end
+
+  def bill_order_metadata_column?
+    BillOrder.column_names.include?('metadata')
   end
 
   # -------------------------
