@@ -29,7 +29,9 @@ module Api
             id: user.id,
             email: user.email,
             active: user.active,
+            admin: user.admin?,
             role: user.role,
+            admin_role: user.admin_role,
             onboarding_stage: user.onboarding_stage,
             primary_use_case: user.primary_use_case,
             kyc_level: user.kyc_level,
@@ -653,4 +655,3 @@ module Api
     end
   end
 end
-
