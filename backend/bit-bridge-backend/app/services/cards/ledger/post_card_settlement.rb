@@ -56,15 +56,52 @@ module Cards
         end
 
         ActiveRecord::Base.transaction do
-          create_withdrawal!(wallet, principal_usd, unique_ids[:principal], 'Card purchase', provider_reference, subtype: 'principal')
-          create_withdrawal!(wallet, quote[:provider_fee_usd], unique_ids[:provider_fee], 'Card provider fee', provider_reference, subtype: 'provider_fee')
+          create_withdrawal!(
+            wallet,
+            principal_usd,
+            unique_ids[:principal],
+            'Card purchase',
+            provider_reference,
+            subtype: 'principal',
+            metadata: {
+              fee_breakdown: {
+                principal_usd: quote[:principal_usd]&.to_f,
+                provider_fee_usd: quote[:provider_fee_usd]&.to_f,
+                bitbridge_fee_usd: quote[:bitbridge_fee_usd]&.to_f,
+                fx_markup_usd: quote[:fx_markup_usd]&.to_f,
+                total_debit_usd: quote[:total_debit_usd]&.to_f
+              }
+            }
+          )
+          create_withdrawal!(
+            wallet,
+            quote[:provider_fee_usd],
+            unique_ids[:provider_fee],
+            'Card provider fee',
+            provider_reference,
+            subtype: 'provider_fee'
+          )
 
           if quote[:bitbridge_fee_usd].to_d.positive?
-            create_withdrawal!(wallet, quote[:bitbridge_fee_usd], unique_ids[:bitbridge_fee], 'Card BitBridge fee', provider_reference, subtype: 'bitbridge_fee')
+            create_withdrawal!(
+              wallet,
+              quote[:bitbridge_fee_usd],
+              unique_ids[:bitbridge_fee],
+              'Card BitBridge fee',
+              provider_reference,
+              subtype: 'bitbridge_fee'
+            )
           end
 
           if quote[:fx_markup_usd].to_d.positive?
-            create_withdrawal!(wallet, quote[:fx_markup_usd], unique_ids[:fx_markup], 'Card FX markup', provider_reference, subtype: 'fx_markup')
+            create_withdrawal!(
+              wallet,
+              quote[:fx_markup_usd],
+              unique_ids[:fx_markup],
+              'Card FX markup',
+              provider_reference,
+              subtype: 'fx_markup'
+            )
           end
 
           wallet.debit_cents!(required_cents)
@@ -79,7 +116,7 @@ module Cards
 
       private
 
-      def create_withdrawal!(wallet, amount, unique_id, address, provider_reference, subtype:)
+      def create_withdrawal!(wallet, amount, unique_id, address, provider_reference, subtype:, metadata: {})
         return if amount.to_d <= 0
 
         wallet.transactions.create!(
@@ -93,7 +130,7 @@ module Cards
           metadata: {
             transfer_reference: provider_reference,
             subtype: subtype
-          }
+          }.merge(metadata)
         )
       end
 

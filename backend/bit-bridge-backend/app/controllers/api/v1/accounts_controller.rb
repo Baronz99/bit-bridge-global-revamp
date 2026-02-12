@@ -285,13 +285,15 @@ module Api
         if !transfer_params[:inter_bank] && transfer_params[:counter_party_id].blank?
           counter_party_response = AnchorService.new.create_counter_party(transfer_params)
           if counter_party_response[:status] != :ok
-            return render json: { message: counter_party_response[:message] || 'Unable to resolve beneficiary' },
-                          status: :unprocessable_entity
+            return render_transfer_error(
+              counter_party_response[:message] || 'Unable to resolve beneficiary',
+              code: 'beneficiary_resolution_failed'
+            )
           end
 
           counter_party_id = counter_party_response.dig(:data, 'id')
           if counter_party_id.blank?
-            return render json: { message: 'Unable to resolve beneficiary' }, status: :unprocessable_entity
+            return render_transfer_error('Unable to resolve beneficiary', code: 'beneficiary_resolution_failed')
           end
 
           transfer_params[:counter_party_id] = counter_party_id
@@ -313,7 +315,26 @@ module Api
           transfer_reference: transfer_reference
         )
 
-        render json: result[:body], status: result[:status]
+        response_body = result[:body].is_a?(Hash) ? result[:body].dup : { message: result[:body].to_s }
+        if result[:status] == :unprocessable_entity && response_body[:error_code].blank? && response_body['error_code'].blank?
+          message_text = response_body[:message] || response_body['message']
+          error_code =
+            if message_text.to_s.include?('Minimum transfer amount')
+              'transfer_amount_below_minimum'
+            elsif message_text.to_s.include?('Invalid transfer amount')
+              'transfer_amount_invalid'
+            elsif message_text.to_s.include?('Insufficient balance.')
+              'transfer_insufficient_balance'
+            else
+              'transfer_validation_failed'
+            end
+          response_body[:error_code] = error_code
+          Rails.logger.info(
+            "[AnchorTransfer] validation_error request_id=#{request.request_id} user_id=#{current_user.id} code=#{error_code}"
+          )
+        end
+
+        render json: response_body, status: result[:status]
 
         transfer_status = result.dig(:body, :status).to_s
         should_save = bool.cast(params[:save_beneficiary].presence || params.dig(:account, :save_beneficiary))
@@ -852,33 +873,64 @@ module Api
       def validate_transfer_params!
         account_number = account_params[:account_number].to_s.strip
         bank_code = account_params[:bank_code].to_s.strip
-        counter_party_id = account_params[:counter_party_id].to_s.strip
+        bank_name = account_params[:bank].to_s.strip
+        description = account_params[:description].to_s.strip
         amount = account_params[:amount]
-        inter_bank = ActiveModel::Type::Boolean.new.cast(account_params[:inter_bank])
+        inter_bank_raw = account_params[:inter_bank]
 
         unless account_number.match?(/\A\d{10}\z/)
-          render json: { message: 'account_number must be 10 digits' }, status: :unprocessable_entity
+          render_transfer_error('account_number must be 10 digits', code: 'account_number_invalid')
           return false
         end
 
         if bank_code.blank?
-          render json: { message: 'bank_code is required' }, status: :unprocessable_entity
+          render_transfer_error('bank_code is required', code: 'bank_code_required')
           return false
         end
 
         if account_params[:account_name].to_s.strip.blank?
-          render json: { message: 'account_name is required. Resolve account details first.' },
-                 status: :unprocessable_entity
+          render_transfer_error(
+            'account_name is required. Resolve account details first.',
+            code: 'account_name_required'
+          )
+          return false
+        end
+
+        if bank_name.blank?
+          render_transfer_error('bank is required', code: 'bank_required')
+          return false
+        end
+
+        if description.blank?
+          render_transfer_error('description is required', code: 'description_required')
+          return false
+        end
+
+        if inter_bank_raw.nil?
+          render_transfer_error('inter_bank is required and must be boolean', code: 'inter_bank_required')
+          return false
+        end
+
+        normalized_inter_bank = inter_bank_raw.to_s.strip.downcase
+        unless %w[true false 1 0].include?(normalized_inter_bank) || [true, false].include?(inter_bank_raw)
+          render_transfer_error('inter_bank must be boolean', code: 'inter_bank_invalid')
           return false
         end
 
         numeric_amount = amount.to_d rescue nil
         if numeric_amount.nil? || numeric_amount <= 0
-          render json: { message: 'amount must be greater than 0' }, status: :unprocessable_entity
+          render_transfer_error('amount must be greater than 0', code: 'amount_invalid')
           return false
         end
 
         true
+      end
+
+      def render_transfer_error(message, code:, status: :unprocessable_entity)
+        Rails.logger.info(
+          "[AnchorTransfer] request_validation_error request_id=#{request.request_id} user_id=#{current_user.id} code=#{code}"
+        )
+        render json: { message: message, error_code: code }, status: status
       end
 
       # 🔒 Anchor KYC guard

@@ -52,7 +52,8 @@ class ApplicationController < ActionController::API
       render_pin_error(
         "Please set a transaction PIN before performing this action.",
         :forbidden,
-        error_key
+        error_key,
+        error_code: 'transaction_pin_not_set'
       )
       return false
     end
@@ -76,7 +77,12 @@ class ApplicationController < ActionController::API
     end
 
     if pin.blank?
-      render_pin_error("Transaction PIN is required", :unprocessable_entity, error_key)
+      render_pin_error(
+        "Transaction PIN is required",
+        :unprocessable_entity,
+        error_key,
+        error_code: 'transaction_pin_required'
+      )
       return false
     end
 
@@ -86,6 +92,7 @@ class ApplicationController < ActionController::API
       secs = current_user.transaction_pin_lock_remaining_seconds
       payload = {
         error_key => "Too many failed attempts. Try again in #{(secs / 60.0).ceil} minute(s).",
+        error_code: 'transaction_pin_locked',
         locked: true,
         retry_after_seconds: secs
       }
@@ -98,6 +105,7 @@ class ApplicationController < ActionController::API
       remaining = User::MAX_TRANSACTION_PIN_ATTEMPTS - (current_user.transaction_pin_attempts || 0)
       payload = {
         error_key => "Invalid transaction PIN",
+        error_code: 'transaction_pin_invalid',
         attempts_remaining: [remaining, 0].max
       }
       payload = { errors: [payload[error_key]] }.merge(payload.except(error_key)) if error_key == :errors
@@ -108,11 +116,15 @@ class ApplicationController < ActionController::API
     true
   end
 
-  def render_pin_error(message, status, error_key)
+  def render_pin_error(message, status, error_key, error_code: nil)
     if error_key == :errors
-      render json: { errors: [message] }, status: status
+      payload = { errors: [message] }
+      payload[:error_code] = error_code if error_code.present?
+      render json: payload, status: status
     else
-      render json: { error_key => message }, status: status
+      payload = { error_key => message }
+      payload[:error_code] = error_code if error_code.present?
+      render json: payload, status: status
     end
   end
 

@@ -27,6 +27,7 @@ class Transaction < ApplicationRecord
   before_save :check_method_payment
   before_save :normalize_money_fields
   around_create :capture_balance_snapshot
+  after_commit :finalize_usd_withdrawal_snapshot, on: %i[create update]
   after_commit :enqueue_receipt_email, on: %i[create update]
 
   def validate_transaction_on_create
@@ -139,6 +140,59 @@ class Transaction < ApplicationRecord
     else
       MoneyScale.normalize(wallet.balance)
     end
+  end
+
+  def finalize_usd_withdrawal_snapshot
+    return unless wallet.present?
+    return unless wallet.respond_to?(:usd?) && wallet.usd?
+    return unless withdrawal?
+    return unless approved?
+    snapshot_amount = snapshot_effective_amount_for_usd_withdrawal
+    return unless snapshot_amount.positive?
+    return unless has_attribute?(:before_book_balance) && has_attribute?(:before_available_balance)
+    return unless should_finalize_usd_withdrawal_snapshot?
+
+    wallet.with_lock do
+      wallet.reload
+      after_balance = MoneyScale.normalize(wallet.balance)
+      before_balance = MoneyScale.normalize(after_balance.to_d + snapshot_amount)
+
+      updates = {}
+      updates[:before_book_balance] = before_balance if has_attribute?(:before_book_balance)
+      updates[:before_available_balance] = before_balance if has_attribute?(:before_available_balance)
+      updates[:after_book_balance] = after_balance if has_attribute?(:after_book_balance)
+      updates[:after_available_balance] = after_balance if has_attribute?(:after_available_balance)
+      update_columns(updates) if updates.any?
+    end
+  end
+
+  def should_finalize_usd_withdrawal_snapshot?
+    return true if previous_changes.key?('id')
+    return true if previous_changes['status']&.last.to_s == 'approved'
+
+    snapshot_columns_blank?
+  end
+
+  def snapshot_columns_blank?
+    before_book_balance.blank? ||
+      before_available_balance.blank? ||
+      self[:after_book_balance].blank? ||
+      self[:after_available_balance].blank?
+  end
+
+  def snapshot_effective_amount_for_usd_withdrawal
+    base_amount = amount.to_d
+    meta = metadata.is_a?(Hash) ? metadata : {}
+    subtype = meta['subtype'].to_s
+    fee_breakdown = meta['fee_breakdown'].is_a?(Hash) ? meta['fee_breakdown'] : {}
+    total_debit = BigDecimal(fee_breakdown['total_debit_usd'].to_s)
+    principal_like = %w[principal card_funding_principal card_withdrawal_principal].include?(subtype)
+
+    return total_debit if principal_like && total_debit.positive?
+
+    base_amount
+  rescue ArgumentError
+    base_amount
   end
 
   public
