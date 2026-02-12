@@ -47,7 +47,7 @@ class CustomDeviseMailer < Devise::Mailer
     logo_path = Rails.root.join('app/assets/images/bitbridge-logo.png')
     return unless File.exist?(logo_path)
 
-    attachments.inline['bitbridge-logo.png'] = File.read(logo_path)
+    attachments.inline['logo'] = File.read(logo_path)
   rescue StandardError => e
     Rails.logger.warn("[CustomDeviseMailer] attach_brand_logo failed: #{e.class} #{e.message}")
   end
