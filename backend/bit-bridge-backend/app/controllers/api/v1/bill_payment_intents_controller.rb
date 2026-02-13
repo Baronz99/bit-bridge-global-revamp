@@ -10,6 +10,7 @@ module Api
       def create
         bill_order = current_user.bill_orders.find(params.require(:bill_order_id))
         intent = BillPaymentIntent.find_or_create_for_bill_order!(bill_order: bill_order)
+        apply_use_commission!(intent)
 
         render json: { data: intent_payload(intent), message: 'Bill payment intent created' }, status: :ok
       end
@@ -19,6 +20,7 @@ module Api
       end
 
       def execute
+        apply_use_commission!(@intent)
         result = Bills::ExecuteIntent.call(intent: @intent, request_id: request.request_id)
         render json: result[:body], status: result[:http_status]
       end
@@ -50,6 +52,14 @@ module Api
       def strip_cache_validators
         response.headers.delete('ETag')
         response.headers.delete('Last-Modified')
+      end
+
+      def apply_use_commission!(intent)
+        return unless params.key?(:use_commission)
+
+        metadata = intent.metadata.is_a?(Hash) ? intent.metadata : {}
+        metadata['use_commission'] = ActiveModel::Type::Boolean.new.cast(params[:use_commission])
+        intent.update!(metadata: metadata)
       end
     end
   end

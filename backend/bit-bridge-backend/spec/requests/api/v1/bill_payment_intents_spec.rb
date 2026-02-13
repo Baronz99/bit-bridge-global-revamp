@@ -11,7 +11,7 @@ RSpec.describe 'BillPaymentIntents', type: :request do
     allow(Config::Bills).to receive(:token).and_return('token')
   end
 
-  def create_bill_order(user:, amount:)
+  def create_bill_order(user:, amount:, service_type: 'ELECTRICITY')
     BillOrder.create!(
       user: user,
       meter_number: '08012345678',
@@ -19,7 +19,7 @@ RSpec.describe 'BillPaymentIntents', type: :request do
       address: 'Test Address',
       name: 'Test User',
       tariff_class: 'A',
-      service_type: 'ELECTRICITY',
+      service_type: service_type,
       email: user.email,
       amount: amount,
       phone: '08012345678',
@@ -103,5 +103,31 @@ RSpec.describe 'BillPaymentIntents', type: :request do
     expect(response).to have_http_status(:accepted)
     expect(response.parsed_body['intent_id']).to eq(intent.id)
     expect(service).to have_received(:confirm_subscription).once
+  end
+
+  it 'passes use_commission from execute payload to service' do
+    user = create(:user, :confirmed)
+    wallet = user.wallet
+    wallet.update!(commission: 200)
+    Transaction.create!(wallet: wallet, amount: 10_000, bonus: 0, status: :approved, transaction_type: :deposit)
+    bill_order = create_bill_order(user: user, amount: 1000, service_type: 'VTU')
+    intent = BillPaymentIntent.find_or_create_for_bill_order!(bill_order: bill_order)
+    headers = auth_headers(user)
+
+    service = instance_double(BuyPowerPaymentService)
+    allow(BuyPowerPaymentService).to receive(:new).and_return(service)
+    expect(service).to receive(:confirm_subscription).with(
+      bill_order,
+      'wallet',
+      true,
+      hash_including(request_id: anything, idempotency_key: intent.id)
+    ) do |order, *_args, **_kwargs|
+      order.update!(status: :completed, provider_reference: 'provider-commission')
+      BillOrders::Finalizer.call(bill_order: order)
+      { status: 'success', response: order }
+    end
+
+    post "/api/v1/bill_payment_intents/#{intent.id}/execute", params: { use_commission: true }, headers: headers
+    expect(response).to have_http_status(:ok)
   end
 end

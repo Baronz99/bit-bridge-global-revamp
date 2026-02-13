@@ -42,7 +42,7 @@ module Bills
       result = service.confirm_subscription(
         bill_order,
         'wallet',
-        ActiveModel::Type::Boolean.new.cast(bill_order.use_commission),
+        use_commission?,
         request_id: @request_id,
         idempotency_key: @intent.id
       )
@@ -63,7 +63,7 @@ module Bills
     def sufficient_balance?(bill_order:)
       return true if hold_exists?(bill_order: bill_order)
 
-      wallet.ledger_available_balance >= @intent.total.to_d
+      wallet.ledger_available_balance >= required_wallet_debit(bill_order: bill_order)
     end
 
     def hold_exists?(bill_order:)
@@ -143,7 +143,7 @@ module Bills
     end
 
     def validate_or_repair_hold!(bill_order:)
-      expected_total = @intent.total.to_d
+      expected_total = required_wallet_debit(bill_order: bill_order)
       hold_entry = WalletLedgerEntry.where(wallet: wallet, bill_order: bill_order, entry_type: :hold).order(created_at: :desc).first
       release_entries = WalletLedgerEntry.where(wallet: wallet, bill_order: bill_order, entry_type: :release).order(created_at: :desc).to_a
       release_entry = release_entries.first
@@ -220,18 +220,35 @@ module Bills
     end
 
     def insufficient_funds_response
+      required_total = required_wallet_debit(bill_order: @intent.bill_order)
+      available_balance = wallet.ledger_available_balance.to_d
+
       { http_status: :unprocessable_entity, body: {
         success: false,
         error_code: 'INSUFFICIENT_FUNDS',
         message: 'Insufficient wallet balance',
         details: {
-          required_total: @intent.total.to_d.to_f,
-          available_balance: wallet.ledger_available_balance.to_d.to_f,
-          shortfall: [@intent.total.to_d - wallet.ledger_available_balance.to_d, 0.to_d].max.to_f
+          required_total: required_total.to_f,
+          available_balance: available_balance.to_f,
+          shortfall: [required_total - available_balance, 0.to_d].max.to_f
         },
         retryable: true,
         intent: intent_payload
       } }
+    end
+
+    def use_commission?
+      metadata = @intent.metadata.is_a?(Hash) ? @intent.metadata : {}
+      raw = metadata.key?('use_commission') ? metadata['use_commission'] : @intent.bill_order&.use_commission
+      ActiveModel::Type::Boolean.new.cast(raw)
+    end
+
+    def required_wallet_debit(bill_order:)
+      total = @intent.total.to_d
+      return total unless use_commission?
+      return total unless %w[VTU DATA].include?(bill_order.service_type.to_s.upcase)
+
+      [total - wallet.commission.to_d, 0.to_d].max
     end
 
     def intent_payload

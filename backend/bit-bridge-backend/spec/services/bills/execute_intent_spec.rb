@@ -12,7 +12,7 @@ RSpec.describe Bills::ExecuteIntent, type: :service do
     allow(Config::Bills).to receive(:token).and_return('token')
   end
 
-  def create_bill_order(user:, amount:)
+  def create_bill_order(user:, amount:, service_type: 'ELECTRICITY')
     BillOrder.create!(
       user: user,
       meter_number: '08012345678',
@@ -20,7 +20,7 @@ RSpec.describe Bills::ExecuteIntent, type: :service do
       address: 'Test Address',
       name: 'Test User',
       tariff_class: 'A',
-      service_type: 'ELECTRICITY',
+      service_type: service_type,
       email: user.email,
       amount: amount,
       phone: '08012345678',
@@ -285,5 +285,27 @@ RSpec.describe Bills::ExecuteIntent, type: :service do
     expect(second[:http_status]).to eq(:ok)
     expect(second.dig(:body, :message)).to eq('Bill payment already completed')
     expect(WalletLedgerEntry.where(bill_order: bill_order, entry_type: :debit).count).to eq(1)
+  end
+
+  it 'uses commission metadata when calculating required wallet debit for VTU' do
+    user = create(:user)
+    wallet = user.wallet
+    wallet.update!(commission: 200)
+    Transaction.create!(wallet: wallet, amount: 900, bonus: 0, status: :approved, transaction_type: :deposit)
+    bill_order = create_bill_order(user: user, amount: 1000, service_type: 'VTU')
+    intent = BillPaymentIntent.find_or_create_for_bill_order!(bill_order: bill_order)
+    intent.update!(metadata: (intent.metadata || {}).merge('use_commission' => true))
+
+    service = instance_double(BuyPowerPaymentService)
+    allow(BuyPowerPaymentService).to receive(:new).and_return(service)
+    allow(service).to receive(:confirm_subscription) do |order, *_args, **_kwargs|
+      order.update!(status: :completed, provider_reference: 'provider-vtu-commission')
+      BillOrders::Finalizer.call(bill_order: order)
+      { status: 'success', response: order }
+    end
+
+    result = described_class.call(intent: intent, request_id: 'req-commission-ok')
+    expect(result[:http_status]).to eq(:ok)
+    expect(intent.reload.status).to eq('completed')
   end
 end
