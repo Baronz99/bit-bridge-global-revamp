@@ -56,4 +56,51 @@ RSpec.describe 'BillPaymentIntents', type: :request do
     expect(body['success']).to eq(true)
     expect(body.dig('intent', 'status')).to eq('completed')
   end
+
+  it 'returns bill intent status payload from show endpoint' do
+    user = create(:user, :confirmed)
+    bill_order = create_bill_order(user: user, amount: 1000)
+    intent = BillPaymentIntent.find_or_create_for_bill_order!(bill_order: bill_order)
+    headers = auth_headers(user)
+
+    get "/api/v1/bill_payment_intents/#{intent.id}", headers: headers
+
+    expect(response).to have_http_status(:ok)
+    body = response.parsed_body
+    expect(body.keys).to include('id', 'status', 'expires_at', 'provider_reference', 'bill_order_id', 'metadata', 'updated_at')
+    expect(body['id']).to eq(intent.id)
+    expect(body['bill_order_id']).to eq(bill_order.id)
+  end
+
+  it 'returns pending contract and is idempotent when execute is retried while processing' do
+    user = create(:user, :confirmed)
+    wallet = user.wallet
+    Transaction.create!(wallet: wallet, amount: 10_000, bonus: 0, status: :approved, transaction_type: :deposit)
+    bill_order = create_bill_order(user: user, amount: 1000)
+    intent = BillPaymentIntent.find_or_create_for_bill_order!(bill_order: bill_order)
+    headers = auth_headers(user)
+
+    service = instance_double(BuyPowerPaymentService)
+    allow(BuyPowerPaymentService).to receive(:new).and_return(service)
+    allow(service).to receive(:confirm_subscription) do |order, *_args, **_kwargs|
+      order.update!(status: :processing, provider_reference: 'provider-pending')
+      { status: 'pending', response: 'Payment processing...' }
+    end
+
+    post "/api/v1/bill_payment_intents/#{intent.id}/execute", headers: headers
+    expect(response).to have_http_status(:accepted)
+    body = response.parsed_body
+    expect(body).to include(
+      'success' => false,
+      'status' => 'pending',
+      'intent_id' => intent.id,
+      'bill_order_id' => bill_order.id,
+      'retryable' => true
+    )
+
+    post "/api/v1/bill_payment_intents/#{intent.id}/execute", headers: headers
+    expect(response).to have_http_status(:accepted)
+    expect(response.parsed_body['intent_id']).to eq(intent.id)
+    expect(service).to have_received(:confirm_subscription).once
+  end
 end

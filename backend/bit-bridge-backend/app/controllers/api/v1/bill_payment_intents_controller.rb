@@ -13,7 +13,7 @@ module Api
       end
 
       def show
-        render json: { data: intent_payload(@intent) }, status: :ok
+        render json: intent_status_payload(@intent), status: :ok
       end
 
       def execute
@@ -29,6 +29,12 @@ module Api
 
       def intent_payload(intent)
         intent.as_json(only: %i[id bill_order_id bill_type amount fee total status provider_reference expires_at created_at updated_at])
+      end
+
+      def intent_status_payload(intent)
+        intent.as_json(
+          only: %i[id status expires_at provider_reference bill_order_id metadata updated_at]
+        )
       end
     end
   end

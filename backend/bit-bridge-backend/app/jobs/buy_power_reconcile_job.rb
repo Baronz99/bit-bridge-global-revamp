@@ -39,6 +39,7 @@ class BuyPowerReconcileJob < ApplicationJob
           "[BuyPowerReconcileJob] hard-error handler failed order=#{order.id} #{e.class}: #{e.message}"
         )
       end
+      sync_bill_payment_intent!(order.reload)
       return
     end
 

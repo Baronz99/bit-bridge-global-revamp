@@ -205,7 +205,14 @@ module Bills
     end
 
     def pending_response(message)
-      { http_status: :accepted, body: { success: false, status: 'pending', message: message, intent: intent_payload } }
+      { http_status: :accepted, body: {
+        success: false,
+        status: 'pending',
+        message: message,
+        intent_id: @intent.id,
+        bill_order_id: @intent.bill_order_id,
+        retryable: true
+      } }
     end
 
     def failure_response(message)
