@@ -246,7 +246,7 @@ module Bills
     def required_wallet_debit(bill_order:)
       total = @intent.total.to_d
       return total unless use_commission?
-      return total unless %w[VTU DATA].include?(bill_order.service_type.to_s.upcase)
+      return total unless %w[VTU AIRTIME DATA].include?(bill_order.service_type.to_s.upcase)
 
       [total - wallet.commission.to_d, 0.to_d].max
     end

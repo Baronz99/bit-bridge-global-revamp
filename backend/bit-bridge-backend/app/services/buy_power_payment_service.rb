@@ -298,7 +298,7 @@ class BuyPowerPaymentService
         amount = electric_bill_order[:total_amount].to_d
         commission_balance = wallet.commission.to_d
         bonus_used =
-          if use_commission && %w[VTU DATA].include?(electric_bill_order.service_type)
+          if use_commission && commission_eligible_service_type?(electric_bill_order.service_type)
             [commission_balance, amount].min
           else
             0.to_d
@@ -871,6 +871,10 @@ end
     %w[VTU AIRTIME DATA].include?(service_type.to_s.strip.upcase)
   end
 
+  def commission_eligible_service_type?(service_type)
+    %w[VTU AIRTIME DATA].include?(service_type.to_s.strip.upcase)
+  end
+
   def sandbox_vtu_blocked?(body)
     return false unless (Rails.env.development? || Rails.env.staging?)
     return false unless Config::Bills.base_url.to_s.include?('idev.')
@@ -908,7 +912,7 @@ end
       wallet = order.user.wallet
       amount = order.total_amount.to_d
       bonus_used = order.commission_used.to_d
-      if bonus_used <= 0 && use_commission && %w[VTU DATA].include?(order.service_type)
+      if bonus_used <= 0 && use_commission && commission_eligible_service_type?(order.service_type)
         commission_balance = wallet.commission.to_d
         bonus_used = [commission_balance, amount].min
       end

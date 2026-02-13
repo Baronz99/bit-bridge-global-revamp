@@ -5,9 +5,10 @@ require 'rails_helper'
 RSpec.describe 'Wallets user endpoint', type: :request do
   include AuthHelpers
 
-  let(:user) { create(:user) }
+  let(:user) { create(:user, :confirmed) }
 
   it 'returns JSON with no-store headers and never 304' do
+    user.wallet.update!(commission: 12)
     get '/api/v1/wallets/user', headers: auth_headers(user)
 
     expect(response).to have_http_status(:ok)
@@ -15,7 +16,11 @@ RSpec.describe 'Wallets user endpoint', type: :request do
     expect(response.body).to be_present
     expect(response.headers['Cache-Control']).to include('no-store')
     expect(response.headers['ETag']).to be_nil
-    JSON.parse(response.body)
+    parsed = JSON.parse(response.body)
+    bridge = parsed.dig('data', 'bridge')
+    expect(bridge).to be_present
+    expect(bridge).to have_key('commission')
+    expect(bridge).to have_key('reward_balance')
 
     etag = response.headers['ETag']
     last_modified = response.headers['Last-Modified']
@@ -33,6 +38,10 @@ RSpec.describe 'Wallets user endpoint', type: :request do
     expect(response.headers['Cache-Control']).to include('no-store')
     expect(response.headers['ETag']).to be_nil
     expect(response.body).to be_present
-    JSON.parse(response.body)
+    parsed_again = JSON.parse(response.body)
+    bridge_again = parsed_again.dig('data', 'bridge')
+    expect(bridge_again).to be_present
+    expect(bridge_again).to have_key('commission')
+    expect(bridge_again).to have_key('reward_balance')
   end
 end

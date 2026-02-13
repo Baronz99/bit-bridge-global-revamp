@@ -410,7 +410,9 @@ module Api
           balance_cents: wallet.usd? ? wallet.balance_cents.to_i : nil,
           available_balance: wallet.ngn? ? wallet.ledger_available_balance.to_f : wallet.cents_to_money(wallet.balance_cents).to_f,
           book_balance: wallet.balance.to_f,
-          outstanding_hold: wallet.respond_to?(:ledger_outstanding_hold) ? wallet.ledger_outstanding_hold.to_f : 0.0
+          outstanding_hold: wallet.respond_to?(:ledger_outstanding_hold) ? wallet.ledger_outstanding_hold.to_f : 0.0,
+          commission: wallet.commission,
+          reward_balance: wallet.user_id.present? ? RewardTransaction.available_sum_for(wallet.user_id).to_f : 0.0
         }.compact
       end
 

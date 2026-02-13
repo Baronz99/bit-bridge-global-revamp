@@ -129,5 +129,6 @@ RSpec.describe 'BillPaymentIntents', type: :request do
 
     post "/api/v1/bill_payment_intents/#{intent.id}/execute", params: { use_commission: true }, headers: headers
     expect(response).to have_http_status(:ok)
+    expect(intent.reload.metadata['use_commission']).to eq(true)
   end
 end

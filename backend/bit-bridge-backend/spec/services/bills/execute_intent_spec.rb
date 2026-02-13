@@ -308,4 +308,26 @@ RSpec.describe Bills::ExecuteIntent, type: :service do
     expect(result[:http_status]).to eq(:ok)
     expect(intent.reload.status).to eq('completed')
   end
+
+  it 'uses commission metadata when service_type is airtime (case-insensitive)' do
+    user = create(:user)
+    wallet = user.wallet
+    wallet.update!(commission: 200)
+    Transaction.create!(wallet: wallet, amount: 900, bonus: 0, status: :approved, transaction_type: :deposit)
+    bill_order = create_bill_order(user: user, amount: 1000, service_type: 'airtime')
+    intent = BillPaymentIntent.find_or_create_for_bill_order!(bill_order: bill_order)
+    intent.update!(metadata: (intent.metadata || {}).merge('use_commission' => true))
+
+    service = instance_double(BuyPowerPaymentService)
+    allow(BuyPowerPaymentService).to receive(:new).and_return(service)
+    allow(service).to receive(:confirm_subscription) do |order, *_args, **_kwargs|
+      order.update!(status: :completed, provider_reference: 'provider-airtime-commission')
+      BillOrders::Finalizer.call(bill_order: order)
+      { status: 'success', response: order }
+    end
+
+    result = described_class.call(intent: intent, request_id: 'req-commission-airtime')
+    expect(result[:http_status]).to eq(:ok)
+    expect(intent.reload.status).to eq('completed')
+  end
 end

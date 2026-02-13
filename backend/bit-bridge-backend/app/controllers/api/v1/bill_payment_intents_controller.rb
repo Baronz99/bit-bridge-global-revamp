@@ -57,9 +57,11 @@ module Api
       def apply_use_commission!(intent)
         return unless params.key?(:use_commission)
 
+        normalized = ActiveModel::Type::Boolean.new.cast(params[:use_commission])
         metadata = intent.metadata.is_a?(Hash) ? intent.metadata : {}
-        metadata['use_commission'] = ActiveModel::Type::Boolean.new.cast(params[:use_commission])
+        metadata['use_commission'] = normalized
         intent.update!(metadata: metadata)
+        intent.bill_order&.update(use_commission: normalized)
       end
     end
   end
