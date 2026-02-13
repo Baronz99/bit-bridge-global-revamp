@@ -2,11 +2,11 @@
 
 require 'rails_helper'
 
-RSpec.describe 'BillOrders checkout init', type: :request do
+RSpec.describe 'BillOrders wallet-only init', type: :request do
   include AuthHelpers
 
-  it 'sets payment_method to card when initializing checkout' do
-    user = create(:user)
+  it 'blocks card checkout initialization for bills' do
+    user = create(:user, :confirmed)
     bill_order = BillOrder.create!(
       user: user,
       meter_number: '08012345678',
@@ -23,28 +23,20 @@ RSpec.describe 'BillOrders checkout init', type: :request do
       payment_type: 'online'
     )
 
-    service_response = {
-      status: :ok,
-      response: { 'responseBody' => { 'paymentReference' => 'bbg-123' } }
-    }
-    service_double = instance_double(PaymentService, init_transaction: service_response)
-    allow(PaymentService).to receive(:new).and_return(service_double)
-
     headers = auth_headers(user)
     get "/api/v1/bill_orders/#{bill_order.id}/initialize_confirm_payment",
         params: { payment_method: 'card' },
         headers: headers
 
-    expect(response).to have_http_status(:ok)
-    expect(bill_order.reload.payment_method).to eq('card')
-    record = TransactionRecord.find_by(reference: 'bbg-123')
-    expect(record).to be_present
-    expect(record.status).to eq('pending')
-    expect(record.event_type).to eq('bill_order.checkout_init')
+    expect(response).to have_http_status(:unprocessable_entity)
+    body = response.parsed_body
+    expect(body['error_code']).to eq('WALLET_ONLY_BILLS')
+    expect(bill_order.reload.payment_method).not_to eq('card')
+    expect(TransactionRecord.where(bill_order_id: bill_order.id).count).to eq(0)
   end
 
-  it 'does not change payment_method once processing' do
-    user = create(:user)
+  it 'returns bill payment intent when initializing wallet flow' do
+    user = create(:user, :confirmed)
     bill_order = BillOrder.create!(
       user: user,
       meter_number: '08012345678',
@@ -60,22 +52,18 @@ RSpec.describe 'BillOrders checkout init', type: :request do
       description: 'Airtime',
       payment_type: 'online',
       payment_method: 'wallet',
-      status: 'processing'
+      status: 'initialized'
     )
-
-    service_response = {
-      status: :ok,
-      response: { 'responseBody' => { 'paymentReference' => 'bbg-123' } }
-    }
-    service_double = instance_double(PaymentService, init_transaction: service_response)
-    allow(PaymentService).to receive(:new).and_return(service_double)
 
     headers = auth_headers(user)
     get "/api/v1/bill_orders/#{bill_order.id}/initialize_confirm_payment",
-        params: { payment_method: 'card' },
+        params: { payment_method: 'wallet' },
         headers: headers
 
     expect(response).to have_http_status(:ok)
+    body = response.parsed_body
+    expect(body['intent']).to be_present
+    expect(body['intent']['bill_order_id']).to eq(bill_order.id)
     expect(bill_order.reload.payment_method).to eq('wallet')
   end
 end

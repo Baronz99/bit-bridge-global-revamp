@@ -21,84 +21,42 @@ module Api
       end
 
       def initialize_confirm_payment
-        payment_method = params[:payment_method]
-        redirect_url = params[:redirect_url]
-        use_commission = params[:use_commission] || false
-
-        if payment_method == 'card'
-          if @bill_order.payment_method != 'card' && @bill_order.initialized?
-            @bill_order.update(payment_method: :card)
-          end
-
-          service = PaymentService.new
-          service_response = service.init_transaction(@bill_order.attributes.symbolize_keys.merge({ type: 'bills',
-                                                                                                    payment_method: 'card', redirect_url: redirect_url, use_commission: use_commission }))
-
-          status = service_response&.dig(:status)
-          payment_reference = service_response&.dig(:response, 'responseBody', 'paymentReference')
-
-          if status == :ok && payment_reference.present?
-            transaction_record = TransactionRecord.new(
-              bill_order_id: @bill_order.id,
-              reference: payment_reference,
-              status: 'pending',
-              event_type: 'bill_order.checkout_init'
-            )
-
-            if transaction_record.save
-
-              render json: service_response[:response], status: :ok
-            else
-              render json: { message: transaction_record.errors.full_messages.to_sentence }
-
-            end
-
-          elsif status.nil? || payment_reference.nil?
-            render json: { success: false, status: 'pending', message: 'Payment pending...' }, status: :service_unavailable
-          else
-            render json: { message: service_response&.dig(:message) || 'Payment initialization failed' }, status: :unprocessable_entity
-
-          end
-        else
-          confirm_payment(payment_method)
-
+        payment_method = params[:payment_method].to_s.presence || 'wallet'
+        if payment_method != 'wallet'
+          return render json: {
+            success: false,
+            error_code: 'WALLET_ONLY_BILLS',
+            message: 'Bills can only be paid from wallet. Please fund wallet first.'
+          }, status: :unprocessable_entity
         end
+
+        intent = bill_payment_intent_for(@bill_order)
+        @bill_order.update(payment_method: :wallet) unless @bill_order.payment_method == 'wallet'
+
+        render json: {
+          success: true,
+          message: 'Bill payment intent ready',
+          data: BillOrderSerializer.new(@bill_order),
+          intent: intent_payload(intent)
+        }, status: :ok
       end
 
       def confirm_bill_payment
-        payment_method = bill_order_params[:payment_method]
-
-        use_commission = ActiveModel::Type::Boolean.new.cast(bill_order_params[:use_commission])
-        idempotency_key = request.headers['Idempotency-Key'].to_s.strip
-
-        if idempotency_key.present?
-          existing = current_user.bill_orders.find_by(idempotency_key: idempotency_key)
-          if existing && existing.id != @bill_order.id
-            return render json: {
-              success: existing.completed?,
-              data: existing,
-              message: existing.completed? ? 'payment confirmed' : 'payment processing'
-            }, status: :ok
-          end
+        payment_method = bill_order_params[:payment_method].to_s.presence || 'wallet'
+        if payment_method != 'wallet'
+          return render json: {
+            success: false,
+            error_code: 'WALLET_ONLY_BILLS',
+            message: 'Bills can only be paid from wallet. Please fund wallet first.'
+          }, status: :unprocessable_entity
         end
 
-        service = BuyPowerPaymentService.new
-        service_response =
-          service.confirm_subscription(
-            @bill_order,
-            payment_method,
-            use_commission,
-            request_id: request.request_id,
-            idempotency_key: idempotency_key
-          )
-        case service_response[:status]
-        when 'success'
-          render json: { success: true, data: service_response[:response], message: 'payment confirmed' }, status: :ok
-        when 'pending'
-          render json: { success: false, status: 'pending', message: service_response[:response] }, status: :accepted
-        else
-          render json: { success: false, message: service_response[:response] }, status: :unprocessable_entity
-        end
+        intent = resolve_intent_for_confirm(@bill_order)
+        @bill_order.update(use_commission: ActiveModel::Type::Boolean.new.cast(bill_order_params[:use_commission]))
+
+        result = Bills::ExecuteIntent.call(intent: intent, request_id: request.request_id)
+        body = result[:body].merge(data: BillOrderSerializer.new(@bill_order.reload))
+        render json: body, status: result[:http_status]
       end
 
       def user
@@ -136,7 +94,11 @@ module Api
         @bill_order = BillOrder.new(bill_order_params)
 
         if @bill_order.save
-          render json: @bill_order, status: :created, location: @bill_order
+          intent = bill_payment_intent_for(@bill_order)
+          render json: {
+            data: BillOrderSerializer.new(@bill_order),
+            intent: intent_payload(intent)
+          }, status: :created, location: @bill_order
         else
           render json: @bill_order.errors, status: :unprocessable_entity
         end
@@ -203,6 +165,21 @@ module Api
       def bill_order_params
         params.require(:bill_order).permit(:status, :meter_number, :amount, :meter_type, :phone, :service_type, :use_commission,
                                            :payment_type, :email, :tariff_class, :description, :name, :payment_method, :redirect_url)
+      end
+
+      def bill_payment_intent_for(bill_order)
+        BillPaymentIntent.find_or_create_for_bill_order!(bill_order: bill_order)
+      end
+
+      def resolve_intent_for_confirm(bill_order)
+        intent_id = params[:intent_id].presence || params.dig(:bill_order, :intent_id).presence
+        return current_user.bill_payment_intents.find(intent_id) if intent_id.present?
+
+        bill_payment_intent_for(bill_order)
+      end
+
+      def intent_payload(intent)
+        intent.as_json(only: %i[id bill_order_id bill_type amount fee total status provider_reference expires_at created_at updated_at])
       end
     end
   end

@@ -22,6 +22,7 @@ class User < ApplicationRecord
   has_many :card_tokens, through: :order_items
   has_one :user_profile
   has_many :bill_orders
+  has_many :bill_payment_intents
   has_many :reward_transactions
   has_many :accounts
   has_many :cards

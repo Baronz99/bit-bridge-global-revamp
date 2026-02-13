@@ -118,7 +118,13 @@ end
         service_response = service.process_payment(current_user, payment_processor_params)
 
         if service_response[:status] == 'success'
-          render json: { data: service_response[:response], message: 'Transaction initiated' }, status: :created
+          bill_order = service_response[:response]
+          intent = BillPaymentIntent.find_or_create_for_bill_order!(bill_order: bill_order)
+          render json: {
+            data: bill_order,
+            intent: intent.as_json(only: %i[id bill_order_id bill_type amount fee total status provider_reference expires_at created_at updated_at]),
+            message: 'Transaction initiated'
+          }, status: :created
         else
           if debug
             Rails.logger.warn("[TV_FLOW] returning_422 reason=#{service_response[:response].inspect}")

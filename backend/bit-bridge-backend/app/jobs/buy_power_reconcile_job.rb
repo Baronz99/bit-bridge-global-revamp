@@ -97,6 +97,7 @@ class BuyPowerReconcileJob < ApplicationJob
 
         # Ensure the web dashboard/timeline has a record (idempotent).
         ensure_transaction_record!(order)
+        sync_bill_payment_intent!(order)
 
       when :refunded
         service.send(
@@ -108,6 +109,7 @@ class BuyPowerReconcileJob < ApplicationJob
           status: 'refunded',
           force_refund: true
         )
+        sync_bill_payment_intent!(order.reload)
 
       when :failed
         if limit_reached
@@ -122,6 +124,7 @@ class BuyPowerReconcileJob < ApplicationJob
           raw,
           status: 'failed'
         )
+        sync_bill_payment_intent!(order.reload)
 
       else # :pending / unknown
         # Keep the latest provider response for troubleshooting.
@@ -130,6 +133,7 @@ class BuyPowerReconcileJob < ApplicationJob
         else
           order.update(provider_response: raw) if raw.present?
         end
+        sync_bill_payment_intent!(order)
         self.class.set(wait: next_reconcile_wait(order)).perform_later(order.id)
       end
     end
@@ -299,5 +303,26 @@ class BuyPowerReconcileJob < ApplicationJob
     return 30.seconds if order.service_type.to_s.strip.upcase == 'ELECTRICITY'
 
     10.minutes
+  end
+
+  def sync_bill_payment_intent!(order)
+    intent = BillPaymentIntent.where(bill_order_id: order.id).order(created_at: :desc).first
+    return unless intent
+
+    mapped_status =
+      case order.status.to_s
+      when 'completed' then :completed
+      when 'refunded' then :refunded
+      when 'failed', 'declined', 'timedout' then :failed
+      else :processing
+      end
+
+    intent.update!(
+      status: mapped_status,
+      provider_reference: order.provider_reference,
+      metadata: (intent.metadata.is_a?(Hash) ? intent.metadata : {}).merge('reconciled_at' => Time.current.utc.iso8601)
+    )
+  rescue StandardError => e
+    Rails.logger.error("[BuyPowerReconcileJob] sync_bill_payment_intent failed order=#{order.id} #{e.class}: #{e.message}")
   end
 end

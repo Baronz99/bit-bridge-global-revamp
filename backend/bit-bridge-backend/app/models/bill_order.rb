@@ -28,6 +28,7 @@ class BillOrder < ApplicationRecord
   belongs_to :user, optional: true
   has_one :wallet, through: :user
   has_one :transaction_record
+  has_many :bill_payment_intents
 
   enum :status, {
     initialized: 0,

@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[7.1].define(version: 2026_02_12_152000) do
+ActiveRecord::Schema[7.1].define(version: 2026_02_13_093000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pgcrypto"
   enable_extension "plpgsql"
@@ -165,6 +165,25 @@ ActiveRecord::Schema[7.1].define(version: 2026_02_12_152000) do
     t.index ["order_detail_id"], name: "index_bill_orders_on_order_detail_id"
     t.index ["user_id", "idempotency_key"], name: "index_bill_orders_on_user_id_and_idempotency_key", unique: true, where: "(idempotency_key IS NOT NULL)"
     t.index ["user_id"], name: "index_bill_orders_on_user_id"
+  end
+
+  create_table "bill_payment_intents", id: :uuid, default: -> { "gen_random_uuid()" }, force: :cascade do |t|
+    t.uuid "user_id", null: false
+    t.uuid "bill_order_id"
+    t.string "bill_type", null: false
+    t.decimal "amount", precision: 18, scale: 2, null: false
+    t.decimal "fee", precision: 18, scale: 2, default: "0.0", null: false
+    t.decimal "total", precision: 18, scale: 2, null: false
+    t.integer "status", default: 0, null: false
+    t.jsonb "metadata", default: {}, null: false
+    t.string "provider_reference"
+    t.datetime "expires_at"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["bill_order_id"], name: "index_bill_payment_intents_on_bill_order_id"
+    t.index ["provider_reference"], name: "index_bill_payment_intents_on_provider_reference"
+    t.index ["user_id", "status"], name: "index_bill_payment_intents_on_user_id_and_status"
+    t.index ["user_id"], name: "index_bill_payment_intents_on_user_id"
   end
 
   create_table "card_events", id: :uuid, default: -> { "gen_random_uuid()" }, force: :cascade do |t|
@@ -849,12 +868,14 @@ ActiveRecord::Schema[7.1].define(version: 2026_02_12_152000) do
     t.string "source", null: false
     t.jsonb "headers"
     t.jsonb "payload"
-    t.datetime "created_at", null: false
-    t.datetime "updated_at", null: false
     t.datetime "processed_at"
     t.string "processing_error"
-    t.jsonb "payload_json"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
     t.string "event_type"
+    t.jsonb "payload_json"
+    t.index ["created_at"], name: "index_webhook_events_on_created_at"
+    t.index ["source"], name: "index_webhook_events_on_source"
   end
 
   add_foreign_key "accounts", "users"
@@ -866,6 +887,8 @@ ActiveRecord::Schema[7.1].define(version: 2026_02_12_152000) do
   add_foreign_key "beneficiaries", "users"
   add_foreign_key "bill_orders", "order_details"
   add_foreign_key "bill_orders", "users", on_delete: :nullify
+  add_foreign_key "bill_payment_intents", "bill_orders"
+  add_foreign_key "bill_payment_intents", "users"
   add_foreign_key "card_events", "users"
   add_foreign_key "card_tokens", "order_items"
   add_foreign_key "cards", "users"
