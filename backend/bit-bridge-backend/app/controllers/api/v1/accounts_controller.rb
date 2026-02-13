@@ -331,6 +331,7 @@ module Api
           params[:counter_party_id].presence ||
           params.dig(:account, :counter_party_id).presence ||
           transfer_params[:counter_party_id]
+        normalize_inter_bank_counter_party_id!(transfer_params)
 
         if transfer_params[:inter_bank] && transfer_params[:counter_party_id].blank?
           counter_party_response = AnchorService.new.create_counter_party(transfer_params)
@@ -736,6 +737,23 @@ module Api
         end
       rescue StandardError => e
         Rails.logger.error("Failed to save beneficiary: #{e.message}")
+      end
+
+      # Defensive normalization for older/mobile payloads:
+      # - if a local beneficiary id is sent, map it to stored provider counter_party_id
+      # - if an unknown id is sent for inter-bank transfer, clear it so we resolve/create beneficiary server-side
+      def normalize_inter_bank_counter_party_id!(transfer_params)
+        return unless ActiveModel::Type::Boolean.new.cast(transfer_params[:inter_bank])
+
+        incoming_id = transfer_params[:counter_party_id].to_s.strip
+        return if incoming_id.blank?
+
+        beneficiary = current_user.beneficiaries.find_by(id: incoming_id)
+        if beneficiary&.counter_party_id.present?
+          transfer_params[:counter_party_id] = beneficiary.counter_party_id
+        end
+      rescue StandardError => e
+        Rails.logger.warn("Unable to normalize counter_party_id user_id=#{current_user.id}: #{e.message}")
       end
 
       def anchor_onboarding_missing_fields(account_info)
