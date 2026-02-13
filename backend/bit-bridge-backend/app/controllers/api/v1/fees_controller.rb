@@ -29,8 +29,6 @@ module Api
             },
             transfers: {
               anchor_fee_tiers: [
-                { max_amount: 1999, fee: Pricing::Engine.transfer_fee_ngn(1999).to_f },
-                { max_amount: 9999, fee: Pricing::Engine.transfer_fee_ngn(9999).to_f },
                 { max_amount: 49_999, fee: Pricing::Engine.transfer_fee_ngn(49_999).to_f },
                 { max_amount: nil, fee: Pricing::Engine.transfer_fee_ngn(50_000).to_f }
               ],

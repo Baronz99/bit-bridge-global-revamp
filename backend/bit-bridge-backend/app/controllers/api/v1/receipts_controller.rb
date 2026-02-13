@@ -1174,7 +1174,7 @@ module Api
         if raw_breakdown.is_a?(Array)
           return raw_breakdown.map do |item|
             {
-              label: item[:label] || item['label'] || 'fee',
+              label: normalize_fee_label(item[:label] || item['label'] || 'fee'),
               amount: item[:amount] || item['amount'],
               currency: item[:currency] || item['currency'] || currency
             }.compact
@@ -1183,11 +1183,19 @@ module Api
 
         if raw_breakdown.is_a?(Hash)
           raw_breakdown.map do |label, amount|
-            { label: label.to_s.tr('_', ' '), amount: amount, currency: currency }.compact
+            { label: normalize_fee_label(label.to_s.tr('_', ' ')), amount: amount, currency: currency }.compact
           end
         else
           []
         end
+      end
+
+      def normalize_fee_label(label)
+        normalized = label.to_s.tr('_', ' ').strip.downcase
+        return 'transfer fee' if normalized == 'platform fee'
+        return 'stamp duty' if normalized == 'stamp duty fee'
+
+        label.to_s
       end
 
       def extract_anchor_receipt_details(metadata, record)
