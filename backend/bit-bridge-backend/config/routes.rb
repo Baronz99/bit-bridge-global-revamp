@@ -317,6 +317,11 @@ Rails.application.routes.draw do
         get "pricing-spec", to: "pricing_spec#show"
         get "ops/health",   to: "ops#health"
         resources :transaction_records, only: [:index]
+        resources :unmatched_credits, only: %i[index update] do
+          member do
+            post :apply
+          end
+        end
 
         resource :fx_settings, path: "fx-settings", only: %i[show update] do
           post :refresh_provider
