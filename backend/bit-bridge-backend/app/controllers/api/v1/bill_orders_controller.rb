@@ -23,11 +23,7 @@ module Api
       def initialize_confirm_payment
         payment_method = params[:payment_method].to_s.presence || 'wallet'
         if payment_method != 'wallet'
-          return render json: {
-            success: false,
-            error_code: 'WALLET_ONLY_BILLS',
-            message: 'Bills can only be paid from wallet. Please fund wallet first.'
-          }, status: :unprocessable_entity
+          return render_wallet_only_bill_error
         end
 
         intent = bill_payment_intent_for(@bill_order)
@@ -44,11 +40,7 @@ module Api
       def confirm_bill_payment
         payment_method = bill_order_params[:payment_method].to_s.presence || 'wallet'
         if payment_method != 'wallet'
-          return render json: {
-            success: false,
-            error_code: 'WALLET_ONLY_BILLS',
-            message: 'Bills can only be paid from wallet. Please fund wallet first.'
-          }, status: :unprocessable_entity
+          return render_wallet_only_bill_error
         end
 
         intent = resolve_intent_for_confirm(@bill_order)
@@ -138,29 +130,6 @@ module Api
         @bill_order = BillOrder.find(params[:id])
       end
 
-      def confirm_payment(payment_method)
-        service = BuyPowerPaymentService.new
-        service_response = service.confirm_subscription(@bill_order, payment_method, false, request_id: request.request_id)
-        status = service_response&.dig(:status)
-
-        if status.nil?
-          render json: { success: false, status: 'pending', message: 'Payment pending...' }, status: :service_unavailable
-          return
-        end
-
-        case status
-        when 'success'
-          render json: { success: true, data: service_response&.dig(:response), message: 'payment confirmed' }, status: :ok
-        when 'pending'
-          render json: { success: false, status: 'pending', message: service_response&.dig(:response) || 'Payment pending. Please try again.' }, status: :service_unavailable
-        when 'error'
-          message = service_response&.dig(:response) || service_response&.dig(:message) || 'Payment confirmation failed'
-          render json: { success: false, message: message }, status: :unprocessable_entity
-        else
-          render json: { success: false, status: 'pending', message: 'Payment pending...' }, status: :service_unavailable
-        end
-      end
-
       # Only allow a list of trusted parameters through.
       def bill_order_params
         params.require(:bill_order).permit(:status, :meter_number, :amount, :meter_type, :phone, :service_type, :use_commission,
@@ -180,6 +149,16 @@ module Api
 
       def intent_payload(intent)
         intent.as_json(only: %i[id bill_order_id bill_type amount fee total status provider_reference expires_at created_at updated_at])
+      end
+
+      def render_wallet_only_bill_error
+        render json: {
+          success: false,
+          error_code: 'WALLET_ONLY_BILLS',
+          message: 'Bills can only be paid from wallet. Please fund wallet first.',
+          details: { payment_method: 'wallet' },
+          retryable: false
+        }, status: :unprocessable_entity
       end
     end
   end

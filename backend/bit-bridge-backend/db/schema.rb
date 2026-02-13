@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[7.1].define(version: 2026_02_13_093000) do
+ActiveRecord::Schema[7.1].define(version: 2026_02_14_090000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pgcrypto"
   enable_extension "plpgsql"
@@ -708,6 +708,29 @@ ActiveRecord::Schema[7.1].define(version: 2026_02_13_093000) do
     t.index ["transfer_id"], name: "index_transactions_on_transfer_id", unique: true
     t.index ["wallet_id", "unique_transaction_id"], name: "idx_unique_anchor_transfer_component_per_wallet", unique: true, where: "((unique_transaction_id IS NOT NULL) AND ((metadata ->> 'provider'::text) = 'anchor'::text))"
     t.index ["wallet_id"], name: "index_transactions_on_wallet_id"
+  end
+
+  create_table "unmatched_credits", id: :uuid, default: -> { "gen_random_uuid()" }, force: :cascade do |t|
+    t.string "provider", null: false
+    t.string "reference"
+    t.string "provider_reference", null: false
+    t.string "account_number"
+    t.string "account_name"
+    t.string "bank_code"
+    t.string "bank_name"
+    t.decimal "amount", precision: 18, scale: 2
+    t.string "currency", default: "NGN", null: false
+    t.string "reason", null: false
+    t.string "status", default: "pending", null: false
+    t.jsonb "payload", default: {}, null: false
+    t.datetime "resolved_at"
+    t.uuid "user_id"
+    t.uuid "wallet_id"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["created_at"], name: "index_unmatched_credits_on_created_at"
+    t.index ["provider", "provider_reference"], name: "index_unmatched_credits_on_provider_and_provider_reference", unique: true
+    t.index ["status"], name: "index_unmatched_credits_on_status"
   end
 
   create_table "user_kycs", id: :uuid, default: -> { "gen_random_uuid()" }, force: :cascade do |t|

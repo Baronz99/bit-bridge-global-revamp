@@ -217,9 +217,12 @@ module Bills
         success: false,
         error_code: 'INSUFFICIENT_FUNDS',
         message: 'Insufficient wallet balance',
-        required_total: @intent.total.to_d.to_f,
-        available_balance: wallet.ledger_available_balance.to_d.to_f,
-        shortfall: [@intent.total.to_d - wallet.ledger_available_balance.to_d, 0.to_d].max.to_f,
+        details: {
+          required_total: @intent.total.to_d.to_f,
+          available_balance: wallet.ledger_available_balance.to_d.to_f,
+          shortfall: [@intent.total.to_d - wallet.ledger_available_balance.to_d, 0.to_d].max.to_f
+        },
+        retryable: true,
         intent: intent_payload
       } }
     end

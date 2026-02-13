@@ -87,9 +87,23 @@ module Api
       end
 
       def monnify
+        raw_body = request.raw_post.to_s
+        signature = request.headers['monnify-signature'] || request.headers['Monnify-Signature'] || request.headers['MONNIFY-SIGNATURE']
+        secret = monnify_webhook_secret
+
+        if secret.blank?
+          Rails.logger.error('[MonnifyWebhook] missing webhook signing secret')
+          return head :service_unavailable
+        end
+
+        unless valid_monnify_signature?(raw_body: raw_body, signature: signature, secret: secret)
+          Rails.logger.warn('[MonnifyWebhook] invalid signature')
+          return head :unauthorized
+        end
+
         data =
           begin
-            JSON.parse(request.raw_post)
+            JSON.parse(raw_body)
           rescue JSON::ParserError => e
             Rails.logger.warn("[MonnifyWebhook] invalid_json error=#{e.class}")
             return head :ok
@@ -200,7 +214,8 @@ module Api
             event_data,
             reference: reference,
             transaction_reference: transaction_reference,
-            event_type: monnify_event_type
+            event_type: monnify_event_type,
+            raw_payload: data
           )
           return head(result) if result.is_a?(Symbol)
         end
@@ -288,7 +303,7 @@ module Api
         ENV['ALLOW_ANCHOR_UNSIGNED_WEBHOOKS'].to_s == 'true'
       end
 
-      def handleTransactionConfirmation(event_data, reference:, transaction_reference: nil, event_type: nil)
+      def handleTransactionConfirmation(event_data, reference:, transaction_reference: nil, event_type: nil, raw_payload: nil)
         transaction_record = TransactionRecord.find_by(reference: reference)
         if transaction_record&.exchange.present?
           if event_type.present? && transaction_record.event_type != event_type
@@ -311,11 +326,25 @@ module Api
 
         unless user
           Rails.logger.error("❌ Monnify webhook: user not found user_id=#{user_id}")
+          persist_unmatched_credit!(
+            reference: reference,
+            transaction_reference: transaction_reference,
+            reason: 'user_not_found',
+            event_data: event_data,
+            raw_payload: raw_payload
+          )
           return
         end
 
         unless user.wallet
           Rails.logger.error("❌ Monnify webhook: wallet not found user_id=#{user.id}")
+          persist_unmatched_credit!(
+            reference: reference,
+            transaction_reference: transaction_reference,
+            reason: 'wallet_not_found',
+            event_data: event_data,
+            raw_payload: raw_payload
+          )
           return
         end
 
@@ -450,27 +479,62 @@ module Api
           'monnify'
         payment_channel = payment_channel.to_s.strip.downcase
         bill_order = transaction_record.bill_order
-        if bill_order&.payment_method == 'wallet' &&
-             transaction_record.reference.to_s.start_with?('bbg-') &&
-             !BillOrder::TERMINAL_STATUSES.include?(bill_order.status.to_s)
-          bill_order.update(payment_method: 'card')
-        end
-        payment_method = bill_order&.payment_method == 'wallet' ? 'wallet' : 'card'
-        payment_service = BuyPowerPaymentService.new
-        service_response = payment_service.confirm_subscription(bill_order, payment_method)
-        if service_response[:status] != 'success' && bill_order&.status == 'initialized'
-          reason = service_response[:response] || bill_order.reason
-          bill_order.update(status: 'failed', reason: reason.presence || bill_order.reason)
-          Rails.logger.warn(
-            "[MonnifyWebhook] vend_failed bill_order_id=#{bill_order.id} reference=#{transaction_record.reference} reason=#{reason} channel=#{payment_channel}"
-          )
-        end
+        return if bill_order.blank?
 
-        #  if service_response[:status] == "success"
-        #   render json: {data: service_response[:response]}, status: :ok
-        #   else
-        #     render json: {message: service_response[:response]}, status: :ok
-        #   end
+        intent = BillPaymentIntent.find_or_create_for_bill_order!(bill_order: bill_order)
+        bill_order.update!(
+          status: 'failed',
+          reason: 'Bills checkout is disabled. Use wallet intent execution.',
+          provider_response: (bill_order.provider_response.is_a?(Hash) ? bill_order.provider_response : {}).merge(
+            'checkout_blocked' => true,
+            'checkout_blocked_channel' => payment_channel,
+            'checkout_blocked_at' => Time.current.utc.iso8601,
+            'bill_payment_intent_id' => intent.id
+          )
+        )
+        Rails.logger.warn(
+          "[MonnifyWebhook] blocked_legacy_bill_checkout bill_order_id=#{bill_order.id} reference=#{transaction_record.reference} intent_id=#{intent.id} channel=#{payment_channel}"
+        )
+      end
+
+      def valid_monnify_signature?(raw_body:, signature:, secret:)
+        return false if raw_body.blank? || signature.blank?
+
+        provided = signature.to_s.strip
+        computed = OpenSSL::HMAC.hexdigest('sha512', secret, raw_body)
+        return false unless provided.length == computed.length
+
+        ActiveSupport::SecurityUtils.secure_compare(provided.downcase, computed.downcase)
+      rescue StandardError
+        false
+      end
+
+      def monnify_webhook_secret
+        ENV['MONNIFY_WEBHOOK_SECRET'].to_s.strip.presence ||
+          Rails.configuration.x.monnify_secret_key.to_s.strip.presence
+      rescue StandardError
+        nil
+      end
+
+      def persist_unmatched_credit!(reference:, transaction_reference:, reason:, event_data:, raw_payload:)
+        payment_info = (event_data['paymentSourceInformation'].is_a?(Array) ? event_data['paymentSourceInformation'].first : {}) || {}
+        raw_amount = payment_info['amountPaid'] || event_data['amountPaid'] || event_data['amount']
+        provider_ref = transaction_reference.to_s.presence || reference.to_s
+
+        unmatched = UnmatchedCredit.find_or_initialize_by(provider: 'monnify', provider_reference: provider_ref)
+        unmatched.reference = reference.to_s
+        unmatched.account_number = payment_info['accountNumber'].to_s.presence
+        unmatched.account_name = payment_info['accountName'].to_s.presence
+        unmatched.bank_code = payment_info['bankCode'].to_s.presence
+        unmatched.bank_name = payment_info['bankName'].to_s.presence
+        unmatched.amount = raw_amount.present? ? BigDecimal(raw_amount.to_s) : nil
+        unmatched.currency = (event_data['currencyCode'] || event_data['currency'] || 'NGN').to_s
+        unmatched.reason = reason
+        unmatched.status = 'pending'
+        unmatched.payload = raw_payload
+        unmatched.save!
+      rescue StandardError => e
+        Rails.logger.error("[MonnifyWebhook] unmatched_credit_persist_failed reference=#{reference} reason=#{reason} message=#{e.message}")
       end
 
       def handle_payment_confirmation(transaction_record)

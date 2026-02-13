@@ -45,15 +45,21 @@ module Api
       end
 
       def confirm_payment
-        payment_method = params[:payment_method]
-
-        service = BuyPowerPaymentService.new
-        service_response = service.confirm_subscription(@bill_order, payment_method)
-        if service_response[:status] == 'success'
-          render json: { success: true, data: service_response[:response], message: 'payment confirmed' }, status: :ok
-        else
-          render json: { success: false, message: service_response[:response] }, status: :unprocessable_entity
+        payment_method = params[:payment_method].to_s.presence || 'wallet'
+        if payment_method != 'wallet'
+          return render json: {
+            success: false,
+            error_code: 'WALLET_ONLY_BILLS',
+            message: 'Bills can only be paid from wallet. Please fund wallet first.',
+            details: { payment_method: 'wallet' },
+            retryable: false
+          }, status: :unprocessable_entity
         end
+
+        intent = BillPaymentIntent.find_or_create_for_bill_order!(bill_order: @bill_order)
+        result = Bills::ExecuteIntent.call(intent: intent, request_id: request.request_id)
+        body = result[:body].merge(data: BillOrderSerializer.new(@bill_order.reload))
+        render json: body, status: result[:http_status]
       end
 
       def repurchase

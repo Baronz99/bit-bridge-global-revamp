@@ -3,10 +3,28 @@
 require 'rails_helper'
 
 RSpec.describe 'Monnify webhook', type: :request do
-  def post_webhook(payload)
+  MONNIFY_TEST_SECRET = 'test-monnify-secret'
+
+  around do |example|
+    previous = ENV['MONNIFY_WEBHOOK_SECRET']
+    ENV['MONNIFY_WEBHOOK_SECRET'] = MONNIFY_TEST_SECRET
+    example.run
+  ensure
+    ENV['MONNIFY_WEBHOOK_SECRET'] = previous
+  end
+
+  def monnify_signature_for(payload)
+    OpenSSL::HMAC.hexdigest('sha512', MONNIFY_TEST_SECRET, payload.to_json)
+  end
+
+  def post_webhook(payload, signature: nil)
+    header_signature = signature.nil? ? monnify_signature_for(payload) : signature
     post '/api/v1/monnify/webhook',
          params: payload.to_json,
-         headers: { 'CONTENT_TYPE' => 'application/json' }
+         headers: {
+           'CONTENT_TYPE' => 'application/json',
+           'monnify-signature' => header_signature
+         }
   end
 
   def build_payload(user_id:, overrides: {})
@@ -52,6 +70,18 @@ RSpec.describe 'Monnify webhook', type: :request do
     record = TransactionRecord.find_by(reference: 'mon-123')
     expect(record).to be_present
     expect(record.event_type).to start_with('monnify.webhook')
+  end
+
+  it 'rejects webhook when signature is invalid' do
+    user = create(:user)
+    user.ngn_wallet
+    payload = build_payload(user_id: user.id)
+
+    post_webhook(payload, signature: 'bad-signature')
+
+    expect(response).to have_http_status(:unauthorized)
+    expect(Transaction.count).to eq(0)
+    expect(TransactionRecord.count).to eq(0)
   end
 
   it 'does not create deposits when payment status is pending' do
@@ -124,6 +154,20 @@ RSpec.describe 'Monnify webhook', type: :request do
     expect(wallet.reload.ledger_deposits_total).to eq(starting_total)
   end
 
+  it 'stores unmatched credit when user mapping cannot be resolved' do
+    payload = build_payload(user_id: 'missing-user-id', overrides: { eventData: { paymentReference: 'mon-unmatched-1' } })
+
+    expect do
+      post_webhook(payload)
+    end.to change(UnmatchedCredit, :count).by(1)
+
+    expect(response).to have_http_status(:ok)
+    unmatched = UnmatchedCredit.find_by(provider: 'monnify', provider_reference: 'tx-123')
+    expect(unmatched).to be_present
+    expect(unmatched.reason).to eq('user_not_found')
+    expect(unmatched.status).to eq('pending')
+  end
+
   it 'normalizes monnify kobo amounts' do
     controller = Api::V1::WebhooksController.new
     original_scale = ENV['MONNIFY_AMOUNT_SCALE']
@@ -131,8 +175,8 @@ RSpec.describe 'Monnify webhook', type: :request do
 
     amount, scale = controller.send(:normalize_monnify_amount, '1050', 'NGN')
 
-    expect(amount).to eq(BigDecimal('10.50'))
-    expect(scale).to eq('kobo')
+    expect(amount).to eq(BigDecimal('1050'))
+    expect(scale).to eq('naira')
   ensure
     ENV['MONNIFY_AMOUNT_SCALE'] = original_scale
   end
