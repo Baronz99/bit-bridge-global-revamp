@@ -352,7 +352,7 @@ RSpec.describe 'Anchor NGN transfers', type: :request do
     }.to change(Beneficiary, :count).by(1)
   end
 
-  it 'marks failed and creates reversal entries on provider failure' do
+  it 'marks failed and releases hold without reversal deposit entries on provider failure' do
     anchor_service = instance_double(AnchorService)
     allow(AnchorService).to receive(:new).and_return(anchor_service)
     allow(anchor_service).to receive(:initiate_transfer).and_return(
@@ -364,7 +364,11 @@ RSpec.describe 'Anchor NGN transfers', type: :request do
 
     expect(response).to have_http_status(:bad_gateway)
     reversals = wallet.transactions.where("metadata ->> 'subtype' = ?", 'reversal')
-    expect(reversals.count).to eq(2)
+    expect(reversals.count).to eq(0)
+    transfer_reference = JSON.parse(response.body)['transfer_reference']
+    order = BillOrder.find_by(user: user, meter_number: transfer_reference)
+    release = WalletLedgerEntry.find_by(wallet: wallet, bill_order: order, entry_type: :release)
+    expect(release).to be_present
   end
 
   it 'does not create a beneficiary when transfer fails even if save_beneficiary is true' do

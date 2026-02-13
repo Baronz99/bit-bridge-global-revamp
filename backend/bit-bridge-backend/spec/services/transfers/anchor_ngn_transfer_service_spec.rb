@@ -145,7 +145,7 @@ RSpec.describe Transfers::AnchorNgnTransferService do
     expect(wallet.ledger_outstanding_hold).to eq(0.to_d)
   end
 
-  it 'marks transfers failed and creates reversals on Anchor failure (idempotent)' do
+  it 'marks transfers failed and releases hold without creating reversal deposits' do
     anchor_service = instance_double(AnchorService)
     allow(AnchorService).to receive(:new).and_return(anchor_service)
     allow(anchor_service).to receive(:initiate_transfer).and_return(
@@ -171,11 +171,10 @@ RSpec.describe Transfers::AnchorNgnTransferService do
       expect(result[:body][:balance_snapshot][:release]).to be_present
     end
     reversals = wallet.transactions.where("metadata ->> 'subtype' = ?", 'reversal')
-    expect(reversals.count).to eq(2)
-    expect(reversals.pluck(:unique_transaction_id)).to contain_exactly(
-      "#{transfer_reference}:reversal:principal",
-      "#{transfer_reference}:reversal:fee"
-    )
+    expect(reversals.count).to eq(0)
+    order = BillOrder.find_by(meter_number: transfer_reference)
+    release = WalletLedgerEntry.find_by(wallet: wallet, bill_order: order, entry_type: :release)
+    expect(release).to be_present
 
     described_class.call(
       user: user,
@@ -186,7 +185,7 @@ RSpec.describe Transfers::AnchorNgnTransferService do
       transfer_reference: transfer_reference
     )
 
-    expect(wallet.transactions.where("metadata ->> 'subtype' = ?", 'reversal').count).to eq(2)
+    expect(wallet.transactions.where("metadata ->> 'subtype' = ?", 'reversal').count).to eq(0)
   end
 
   it 'finalizes success idempotently when retried' do

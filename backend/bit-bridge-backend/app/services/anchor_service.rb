@@ -366,7 +366,8 @@ class AnchorService
   end
 
   def initiate_transfer(transfer_params)
-    transfer_type = transfer_params[:inter_bank] ? 'BookTransfer' : 'NIPTransfer'
+    # inter_bank=true means transfering to an external bank account over NIP rails.
+    transfer_type = transfer_params[:inter_bank] ? 'NIPTransfer' : 'BookTransfer'
     recipient_name = transfer_params[:account_name]
     account_number = transfer_params[:account_number]
     source_name = transfer_params[:source_name]

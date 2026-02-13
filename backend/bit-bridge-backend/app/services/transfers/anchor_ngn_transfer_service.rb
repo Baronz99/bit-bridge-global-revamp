@@ -129,12 +129,7 @@ module Transfers
       update_failed!(principal_tx, reason: reason, provider_status: provider_status)
       update_failed!(fee_tx, reason: reason, provider_status: provider_status) if fee_tx
 
-      return if reversal_exists_for?(wallet, transfer_reference)
-
-      ActiveRecord::Base.transaction do
-        create_reversal_tx!(wallet, transfer_reference, principal_tx, 'principal')
-        create_reversal_tx!(wallet, transfer_reference, fee_tx, 'fee') if fee_tx
-      end
+      release_transfer_hold!(wallet: wallet, transfer_reference: transfer_reference)
     end
 
     def self.mark_success!(principal_tx, provider_status:, provider_transfer_id: nil)
@@ -402,8 +397,6 @@ module Transfers
         metadata: fee_tx.metadata.merge(provider_status: 'failed', provider_error: error_message)
       )
 
-      create_reversal_if_needed!(transfer_reference, principal_tx, fee_tx)
-
       {
         status: :bad_gateway,
         body: {
@@ -417,40 +410,6 @@ module Transfers
           }
         }
       }
-    end
-
-    def create_reversal_if_needed!(transfer_reference, principal_tx, fee_tx)
-      return if reversal_exists?(transfer_reference)
-
-      ActiveRecord::Base.transaction do
-        create_reversal_tx!(transfer_reference, principal_tx, 'principal')
-        create_reversal_tx!(transfer_reference, fee_tx, 'fee')
-      end
-    end
-
-    def create_reversal_tx!(transfer_reference, original_tx, reversal_for)
-      @sender_wallet.transactions.create!(
-        transaction_type: 'deposit',
-        status: 'approved',
-        amount: original_tx.amount,
-        coin_type: 'bank',
-        address: "Anchor transfer reversal (#{transfer_reference})",
-        unique_transaction_id: "#{transfer_reference}:reversal:#{reversal_for}",
-        metadata: {
-          subtype: 'reversal',
-          reversal_for: reversal_for,
-          provider: 'anchor',
-          transfer_reference: transfer_reference,
-          reversed_transaction_id: original_tx.id
-        }
-      )
-    end
-
-    def reversal_exists?(transfer_reference)
-      @sender_wallet.transactions
-                    .where("metadata ->> 'transfer_reference' = ?", transfer_reference)
-                    .where("metadata ->> 'subtype' = ?", 'reversal')
-                    .exists?
     end
 
     def transfer_hold_exists?(bill_order)
@@ -550,30 +509,34 @@ module Transfers
       transaction.update!(status: 'failed', metadata: meta)
     end
 
-    def self.reversal_exists_for?(wallet, transfer_reference)
-      wallet.transactions
-            .where("metadata ->> 'transfer_reference' = ?", transfer_reference)
-            .where("metadata ->> 'subtype' = ?", 'reversal')
-            .exists?
-    end
+    def self.release_transfer_hold!(wallet:, transfer_reference:)
+      return if wallet.blank? || transfer_reference.blank?
 
-    def self.create_reversal_tx!(wallet, transfer_reference, original_tx, reversal_for)
-      return if original_tx.blank?
+      bill_order = BillOrder.find_by(user_id: wallet.user_id, meter_number: transfer_reference)
+      return if bill_order.blank?
+      return if WalletLedgerEntry.debit_exists?(wallet: wallet, bill_order: bill_order)
+      return if WalletLedgerEntry.release_exists?(wallet: wallet, bill_order: bill_order)
 
-      wallet.transactions.create!(
-        transaction_type: 'deposit',
-        status: 'approved',
-        amount: original_tx.amount,
-        coin_type: 'bank',
-        address: "Anchor transfer reversal (#{transfer_reference})",
-        unique_transaction_id: "#{transfer_reference}:reversal:#{reversal_for}",
-        metadata: {
-          subtype: 'reversal',
-          reversal_for: reversal_for,
-          provider: 'anchor',
-          transfer_reference: transfer_reference,
-          reversed_transaction_id: original_tx.id
-        }
+      principal_tx = wallet.transactions
+                         .where("metadata ->> 'transfer_reference' = ?", transfer_reference)
+                         .where("metadata ->> 'subtype' = ?", 'principal')
+                         .order(created_at: :desc)
+                         .first
+      fee_tx = wallet.transactions
+                    .where("metadata ->> 'transfer_reference' = ?", transfer_reference)
+                    .where("metadata ->> 'subtype' = ?", 'fee')
+                    .order(created_at: :desc)
+                    .first
+      hold_amount = principal_tx&.amount.to_d + fee_tx&.amount.to_d
+      hold_amount = bill_order.amount.to_d if hold_amount <= 0
+      return if hold_amount <= 0
+
+      WalletLedgerEntry.release_hold!(
+        wallet: wallet,
+        bill_order: bill_order,
+        amount: hold_amount,
+        reference: "anchor-transfer-release/#{transfer_reference}",
+        metadata: { transfer_reference: transfer_reference }
       )
     end
 

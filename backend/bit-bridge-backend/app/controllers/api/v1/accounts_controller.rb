@@ -332,7 +332,7 @@ module Api
           params.dig(:account, :counter_party_id).presence ||
           transfer_params[:counter_party_id]
 
-        if !transfer_params[:inter_bank] && transfer_params[:counter_party_id].blank?
+        if transfer_params[:inter_bank] && transfer_params[:counter_party_id].blank?
           counter_party_response = AnchorService.new.create_counter_party(transfer_params)
           if counter_party_response[:status] != :ok
             return render_transfer_error(
