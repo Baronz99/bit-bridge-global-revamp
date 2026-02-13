@@ -147,6 +147,16 @@ class ApplicationController < ActionController::API
     render json: { message: 'Not authorized' }, status: :forbidden
   end
 
+  def require_admin!
+    return if current_user&.admin?
+
+    render json: {
+      success: false,
+      error_code: 'FORBIDDEN',
+      message: 'Admin access required'
+    }, status: :forbidden
+  end
+
   private
 
   def debug_request_logging_enabled?

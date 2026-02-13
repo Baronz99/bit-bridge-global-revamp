@@ -5,7 +5,7 @@ module Api
     module Admin
       class UnmatchedCreditsController < ApplicationController
         before_action :authenticate_user!
-        before_action :ensure_super_admin!
+        before_action :require_admin!
         before_action :set_unmatched_credit, only: %i[update apply]
 
         def index
@@ -23,24 +23,38 @@ module Api
           action = params[:action_type].to_s
           unless action == 'reviewed'
             return render json: {
+              success: false,
               message: 'action_type must be reviewed',
-              error_code: 'ACTION_INVALID'
+              error_code: 'ACTION_INVALID',
+              retryable: false
             }, status: :unprocessable_entity
           end
 
           @unmatched_credit.with_lock do
             if @unmatched_credit.status == 'resolved'
+              log_unmatched_credit_event(
+                event: 'unmatched_credit.apply_blocked',
+                unmatched_credit: @unmatched_credit,
+                wallet_id: @unmatched_credit.wallet_id
+              )
               return render json: {
+                success: false,
                 message: 'Credit already applied',
-                error_code: 'ALREADY_APPLIED'
+                error_code: 'ALREADY_APPLIED',
+                retryable: false
               }, status: :conflict
             end
 
             @unmatched_credit.update!(
               status: 'ignored',
-              resolved_at: Time.current
+              resolved_at: Time.current,
+              reviewed_at: Time.current,
+              reviewed_by_user_id: current_user.id,
+              review_note: params[:review_note].to_s.presence,
+              last_request_id: request.request_id
             )
           end
+          log_unmatched_credit_event(event: 'unmatched_credit.reviewed', unmatched_credit: @unmatched_credit)
 
           render json: { data: serialize_credit(@unmatched_credit.reload) }, status: :ok
         end
@@ -51,16 +65,25 @@ module Api
 
           if @unmatched_credit.amount.blank? || @unmatched_credit.amount.to_d <= 0
             return render json: {
+              success: false,
               message: 'Unmatched credit amount is invalid',
-              error_code: 'UNMATCHED_CREDIT_INVALID'
+              error_code: 'UNMATCHED_CREDIT_INVALID',
+              retryable: false
             }, status: :unprocessable_entity
           end
 
           @unmatched_credit.with_lock do
             if @unmatched_credit.status == 'resolved'
+              log_unmatched_credit_event(
+                event: 'unmatched_credit.apply_blocked',
+                unmatched_credit: @unmatched_credit,
+                wallet_id: wallet.id
+              )
               return render json: {
+                success: false,
                 message: 'Credit already applied',
-                error_code: 'ALREADY_APPLIED'
+                error_code: 'ALREADY_APPLIED',
+                retryable: false
               }, status: :conflict
             end
 
@@ -87,6 +110,10 @@ module Api
               @unmatched_credit.update!(
                 status: 'resolved',
                 resolved_at: Time.current,
+                applied_at: Time.current,
+                applied_by_user_id: current_user.id,
+                apply_note: params[:apply_note].to_s.presence,
+                last_request_id: request.request_id,
                 user_id: wallet.user_id,
                 wallet_id: wallet.id,
                 payload: (@unmatched_credit.payload.is_a?(Hash) ? @unmatched_credit.payload : {}).merge(
@@ -95,6 +122,7 @@ module Api
               )
             end
           end
+          log_unmatched_credit_event(event: 'unmatched_credit.applied', unmatched_credit: @unmatched_credit, wallet_id: wallet.id)
 
           render json: { data: serialize_credit(@unmatched_credit.reload) }, status: :ok
         end
@@ -109,18 +137,33 @@ module Api
           value = raw.present? ? Integer(raw) : 100
           return [value, 200].min if value.positive?
 
-          render json: { message: 'limit must be between 1 and 200', error_code: 'LIMIT_INVALID' }, status: :unprocessable_entity
+          render json: { success: false, message: 'limit must be between 1 and 200', error_code: 'LIMIT_INVALID', retryable: false }, status: :unprocessable_entity
           nil
         rescue ArgumentError, TypeError
-          render json: { message: 'limit must be an integer', error_code: 'LIMIT_INVALID' }, status: :unprocessable_entity
+          render json: { success: false, message: 'limit must be an integer', error_code: 'LIMIT_INVALID', retryable: false }, status: :unprocessable_entity
           nil
         end
 
         def render_wallet_missing
           render json: {
+            success: false,
             message: 'wallet_id is required and must be valid',
-            error_code: 'WALLET_INVALID'
+            error_code: 'WALLET_INVALID',
+            retryable: false
           }, status: :unprocessable_entity
+        end
+
+        def log_unmatched_credit_event(event:, unmatched_credit:, wallet_id: nil)
+          Rails.logger.info(
+            {
+              event: event,
+              unmatched_credit_id: unmatched_credit.id,
+              amount: unmatched_credit.amount&.to_d&.to_s('F'),
+              wallet_id: wallet_id,
+              admin_user_id: current_user&.id,
+              request_id: request.request_id
+            }.to_json
+          )
         end
 
         def serialize_credit(credit)
@@ -140,6 +183,13 @@ module Api
             user_id: credit.user_id,
             wallet_id: credit.wallet_id,
             resolved_at: credit.resolved_at,
+            reviewed_at: credit.reviewed_at,
+            reviewed_by_user_id: credit.reviewed_by_user_id,
+            applied_at: credit.applied_at,
+            applied_by_user_id: credit.applied_by_user_id,
+            review_note: credit.review_note,
+            apply_note: credit.apply_note,
+            last_request_id: credit.last_request_id,
             created_at: credit.created_at,
             updated_at: credit.updated_at
           }
@@ -148,4 +198,3 @@ module Api
     end
   end
 end
-

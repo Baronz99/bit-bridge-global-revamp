@@ -227,4 +227,43 @@ RSpec.describe Bills::ExecuteIntent, type: :service do
     expect(WalletLedgerEntry.where(bill_order: bill_order, entry_type: :hold).count).to eq(1)
     expect(WalletLedgerEntry.where(bill_order: bill_order, entry_type: :debit).count).to eq(1)
   end
+
+  it 'does not create a second debit after pending execute, reconcile success, then re-execute' do
+    user = create(:user)
+    wallet = user.wallet
+    Transaction.create!(wallet: wallet, amount: 20_000, bonus: 0, status: :approved, transaction_type: :deposit)
+    bill_order = create_bill_order(user: user, amount: 1000)
+    intent = BillPaymentIntent.find_or_create_for_bill_order!(bill_order: bill_order)
+
+    service = instance_double(BuyPowerPaymentService)
+    allow(BuyPowerPaymentService).to receive(:new).and_return(service)
+    allow(service).to receive(:confirm_subscription) do |order, *_args, **_kwargs|
+      order.update!(status: :processing, provider_reference: 'provider-exactly-once')
+      { status: 'pending', response: 'Payment processing...' }
+    end
+
+    first = described_class.call(intent: intent, request_id: 'req-once-1')
+    expect(first[:http_status]).to eq(:accepted)
+    expect(WalletLedgerEntry.where(bill_order: bill_order, entry_type: :debit).count).to eq(0)
+
+    allow(BuyPowerPaymentService).to receive(:new).and_call_original
+    requery_response = {
+      'status' => 'success',
+      'result' => {
+        'status' => true,
+        'data' => { 'id' => 'provider-exactly-once', 'units' => '2', 'token' => 'token-exactly-once', 'responseMessage' => 'Completed' }
+      }
+    }
+    allow_any_instance_of(BuyPowerPaymentService).to receive(:re_query).and_return(status: :ok, response: requery_response)
+
+    BuyPowerReconcileJob.perform_now(bill_order.id)
+    expect(bill_order.reload.status).to eq('completed')
+    expect(intent.reload.status).to eq('completed')
+    expect(WalletLedgerEntry.where(bill_order: bill_order, entry_type: :debit).count).to eq(1)
+
+    second = described_class.call(intent: intent.reload, request_id: 'req-once-2')
+    expect(second[:http_status]).to eq(:ok)
+    expect(second.dig(:body, :message)).to eq('Bill payment already completed')
+    expect(WalletLedgerEntry.where(bill_order: bill_order, entry_type: :debit).count).to eq(1)
+  end
 end

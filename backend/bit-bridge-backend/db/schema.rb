@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[7.1].define(version: 2026_02_14_090000) do
+ActiveRecord::Schema[7.1].define(version: 2026_02_14_094000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pgcrypto"
   enable_extension "plpgsql"
@@ -728,8 +728,17 @@ ActiveRecord::Schema[7.1].define(version: 2026_02_14_090000) do
     t.uuid "wallet_id"
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
+    t.datetime "reviewed_at"
+    t.uuid "reviewed_by_user_id"
+    t.datetime "applied_at"
+    t.uuid "applied_by_user_id"
+    t.text "review_note"
+    t.text "apply_note"
+    t.string "last_request_id"
+    t.index ["applied_by_user_id"], name: "index_unmatched_credits_on_applied_by_user_id"
     t.index ["created_at"], name: "index_unmatched_credits_on_created_at"
     t.index ["provider", "provider_reference"], name: "index_unmatched_credits_on_provider_and_provider_reference", unique: true
+    t.index ["reviewed_by_user_id"], name: "index_unmatched_credits_on_reviewed_by_user_id"
     t.index ["status"], name: "index_unmatched_credits_on_status"
   end
 
