@@ -4,6 +4,8 @@ module Api
   module V1
     class BillPaymentIntentsController < ApplicationController
       before_action :set_intent, only: %i[show execute]
+      before_action :disable_client_cache, only: %i[show]
+      after_action :strip_cache_validators, only: %i[show]
 
       def create
         bill_order = current_user.bill_orders.find(params.require(:bill_order_id))
@@ -35,6 +37,19 @@ module Api
         intent.as_json(
           only: %i[id status expires_at provider_reference bill_order_id metadata updated_at]
         )
+      end
+
+      def disable_client_cache
+        expires_now
+        response.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
+        response.headers['Pragma'] = 'no-cache'
+        response.headers['Expires'] = '0'
+        response.cache_control.clear
+      end
+
+      def strip_cache_validators
+        response.headers.delete('ETag')
+        response.headers.delete('Last-Modified')
       end
     end
   end

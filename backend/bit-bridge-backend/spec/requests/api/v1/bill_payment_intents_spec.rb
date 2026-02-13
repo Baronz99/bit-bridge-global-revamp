@@ -70,6 +70,7 @@ RSpec.describe 'BillPaymentIntents', type: :request do
     expect(body.keys).to include('id', 'status', 'expires_at', 'provider_reference', 'bill_order_id', 'metadata', 'updated_at')
     expect(body['id']).to eq(intent.id)
     expect(body['bill_order_id']).to eq(bill_order.id)
+    expect(response.headers['Cache-Control']).to include('no-store')
   end
 
   it 'returns pending contract and is idempotent when execute is retried while processing' do

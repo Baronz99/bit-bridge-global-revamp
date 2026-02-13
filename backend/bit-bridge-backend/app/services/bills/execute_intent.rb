@@ -78,7 +78,6 @@ module Bills
 
         bill_order.payment_method = :wallet
         bill_order.idempotency_key = @intent.id
-        bill_order.status = :pending if bill_order.initialized?
         bill_order.save! if bill_order.changed?
 
         validate_or_repair_hold!(bill_order: bill_order)
@@ -105,6 +104,7 @@ module Bills
           provider_reference: bill_order.provider_reference,
           metadata: intent_metadata('last_result' => status)
         )
+        enqueue_reconcile!(bill_order: bill_order)
         pending_response(result[:response].presence || 'Payment pending...')
       else
         mapped_status = bill_order.status.to_s == 'refunded' ? :refunded : :failed
@@ -236,6 +236,14 @@ module Bills
 
     def intent_payload
       @intent.reload.as_json(only: %i[id status bill_type amount fee total provider_reference expires_at created_at updated_at], methods: [])
+    end
+
+    def enqueue_reconcile!(bill_order:)
+      return if bill_order.blank?
+
+      BuyPowerReconcileJob.set(wait: 30.seconds).perform_later(bill_order.id)
+    rescue StandardError
+      nil
     end
   end
 end

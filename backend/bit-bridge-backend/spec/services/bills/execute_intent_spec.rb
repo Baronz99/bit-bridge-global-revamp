@@ -4,6 +4,7 @@ require 'rails_helper'
 
 RSpec.describe Bills::ExecuteIntent, type: :service do
   include ActiveSupport::Testing::TimeHelpers
+  include ActiveJob::TestHelper
 
   before do
     allow(Config::Bills).to receive(:validate!).and_return(true)
@@ -115,12 +116,14 @@ RSpec.describe Bills::ExecuteIntent, type: :service do
       { status: 'pending', response: 'Payment processing...' }
     end
 
+    clear_enqueued_jobs
     pending_result = described_class.call(intent: intent, request_id: 'req-4')
     expect(pending_result[:http_status]).to eq(:accepted)
     expect(intent.reload.status).to eq('processing')
     expect(bill_order.reload.status).to eq('processing')
     expect(WalletLedgerEntry.where(bill_order: bill_order, entry_type: :hold).count).to eq(1)
     expect(WalletLedgerEntry.where(bill_order: bill_order, entry_type: :debit).count).to eq(0)
+    expect(enqueued_jobs.any? { |job| job[:job] == BuyPowerReconcileJob && job[:args] == [bill_order.id] }).to eq(true)
 
     allow(BuyPowerPaymentService).to receive(:new).and_call_original
     requery_response = {
@@ -137,6 +140,23 @@ RSpec.describe Bills::ExecuteIntent, type: :service do
     expect(bill_order.reload.status).to eq('completed')
     expect(intent.reload.status).to eq('completed')
     expect(WalletLedgerEntry.where(bill_order: bill_order, entry_type: :debit).count).to eq(1)
+  end
+
+  it 'does not short-circuit before provider call for initialized bill orders' do
+    user = create(:user)
+    wallet = user.wallet
+    Transaction.create!(wallet: wallet, amount: 20_000, bonus: 0, status: :approved, transaction_type: :deposit)
+    bill_order = create_bill_order(user: user, amount: 1000)
+    intent = BillPaymentIntent.find_or_create_for_bill_order!(bill_order: bill_order)
+
+    service = instance_double(BuyPowerPaymentService)
+    allow(BuyPowerPaymentService).to receive(:new).and_return(service)
+    expect(service).to receive(:confirm_subscription).once.and_return(
+      { status: 'pending', response: 'Payment processing...' }
+    )
+
+    result = described_class.call(intent: intent, request_id: 'req-provider-call')
+    expect(result[:http_status]).to eq(:accepted)
   end
 
   it 'repairs mismatched or released hold before execution' do
