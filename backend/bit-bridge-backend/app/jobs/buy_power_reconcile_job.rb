@@ -317,10 +317,17 @@ class BuyPowerReconcileJob < ApplicationJob
       else :processing
       end
 
+    late = mapped_status == :completed && intent.expires_at.present? && Time.current > intent.expires_at
+    metadata = (intent.metadata.is_a?(Hash) ? intent.metadata : {}).merge('reconciled_at' => Time.current.utc.iso8601)
+    if late
+      metadata['late'] = true
+      metadata['late_completed_at'] = Time.current.utc.iso8601
+    end
+
     intent.update!(
       status: mapped_status,
       provider_reference: order.provider_reference,
-      metadata: (intent.metadata.is_a?(Hash) ? intent.metadata : {}).merge('reconciled_at' => Time.current.utc.iso8601)
+      metadata: metadata
     )
   rescue StandardError => e
     Rails.logger.error("[BuyPowerReconcileJob] sync_bill_payment_intent failed order=#{order.id} #{e.class}: #{e.message}")

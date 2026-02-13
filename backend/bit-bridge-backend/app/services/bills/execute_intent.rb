@@ -21,6 +21,11 @@ module Bills
       return failure_response('Bill order not found for this intent') if bill_order.blank?
       return failure_response('Wallet not found') if wallet.blank?
 
+      if already_financially_finalized?(bill_order: bill_order)
+        finalize_completed_intent!(bill_order: bill_order, result: 'already_finalized')
+        return success_response('Bill payment already completed')
+      end
+
       if expired?
         @intent.update!(status: :expired)
         return failure_response('Bill payment intent has expired')
@@ -76,16 +81,7 @@ module Bills
         bill_order.status = :pending if bill_order.initialized?
         bill_order.save! if bill_order.changed?
 
-        WalletLedgerEntry.ensure_hold!(
-          wallet: wallet,
-          bill_order: bill_order,
-          amount: @intent.total.to_d,
-          reference: @intent.id,
-          metadata: {
-            'bill_payment_intent_id' => @intent.id,
-            'request_id' => @request_id
-          }
-        )
+        validate_or_repair_hold!(bill_order: bill_order)
 
         @intent.update!(
           status: :processing,
@@ -100,11 +96,8 @@ module Bills
 
       case status
       when 'success'
-        @intent.update!(
-          status: :completed,
-          provider_reference: bill_order.provider_reference,
-          metadata: intent_metadata('last_result' => status)
-        )
+        ensure_financial_finalization!(bill_order: bill_order)
+        finalize_completed_intent!(bill_order: bill_order, result: status)
         success_response('payment confirmed')
       when 'pending'
         @intent.update!(
@@ -127,6 +120,84 @@ module Bills
     def intent_metadata(extra = {})
       base = @intent.metadata.is_a?(Hash) ? @intent.metadata : {}
       base.merge(extra)
+    end
+
+    def already_financially_finalized?(bill_order:)
+      bill_order.completed? && WalletLedgerEntry.debit_exists?(wallet: wallet, bill_order: bill_order)
+    end
+
+    def finalize_completed_intent!(bill_order:, result:)
+      late = late_completion?
+      metadata = intent_metadata('last_result' => result, 'late' => late)
+      metadata['late_completed_at'] = Time.current.utc.iso8601 if late
+
+      @intent.update!(
+        status: :completed,
+        provider_reference: bill_order.provider_reference,
+        metadata: metadata
+      )
+    end
+
+    def late_completion?
+      @intent.expires_at.present? && Time.current > @intent.expires_at
+    end
+
+    def validate_or_repair_hold!(bill_order:)
+      expected_total = @intent.total.to_d
+      hold_entry = WalletLedgerEntry.where(wallet: wallet, bill_order: bill_order, entry_type: :hold).order(created_at: :desc).first
+      release_entries = WalletLedgerEntry.where(wallet: wallet, bill_order: bill_order, entry_type: :release).order(created_at: :desc).to_a
+      release_entry = release_entries.first
+      debit_entry = WalletLedgerEntry.where(wallet: wallet, bill_order: bill_order, entry_type: :debit).order(created_at: :desc).first
+
+      # If a debit already exists, funds are settled and hold repair is unnecessary.
+      return if debit_entry.present?
+
+      if hold_entry.blank?
+        WalletLedgerEntry.ensure_hold!(
+          wallet: wallet,
+          bill_order: bill_order,
+          amount: expected_total,
+          reference: @intent.id,
+          metadata: {
+            'bill_payment_intent_id' => @intent.id,
+            'request_id' => @request_id,
+            'hold_repaired' => false
+          }
+        )
+        return
+      end
+
+      active_hold = hold_entry.amount.to_d - release_entries.sum { |entry| entry.amount.to_d }
+      hold_is_active = active_hold.positive?
+      hold_amount_matches = active_hold == expected_total
+      return if hold_is_active && hold_amount_matches
+
+      # Repair released/mismatched hold into a single active hold with expected total.
+      release_entry&.destroy!
+      hold_metadata = hold_entry.metadata.is_a?(Hash) ? hold_entry.metadata : {}
+      hold_entry.update!(
+        amount: expected_total,
+        reference: @intent.id,
+        metadata: hold_metadata.merge(
+          'bill_payment_intent_id' => @intent.id,
+          'request_id' => @request_id,
+          'hold_repaired' => true,
+          'repaired_at' => Time.current.utc.iso8601
+        )
+      )
+    end
+
+    def ensure_financial_finalization!(bill_order:)
+      BillOrders::Finalizer.call(bill_order: bill_order)
+      return if hold_settled?(bill_order: bill_order)
+
+      raise ActiveRecord::RecordInvalid, @intent
+    end
+
+    def hold_settled?(bill_order:)
+      totals = WalletLedgerEntry.ledger_totals(wallet: wallet, bill_order: bill_order)
+      outstanding = totals[:hold] - totals[:release] - totals[:debit]
+      outstanding <= 0.to_d && WalletLedgerEntry.debit_exists?(wallet: wallet, bill_order: bill_order)
     end
 
     def success_response(message)
