@@ -317,6 +317,18 @@ module Api
 
         pin = params.dig(:account, :pin).to_s.strip
         return unless require_transaction_pin!(pin, error_key: :message)
+
+        anchor_service = AnchorService.new
+        if anchor_service.respond_to?(:ensure_transfer_source_account!)
+          anchor_account = anchor_service.ensure_transfer_source_account!(anchor_account)
+        end
+        if Rails.env.production? && !anchor_account.useable_id.to_s.end_with?('-anc_acc')
+          return render_transfer_error(
+            'Source account is not provisioned for transfers. Refresh your Anchor account details and try again.',
+            code: 'source_account_invalid'
+          )
+        end
+
         bool = ActiveModel::Type::Boolean.new
         transfer_params = account_params.to_h.symbolize_keys.merge(
           source_id:             anchor_account.useable_id,
@@ -741,16 +753,23 @@ module Api
 
       # Defensive normalization for older/mobile payloads:
       # - if a local beneficiary id is sent, map it to stored provider counter_party_id
-      # - if an unknown id is sent for inter-bank transfer, clear it so we resolve/create beneficiary server-side
+      # - if an unresolved UUID-like local id is sent, clear it so we resolve/create beneficiary server-side
+      # - keep non-empty opaque ids untouched to preserve backward compatibility
       def normalize_inter_bank_counter_party_id!(transfer_params)
         return unless ActiveModel::Type::Boolean.new.cast(transfer_params[:inter_bank])
 
         incoming_id = transfer_params[:counter_party_id].to_s.strip
         return if incoming_id.blank?
 
-        beneficiary = current_user.beneficiaries.find_by(id: incoming_id)
+        return if incoming_id.end_with?('-anc_cp')
+
+        beneficiary =
+          current_user.beneficiaries.find_by(id: incoming_id) ||
+          current_user.beneficiaries.find_by(counter_party_id: incoming_id)
         if beneficiary&.counter_party_id.present?
           transfer_params[:counter_party_id] = beneficiary.counter_party_id
+        elsif incoming_id.match?(/\A[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\z/i)
+          transfer_params[:counter_party_id] = nil
         end
       rescue StandardError => e
         Rails.logger.warn("Unable to normalize counter_party_id user_id=#{current_user.id}: #{e.message}")

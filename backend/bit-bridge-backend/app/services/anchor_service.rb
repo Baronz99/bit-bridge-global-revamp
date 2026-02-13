@@ -468,12 +468,31 @@ class AnchorService
   end
 
   def verify_transfer_request(transferId)
-    response = self.class.get("/verify/#{transferId}", headers: @headers)
+    response = self.class.get("/api/v1/transfers/verify/#{transferId}", headers: @headers)
     return { data: response['data'], status: :ok } if response.success?
 
     raise response['message'] || 'bad request'
   rescue StandardError => e
     { message: e.message.to_s || 'bad request', status: :bad_request }
+  end
+
+  # Ensures we use a DepositAccount id (..-anc_acc) as transfer source.
+  # Falls back to scanning account-numbers by account_number when local useable_id
+  # is stale or points to a customer id.
+  def ensure_transfer_source_account!(account_record)
+    return account_record if account_record.blank?
+
+    usable_id = account_record.useable_id.to_s
+    return account_record if usable_id.end_with?('-anc_acc')
+
+    resolved_id = resolve_deposit_account_id_by_account_number(account_record.account_number)
+    return account_record if resolved_id.blank?
+
+    account_record.update(useable_id: resolved_id) if account_record.useable_id != resolved_id
+    account_record
+  rescue StandardError => e
+    Rails.logger.warn("[AnchorService] ensure_transfer_source_account failed account_id=#{account_record&.id} message=#{e.message}") if defined?(Rails) && Rails.logger
+    account_record
   end
 
   def fetch_all_account_details
@@ -859,6 +878,30 @@ class AnchorService
     (value * 100).round(0).to_i
   rescue ArgumentError, TypeError
     0
+  end
+
+  def resolve_deposit_account_id_by_account_number(account_number)
+    number = account_number.to_s.strip
+    return nil if number.blank?
+
+    response = self.class.get('/api/v1/account-numbers', headers: @headers)
+    return nil unless response.success?
+
+    rows = response['data']
+    rows = [rows] unless rows.is_a?(Array)
+
+    match = rows.find do |row|
+      attrs = row.is_a?(Hash) ? (row['attributes'] || {}) : {}
+      attrs['accountNumber'].to_s.strip == number
+    end
+    return nil unless match.is_a?(Hash)
+
+    candidate_id = match['id'].to_s
+    return candidate_id if candidate_id.end_with?('-anc_acc')
+
+    nil
+  rescue StandardError
+    nil
   end
 end
 
