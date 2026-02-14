@@ -235,8 +235,10 @@ module Api
         metadata = txn.metadata.is_a?(Hash) ? txn.metadata : {}
         record = txn.transaction_record
         anchor_details = extract_anchor_receipt_details(metadata, record)
-        amount = txn.amount
         currency = txn.currency || txn.wallet&.currency || 'NGN'
+        transfer_fee_context = inferred_transfer_fee_context(txn: txn, currency: currency)
+        base_amount = txn.amount.to_d
+        amount = transfer_fee_context[:applies] ? (base_amount + transfer_fee_context[:total_fee]).to_f : txn.amount
         title = wallet_label(txn, record)
         fx_quote = resolve_fx_quote_for_receipt(metadata)
         conversion_meta = build_conversion_meta(txn, metadata, fx_quote)
@@ -246,6 +248,7 @@ module Api
           fee_array(metadata['fee_breakdown'], currency),
           conversion_fees
         )
+        merged_fees = merge_fee_arrays(merged_fees, transfer_fee_context[:fees])
 
         legacy = {
           reference: "wallet-tx-#{txn.id}",
@@ -265,7 +268,8 @@ module Api
             bridge_card_id: txn.bridge_card_id,
             anchor: anchor_details,
             balance_snapshot: balance_snapshot,
-            conversion: conversion_meta
+            conversion: conversion_meta,
+            transfer_fee_inferred: transfer_fee_context[:applies]
           }.compact
         }.compact
 
@@ -301,11 +305,14 @@ module Api
             unique_transaction_id: txn.unique_transaction_id,
             bridge_card_id: txn.bridge_card_id,
             anchor: anchor_details,
-            balance_snapshot: balance_snapshot
+            balance_snapshot: balance_snapshot,
+            transfer_fee_inferred: transfer_fee_context[:applies]
           }.merge(conversion_meta).compact,
           timeline: build_wallet_timeline(txn, record, fx_quote),
           fees: merged_fees,
-          legacy: legacy
+          legacy: legacy,
+          value_amount: transfer_fee_context[:applies] ? base_amount.to_f : nil,
+          total_display: transfer_fee_context[:applies] ? amount : nil
         )
       end
 
@@ -373,9 +380,11 @@ module Api
 
       def merge_fee_arrays(primary_fees, fallback_fees)
         existing = Array(primary_fees).compact
-        return existing if existing.present?
+        additions = Array(fallback_fees).compact
+        return existing if additions.blank?
+        return additions if existing.blank?
 
-        Array(fallback_fees).compact
+        existing + additions
       end
 
       def receipt_from_card_funding(txn, card_event, original_reference:)
@@ -496,6 +505,10 @@ module Api
 
         value_amount = order.amount || order.total_amount
         reward_amount = (order.reward_applied || order.commission_used).to_f
+        inferred_wallet_amount = order.wallet_amount_charged
+        if inferred_wallet_amount.blank? && value_amount.present?
+          inferred_wallet_amount = [value_amount.to_d - reward_amount.to_d, 0.to_d]
+        end
 
         service_charge_value = order.service_charge.to_d
         bill_fees =
@@ -504,6 +517,15 @@ module Api
           else
             []
           end
+        implied_fee = implied_fee_from_totals(
+          total_amount: order.total_amount,
+          value_amount: value_amount,
+          known_fees: bill_fees
+        )
+        bill_fees = merge_fee_arrays(
+          bill_fees,
+          implied_fee.positive? ? [{ label: 'processing fee', amount: implied_fee, currency: currency }] : []
+        )
 
         build_dto(
           reference: record&.reference.presence || original_reference || "bill-#{order.id}",
@@ -542,7 +564,7 @@ module Api
           fees: bill_fees,
           legacy: legacy,
           value_amount: value_amount,
-          wallet_amount_charged: order.wallet_amount_charged,
+          wallet_amount_charged: inferred_wallet_amount,
           reward_applied: reward_amount,
           total_display: value_amount
         )
@@ -554,6 +576,10 @@ module Api
         txn = record.exchange
         txn_meta = txn&.metadata.is_a?(Hash) ? txn.metadata : {}
         anchor_details = extract_anchor_receipt_details(txn_meta, record)
+        transfer_fee_context = txn.present? ? inferred_transfer_fee_context(txn: txn, currency: 'NGN') : { applies: false, total_fee: 0.to_d, fees: [] }
+        if transfer_fee_context[:applies]
+          amount = amount.to_d + transfer_fee_context[:total_fee]
+        end
         provider_name =
           if record.event_type.to_s.start_with?('anchor.')
             'anchor'
@@ -577,6 +603,10 @@ module Api
 
         value_amount = bill_order&.amount
         reward_amount = bill_order ? ((bill_order.reward_applied || bill_order.commission_used).to_f) : nil
+        inferred_wallet_amount = bill_order&.wallet_amount_charged
+        if inferred_wallet_amount.blank? && bill_order.present? && value_amount.present?
+          inferred_wallet_amount = [value_amount.to_d - reward_amount.to_d, 0.to_d]
+        end
 
         service_charge_value = bill_order&.service_charge.to_d
         bill_fees =
@@ -585,6 +615,18 @@ module Api
           else
             []
           end
+        if bill_order.present?
+          implied_fee = implied_fee_from_totals(
+            total_amount: bill_order.total_amount,
+            value_amount: value_amount,
+            known_fees: bill_fees
+          )
+          bill_fees = merge_fee_arrays(
+            bill_fees,
+            implied_fee.positive? ? [{ label: 'processing fee', amount: implied_fee, currency: 'NGN' }] : []
+          )
+        end
+        bill_fees = merge_fee_arrays(bill_fees, transfer_fee_context[:fees])
 
         build_dto(
           reference: record.reference || original_reference,
@@ -623,13 +665,14 @@ module Api
             amount: bill_order&.amount,
             total_amount: bill_order&.total_amount,
             transaction_id: bill_order&.transaction_id,
-            anchor: anchor_details
+            anchor: anchor_details,
+            transfer_fee_inferred: transfer_fee_context[:applies]
           }.compact,
           timeline: build_record_timeline(record, bill_order),
           fees: bill_fees,
           legacy: legacy,
-          value_amount: value_amount,
-          wallet_amount_charged: bill_order&.wallet_amount_charged,
+          value_amount: value_amount || (transfer_fee_context[:applies] ? record.amount : nil),
+          wallet_amount_charged: inferred_wallet_amount,
           reward_applied: reward_amount,
           total_display: value_amount || amount
         )
@@ -1198,6 +1241,46 @@ module Api
         label.to_s
       end
 
+      def implied_fee_from_totals(total_amount:, value_amount:, known_fees:)
+        total = total_amount.to_d
+        value = value_amount.to_d
+        known = Array(known_fees).sum { |entry| entry[:amount].to_d }
+        implied = total - value - known
+        implied.positive? ? implied.round(2) : 0.to_d
+      rescue StandardError
+        0.to_d
+      end
+
+      def inferred_transfer_fee_context(txn:, currency:)
+        metadata = txn.metadata.is_a?(Hash) ? txn.metadata : {}
+        transfer_reference = metadata['transfer_reference'].to_s
+        subtype = metadata['subtype'].to_s
+        return { applies: false, total_fee: 0.to_d, fees: [] } if transfer_reference.blank?
+        return { applies: false, total_fee: 0.to_d, fees: [] } unless subtype == 'principal'
+
+        fee_tx = txn.wallet.transactions
+                    .where("metadata ->> 'transfer_reference' = ?", transfer_reference)
+                    .where("metadata ->> 'subtype' = ?", 'fee')
+                    .order(created_at: :desc)
+                    .first
+        return { applies: false, total_fee: 0.to_d, fees: [] } unless fee_tx
+
+        fee_breakdown = fee_array(fee_tx.metadata&.dig('fee_breakdown'), currency)
+        inferred_fees =
+          if fee_breakdown.present?
+            fee_breakdown
+          else
+            [{ label: 'transfer fee', amount: fee_tx.amount.to_d, currency: currency }]
+          end
+
+        {
+          applies: true,
+          total_fee: fee_tx.amount.to_d,
+          fees: inferred_fees
+        }
+      rescue StandardError
+        { applies: false, total_fee: 0.to_d, fees: [] }
+      end
       def extract_anchor_receipt_details(metadata, record)
         data = metadata.is_a?(Hash) ? metadata : {}
         sender = data['anchor_sender'].is_a?(Hash) ? data['anchor_sender'] : {}
@@ -1282,3 +1365,4 @@ module Api
     end
   end
 end
+

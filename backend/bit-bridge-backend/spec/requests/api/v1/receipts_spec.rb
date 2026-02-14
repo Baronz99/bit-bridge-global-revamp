@@ -206,6 +206,70 @@ RSpec.describe 'Api::V1::ReceiptsController', type: :request do
       expect(body['data']['reference']).to eq('bbg-123')
     end
 
+it 'infers transfer fee breakdown for principal wallet transfer with sibling fee transaction' do
+  skip('Factories not available in this environment') unless user
+  wallet = build_wallet(user, currency: 'NGN')
+  transfer_reference = "trf-#{SecureRandom.hex(4)}"
+  principal_tx = Transaction.create!(
+    wallet: wallet,
+    amount: 1000,
+    transaction_type: :withdrawal,
+    status: :declined,
+    address: 'Beneficiary account',
+    metadata: {
+      subtype: 'principal',
+      transfer_reference: transfer_reference,
+      provider: 'anchor'
+    }
+  )
+  Transaction.create!(
+    wallet: wallet,
+    amount: 35,
+    transaction_type: :withdrawal,
+    status: :declined,
+    address: 'Transfer fee',
+    metadata: {
+      subtype: 'fee',
+      transfer_reference: transfer_reference,
+      provider: 'anchor',
+      fee_breakdown: {
+        transfer_fee: 25,
+        stamp_duty_fee: 10
+      }
+    }
+  )
+
+  get "/api/v1/receipts/wallet-tx-#{principal_tx.id}", headers: auth_headers(user)
+  expect(response).to have_http_status(:ok)
+  body = JSON.parse(response.body)
+
+  expect(body.dig('data', 'amount').to_d).to eq(1035.to_d)
+  expect(body.dig('data', 'value_amount').to_d).to eq(1000.to_d)
+  expect(body.dig('data', 'total_display').to_d).to eq(1035.to_d)
+  expect(body.dig('data', 'fees')).to include(
+    a_hash_including('label' => 'transfer fee', 'amount' => 25),
+    a_hash_including('label' => 'stamp duty', 'amount' => 10)
+  )
+end
+
+it 'adds implied processing fee for bill receipt when total exceeds value and explicit fee is absent' do
+  skip('Factories not available in this environment') unless user
+  order = build_bill_order(user)
+  order.update!(
+    amount: 1000,
+    total_amount: 1035,
+    service_charge: 0
+  )
+
+  get "/api/v1/receipts/bill-#{order.id}", headers: auth_headers(user)
+  expect(response).to have_http_status(:ok)
+  body = JSON.parse(response.body)
+
+  expect(body.dig('data', 'value_amount').to_d).to eq(1000.to_d)
+  expect(body.dig('data', 'fees')).to include(
+    a_hash_including('label' => 'processing fee', 'amount' => 35)
+  )
+end
 
     it 'returns transaction_record receipt dto for pooled BBG reference' do
       skip('Factories not available in this environment') unless user
