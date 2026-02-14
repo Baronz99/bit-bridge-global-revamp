@@ -206,6 +206,25 @@ RSpec.describe 'Api::V1::ReceiptsController', type: :request do
       expect(body['data']['reference']).to eq('bbg-123')
     end
 
+
+    it 'returns transaction_record receipt dto for pooled BBG reference' do
+      skip('Factories not available in this environment') unless user
+      record = build_transaction_record(user, reference: 'BBG-LSGSCZ-LRLA')
+      get '/api/v1/receipts/BBG-LSGSCZ-LRLA', headers: auth_headers(user)
+      expect(response).to have_http_status(:ok)
+      body = JSON.parse(response.body)
+      expect(body['data']['reference']).to eq('BBG-LSGSCZ-LRLA')
+      expect(body['data']['kind']).to eq('wallet').or eq('transaction_record')
+    end
+
+    it 'does not return pooled BBG receipt for another user' do
+      skip('Factories not available in this environment') unless user
+      other_user = create(:user)
+      build_transaction_record(other_user, reference: 'BBG-AAAA11-ZZ99')
+
+      get '/api/v1/receipts/BBG-AAAA11-ZZ99', headers: auth_headers(user)
+      expect(response).to have_http_status(:not_found)
+    end
     it 'returns circle transaction dto' do
       skip('Factories not available in this environment') unless user
       circle = build_circle(user)

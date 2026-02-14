@@ -85,14 +85,7 @@ module Api
         if transaction_record_reference?(ref)
           record = TransactionRecord.find_by(reference: ref)
           return nil unless record
-
-          # enforce ownership (via associated user or wallet)
-          if record.respond_to?(:user_id)
-            return nil unless record.user_id == current_user.id
-          elsif record.respond_to?(:wallet_id)
-            return nil unless record.wallet&.user_id == current_user.id
-          end
-
+          return nil unless transaction_record_owned_by_current_user?(record)
           return receipt_from_transaction_record(record, original_reference: ref)
         end
 
@@ -689,7 +682,14 @@ module Api
       end
 
       def transaction_record_reference?(reference)
-        reference.match?(/\A(fbg|bbg)-\d+\z/i)
+        reference.match?(/\A(fbg|bbg)-\d+\z/i) || reference.match?(/\ABBG-[A-Z0-9]{6}-[A-Z0-9]{4}\z/i)
+      end
+
+      def transaction_record_owned_by_current_user?(record)
+        return true if record.bill_order&.user_id == current_user.id
+        return true if record.exchange&.wallet&.user_id == current_user.id
+
+        false
       end
 
       def build_dto(reference:, kind:, event:, status:, amount:, currency:, occurred_at:, title:, subtitle:, parties:, provider:, meta:, fees:, legacy:, timeline: nil, value_amount: nil, wallet_amount_charged: nil, reward_applied: nil, total_display: nil)
