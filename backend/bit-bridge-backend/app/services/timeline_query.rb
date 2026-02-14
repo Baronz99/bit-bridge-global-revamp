@@ -282,7 +282,7 @@ class TimelineQuery
       .joins(:wallet)
       .includes(:wallet, :transaction_record, :user)
       .where(wallets: { user_id: @user.id })
-      .where.not("metadata ->> 'subtype' = ?", 'fee')
+      .where("COALESCE(metadata ->> 'subtype', '') <> ?", 'fee')
       .where.not(<<~SQL.squish)
         transactions.status = #{Transaction.statuses[:initialized]}
         AND COALESCE(transactions.metadata ->> 'provider', '') = 'anchor'

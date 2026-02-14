@@ -91,7 +91,20 @@ RSpec.describe TimelineQuery do
 
       expect(timeline_ids).to include("wallet-tx-#{tx.id}")
     end
+    it 'includes pooled funding deposits with nil subtype in timeline feed' do
+      tx = user.ngn_wallet.transactions.create!(
+        status: :approved,
+        coin_type: :bank,
+        transaction_type: :deposit,
+        amount: 1500,
+        metadata: { provider: 'anchor', purpose: 'wallet_fund_pooled' }
+      )
 
+      result = described_class.new(user: user, limit: 25).call
+      timeline_ids = result[:items].map { |item| item[:id] }
+
+      expect(timeline_ids).to include("wallet-tx-#{tx.id}")
+    end
     it 'hides settled anchor checkout initialization and keeps settled deposit entry' do
       initialized_tx = user.ngn_wallet.transactions.create!(
         status: :initialized,
