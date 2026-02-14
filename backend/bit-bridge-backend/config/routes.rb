@@ -59,6 +59,9 @@ Rails.application.routes.draw do
       get "timeline",     to: "timeline#index"
       get "timeline/:id", to: "timeline#show"
 
+      # Service availability (unknown-first signal)
+      get "service_availability", to: "service_availability#index"
+
       # ✅ Termii delivery receipts (DLR)
       post "termii/dlr", to: "termii_webhooks#dlr"
 
