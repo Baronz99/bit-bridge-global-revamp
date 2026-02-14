@@ -8,12 +8,13 @@ module Api
       before_action :set_receipt_transaction, only: %i[receipt]
 
       def index
-        @transactions =
+        scope =
           if current_user&.admin || current_user&.role == 'super_admin'
             Transaction.with_attached_proof.order(created_at: :desc)
           else
             current_user.transactions.with_attached_proof.order(created_at: :desc)
           end
+        @transactions = exclude_settled_anchor_checkout_initializations(scope)
         render json: {
           data: ActiveModelSerializers::SerializableResource.new(@transactions)
         }
@@ -47,6 +48,7 @@ module Api
           end
         end
 
+        scope = exclude_settled_anchor_checkout_initializations(scope)
         items = scope.limit(limit).to_a
         next_cursor = items.last&.created_at&.iso8601
 
@@ -69,42 +71,13 @@ module Api
 
       # POST /api/v1/transactions/initialize_transaction
       def initialize_transaction
-        response =
-          begin
-            initialize_payment = PaymentService.new
-            initialize_payment.init_transaction(transaction_params)
-          rescue RuntimeError => e
-            { message: e.message.to_s }
-          end
+        provider = transaction_params[:provider].to_s.downcase.presence || 'monnify'
 
-        if response[:status] == :ok
-          wallet = resolve_wallet_from_params(transaction_params)
-
-          transaction = wallet.transactions.create(
-            status: 'initialized',
-            coin_type: 'mobile_bank',
-            transaction_type: transaction_params[:transaction_type],
-            amount: transaction_params[:amount]
-          )
-
-          if transaction.persisted?
-            transaction_record = TransactionRecord.new(
-              exchange_id: transaction.id,
-              reference: response[:response]['responseBody']['paymentReference'],
-              status: 'pending',
-              event_type: 'checkout.init'
-            )
-
-            if transaction_record.save
-              render json: response[:response], status: :ok
-            else
-              render json: { message: transaction_record.errors.full_messages.to_sentence }, status: :unprocessable_entity
-            end
-          else
-            render json: { message: transaction.errors.full_messages.to_sentence }, status: :unprocessable_entity
-          end
+        case provider
+        when 'anchor'
+          initialize_anchor_funding_transaction
         else
-          render json: { message: response[:message] }, status: :unprocessable_entity
+          initialize_monnify_transaction
         end
       end
 
@@ -536,8 +509,147 @@ module Api
           :email,
           :description,
           :payment_purpose,
-          :redirect_url
+          :redirect_url,
+          :provider,
+          :expiry_time
         )
+      end
+
+      def initialize_monnify_transaction
+        response =
+          begin
+            initialize_payment = PaymentService.new
+            initialize_payment.init_transaction(transaction_params)
+          rescue RuntimeError => e
+            { message: e.message.to_s }
+          end
+
+        if response[:status] == :ok
+          wallet = resolve_wallet_from_params(transaction_params)
+
+          transaction = wallet.transactions.create(
+            status: 'initialized',
+            coin_type: 'mobile_bank',
+            transaction_type: transaction_params[:transaction_type],
+            amount: transaction_params[:amount]
+          )
+
+          if transaction.persisted?
+            transaction_record = TransactionRecord.new(
+              exchange_id: transaction.id,
+              reference: response[:response]['responseBody']['paymentReference'],
+              status: 'pending',
+              event_type: 'checkout.init'
+            )
+
+            if transaction_record.save
+              render json: response[:response], status: :ok
+            else
+              render json: { message: transaction_record.errors.full_messages.to_sentence }, status: :unprocessable_entity
+            end
+          else
+            render json: { message: transaction.errors.full_messages.to_sentence }, status: :unprocessable_entity
+          end
+        else
+          render json: { message: response[:message] }, status: :unprocessable_entity
+        end
+      end
+
+      def initialize_anchor_funding_transaction
+        wallet = resolve_wallet_from_params(transaction_params)
+
+        transaction = wallet.transactions.create(
+          status: 'initialized',
+          coin_type: 'mobile_bank',
+          transaction_type: 'deposit',
+          amount: transaction_params[:amount],
+          metadata: {
+            provider: 'anchor',
+            purpose: 'wallet_fund'
+          }
+        )
+
+        unless transaction.persisted?
+          return render json: { message: transaction.errors.full_messages.to_sentence }, status: :unprocessable_entity
+        end
+
+        reference = build_anchor_checkout_reference
+        amount_minor = to_minor_units(transaction_params[:amount])
+        customer_name = transaction_params[:customer_name].presence || current_user.full_name.presence || current_user.email
+        expiry_time = transaction_params[:expiry_time].to_i.positive? ? transaction_params[:expiry_time].to_i : 3600
+
+        response = AnchorService.new.create_pay_with_transfer(
+          reference: reference,
+          amount: amount_minor,
+          customer_email: transaction_params[:email].presence || current_user.email,
+          customer_full_name: customer_name,
+          expiry_time: expiry_time,
+          metadata: {
+            user_id: current_user.id,
+            transaction_id: transaction.id,
+            purpose: 'wallet_fund'
+          }
+        )
+
+        unless response[:status] == :ok
+          return render json: { message: response[:message].presence || 'Unable to initialize Anchor funding.' },
+                        status: :unprocessable_entity
+        end
+
+        details = response[:details].is_a?(Hash) ? response[:details] : {}
+        provider_reference = details[:provider_reference].presence
+
+        metadata = transaction.metadata.is_a?(Hash) ? transaction.metadata.deep_dup : {}
+        metadata['provider'] = 'anchor'
+        metadata['purpose'] = 'wallet_fund'
+        metadata['anchor_checkout'] = {
+          reference: reference,
+          provider_reference: provider_reference,
+          bank_name: details[:bank_name],
+          account_number: details[:account_number],
+          account_name: details[:account_name],
+          expiry_time: details[:expiry_time],
+          raw: details[:raw]
+        }.compact
+        transaction.update!(metadata: metadata)
+
+        transaction_record = TransactionRecord.new(
+          exchange_id: transaction.id,
+          reference: reference,
+          transaction_id: provider_reference,
+          status: 'pending',
+          event_type: 'checkout.init'
+        )
+
+        unless transaction_record.save
+          return render json: { message: transaction_record.errors.full_messages.to_sentence }, status: :unprocessable_entity
+        end
+
+        render json: {
+          responseBody: {
+            provider: 'anchor',
+            paymentReference: reference,
+            bankName: details[:bank_name],
+            accountNumber: details[:account_number],
+            accountName: details[:account_name],
+            expiryTime: details[:expiry_time],
+            providerReference: details[:provider_reference]
+          }.compact
+        }, status: :ok
+      end
+
+      def build_anchor_checkout_reference
+        loop do
+          candidate = "fbg-#{Time.current.to_i}#{SecureRandom.random_number(10_000).to_s.rjust(4, '0')}"
+          return candidate unless TransactionRecord.exists?(reference: candidate)
+        end
+      end
+
+      def to_minor_units(amount)
+        value = BigDecimal(amount.to_s)
+        (value * 100).round(0).to_i
+      rescue ArgumentError, TypeError
+        0
       end
 
       # Decide which wallet to use:
@@ -560,6 +672,15 @@ module Api
         Time.iso8601(raw.to_s)
       rescue ArgumentError
         nil
+      end
+
+      def exclude_settled_anchor_checkout_initializations(scope)
+        scope.where.not(<<~SQL.squish)
+          transactions.status = #{Transaction.statuses[:initialized]}
+          AND COALESCE(transactions.metadata ->> 'provider', '') = 'anchor'
+          AND COALESCE(transactions.metadata ->> 'purpose', '') = 'wallet_fund'
+          AND COALESCE(transactions.metadata ->> 'checkout_state', '') = 'settled'
+        SQL
       end
     end
   end

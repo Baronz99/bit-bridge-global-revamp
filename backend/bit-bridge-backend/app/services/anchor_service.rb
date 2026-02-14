@@ -467,6 +467,67 @@ class AnchorService
     end
   end
 
+  def create_pay_with_transfer(reference:, amount:, customer_email:, customer_full_name:, expiry_time: 3600, provider: nil, metadata: {})
+    attrs = {
+      reference: reference.to_s,
+      customer: {
+        fullName: customer_full_name.to_s,
+        email: customer_email.to_s
+      },
+      expiryTime: expiry_time.to_i.positive? ? expiry_time.to_i : 3600,
+      amount: amount.to_i,
+      metadata: metadata.presence || {}
+    }
+    attrs[:provider] = provider if provider.present?
+
+    body = {
+      data: {
+        type: 'PayWithTransfer',
+        attributes: attrs
+      }
+    }.to_json
+
+    response = self.class.post('/pay/pay-with-transfer', headers: @headers, body: body)
+
+    unless response.success?
+      error_message = response.dig('errors', 0, 'detail') || response['message'] || response.message || 'bad request'
+      return {
+        status: :bad_request,
+        message: error_message.to_s
+      }
+    end
+
+    data = response['data'] || {}
+    attributes = data['attributes'] || {}
+    account = attributes['account'].is_a?(Hash) ? attributes['account'] : {}
+    virtual_nuban = attributes['virtualNuban'].is_a?(Hash) ? attributes['virtualNuban'] : {}
+    bank = account['bank'].is_a?(Hash) ? account['bank'] : {}
+
+    details = {
+      provider_reference: data['id'] || attributes['payInId'] || attributes['id'],
+      account_number: account['accountNumber'] || virtual_nuban['accountNumber'],
+      account_name: account['accountName'] || virtual_nuban['accountName'],
+      bank_name: bank['name'],
+      expiry_time: attributes['expiryTime'] || attributes['expiresAt'],
+      raw: data
+    }
+
+    { status: :ok, data: data, details: details }
+  rescue StandardError => e
+    { status: :bad_request, message: e.message.to_s }
+  end
+
+  def fetch_payin(payin_id)
+    return { status: :bad_request, message: 'payin_id is required' } if payin_id.blank?
+
+    response = self.class.get("/pay-ins/#{payin_id}", headers: @headers)
+    return { status: :ok, data: response['data'] || {} } if response.success?
+
+    { status: :bad_request, message: response['message'].to_s.presence || response.message }
+  rescue StandardError => e
+    { status: :bad_request, message: e.message.to_s }
+  end
+
   def verify_transfer_request(transferId)
     response = self.class.get("/api/v1/transfers/verify/#{transferId}", headers: @headers)
     return { data: response['data'], status: :ok } if response.success?
@@ -570,7 +631,8 @@ class AnchorService
     payment_type = payment['type']
 
     transaction_record = if payment_id.present?
-                           TransactionRecord.find_by(transaction_id: payment_id)
+                           TransactionRecord.find_by(transaction_id: payment_id) ||
+                             TransactionRecord.find_by(reference: reference)
                          else
                            TransactionRecord.find_by(reference: reference)
                          end

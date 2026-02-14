@@ -50,5 +50,49 @@ RSpec.describe TimelineQuery do
       expect(result).to include(:items, :next_cursor)
       expect(result[:items]).to be_an(Array)
     end
+
+    it 'keeps pending anchor checkout initialization visible before settlement' do
+      tx = user.ngn_wallet.transactions.create!(
+        status: :initialized,
+        coin_type: :mobile_bank,
+        transaction_type: :deposit,
+        amount: 1000,
+        metadata: { provider: 'anchor', purpose: 'wallet_fund', subtype: 'principal' }
+      )
+
+      result = described_class.new(user: user, limit: 25).call
+      timeline_ids = result[:items].map { |item| item[:id] }
+
+      expect(timeline_ids).to include("wallet-tx-#{tx.id}")
+    end
+
+    it 'hides settled anchor checkout initialization and keeps settled deposit entry' do
+      initialized_tx = user.ngn_wallet.transactions.create!(
+        status: :initialized,
+        coin_type: :mobile_bank,
+        transaction_type: :deposit,
+        amount: 1000,
+        metadata: {
+          provider: 'anchor',
+          purpose: 'wallet_fund',
+          checkout_state: 'settled',
+          subtype: 'principal'
+        }
+      )
+
+      settled_tx = user.ngn_wallet.transactions.create!(
+        status: :approved,
+        coin_type: :bank,
+        transaction_type: :deposit,
+        amount: 1000,
+        metadata: { provider: 'anchor', purpose: 'wallet_fund', subtype: 'principal' }
+      )
+
+      result = described_class.new(user: user, limit: 25).call
+      timeline_ids = result[:items].map { |item| item[:id] }
+
+      expect(timeline_ids).not_to include("wallet-tx-#{initialized_tx.id}")
+      expect(timeline_ids).to include("wallet-tx-#{settled_tx.id}")
+    end
   end
 end

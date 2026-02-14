@@ -283,6 +283,12 @@ class TimelineQuery
       .includes(:wallet, :transaction_record, :user)
       .where(wallets: { user_id: @user.id })
       .where.not("metadata ->> 'subtype' = ?", 'fee')
+      .where.not(<<~SQL.squish)
+        transactions.status = #{Transaction.statuses[:initialized]}
+        AND COALESCE(transactions.metadata ->> 'provider', '') = 'anchor'
+        AND COALESCE(transactions.metadata ->> 'purpose', '') = 'wallet_fund'
+        AND COALESCE(transactions.metadata ->> 'checkout_state', '') = 'settled'
+      SQL
   end
 
   def bill_orders

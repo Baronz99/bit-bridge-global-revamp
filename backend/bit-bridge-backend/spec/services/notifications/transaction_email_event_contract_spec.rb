@@ -53,4 +53,27 @@ RSpec.describe Notifications::TransactionEmailEventContract do
     expect(contract[:event_family]).to eq('wallet_funding')
     expect(contract[:provider]).to eq('checkout')
   end
+
+  it 'classifies anchor wallet_fund deposit as wallet_funding without checkout event type' do
+    tx = wallet.transactions.create!(
+      transaction_type: :deposit,
+      status: :approved,
+      amount: 1500,
+      coin_type: :bank,
+      address: 'Anchor funding',
+      metadata: {
+        provider: 'anchor',
+        purpose: 'wallet_fund'
+      }
+    )
+    tx.create_transaction_record!(
+      reference: 'fbg-101',
+      status: 'approved',
+      event_type: 'anchor.webhook.payin.received'
+    )
+
+    contract = described_class.build(transaction: tx, anchor_details: {}, fx_quote: nil)
+    expect(contract[:event_family]).to eq('wallet_funding')
+    expect(contract[:provider]).to eq('anchor')
+  end
 end

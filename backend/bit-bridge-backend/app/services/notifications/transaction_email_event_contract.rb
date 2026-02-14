@@ -93,6 +93,9 @@ module Notifications
 
     def event_family
       return 'conversion' if @transaction.conversion_transaction?
+      if provider_name == 'anchor' && @metadata['purpose'].to_s == 'wallet_fund' && @transaction.deposit?
+        return 'wallet_funding'
+      end
       return 'inbound_transfer' if provider_name == 'anchor' && @transaction.deposit?
       if provider_name == 'anchor' && @transaction.transaction_type.to_s == 'withdrawal' &&
           @metadata['subtype'].to_s == 'principal'
