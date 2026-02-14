@@ -23,6 +23,34 @@ RSpec.describe 'Service availability', type: :request do
       expect(body.dig('data', 'services')).to eq([])
     end
 
+    it 'uses fresh persisted provider status when available' do
+      now = Time.current
+      ProviderServiceStatus.create!(
+        provider: 'buypower',
+        service_key: 'MTN_VTU',
+        state: 'down',
+        reliability_percent: 41,
+        sample_size: 23,
+        window_started_at: now - 30.minutes,
+        window_ended_at: now,
+        avg_latency_ms: 5200,
+        updated_at: now,
+        created_at: now
+      )
+
+      get '/api/v1/service_availability', headers: headers
+
+      expect(response).to have_http_status(:ok)
+      body = JSON.parse(response.body)
+      service = body.dig('data', 'services').find { |row| row['key'] == 'MTN_VTU' }
+
+      expect(service).to be_present
+      expect(service['state']).to eq('outage')
+      expect(service['reliability_percent']).to eq(41)
+      expect(service.dig('source', 'provider_signal')).to eq('down')
+      expect(service.dig('source', 'internal_signal')).to eq('outage')
+    end
+
     it 'marks a service outage only with sufficient confidence' do
       now = Time.current
       20.times do |idx|

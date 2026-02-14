@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[7.1].define(version: 2026_02_14_094000) do
+ActiveRecord::Schema[7.1].define(version: 2026_02_14_113000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pgcrypto"
   enable_extension "plpgsql"
@@ -591,6 +591,21 @@ ActiveRecord::Schema[7.1].define(version: 2026_02_14_094000) do
     t.text "notice_info"
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
+  end
+
+  create_table "provider_service_statuses", id: :uuid, default: -> { "gen_random_uuid()" }, force: :cascade do |t|
+    t.string "provider", null: false
+    t.string "service_key", null: false
+    t.string "state", null: false
+    t.integer "reliability_percent", default: 0, null: false
+    t.integer "sample_size", default: 0, null: false
+    t.datetime "window_started_at", null: false
+    t.datetime "window_ended_at", null: false
+    t.integer "avg_latency_ms"
+    t.text "last_error"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["provider", "service_key"], name: "index_provider_service_statuses_on_provider_and_service_key", unique: true
   end
 
   create_table "provisions", id: :uuid, default: -> { "gen_random_uuid()" }, force: :cascade do |t|

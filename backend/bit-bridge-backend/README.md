@@ -26,3 +26,19 @@ Things you may want to cover:
 ## API Contracts
 
 - Anchor onboarding/provisioning (mobile-facing): `docs/api/anchor_onboarding_contract.md`
+
+## Service Availability Refresh
+
+Use the rake task via Rails executable (preferred) or rake directly:
+
+```bash
+bin/rails service_availability:refresh
+# or
+bundle exec rake service_availability:refresh
+```
+
+Heroku Scheduler command:
+
+```bash
+bin/rails service_availability:refresh
+```

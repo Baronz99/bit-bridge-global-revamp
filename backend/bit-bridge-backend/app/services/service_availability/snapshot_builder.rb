@@ -2,8 +2,10 @@
 
 module ServiceAvailability
   class SnapshotBuilder
+    PROVIDER = 'buypower'
     WINDOW_MINUTES = 15
     STALE_AFTER_SECONDS = 180
+    PERSISTED_FRESHNESS_SECONDS = 600
 
     def initialize(now: Time.current)
       @now = now
@@ -24,50 +26,92 @@ module ServiceAvailability
 
     def build_service_rows
       grouped_orders = recent_orders.group_by { |order| service_key(order) }
+      persisted_statuses = fresh_persisted_statuses
+      keys = (grouped_orders.keys + persisted_statuses.keys).uniq
 
-      grouped_orders.map do |key, orders|
-        attempts = orders.size
-        completed_count = orders.count { |order| order.status == 'completed' }
-        timedout_count = orders.count { |order| order.status == 'timedout' }
-        success_rate = ratio(completed_count, attempts)
-        timeout_rate = ratio(timedout_count, attempts)
-        p95_latency_ms = percentile_95(latencies_ms(orders))
-        last_updated_at = orders.map(&:updated_at).compact.max
-        confidence = confidence_for(attempts)
-        stale = stale?(last_updated_at)
+      keys.filter_map do |key|
+        orders = grouped_orders[key] || []
+        persisted = persisted_statuses[key]
 
-        state = classify_state(
+        if persisted.present?
+          build_persisted_row(key: key, orders: orders, persisted: persisted)
+        elsif orders.any?
+          build_inferred_row(key: key, orders: orders)
+        end
+      end.sort_by { |row| row[:label] }
+    end
+
+    def build_persisted_row(key:, orders:, persisted:)
+      state = internal_state_from_provider_state(persisted.state)
+
+      {
+        key: key,
+        label: service_label(orders.first, key),
+        state: state,
+        confidence: confidence_for(persisted.sample_size),
+        reliability_percent: persisted.reliability_percent,
+        last_updated_at: persisted.window_ended_at&.iso8601 || persisted.updated_at&.iso8601,
+        source: {
+          provider_signal: persisted.state,
+          internal_signal: state
+        },
+        metrics: {
+          window_minutes: ((persisted.window_ended_at - persisted.window_started_at) / 60).round,
+          attempts: persisted.sample_size,
+          success_rate: (persisted.reliability_percent.to_f / 100.0).round(4),
+          timeout_rate: nil,
+          p95_latency_ms: persisted.avg_latency_ms
+        },
+        advice: {
+          can_checkout: state != 'outage',
+          message: advice_message(state)
+        }
+      }
+    end
+
+    def build_inferred_row(key:, orders:)
+      attempts = orders.size
+      completed_count = orders.count { |order| order.status == 'completed' }
+      timedout_count = orders.count { |order| order.status == 'timedout' }
+      success_rate = ratio(completed_count, attempts)
+      timeout_rate = ratio(timedout_count, attempts)
+      p95_latency_ms = percentile_95(latencies_ms(orders))
+      last_updated_at = orders.map(&:updated_at).compact.max
+      confidence = confidence_for(attempts)
+      stale = stale?(last_updated_at)
+
+      state = classify_state(
+        attempts: attempts,
+        success_rate: success_rate,
+        timeout_rate: timeout_rate,
+        p95_latency_ms: p95_latency_ms,
+        confidence: confidence,
+        stale: stale
+      )
+
+      {
+        key: key,
+        label: service_label(orders.first, key),
+        state: state,
+        confidence: confidence,
+        reliability_percent: (success_rate * 100).round,
+        last_updated_at: last_updated_at&.iso8601,
+        source: {
+          provider_signal: 'unknown',
+          internal_signal: state
+        },
+        metrics: {
+          window_minutes: WINDOW_MINUTES,
           attempts: attempts,
           success_rate: success_rate,
           timeout_rate: timeout_rate,
-          p95_latency_ms: p95_latency_ms,
-          confidence: confidence,
-          stale: stale
-        )
-
-        {
-          key: key,
-          label: service_label(orders.first),
-          state: state,
-          confidence: confidence,
-          last_updated_at: last_updated_at&.iso8601,
-          source: {
-            provider_signal: 'unknown',
-            internal_signal: state
-          },
-          metrics: {
-            window_minutes: WINDOW_MINUTES,
-            attempts: attempts,
-            success_rate: success_rate,
-            timeout_rate: timeout_rate,
-            p95_latency_ms: p95_latency_ms
-          },
-          advice: {
-            can_checkout: state != 'outage',
-            message: advice_message(state)
-          }
+          p95_latency_ms: p95_latency_ms
+        },
+        advice: {
+          can_checkout: state != 'outage',
+          message: advice_message(state)
         }
-      end.sort_by { |row| row[:label] }
+      }
     end
 
     def build_global_state(rows)
@@ -96,6 +140,13 @@ module ServiceAvailability
                .where.not(service_type: [nil, ''])
     end
 
+    def fresh_persisted_statuses
+      ProviderServiceStatus
+        .where(provider: PROVIDER)
+        .where('updated_at >= ?', @now - PERSISTED_FRESHNESS_SECONDS.seconds)
+        .index_by(&:service_key)
+    end
+
     def window_start
       @now - WINDOW_MINUTES.minutes
     end
@@ -108,9 +159,26 @@ module ServiceAvailability
       "#{biller}_#{service_type}"
     end
 
-    def service_label(order)
+    def service_label(order, key)
+      return service_label_from_order(order) if order.present?
+
+      service_label_from_key(key)
+    end
+
+    def service_label_from_order(order)
       service_type = order.service_type.to_s.strip.upcase
       biller = order.biller.to_s.strip.upcase
+      return service_type if biller.empty?
+
+      "#{biller} (#{service_type})"
+    end
+
+    def service_label_from_key(key)
+      parts = key.to_s.split('_')
+      return key.to_s if parts.empty?
+
+      service_type = parts.pop.to_s.upcase
+      biller = parts.join('_').to_s.upcase
       return service_type if biller.empty?
 
       "#{biller} (#{service_type})"
@@ -161,6 +229,15 @@ module ServiceAvailability
       return 'degraded' if p95_latency_ms && p95_latency_ms > 6000
 
       'operational'
+    end
+
+    def internal_state_from_provider_state(provider_state)
+      case provider_state.to_s
+      when 'available' then 'operational'
+      when 'unstable' then 'degraded'
+      when 'down' then 'outage'
+      else 'unknown'
+      end
     end
 
     def advice_message(state)
