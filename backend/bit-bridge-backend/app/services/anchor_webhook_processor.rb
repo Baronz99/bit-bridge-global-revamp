@@ -62,7 +62,11 @@ class AnchorWebhookProcessor
     when 'nip.transfer.failed', 'nip.transfer.reversed', 'nip.transfer.rejected'
       service.fail_transfer_withdrawal(payload)
     when 'payment.settled'
-      service.fund_deposit_account(payload)
+      if pooled_funding_payload?(payload)
+        process_payin_received!(payload: payload, service: service)
+      else
+        service.fund_deposit_account(payload)
+      end
     when 'payin.received'
       process_payin_received!(payload: payload, service: service)
     else
@@ -356,7 +360,16 @@ class AnchorWebhookProcessor
     return nil unless payload.is_a?(Hash)
 
     payin = payload.dig('attributes', 'payIn') || payload.dig('data', 'attributes', 'payIn') || {}
-    payin['id'].presence || payload.dig('data', 'id').presence
+    payment = payload.dig('attributes', 'payment') || payload.dig('data', 'attributes', 'payment') || {}
+
+    payin['id'].presence || payment['paymentId'].presence || payload.dig('data', 'id').presence
+  end
+
+  def pooled_funding_payload?(payload)
+    reference = extract_payin_reference(payload).to_s.upcase
+    return true if reference.start_with?('BBG-')
+
+    extract_payin_reference_from_narration(payload).present?
   end
 
   def extract_payin_amount_and_currency(payload, fallback_amount)

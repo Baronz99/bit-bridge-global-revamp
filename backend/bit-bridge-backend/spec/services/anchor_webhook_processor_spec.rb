@@ -284,6 +284,56 @@ RSpec.describe AnchorWebhookProcessor do
       expect(inbound.status).to eq('credited')
     end
 
+    it 'routes payment.settled with BBG narration to pooled funding credit path' do
+      user = create(:user, email: "pooled-settled-#{SecureRandom.hex(4)}@example.com")
+      wallet = user.ngn_wallet
+      intent = FundingIntent.create!(
+        user: user,
+        provider: 'anchor',
+        reference: 'BBG-LSGSCZ-LRLA',
+        expected_amount_cents: 100_000,
+        expires_at: 20.minutes.from_now,
+        status: 'pending',
+        metadata: {}
+      )
+
+      payload = {
+        'type' => 'payment.settled',
+        'attributes' => {
+          'payment' => {
+            'paymentId' => '177108533436536-anc_inb_trsf',
+            'paymentReference' => '1771084585945140-ref',
+            'currency' => 'NGN',
+            'amount' => 100_000,
+            'narration' => 'BBG-LSGSCZ-LRLA to Bit Bridge Global Limited'
+          }
+        }
+      }
+
+      service = instance_double(AnchorService)
+      allow(AnchorService).to receive(:new).and_return(service)
+      allow(service).to receive(:fund_deposit_account)
+
+      expect do
+        described_class.call(payload: payload, raw_body: payload.to_json)
+      end.to change(Transaction, :count).by(1)
+
+      expect(service).not_to have_received(:fund_deposit_account)
+
+      credit_tx = wallet.transactions.find_by(unique_transaction_id: 'anchor-pooled-177108533436536-anc_inb_trsf')
+      expect(credit_tx).to be_present
+      expect(credit_tx.amount).to eq(BigDecimal('1000.0'))
+      expect(credit_tx.status).to eq('approved')
+
+      inbound = InboundBankTransfer.find_by(provider: 'anchor', provider_reference: '177108533436536-anc_inb_trsf')
+      expect(inbound).to be_present
+      expect(inbound.status).to eq('credited')
+      expect(inbound.funding_intent_id).to eq(intent.id)
+
+      expect(intent.reload.status).to eq('credited')
+      expect(intent.credited_transaction_id).to eq(credit_tx.id)
+    end
+
     it 'stores unmatched pooled payin for manual review when no funding intent is found' do
       payload = {
         'type' => 'payin.received',
