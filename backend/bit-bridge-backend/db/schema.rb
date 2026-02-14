@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[7.1].define(version: 2026_02_14_113000) do
+ActiveRecord::Schema[7.1].define(version: 2026_02_14_142100) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pgcrypto"
   enable_extension "plpgsql"
@@ -390,6 +390,24 @@ ActiveRecord::Schema[7.1].define(version: 2026_02_14_113000) do
     t.index ["order_detail_id"], name: "index_electric_bill_orders_on_order_detail_id"
   end
 
+  create_table "funding_intents", id: :uuid, default: -> { "gen_random_uuid()" }, force: :cascade do |t|
+    t.uuid "user_id", null: false
+    t.string "provider", default: "anchor", null: false
+    t.string "reference", null: false
+    t.bigint "expected_amount_cents"
+    t.datetime "expires_at", null: false
+    t.string "status", default: "pending", null: false
+    t.jsonb "metadata", default: {}, null: false
+    t.uuid "credited_transaction_id"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["credited_transaction_id"], name: "index_funding_intents_on_credited_transaction_id"
+    t.index ["expires_at"], name: "index_funding_intents_on_expires_at"
+    t.index ["reference"], name: "index_funding_intents_on_reference", unique: true
+    t.index ["user_id", "status"], name: "index_funding_intents_on_user_id_and_status"
+    t.index ["user_id"], name: "index_funding_intents_on_user_id"
+  end
+
   create_table "fx_quotes", force: :cascade do |t|
     t.string "token", null: false
     t.string "direction", null: false
@@ -455,6 +473,28 @@ ActiveRecord::Schema[7.1].define(version: 2026_02_14_113000) do
     t.decimal "value_min"
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
+  end
+
+  create_table "inbound_bank_transfers", id: :uuid, default: -> { "gen_random_uuid()" }, force: :cascade do |t|
+    t.string "provider", default: "anchor", null: false
+    t.string "provider_reference", null: false
+    t.bigint "amount_cents", null: false
+    t.string "currency", default: "NGN", null: false
+    t.string "sender_name"
+    t.text "narration"
+    t.datetime "received_at"
+    t.string "status", default: "unmatched", null: false
+    t.uuid "matched_user_id"
+    t.uuid "funding_intent_id"
+    t.uuid "credited_transaction_id"
+    t.jsonb "raw_payload", default: {}, null: false
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["credited_transaction_id"], name: "index_inbound_bank_transfers_on_credited_transaction_id"
+    t.index ["funding_intent_id"], name: "index_inbound_bank_transfers_on_funding_intent_id"
+    t.index ["matched_user_id"], name: "index_inbound_bank_transfers_on_matched_user_id"
+    t.index ["provider", "provider_reference"], name: "index_inbound_bank_transfers_on_provider_and_provider_reference", unique: true
+    t.index ["status"], name: "index_inbound_bank_transfers_on_status"
   end
 
   create_table "kyc_attempts", id: :uuid, default: -> { "gen_random_uuid()" }, force: :cascade do |t|
@@ -953,7 +993,12 @@ ActiveRecord::Schema[7.1].define(version: 2026_02_14_113000) do
   add_foreign_key "disputes", "circle_transactions"
   add_foreign_key "disputes", "users", column: "raised_by_id"
   add_foreign_key "electric_bill_orders", "order_details"
+  add_foreign_key "funding_intents", "transactions", column: "credited_transaction_id"
+  add_foreign_key "funding_intents", "users"
   add_foreign_key "fx_quotes", "users"
+  add_foreign_key "inbound_bank_transfers", "funding_intents"
+  add_foreign_key "inbound_bank_transfers", "transactions", column: "credited_transaction_id"
+  add_foreign_key "inbound_bank_transfers", "users", column: "matched_user_id"
   add_foreign_key "order_details", "users"
   add_foreign_key "order_items", "order_details"
   add_foreign_key "order_items", "products"

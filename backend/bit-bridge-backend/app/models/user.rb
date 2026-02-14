@@ -23,6 +23,8 @@ class User < ApplicationRecord
   has_one :user_profile
   has_many :bill_orders
   has_many :bill_payment_intents
+  has_many :funding_intents, dependent: :destroy
+  has_many :matched_inbound_bank_transfers, class_name: "InboundBankTransfer", foreign_key: :matched_user_id, inverse_of: :matched_user
   has_many :reward_transactions
   has_many :accounts
   has_many :cards
@@ -329,3 +331,4 @@ class User < ApplicationRecord
     false
   end
 end
+

@@ -62,6 +62,10 @@ Rails.application.routes.draw do
       # Service availability (unknown-first signal)
       get "service_availability", to: "service_availability#index"
 
+      scope :funding do
+        get "anchor_pooled_account", to: "funding#anchor_pooled_account"
+        resources :intents, only: %i[create show], controller: "funding"
+      end
       # ✅ Termii delivery receipts (DLR)
       post "termii/dlr", to: "termii_webhooks#dlr"
 
@@ -365,3 +369,4 @@ Rails.application.routes.draw do
     end
   end
 end
+
