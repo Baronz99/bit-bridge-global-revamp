@@ -4,6 +4,13 @@ require 'rails_helper'
 
 RSpec.describe AnchorWebhookProcessor do
   describe '.call' do
+    around do |example|
+      original_scale = ENV['ANCHOR_AMOUNT_SCALE']
+      ENV['ANCHOR_AMOUNT_SCALE'] = '100'
+      example.run
+    ensure
+      ENV['ANCHOR_AMOUNT_SCALE'] = original_scale
+    end
     it 'processes payment.settled only once for same event type + reference' do
       payload = {
         'type' => 'payment.settled',
@@ -127,12 +134,61 @@ RSpec.describe AnchorWebhookProcessor do
       expect(settled_tx.coin_type).to eq('bank')
       expect(settled_tx.amount).to eq(BigDecimal('2500'))
       expect(settled_tx.metadata['anchor_payin_id']).to eq('payin_445566')
+      expect(settled_tx.metadata['anchor_amount_raw']).to eq('250000')
+      expect(settled_tx.metadata['anchor_amount_scale']).to eq('100.0')
+      expect(settled_tx.metadata['anchor_amount_major']).to eq('2500.0')
       expect(record.status).to eq('approved')
       expect(record.event_type).to eq('anchor.webhook.payin.received')
       expect(record.transaction_id).to eq('payin_445566')
       expect(wallet.transactions.where(status: :approved, transaction_type: :deposit, coin_type: :bank).count).to eq(1)
     end
 
+
+    it 'scales small NGN minor unit amounts deterministically without heuristic' do
+      user = create(:user, email: "payin-small-#{SecureRandom.hex(4)}@example.com")
+      wallet = user.ngn_wallet
+      initialized_tx = wallet.transactions.create!(
+        status: :initialized,
+        coin_type: :mobile_bank,
+        transaction_type: :deposit,
+        amount: 1,
+        metadata: { provider: 'anchor', purpose: 'wallet_fund' }
+      )
+      TransactionRecord.create!(
+        exchange: initialized_tx,
+        reference: 'fbg-500',
+        transaction_id: 'payin_500',
+        status: 'pending',
+        event_type: 'checkout.init'
+      )
+
+      payload = {
+        'type' => 'payin.received',
+        'attributes' => {
+          'payIn' => {
+            'id' => 'payin_500',
+            'reference' => 'fbg-500',
+            'amount' => '500',
+            'currency' => 'NGN'
+          }
+        }
+      }
+
+      service = instance_double(AnchorService)
+      allow(AnchorService).to receive(:new).and_return(service)
+      allow(service).to receive(:fetch_payin).and_return(status: :bad_request, message: 'not needed')
+
+      described_class.call(payload: payload, raw_body: payload.to_json)
+
+      record = TransactionRecord.find_by(reference: 'fbg-500')
+      settled_tx = record.exchange
+
+      expect(settled_tx).to be_present
+      expect(settled_tx.amount).to eq(BigDecimal('5.0'))
+      expect(settled_tx.metadata['anchor_amount_raw']).to eq('500')
+      expect(settled_tx.metadata['anchor_amount_scale']).to eq('100.0')
+      expect(settled_tx.metadata['anchor_amount_major']).to eq('5.0')
+    end
     it 'ignores payin.received when no matching reference or payin id exists' do
       payload = {
         'type' => 'payin.received',
@@ -160,3 +216,6 @@ RSpec.describe AnchorWebhookProcessor do
     end
   end
 end
+
+
+

@@ -319,13 +319,31 @@ class BuyPowerPaymentService
             return { response: electric_bill_order, status: 'pending' }
           end
 
+            existing_hold = WalletLedgerEntry.where(
+              wallet: wallet,
+              bill_order: electric_bill_order,
+              entry_type: :hold
+            ).order(created_at: :desc).first
+            existing_releases_total = WalletLedgerEntry.where(
+              wallet: wallet,
+              bill_order: electric_bill_order,
+              entry_type: :release
+            ).sum(:amount).to_d
+            existing_debits_total = WalletLedgerEntry.where(
+              wallet: wallet,
+              bill_order: electric_bill_order,
+              entry_type: :debit
+            ).sum(:amount).to_d
+            active_hold_outstanding = existing_hold&.amount.to_d - existing_releases_total - existing_debits_total
+            active_hold_present = active_hold_outstanding.positive?
+
             available_balance = wallet.ledger_available_balance
-            has_money = wallet_debit <= 0 || available_balance >= wallet_debit
+            has_money = wallet_debit <= 0 || active_hold_present || available_balance >= wallet_debit
 
             raise 'Insufficient funds' unless has_money
 
             # Avoid 0-amount holds that would create misleading ledger entries.
-            if wallet_debit.positive?
+            if wallet_debit.positive? && !active_hold_present
               WalletLedgerEntry.ensure_hold!(
                 wallet: wallet,
                 bill_order: electric_bill_order,
@@ -590,6 +608,19 @@ class BuyPowerPaymentService
       )
       return { response: electric_bill_order, status: 'success' }
     end
+
+    if payment_method.to_s == 'wallet' &&
+       electric_bill_order.present? &&
+       !BillOrder::TERMINAL_STATUSES.include?(electric_bill_order.status.to_s)
+      return handle_wallet_failure(
+        electric_bill_order,
+        payment_method,
+        e.message.to_s,
+        { error: e.message.to_s, exception_class: e.class.name },
+        status: 'failed'
+      )
+    end
+
     Rails.logger.error(
       "BuyPower confirm_subscription error #{request_tag} status=#{electric_bill_order&.status} error=#{e.class} message=#{e.message}"
     )

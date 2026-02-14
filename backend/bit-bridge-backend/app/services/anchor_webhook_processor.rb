@@ -106,7 +106,7 @@ class AnchorWebhookProcessor
       return unless funding_exchange.deposit?
       return unless funding_exchange.wallet.present?
 
-      amount, currency = extract_payin_amount_and_currency(payload, funding_exchange.amount)
+      amount, currency, raw_amount, amount_scale = extract_payin_amount_and_currency(payload, funding_exchange.amount)
 
       metadata = funding_exchange.metadata.is_a?(Hash) ? funding_exchange.metadata.deep_dup : {}
       metadata['provider'] = 'anchor'
@@ -115,6 +115,9 @@ class AnchorWebhookProcessor
       metadata['anchor_payment_reference'] ||= reference
       metadata['anchor_payin_event'] = 'payin.received'
       metadata['anchor_payin_currency'] = currency if currency.present?
+      metadata['anchor_amount_raw'] = raw_amount.to_s if raw_amount.present?
+      metadata['anchor_amount_scale'] = amount_scale
+      metadata['anchor_amount_major'] = amount.to_s('F')
       metadata['anchor_payin_payload'] = payload if payload.is_a?(Hash)
       metadata['anchor_funding_initialized_transaction_id'] = funding_exchange.id
 
@@ -186,12 +189,13 @@ class AnchorWebhookProcessor
 
     raw_amount = payin['amount'] || payment['amount']
     currency = payin['currency'] || payment['currency'] || 'NGN'
+    scale = anchor_amount_scale
 
     amount =
       begin
         value = BigDecimal(raw_amount.to_s)
-        if currency.to_s.upcase == 'NGN' && value.frac.zero? && value >= 1000
-          (value / 100).round(2)
+        if currency.to_s.upcase == 'NGN'
+          (value / scale).round(2)
         else
           value
         end
@@ -199,7 +203,17 @@ class AnchorWebhookProcessor
         fallback_amount.to_d
       end
 
-    [amount, currency]
+    [amount, currency, raw_amount, scale]
+  end
+
+  def anchor_amount_scale
+    configured = ENV['ANCHOR_AMOUNT_SCALE'].to_s
+    parsed = BigDecimal(configured)
+    return parsed if parsed.positive?
+
+    BigDecimal('100')
+  rescue StandardError
+    BigDecimal('100')
   end
 
   def locate_wallet_funding_record(reference:, payin_id:)
@@ -225,3 +239,4 @@ class AnchorWebhookProcessor
     Time.current
   end
 end
+
