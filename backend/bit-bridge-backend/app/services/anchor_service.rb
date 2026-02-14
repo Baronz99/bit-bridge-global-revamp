@@ -630,9 +630,11 @@ class AnchorService
     payment_fee = payment['fee']
     payment_type = payment['type']
 
+    # paymentId is Anchor's stable unique idempotency key for inbound payins.
+    # Do not fall back to paymentReference when paymentId is present because
+    # some references are reused and can collide with historical records.
     transaction_record = if payment_id.present?
-                           TransactionRecord.find_by(transaction_id: payment_id) ||
-                             TransactionRecord.find_by(reference: reference)
+                           TransactionRecord.find_by(transaction_id: payment_id)
                          else
                            TransactionRecord.find_by(reference: reference)
                          end

@@ -140,6 +140,49 @@ RSpec.describe AnchorService do
     expect(TransactionRecord.find_by(transaction_id: 'pay_dup_1')).to be_present
     expect(TransactionRecord.find_by(transaction_id: 'pay_dup_2')).to be_present
   end
+  it 'does not collide with a legacy record keyed only by paymentReference when paymentId is present' do
+    account = Account.create!(user: user, useable_id: 'acc_legacy_ref', vendor: 'anchor')
+    user.ngn_wallet
+
+    legacy_tx = wallet.transactions.create!(
+      status: :approved,
+      transaction_type: :deposit,
+      coin_type: :bank,
+      amount: 10
+    )
+    TransactionRecord.create!(
+      exchange: legacy_tx,
+      reference: 'legacy-ref-1',
+      status: 'approved',
+      event_type: 'anchor.webhook.payment.settled'
+    )
+
+    payload = {
+      'attributes' => {
+        'payment' => {
+          'settlementAccount' => { 'accountId' => account.useable_id },
+          'paymentId' => 'pay_new_1',
+          'paymentReference' => 'legacy-ref-1',
+          'amount' => '2500',
+          'currency' => 'NGN',
+          'virtualNuban' => { 'accountNumber' => '0000000002', 'accountName' => 'Receiver' },
+          'counterParty' => { 'accountNumber' => '1234567890', 'accountName' => 'Sender', 'bank' => { 'name' => 'Test Bank' } }
+        }
+      }
+    }
+
+    expect do
+      service.fund_deposit_account(payload)
+    end.to change(Transaction, :count).by(1)
+      .and change(TransactionRecord, :count).by(1)
+
+    new_record = TransactionRecord.find_by(transaction_id: 'pay_new_1')
+    expect(new_record).to be_present
+    expect(new_record.reference).to eq('pay_new_1')
+    expect(new_record.exchange).to be_present
+    expect(new_record.exchange.id).not_to eq(legacy_tx.id)
+  end
+
 
   it 'keeps naira amounts when configured' do
     ENV['ANCHOR_AMOUNT_SCALE'] = 'naira'
