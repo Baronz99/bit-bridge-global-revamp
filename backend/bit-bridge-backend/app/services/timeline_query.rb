@@ -303,9 +303,15 @@ class TimelineQuery
       .includes(:user, :transaction_record)
       .where(user_id: @user.id)
 
-    return scope unless bill_order_metadata_column?
-
-    scope.where("COALESCE(metadata ->> 'source', '') <> ?", 'anchor_transfer')
+    if bill_order_metadata_column?
+      scope.where.not(
+        "(COALESCE(metadata ->> 'source', '') = :source) OR (LOWER(COALESCE(description, '')) LIKE :hold_label)",
+        source: 'anchor_transfer',
+        hold_label: 'anchor ngn transfer hold%'
+      )
+    else
+      scope.where.not("LOWER(COALESCE(description, '')) LIKE ?", 'anchor ngn transfer hold%')
+    end
   end
 
   def bill_order_metadata_column?

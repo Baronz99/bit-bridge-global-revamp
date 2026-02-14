@@ -51,6 +51,32 @@ RSpec.describe TimelineQuery do
       expect(result[:items]).to be_an(Array)
     end
 
+    it 'excludes anchor transfer hold bill rows by description when metadata column is missing' do
+      allow(BillOrder).to receive(:column_names).and_return(BillOrder.column_names - ['metadata'])
+
+      BillOrder.create!(
+        user: user,
+        meter_number: '08012345679',
+        address: 'Hold Address',
+        name: 'Hold User',
+        tariff_class: 'A',
+        service_type: 'TRANSFER',
+        email: user.email,
+        amount: 1035,
+        phone: '08012345679',
+        biller: 'ANCHOR',
+        description: 'Anchor NGN transfer hold',
+        payment_type: 'online',
+        payment_method: 'wallet',
+        provider_response: {}
+      )
+
+      result = described_class.new(user: user, limit: 25).call
+      bill_labels = result[:items].select { |item| item[:kind] == 'bill_order' }.map { |item| item[:label] }
+
+      expect(bill_labels).not_to include('Anchor NGN transfer hold')
+    end
+
     it 'keeps pending anchor checkout initialization visible before settlement' do
       tx = user.ngn_wallet.transactions.create!(
         status: :initialized,

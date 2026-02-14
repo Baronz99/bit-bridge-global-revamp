@@ -615,7 +615,7 @@ module Api
           else
             []
           end
-        if bill_order.present?
+        if bill_order.present? && !transfer_fee_context[:applies]
           implied_fee = implied_fee_from_totals(
             total_amount: bill_order.total_amount,
             value_amount: value_amount,
