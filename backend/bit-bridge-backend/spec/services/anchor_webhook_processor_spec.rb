@@ -334,6 +334,67 @@ RSpec.describe AnchorWebhookProcessor do
       expect(intent.credited_transaction_id).to eq(credit_tx.id)
     end
 
+
+    it 'routes nip.inbound.settled with BBG narration through pooled credit flow' do
+      user = create(:user, email: "pooled-inbound-#{SecureRandom.hex(4)}@example.com")
+      wallet = user.ngn_wallet
+      intent = FundingIntent.create!(
+        user: user,
+        provider: 'anchor',
+        reference: 'BBG-INBD11-Z9X8',
+        expected_amount_cents: 50_000,
+        expires_at: 20.minutes.from_now,
+        status: 'pending',
+        metadata: {}
+      )
+
+      payload = {
+        'type' => 'nip.inbound.settled',
+        'relationships' => {
+          'transfer' => { 'data' => { 'id' => 'inb_trsf_001' } }
+        }
+      }
+
+      service = instance_double(AnchorService)
+      allow(AnchorService).to receive(:new).and_return(service)
+      allow(service).to receive(:fetch_payin).and_return(status: :bad_request, message: 'not needed')
+      allow(service).to receive(:fetch_inbound_transfer).and_return(
+        status: :ok,
+        data: {
+          'attributes' => {
+            'reference' => 'BBG-INBD11-Z9X8',
+            'currency' => 'NGN',
+            'amount' => 50_000,
+            'narration' => 'BBG-INBD11-Z9X8 inbound transfer',
+            'sourceAccountName' => 'TEST USER',
+            'sourceAccountNumber' => '0001112223',
+            'sourceBank' => { 'name' => 'GTBank' }
+          },
+          'relationships' => {
+            'account' => { 'data' => { 'id' => 'sett_acc_1' } },
+            'accountNumber' => { 'data' => { 'id' => 'acc_num_1' } }
+          }
+        }
+      )
+      allow(service).to receive(:fund_deposit_account)
+
+      expect do
+        described_class.call(payload: payload, raw_body: payload.to_json)
+      end.to change(Transaction, :count).by(1)
+
+      expect(service).not_to have_received(:fund_deposit_account)
+
+      credit_tx = wallet.transactions.find_by(unique_transaction_id: 'anchor-pooled-inb_trsf_001')
+      expect(credit_tx).to be_present
+      expect(credit_tx.amount).to eq(BigDecimal('500.0'))
+      expect(intent.reload.status).to eq('credited')
+      expect(intent.credited_transaction_id).to eq(credit_tx.id)
+
+      inbound = InboundBankTransfer.find_by(provider: 'anchor', provider_reference: 'inb_trsf_001')
+      expect(inbound).to be_present
+      expect(inbound.status).to eq('credited')
+      expect(inbound.funding_intent_id).to eq(intent.id)
+    end
     it 'stores unmatched pooled payin for manual review when no funding intent is found' do
       payload = {
         'type' => 'payin.received',

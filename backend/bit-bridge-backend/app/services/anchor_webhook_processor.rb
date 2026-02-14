@@ -3,13 +3,14 @@
 require 'digest'
 
 class AnchorWebhookProcessor
-  def self.call(payload:, raw_body: nil)
-    new(payload: payload, raw_body: raw_body).call
+  def self.call(payload:, raw_body: nil, force: false)
+    new(payload: payload, raw_body: raw_body, force: force).call
   end
 
-  def initialize(payload:, raw_body:)
+  def initialize(payload:, raw_body:, force:)
     @payload = payload.is_a?(Hash) ? payload : {}
     @raw_body = raw_body.to_s
+    @force = force
   end
 
   def call
@@ -22,7 +23,7 @@ class AnchorWebhookProcessor
     record.status ||= 'received'
     record.save! if record.changed?
 
-    return if record.processed_at.present? && record.status == 'processed'
+    return if record.processed_at.present? && record.status == 'processed' && !@force
 
     process_event!(event_type, @payload)
     record.update!(status: 'processed', processed_at: Time.current, error_message: nil)
@@ -57,6 +58,8 @@ class AnchorWebhookProcessor
     when 'nip.inbound.completed'
       transfer_id = payload.dig('relationships', 'transfer', 'data', 'id')
       service.get_inbound_transfer(transfer_id) if transfer_id.present?
+    when 'nip.inbound.settled'
+      process_nip_inbound_settled!(payload: payload, service: service)
     when 'nip.transfer.successful'
       service.confirm_transfer_withdrawal(payload)
     when 'nip.transfer.failed', 'nip.transfer.reversed', 'nip.transfer.rejected'
@@ -83,6 +86,65 @@ class AnchorWebhookProcessor
 
     account = Account.find_by(account_id: account_id)
     account&.update(status: 'verified')
+  end
+
+  def process_nip_inbound_settled!(payload:, service:)
+    transfer_id = payload.dig('relationships', 'transfer', 'data', 'id')
+    return if transfer_id.blank?
+
+    inbound_transfer = service.fetch_inbound_transfer(transfer_id)
+    unless inbound_transfer[:status] == :ok
+      service.get_inbound_transfer(transfer_id)
+      return
+    end
+
+    synthesized_payload = build_payin_payload_from_inbound_transfer(
+      transfer_id: transfer_id,
+      inbound_data: inbound_transfer[:data],
+      original_payload: payload
+    )
+
+    if pooled_funding_payload?(synthesized_payload)
+      process_payin_received!(payload: synthesized_payload, service: service)
+    else
+      service.fund_deposit_account(synthesized_payload)
+    end
+  end
+
+  def build_payin_payload_from_inbound_transfer(transfer_id:, inbound_data:, original_payload:)
+    data = inbound_data.is_a?(Hash) ? inbound_data : {}
+    attributes = data['attributes'].is_a?(Hash) ? data['attributes'] : data
+
+    {
+      'id' => original_payload['id'],
+      'type' => 'payment.settled',
+      'attributes' => {
+        'payment' => {
+          'paymentId' => transfer_id,
+          'paymentReference' => attributes['reference'] || attributes['paymentReference'] || transfer_id,
+          'currency' => attributes['currency'] || 'NGN',
+          'amount' => attributes['amount'],
+          'narration' => attributes['narration'] || attributes['description'] || attributes['reference'],
+          'paidAt' => attributes['settledAt'] || attributes['paidAt'] || attributes['createdAt'],
+          'createdAt' => attributes['createdAt'],
+          'counterParty' => {
+            'accountNumber' => attributes['sourceAccountNumber'],
+            'accountName' => attributes['sourceAccountName'],
+            'bank' => {
+              'name' => attributes.dig('sourceBank', 'name')
+            }
+          },
+          'virtualNuban' => {
+            'accountNumber' => attributes['destinationAccountNumber'] || attributes['accountNumber'],
+            'accountName' => attributes['destinationAccountName'] || attributes['accountName'],
+            'accountId' => data.dig('relationships', 'accountNumber', 'data', 'id')
+          },
+          'settlementAccount' => {
+            'accountId' => data.dig('relationships', 'account', 'data', 'id')
+          }
+        }
+      }
+    }
   end
 
   def process_payin_received!(payload:, service:)

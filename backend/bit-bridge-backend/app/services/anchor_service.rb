@@ -300,6 +300,14 @@ class AnchorService
       { message: e.message.to_s || 'bad request', status: :bad_request }
     end
   end
+  def fetch_inbound_transfer(transfer_id)
+    response = self.class.get("api/v1/inbound-transfers/#{transfer_id}", headers: @headers)
+    return { status: :ok, data: response['data'] || response } if response.success?
+
+    { status: :bad_request, message: response['message'].to_s.presence || response.message }
+  rescue StandardError => e
+    { status: :bad_request, message: e.message.to_s }
+  end
 
   def get_inbound_transfer(transfer_id)
     response = self.class.get("api/v1/inbound-transfers/#{transfer_id}", headers: @headers)
@@ -968,4 +976,3 @@ class AnchorService
     nil
   end
 end
-
