@@ -95,9 +95,22 @@ class AnchorWebhookProcessor
     end
 
     transaction_record = locate_wallet_funding_record(reference: reference, payin_id: payin_id)
-    return if transaction_record.blank?
-    return unless wallet_funding_record?(transaction_record)
+    if transaction_record.present? && wallet_funding_record?(transaction_record)
+      process_checkout_funding_payin!(
+        payload: payload,
+        reference: reference,
+        payin_id: payin_id,
+        transaction_record: transaction_record
+      )
+      return
+    end
 
+    process_pooled_funding_payin!(payload: payload, reference: reference, payin_id: payin_id)
+  rescue ActiveRecord::RecordNotUnique
+    nil
+  end
+
+  def process_checkout_funding_payin!(payload:, reference:, payin_id:, transaction_record:)
     transaction_record.with_lock do
       return if transaction_record.status.to_s == 'approved'
 
@@ -146,8 +159,171 @@ class AnchorWebhookProcessor
       updates[:transaction_id] = payin_id if payin_id.present? && transaction_record.transaction_id.blank?
       transaction_record.update!(updates)
     end
+  end
+
+  def process_pooled_funding_payin!(payload:, reference:, payin_id:)
+    provider_reference = payin_id.presence || reference.presence || "payin-#{Digest::SHA256.hexdigest(payload.to_json)}"
+    amount, currency, raw_amount, amount_scale = extract_payin_amount_and_currency(payload, 0)
+
+    inbound_transfer = InboundBankTransfer.find_or_initialize_by(
+      provider: 'anchor',
+      provider_reference: provider_reference
+    )
+
+    inbound_transfer.assign_attributes(
+      amount_cents: (amount.to_d * 100).round(0).to_i,
+      currency: currency.to_s.upcase.presence || 'NGN',
+      sender_name: extract_payin_sender_name(payload),
+      narration: extract_payin_narration(payload),
+      received_at: extract_payin_settled_at(payload),
+      raw_payload: payload,
+      status: inbound_transfer.status.presence || 'unmatched'
+    )
+
+    return if inbound_transfer.credited_transaction_id.present?
+
+    funding_intent = find_funding_intent_for_payin(reference: reference, payload: payload)
+    unless funding_intent
+      inbound_transfer.status = 'unmatched'
+      inbound_transfer.save!
+      return
+    end
+
+    FundingIntent.transaction do
+      funding_intent.lock!
+      inbound_transfer.save! if inbound_transfer.new_record? || inbound_transfer.changed?
+      inbound_transfer.lock!
+
+      if funding_intent.credited_transaction_id.present?
+        inbound_transfer.update!(
+          status: 'credited',
+          matched_user: funding_intent.user,
+          funding_intent: funding_intent,
+          credited_transaction_id: funding_intent.credited_transaction_id
+        )
+        return
+      end
+
+      if funding_intent.expires_at < Time.current
+        inbound_transfer.update!(
+          status: 'review',
+          matched_user: funding_intent.user,
+          funding_intent: funding_intent
+        )
+        return
+      end
+
+      tx = create_pooled_credit_transaction!(
+        funding_intent: funding_intent,
+        provider_reference: provider_reference,
+        amount: amount,
+        currency: currency,
+        raw_amount: raw_amount,
+        amount_scale: amount_scale,
+        payload: payload,
+        payin_id: payin_id,
+        reference: reference
+      )
+
+      intent_metadata = funding_intent.metadata.is_a?(Hash) ? funding_intent.metadata.deep_dup : {}
+      intent_metadata['credited_at'] = Time.current.utc.iso8601
+      intent_metadata['anchor_payin_id'] = payin_id if payin_id.present?
+      intent_metadata['anchor_provider_reference'] = provider_reference
+      funding_intent.update!(
+        status: 'credited',
+        credited_transaction: tx,
+        metadata: intent_metadata
+      )
+
+      upsert_funding_transaction_record!(
+        funding_intent: funding_intent,
+        provider_reference: provider_reference,
+        payin_id: payin_id,
+        amount: amount,
+        transaction: tx
+      )
+
+      inbound_transfer.update!(
+        status: 'credited',
+        matched_user: funding_intent.user,
+        funding_intent: funding_intent,
+        credited_transaction: tx
+      )
+    end
+  end
+
+  def create_pooled_credit_transaction!(funding_intent:, provider_reference:, amount:, currency:, raw_amount:, amount_scale:, payload:, payin_id:, reference:)
+    metadata = {
+      'provider' => 'anchor',
+      'purpose' => 'wallet_fund_pooled',
+      'funding_intent_id' => funding_intent.id,
+      'anchor_provider_reference' => provider_reference,
+      'anchor_payin_id' => payin_id,
+      'anchor_payment_reference' => reference,
+      'anchor_amount_raw' => raw_amount.to_s,
+      'anchor_amount_scale' => amount_scale,
+      'anchor_amount_major' => amount.to_s('F'),
+      'anchor_payin_currency' => currency,
+      'anchor_payin_payload' => payload
+    }.compact
+
+    funding_intent.user.ngn_wallet.transactions.create!(
+      status: :approved,
+      transaction_type: :deposit,
+      coin_type: :bank,
+      amount: amount,
+      unique_transaction_id: "anchor-pooled-#{provider_reference}",
+      metadata: metadata
+    )
   rescue ActiveRecord::RecordNotUnique
-    nil
+    funding_intent.user.ngn_wallet.transactions.find_by!(unique_transaction_id: "anchor-pooled-#{provider_reference}")
+  end
+
+  def upsert_funding_transaction_record!(funding_intent:, provider_reference:, payin_id:, amount:, transaction:)
+    record = TransactionRecord.find_or_initialize_by(reference: funding_intent.reference)
+    record.exchange = transaction
+    record.status = 'approved'
+    record.event_type = 'anchor.webhook.payin.received'
+    record.transaction_id = payin_id.presence || provider_reference
+    record.amount = amount
+    record.description = 'Anchor pooled wallet funding'
+    record.save!
+  end
+
+  def find_funding_intent_for_payin(reference:, payload:)
+    candidates = [
+      reference,
+      extract_payin_reference_from_narration(payload)
+    ].compact.map { |value| value.to_s.strip.upcase }.uniq
+
+    return nil if candidates.empty?
+
+    FundingIntent.where(reference: candidates).order(created_at: :desc).first
+  end
+
+  def extract_payin_reference_from_narration(payload)
+    narration = extract_payin_narration(payload)
+    return nil if narration.blank?
+
+    match = narration.to_s.upcase.match(/BBG-[A-Z0-9]{6}-[A-Z0-9]{4}/)
+    match&.to_s
+  end
+
+  def extract_payin_sender_name(payload)
+    payin = payload.dig('attributes', 'payIn') || payload.dig('data', 'attributes', 'payIn') || {}
+    payment = payload.dig('attributes', 'payment') || payload.dig('data', 'attributes', 'payment') || {}
+
+    payin['senderName'].presence ||
+      payin.dig('counterParty', 'accountName').presence ||
+      payment.dig('counterParty', 'accountName').presence ||
+      payment['senderName'].presence
+  end
+
+  def extract_payin_narration(payload)
+    payin = payload.dig('attributes', 'payIn') || payload.dig('data', 'attributes', 'payIn') || {}
+    payment = payload.dig('attributes', 'payment') || payload.dig('data', 'attributes', 'payment') || {}
+
+    payin['narration'].presence || payment['narration'].presence || payin['reference'].presence
   end
 
   def wallet_funding_record?(transaction_record)
@@ -239,4 +415,3 @@ class AnchorWebhookProcessor
     Time.current
   end
 end
-

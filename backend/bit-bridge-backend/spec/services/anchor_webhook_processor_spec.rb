@@ -11,6 +11,7 @@ RSpec.describe AnchorWebhookProcessor do
     ensure
       ENV['ANCHOR_AMOUNT_SCALE'] = original_scale
     end
+
     it 'processes payment.settled only once for same event type + reference' do
       payload = {
         'type' => 'payment.settled',
@@ -143,7 +144,6 @@ RSpec.describe AnchorWebhookProcessor do
       expect(wallet.transactions.where(status: :approved, transaction_type: :deposit, coin_type: :bank).count).to eq(1)
     end
 
-
     it 'scales small NGN minor unit amounts deterministically without heuristic' do
       user = create(:user, email: "payin-small-#{SecureRandom.hex(4)}@example.com")
       wallet = user.ngn_wallet
@@ -189,6 +189,130 @@ RSpec.describe AnchorWebhookProcessor do
       expect(settled_tx.metadata['anchor_amount_scale']).to eq('100.0')
       expect(settled_tx.metadata['anchor_amount_major']).to eq('5.0')
     end
+
+    it 'creates pooled funding credit when payin matches funding intent reference' do
+      user = create(:user, email: "pooled-#{SecureRandom.hex(4)}@example.com")
+      wallet = user.ngn_wallet
+      intent = FundingIntent.create!(
+        user: user,
+        provider: 'anchor',
+        reference: 'BBG-ABC123-1XYZ',
+        expected_amount_cents: 300_00,
+        expires_at: 20.minutes.from_now,
+        status: 'pending',
+        metadata: {}
+      )
+
+      payload = {
+        'type' => 'payin.received',
+        'attributes' => {
+          'payIn' => {
+            'id' => 'payin_pool_1',
+            'reference' => 'BBG-ABC123-1XYZ',
+            'amount' => '30000',
+            'currency' => 'NGN',
+            'narration' => 'Wallet topup BBG-ABC123-1XYZ'
+          }
+        }
+      }
+
+      service = instance_double(AnchorService)
+      allow(AnchorService).to receive(:new).and_return(service)
+      allow(service).to receive(:fetch_payin).and_return(status: :bad_request, message: 'not needed')
+
+      expect do
+        described_class.call(payload: payload, raw_body: payload.to_json)
+      end.to change(Transaction, :count).by(1)
+
+      credit_tx = wallet.transactions.find_by(unique_transaction_id: 'anchor-pooled-payin_pool_1')
+      expect(credit_tx).to be_present
+      expect(credit_tx.status).to eq('approved')
+      expect(credit_tx.amount).to eq(BigDecimal('300.0'))
+      expect(credit_tx.metadata['purpose']).to eq('wallet_fund_pooled')
+      expect(credit_tx.metadata['funding_intent_id']).to eq(intent.id)
+
+      intent.reload
+      expect(intent.status).to eq('credited')
+      expect(intent.credited_transaction_id).to eq(credit_tx.id)
+
+      inbound = InboundBankTransfer.find_by(provider: 'anchor', provider_reference: 'payin_pool_1')
+      expect(inbound).to be_present
+      expect(inbound.status).to eq('credited')
+      expect(inbound.funding_intent_id).to eq(intent.id)
+      expect(inbound.matched_user_id).to eq(user.id)
+      expect(inbound.credited_transaction_id).to eq(credit_tx.id)
+
+      record = TransactionRecord.find_by(reference: intent.reference)
+      expect(record).to be_present
+      expect(record.exchange_id).to eq(credit_tx.id)
+      expect(record.status).to eq('approved')
+    end
+
+    it 'does not double-credit pooled intent on duplicate payin webhook deliveries' do
+      user = create(:user, email: "pooled-dup-#{SecureRandom.hex(4)}@example.com")
+      wallet = user.ngn_wallet
+      FundingIntent.create!(
+        user: user,
+        provider: 'anchor',
+        reference: 'BBG-DUP111-ABCD',
+        expires_at: 20.minutes.from_now,
+        status: 'pending',
+        metadata: {}
+      )
+
+      payload = {
+        'type' => 'payin.received',
+        'attributes' => {
+          'payIn' => {
+            'id' => 'payin_pool_dup',
+            'reference' => 'BBG-DUP111-ABCD',
+            'amount' => '15000',
+            'currency' => 'NGN'
+          }
+        }
+      }
+
+      service = instance_double(AnchorService)
+      allow(AnchorService).to receive(:new).and_return(service)
+      allow(service).to receive(:fetch_payin).and_return(status: :bad_request, message: 'not needed')
+
+      described_class.call(payload: payload, raw_body: payload.to_json)
+      described_class.call(payload: payload, raw_body: payload.to_json)
+
+      expect(wallet.transactions.where(unique_transaction_id: 'anchor-pooled-payin_pool_dup').count).to eq(1)
+      inbound = InboundBankTransfer.find_by(provider: 'anchor', provider_reference: 'payin_pool_dup')
+      expect(inbound.status).to eq('credited')
+    end
+
+    it 'stores unmatched pooled payin for manual review when no funding intent is found' do
+      payload = {
+        'type' => 'payin.received',
+        'attributes' => {
+          'payIn' => {
+            'id' => 'payin_unmatched',
+            'reference' => 'BBG-NOTMAT-0000',
+            'amount' => '250000',
+            'currency' => 'NGN',
+            'narration' => 'Unknown payment'
+          }
+        }
+      }
+
+      service = instance_double(AnchorService)
+      allow(AnchorService).to receive(:new).and_return(service)
+      allow(service).to receive(:fetch_payin).and_return(status: :bad_request, message: 'not needed')
+
+      expect do
+        described_class.call(payload: payload, raw_body: payload.to_json)
+      end.not_to change(Transaction, :count)
+
+      inbound = InboundBankTransfer.find_by(provider: 'anchor', provider_reference: 'payin_unmatched')
+      expect(inbound).to be_present
+      expect(inbound.status).to eq('unmatched')
+      expect(inbound.funding_intent_id).to be_nil
+      expect(inbound.credited_transaction_id).to be_nil
+    end
+
     it 'ignores payin.received when no matching reference or payin id exists' do
       payload = {
         'type' => 'payin.received',
@@ -216,6 +340,3 @@ RSpec.describe AnchorWebhookProcessor do
     end
   end
 end
-
-
-

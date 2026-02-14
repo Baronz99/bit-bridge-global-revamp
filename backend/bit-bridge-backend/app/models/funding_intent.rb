@@ -6,6 +6,7 @@ class FundingIntent < ApplicationRecord
 
   belongs_to :user
   belongs_to :credited_transaction, class_name: 'Transaction', optional: true
+  has_many :inbound_bank_transfers, dependent: :nullify
 
   validates :provider, inclusion: { in: PROVIDERS }
   validates :reference, presence: true, uniqueness: true
