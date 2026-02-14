@@ -3,6 +3,8 @@
 module Bills
   class ExecuteIntent
     DEFAULT_EXPIRY = 30.minutes
+    PROVIDER_STATUS_FRESHNESS = 10.minutes
+    MIN_STATUS_SAMPLE_SIZE = 10
 
     def self.call(intent:, request_id: nil)
       new(intent: intent, request_id: request_id).call
@@ -20,6 +22,9 @@ module Bills
       bill_order = @intent.bill_order
       return failure_response('Bill order not found for this intent') if bill_order.blank?
       return failure_response('Wallet not found') if wallet.blank?
+
+      guard_response = service_checkout_guard_response(bill_order: bill_order)
+      return guard_response if guard_response.present?
 
       if already_financially_finalized?(bill_order: bill_order)
         finalize_completed_intent!(bill_order: bill_order, result: 'already_finalized')
@@ -51,6 +56,55 @@ module Bills
     end
 
     private
+
+def service_checkout_guard_response(bill_order:)
+  status = current_provider_status_for(bill_order: bill_order)
+  return nil if status.blank?
+
+  return service_unavailable_response(status) if status[:state] == 'down'
+
+  if status[:state] == 'unstable'
+    @service_warning = {
+      code: 'SERVICE_UNSTABLE',
+      message: 'Service is currently unstable. Transaction may be delayed.',
+      details: {
+        service_key: status[:service_key],
+        reliability_percent: status[:reliability_percent],
+        sample_size: status[:sample_size],
+        window_ended_at: status[:window_ended_at]
+      }
+    }
+  end
+
+  nil
+end
+
+def current_provider_status_for(bill_order:)
+  key = provider_service_key_for(bill_order: bill_order)
+  row = ProviderServiceStatus
+          .where(provider: 'buypower', service_key: key)
+          .where('updated_at >= ?', Time.current - PROVIDER_STATUS_FRESHNESS)
+          .order(updated_at: :desc)
+          .first
+  return nil if row.blank?
+  return nil if row.sample_size.to_i < MIN_STATUS_SAMPLE_SIZE
+
+  {
+    service_key: row.service_key,
+    state: row.state,
+    reliability_percent: row.reliability_percent,
+    sample_size: row.sample_size,
+    window_ended_at: row.window_ended_at&.iso8601
+  }
+end
+
+def provider_service_key_for(bill_order:)
+  service_type = bill_order.service_type.to_s.strip.upcase
+  biller = bill_order.biller.to_s.strip.upcase.gsub(/ +/, '_')
+  return service_type if biller.empty?
+
+  "#{biller}_#{service_type}"
+end
 
     def wallet
       @wallet ||= @intent.user&.wallet
@@ -201,29 +255,32 @@ module Bills
     end
 
     def success_response(message)
-      { http_status: :ok, body: { success: true, message: message, intent: intent_payload } }
+      body = { success: true, message: message, intent: intent_payload }
+      { http_status: :ok, body: append_service_warning(body) }
     end
 
     def pending_response(message)
-      { http_status: :accepted, body: {
+      body = {
         success: false,
         status: 'pending',
         message: message,
         intent_id: @intent.id,
         bill_order_id: @intent.bill_order_id,
         retryable: true
-      } }
+      }
+      { http_status: :accepted, body: append_service_warning(body) }
     end
 
     def failure_response(message)
-      { http_status: :unprocessable_entity, body: { success: false, message: message, intent: intent_payload } }
+      body = { success: false, message: message, intent: intent_payload }
+      { http_status: :unprocessable_entity, body: append_service_warning(body) }
     end
 
     def insufficient_funds_response
       required_total = required_wallet_debit(bill_order: @intent.bill_order)
       available_balance = wallet.ledger_available_balance.to_d
 
-      { http_status: :unprocessable_entity, body: {
+      body = {
         success: false,
         error_code: 'INSUFFICIENT_FUNDS',
         message: 'Insufficient wallet balance',
@@ -234,7 +291,34 @@ module Bills
         },
         retryable: true,
         intent: intent_payload
-      } }
+      }
+      { http_status: :unprocessable_entity, body: append_service_warning(body) }
+    end
+
+    def service_unavailable_response(status)
+      {
+        http_status: :unprocessable_entity,
+        body: {
+          success: false,
+          error_code: 'SERVICE_UNAVAILABLE',
+          message: 'This service is temporarily unavailable. Please try again later.',
+          details: {
+            service_key: status[:service_key],
+            state: status[:state],
+            reliability_percent: status[:reliability_percent],
+            sample_size: status[:sample_size],
+            window_ended_at: status[:window_ended_at]
+          },
+          retryable: true,
+          intent: intent_payload
+        }
+      }
+    end
+
+    def append_service_warning(body)
+      return body if @service_warning.blank?
+
+      body.merge(warning: @service_warning)
     end
 
     def use_commission?
@@ -264,3 +348,6 @@ module Bills
     end
   end
 end
+
+
+

@@ -330,4 +330,65 @@ RSpec.describe Bills::ExecuteIntent, type: :service do
     expect(result[:http_status]).to eq(:ok)
     expect(intent.reload.status).to eq('completed')
   end
+  it 'blocks checkout when provider status is down' do
+    user = create(:user)
+    wallet = user.wallet
+    Transaction.create!(wallet: wallet, amount: 20_000, bonus: 0, status: :approved, transaction_type: :deposit)
+    bill_order = create_bill_order(user: user, amount: 1000)
+    intent = BillPaymentIntent.find_or_create_for_bill_order!(bill_order: bill_order)
+
+    ProviderServiceStatus.create!(
+      provider: 'buypower',
+      service_key: 'IKEJA_ELECTRICITY',
+      state: 'down',
+      reliability_percent: 30,
+      sample_size: 20,
+      window_started_at: 30.minutes.ago,
+      window_ended_at: Time.current
+    )
+
+    service = instance_double(BuyPowerPaymentService)
+    allow(BuyPowerPaymentService).to receive(:new).and_return(service)
+    expect(service).not_to receive(:confirm_subscription)
+
+    result = described_class.call(intent: intent, request_id: 'req-status-down')
+
+    expect(result[:http_status]).to eq(:unprocessable_entity)
+    expect(result.dig(:body, :error_code)).to eq('SERVICE_UNAVAILABLE')
+    expect(intent.reload.status).to eq('draft')
+  end
+
+  it 'allows checkout with warning when provider status is unstable' do
+    user = create(:user)
+    wallet = user.wallet
+    Transaction.create!(wallet: wallet, amount: 20_000, bonus: 0, status: :approved, transaction_type: :deposit)
+    bill_order = create_bill_order(user: user, amount: 1000)
+    intent = BillPaymentIntent.find_or_create_for_bill_order!(bill_order: bill_order)
+
+    ProviderServiceStatus.create!(
+      provider: 'buypower',
+      service_key: 'IKEJA_ELECTRICITY',
+      state: 'unstable',
+      reliability_percent: 75,
+      sample_size: 20,
+      window_started_at: 30.minutes.ago,
+      window_ended_at: Time.current
+    )
+
+    service = instance_double(BuyPowerPaymentService)
+    allow(BuyPowerPaymentService).to receive(:new).and_return(service)
+    allow(service).to receive(:confirm_subscription) do |order, *_args, **_kwargs|
+      order.update!(status: :completed, provider_reference: 'provider-unstable')
+      BillOrders::Finalizer.call(bill_order: order)
+      { status: 'success', response: order }
+    end
+
+    result = described_class.call(intent: intent, request_id: 'req-status-unstable')
+
+    expect(result[:http_status]).to eq(:ok)
+    expect(result.dig(:body, :warning, :code)).to eq('SERVICE_UNSTABLE')
+    expect(intent.reload.status).to eq('completed')
+  end
 end
+
+

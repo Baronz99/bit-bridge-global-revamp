@@ -6,6 +6,7 @@ module ServiceAvailability
     WINDOW_MINUTES = 15
     STALE_AFTER_SECONDS = 180
     PERSISTED_FRESHNESS_SECONDS = 600
+    MIN_PERSISTED_SAMPLE_SIZE = 10
 
     def initialize(now: Time.current)
       @now = now
@@ -42,7 +43,8 @@ module ServiceAvailability
     end
 
     def build_persisted_row(key:, orders:, persisted:)
-      state = internal_state_from_provider_state(persisted.state)
+      provider_state = persisted.sample_size.to_i < MIN_PERSISTED_SAMPLE_SIZE ? 'unknown' : persisted.state.to_s
+      state = internal_state_from_provider_state(provider_state)
 
       {
         key: key,
@@ -52,7 +54,7 @@ module ServiceAvailability
         reliability_percent: persisted.reliability_percent,
         last_updated_at: persisted.window_ended_at&.iso8601 || persisted.updated_at&.iso8601,
         source: {
-          provider_signal: persisted.state,
+          provider_signal: provider_state,
           internal_signal: state
         },
         metrics: {

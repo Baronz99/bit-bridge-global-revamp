@@ -78,5 +78,31 @@ RSpec.describe 'Service availability', type: :request do
       expect(service['confidence']).to eq('high')
       expect(service.dig('advice', 'can_checkout')).to eq(false)
     end
+    it 'treats persisted status as unknown when sample size is below threshold' do
+      now = Time.current
+      ProviderServiceStatus.create!(
+        provider: 'buypower',
+        service_key: 'AIRTEL_DATA',
+        state: 'down',
+        reliability_percent: 10,
+        sample_size: 3,
+        window_started_at: now - 30.minutes,
+        window_ended_at: now,
+        avg_latency_ms: 6200,
+        updated_at: now,
+        created_at: now
+      )
+
+      get '/api/v1/service_availability', headers: headers
+
+      expect(response).to have_http_status(:ok)
+      body = JSON.parse(response.body)
+      service = body.dig('data', 'services').find { |row| row['key'] == 'AIRTEL_DATA' }
+
+      expect(service).to be_present
+      expect(service['state']).to eq('unknown')
+      expect(service.dig('source', 'provider_signal')).to eq('unknown')
+    end
   end
 end
+
