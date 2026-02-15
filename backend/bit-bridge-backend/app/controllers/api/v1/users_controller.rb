@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require 'uri'
+
 module Api
   module V1
     class UsersController < ApplicationController
@@ -24,6 +26,9 @@ module Api
         ngn_wallet = user.wallet
         account = user.accounts.order(created_at: :desc).first
 
+        id_doc_review = latest_document_review(user.id, 'id_document')
+        proof_doc_review = latest_document_review(user.id, 'proof_of_address')
+
         render json: {
           data: {
             id: user.id,
@@ -43,7 +48,7 @@ module Api
             transaction_pin_lock_remaining_seconds: user.transaction_pin_lock_remaining_seconds,
             wallet: serialize_compact_wallet(ngn_wallet),
             account: serialize_compact_account(account),
-            user_profile: serialize_compact_profile(profile),
+            user_profile: serialize_compact_profile(profile, id_doc_review: id_doc_review, proof_doc_review: proof_doc_review),
             user_kyc: serialize_compact_kyc(kyc)
           }.compact
         }, status: :ok
@@ -445,8 +450,13 @@ module Api
         }.compact
       end
 
-      def serialize_compact_profile(profile)
+      def serialize_compact_profile(profile, id_doc_review:, proof_doc_review:)
         return nil unless profile
+
+        id_document_uploaded = profile.respond_to?(:id_document) && profile.id_document.attached?
+        proof_of_address_uploaded = profile.respond_to?(:proof_of_address) && profile.proof_of_address.attached?
+        id_document_status = resolve_document_status(uploaded: id_document_uploaded, review: id_doc_review)
+        proof_of_address_status = resolve_document_status(uploaded: proof_of_address_uploaded, review: proof_doc_review)
 
         {
           id: profile.id,
@@ -463,8 +473,75 @@ module Api
           state: profile.state,
           country: profile.country,
           postal_code: profile.postal_code,
-          proof_of_address_type: profile.proof_of_address_type
+          proof_of_address_type: profile.proof_of_address_type,
+          id_document_url: blob_url_for(profile, :id_document),
+          proof_of_address_url: blob_url_for(profile, :proof_of_address),
+          id_document_filename: blob_filename_for(profile, :id_document),
+          proof_of_address_filename: blob_filename_for(profile, :proof_of_address),
+          id_document_uploaded: id_document_uploaded,
+          proof_of_address_uploaded: proof_of_address_uploaded,
+          id_document_status: id_document_status,
+          proof_of_address_status: proof_of_address_status,
+          id_document_rejection_reason: (id_doc_review&.reason if id_document_status == 'rejected'),
+          proof_of_address_rejection_reason: (proof_doc_review&.reason if proof_of_address_status == 'rejected')
         }.compact
+      end
+
+      def latest_document_review(user_id, kyc_type)
+        KycReview
+          .where(user_id: user_id, kyc_type: kyc_type)
+          .order(created_at: :desc)
+          .first
+      end
+
+      def resolve_document_status(uploaded:, review:)
+        return 'pending' unless uploaded
+        return 'rejected' if review&.status.to_s == 'rejected'
+
+        'approved'
+      end
+
+      def blob_url_for(profile, attachment_name)
+        return nil unless profile.respond_to?(attachment_name)
+
+        attachment = profile.public_send(attachment_name)
+        return nil unless attachment.attached?
+
+        host, protocol = blob_url_host_and_protocol
+        return nil if host.blank?
+
+        Rails.application.routes.url_helpers.rails_blob_url(
+          attachment,
+          host: host,
+          protocol: protocol
+        )
+      end
+
+      def blob_filename_for(profile, attachment_name)
+        return nil unless profile.respond_to?(attachment_name)
+
+        attachment = profile.public_send(attachment_name)
+        return nil unless attachment.attached?
+
+        attachment.filename.to_s
+      end
+
+      def blob_url_host_and_protocol
+        raw = ENV['STAGING_BACKEND_HOST'] || ENV['BACKEND_HOST'] || 'localhost:3000'
+        return [nil, nil] if raw.blank?
+
+        if raw.include?('://')
+          uri = URI.parse(raw)
+          [uri.host, uri.scheme || blob_default_protocol]
+        else
+          [raw, blob_default_protocol]
+        end
+      rescue URI::InvalidURIError
+        [raw, blob_default_protocol]
+      end
+
+      def blob_default_protocol
+        Rails.env.production? || Rails.env.staging? ? 'https' : 'http'
       end
 
       def serialize_compact_kyc(kyc)
