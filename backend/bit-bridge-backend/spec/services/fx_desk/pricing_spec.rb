@@ -94,4 +94,41 @@ RSpec.describe FxDesk::Pricing do
     ENV['FX_BASE_RATE_SOURCE'] = old_source
     ENV['FX_PROVIDER_MAX_AGE_SECONDS'] = old_max_age
   end
+
+  it 'refreshes Bridgecard provider rate in lock mode when realtime sync is enabled' do
+    old_source = ENV['FX_BASE_RATE_SOURCE']
+    old_max_age = ENV['FX_PROVIDER_MAX_AGE_SECONDS']
+    old_rt = ENV['FX_PROVIDER_REALTIME_SYNC']
+    old_window = ENV['FX_PROVIDER_REALTIME_REFRESH_SECONDS']
+
+    ENV['FX_BASE_RATE_SOURCE'] = 'bridgecard'
+    ENV['FX_PROVIDER_MAX_AGE_SECONDS'] = '300'
+    ENV['FX_PROVIDER_REALTIME_SYNC'] = 'true'
+    ENV['FX_PROVIDER_REALTIME_REFRESH_SECONDS'] = '30'
+
+    setting = FxSetting.current
+    setting.update!(
+      base_usd_ngn_rate: 1500,
+      provider_source: 'bridgecard',
+      provider_usd_ngn_rate: 1600,
+      provider_updated_at: 10.minutes.ago
+    )
+
+    allow(Bridgecard::FxRateFetcher).to receive(:call).and_wrap_original do |_m, setting:|
+      setting.update!(
+        provider_source: 'bridgecard',
+        provider_usd_ngn_rate: 1700,
+        provider_updated_at: Time.current
+      )
+      { computed_rate: 1700.to_d }
+    end
+
+    expect(pricing.base_rate).to eq(1700.to_d)
+    expect(Bridgecard::FxRateFetcher).to have_received(:call).once
+  ensure
+    ENV['FX_BASE_RATE_SOURCE'] = old_source
+    ENV['FX_PROVIDER_MAX_AGE_SECONDS'] = old_max_age
+    ENV['FX_PROVIDER_REALTIME_SYNC'] = old_rt
+    ENV['FX_PROVIDER_REALTIME_REFRESH_SECONDS'] = old_window
+  end
 end

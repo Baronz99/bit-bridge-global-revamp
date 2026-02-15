@@ -14,6 +14,8 @@ module FxDesk
 
     def base_rate
       setting = FxSetting.current
+      ensure_bridgecard_provider_rate_current!(setting) if bridgecard_base_lock_enabled?
+
       raw_rate =
         if @base_rate_override.present?
           @base_rate_override
@@ -125,6 +127,52 @@ module FxDesk
     end
 
     private
+
+    def ensure_bridgecard_provider_rate_current!(setting)
+      return unless realtime_provider_refresh_enabled?
+      return if bridgecard_provider_fresh_for_realtime?(setting)
+
+      refresh_window_seconds = provider_refresh_window_seconds
+      now = Time.current
+
+      setting.with_lock do
+        setting.reload
+
+        return if bridgecard_provider_fresh_for_realtime?(setting)
+        return if setting.provider_next_refresh_at.present? && setting.provider_next_refresh_at > now
+
+        setting.update_column(:provider_next_refresh_at, now + refresh_window_seconds.seconds)
+
+        begin
+          Bridgecard::FxRateFetcher.call(setting: setting)
+          setting.reload
+        rescue Bridgecard::FxRateFetcher::Error => e
+          Rails.logger.warn("[FxDesk::Pricing] bridgecard_realtime_refresh_failed message=#{e.message}")
+        end
+      end
+    rescue StandardError => e
+      Rails.logger.warn("[FxDesk::Pricing] bridgecard_realtime_refresh_error message=#{e.message}")
+    end
+
+    def bridgecard_provider_fresh_for_realtime?(setting)
+      return false unless bridgecard_provider_usable?(setting)
+
+      setting.provider_updated_at >= provider_refresh_window_seconds.seconds.ago
+    end
+
+    def provider_refresh_window_seconds
+      value = ENV.fetch('FX_PROVIDER_REALTIME_REFRESH_SECONDS', '20').to_i
+      value = 20 if value <= 0
+      value
+    end
+
+    def realtime_provider_refresh_enabled?
+      if ENV.key?('FX_PROVIDER_REALTIME_SYNC')
+        ActiveModel::Type::Boolean.new.cast(ENV['FX_PROVIDER_REALTIME_SYNC'])
+      else
+        !Rails.env.test?
+      end
+    end
 
     def bridgecard_base_lock_enabled?
       ENV['FX_BASE_RATE_SOURCE'].to_s.casecmp('bridgecard').zero? ||
