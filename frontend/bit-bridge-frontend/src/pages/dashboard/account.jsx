@@ -179,7 +179,9 @@ const Account = () => {
   // Tunnel state
   const [usdWallet, setUsdWallet] = useState(null)
   const [usdTx, setUsdTx] = useState([])
+  const [ngnTx, setNgnTx] = useState([])
   const [tunnelLoading, setTunnelLoading] = useState(false)
+  const [txLoading, setTxLoading] = useState(false)
 
   // Convert modal
   const [isConvertOpen, setIsConvertOpen] = useState(false)
@@ -258,11 +260,6 @@ const Account = () => {
         // your backend response in pasted code:
         // { message, data: WalletSerializer.new(usd_wallet).as_json }
         setUsdWallet(w?.data?.data || wData)
-
-        // fetch USD transactions
-        const txRes = await getUserTransactions({ wallet_type: 'usd' })
-        const txData = txRes?.data?.data || []
-        setUsdTx(Array.isArray(txData) ? txData : txData?.data || [])
       } catch (e) {
         toast.error(e?.response?.data?.message || 'Failed to load Tunnel wallet')
       } finally {
@@ -271,6 +268,27 @@ const Account = () => {
     }
     run()
   }, [isTunnel, needsTier2])
+
+  // Fetch wallet history from transactions API for both modes.
+  useEffect(() => {
+    const run = async () => {
+      setTxLoading(true)
+      try {
+        const walletType = isTunnel ? 'usd' : 'ngn'
+        const txRes = await getUserTransactions({ wallet_type: walletType })
+        const txData = txRes?.data?.data || []
+        const normalized = Array.isArray(txData) ? txData : txData?.data || []
+        if (isTunnel) setUsdTx(normalized)
+        else setNgnTx(normalized)
+      } catch (e) {
+        toast.error(e?.response?.data?.message || 'Failed to load transaction history')
+      } finally {
+        setTxLoading(false)
+      }
+    }
+
+    run()
+  }, [isTunnel])
 
   // Bridge funding (Monnify) unchanged
   const handleSubmit = (values) => {
@@ -351,10 +369,14 @@ const Account = () => {
       dispatch(getWallet())
       const w = await activateTunnelWallet()
       setUsdWallet(w?.data?.data)
-
-      const txRes = await getUserTransactions({ wallet_type: 'usd' })
-      const txData = txRes?.data?.data || []
-      setUsdTx(Array.isArray(txData) ? txData : txData?.data || [])
+      const [usdRes, ngnRes] = await Promise.all([
+        getUserTransactions({ wallet_type: 'usd' }),
+        getUserTransactions({ wallet_type: 'ngn' }),
+      ])
+      const usdData = usdRes?.data?.data || []
+      const ngnData = ngnRes?.data?.data || []
+      setUsdTx(Array.isArray(usdData) ? usdData : usdData?.data || [])
+      setNgnTx(Array.isArray(ngnData) ? ngnData : ngnData?.data || [])
 
       setIsConvertOpen(false)
       setConvertAmount('')
@@ -481,7 +503,7 @@ const Account = () => {
 
   const activeCurrencyLabel = isTunnel ? 'USD - Tunnel' : 'NGN - Bridge'
 
-  const txList = isTunnel ? usdTx : wallet?.transactions
+  const txList = isTunnel ? usdTx : ngnTx
 
   return (
     <>
@@ -737,7 +759,7 @@ const Account = () => {
                             ) : (
                               <tr>
                                 <td colSpan={5} className="py-8 text-center text-sm text-slate-500">
-                                  {tunnelLoading ? 'Loading...' : 'No transactions yet.'}
+                                  {tunnelLoading || txLoading ? 'Loading...' : 'No transactions yet.'}
                                 </td>
                               </tr>
                             )}
