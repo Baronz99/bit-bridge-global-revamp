@@ -78,6 +78,16 @@ module Api
 
       # POST /api/v1/cards/register_cardholder
       def register_cardholder
+        existing_cardholder = latest_cardholder_profile_for(current_user)
+        if existing_cardholder.present?
+          meta = existing_cardholder.meta_data.is_a?(Hash) ? existing_cardholder.meta_data : {}
+          kyc_status = meta['cardholder_kyc_status'].to_s
+          return render json: {
+            data: existing_cardholder,
+            message: "Cardholder profile already exists#{": #{kyc_status.tr('_', ' ')}" if kyc_status.present?}."
+          }, status: :ok
+        end
+
         service = BridgeCardService.new
 
         profile_hash = current_user.user_profile&.attributes&.symbolize_keys || {}
@@ -521,6 +531,16 @@ module Api
         return amount.to_f unless currency == 'USD'
 
         (amount / 100).to_f
+      end
+
+      def latest_cardholder_profile_for(user)
+        return nil if user.blank?
+
+        user
+          .cards
+          .where.not(cardholder_id: [nil, ''])
+          .order(created_at: :desc)
+          .first
       end
 
       def provider_missing_error?(message)

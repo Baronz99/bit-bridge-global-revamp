@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import states from '../../data/states.json'
 import { useDispatch, useSelector } from 'react-redux'
@@ -62,9 +62,11 @@ export default function VirtualCardApplication() {
   const [withdrawAmount, setWithdrawAmount] = useState('')
   const [withdrawResult, setWithdrawResult] = useState(null)
   const [creationFeeUsd, setCreationFeeUsd] = useState(CARD_CREATION_FEE_USD)
+  const [cardholderProfile, setCardholderProfile] = useState(null)
   const gateToastShownRef = useRef(false)
-    const [showRevealPinModal, setShowRevealPinModal] = useState(false)
+  const [showRevealPinModal, setShowRevealPinModal] = useState(false)
   const [revealPin, setRevealPin] = useState('') // PIN used ONLY for reveal
+  const providerMissingHandledRef = useRef(false)
 
 
   const [formData, setFormData] = useState({
@@ -107,7 +109,8 @@ export default function VirtualCardApplication() {
     { id: 'graphite', label: 'Graphite' },
   ]
 
-  const hasCardholder = Boolean(card?.cardholder_id)
+  const effectiveCardholderProfile = card?.cardholder_id ? card : cardholderProfile
+  const hasCardholder = Boolean(effectiveCardholderProfile?.cardholder_id)
   const hasCardId = Boolean(card?.card_id)
   const showCardholderForm = !hasCardholder
   const showCreateForm = hasCardholder && !hasCardId
@@ -278,6 +281,10 @@ export default function VirtualCardApplication() {
         setCardBalance(balanceData)
       } catch (error) {
         if (!isMounted) return
+        if (isProviderMissingCardError(error)) {
+          await recoverFromProviderMissingCard()
+          return
+        }
         setCardDetails(null)
         setCardBalance(null)
       } finally {
@@ -292,6 +299,39 @@ export default function VirtualCardApplication() {
       isMounted = false
     }
   }, [card?.id, card?.card_id])
+
+  useEffect(() => {
+    let active = true
+
+    if (card?.cardholder_id) {
+      setCardholderProfile(card)
+      return () => {
+        active = false
+      }
+    }
+
+    const loadReusableCardholder = async () => {
+      try {
+        const response = await client.get('/cards')
+        const payload = response?.data
+        const cardsList = Array.isArray(payload) ? payload : Array.isArray(payload?.data) ? payload.data : []
+        const candidate = cardsList
+          .filter((item) => Boolean(item?.cardholder_id))
+          .sort((a, b) => new Date(b?.created_at || 0).getTime() - new Date(a?.created_at || 0).getTime())[0]
+
+        if (!active) return
+        setCardholderProfile(candidate || null)
+      } catch (_) {
+        if (!active) return
+        setCardholderProfile(null)
+      }
+    }
+
+    loadReusableCardholder()
+    return () => {
+      active = false
+    }
+  }, [card?.id, card?.cardholder_id])
 
   useEffect(() => {
     if (!DEBUG_STRIP) return
@@ -350,22 +390,23 @@ export default function VirtualCardApplication() {
 
   // Prefill from existing cardholder profile (if any)
   useEffect(() => {
-    if (!card) return
+    const profileSource = card || effectiveCardholderProfile
+    if (!profileSource) return
     setFormData((prev) => ({
       ...prev,
-      city: card?.city || '',
-      state: card?.state || '',
-      bvn: card?.bvn || '',
-      address: card?.address || '',
-      house_no: card?.house_no || '',
-      postal_code: card?.postal_code || '',
+      city: profileSource?.city || '',
+      state: profileSource?.state || '',
+      bvn: profileSource?.bvn || '',
+      address: profileSource?.address || '',
+      house_no: profileSource?.house_no || '',
+      postal_code: profileSource?.postal_code || '',
       card_brand: 'Mastercard',
       card_currency: 'USD',
       card_type: 'Virtual',
       card_limit: 5000,
       wallet_type: 'usd',
     }))
-  }, [card])
+  }, [card, effectiveCardholderProfile])
 
   function handleChange(e) {
     const { name, value, type, checked } = e.target
@@ -495,7 +536,10 @@ const setCardPin = (nextPin) => {
           dispatch(getWallet())
           setHistoryTick((value) => value + 1)
         })
-        .catch((err) => {
+        .catch(async (err) => {
+          if (isProviderMissingCardError(err)) {
+            await recoverFromProviderMissingCard()
+          }
           setSuccessCreate({
             ok: false,
             message: `Card funding failed. ${err.message || ''}`,
@@ -509,6 +553,7 @@ const setCardPin = (nextPin) => {
       createCard({
         card: {
           ...formData,
+          cardholder_id: effectiveCardholderProfile?.cardholder_id,
           card_currency: 'USD',
           card_limit: normalizedCardLimitCents,
           card_pin: (formData.card_pin || '').length === PIN_LENGTH ? formData.card_pin : undefined,
@@ -565,7 +610,10 @@ const setCardPin = (nextPin) => {
         })
         setHistoryTick((value) => value + 1)
       })
-      .catch((err) => {
+      .catch(async (err) => {
+        if (isProviderMissingCardError(err)) {
+          await recoverFromProviderMissingCard()
+        }
         setWithdrawResult({
           ok: false,
           message: `Withdrawal failed. ${err.message || ''}`,
@@ -582,6 +630,39 @@ const setCardPin = (nextPin) => {
   const canWithdraw =
     withdrawAmountValue > 0 && hasCardId
 
+  const getApiErrorCode = (error) =>
+    String(error?.response?.data?.code || error?.code || '').toUpperCase()
+
+  const getApiErrorMessage = (error) =>
+    String(error?.response?.data?.message || error?.message || '').toLowerCase()
+
+  const isProviderMissingCardError = useCallback((error) => {
+    const code = getApiErrorCode(error)
+    const status = Number(error?.response?.status || 0)
+    const message = getApiErrorMessage(error)
+
+    if (code === 'CARD_PROVIDER_MISSING') return true
+    if (status === 404 && (message.includes('card') || message.includes('not found'))) return true
+    return message.includes('invalid card id') || message.includes('no card with this id')
+  }, [])
+
+  const recoverFromProviderMissingCard = useCallback(async () => {
+    if (providerMissingHandledRef.current) return
+    providerMissingHandledRef.current = true
+
+    setCardDetails(null)
+    setCardBalance(null)
+    setCardReveal(null)
+    setShowCardDetails(false)
+    setCardRevealError(null)
+    setFreezeError(null)
+    setSuccessCreate(null)
+    setWithdrawResult(null)
+
+    await dispatch(getUserCard())
+    toast.info('This card is no longer available. We refreshed your active card state.')
+  }, [dispatch])
+
   const onCardMove = (event) => {
     const rect = event.currentTarget.getBoundingClientRect()
     const x = ((event.clientX - rect.left) / rect.width - 0.5) * 10
@@ -590,6 +671,10 @@ const setCardPin = (nextPin) => {
   }
 
   const onCardLeave = () => setCardTilt({ x: 0, y: 0 })
+
+  useEffect(() => {
+    providerMissingHandledRef.current = false
+  }, [card?.id])
 
   const isEncryptedValue = (value) => {
     if (!value) return false
@@ -1401,6 +1486,11 @@ const setCardPin = (nextPin) => {
                         const detailsRes = await client.get(`/cards/${card?.id}/details`)
                         setCardDetails(detailsRes?.data?.data || null)
                       } catch (error) {
+                        if (isProviderMissingCardError(error)) {
+                          await recoverFromProviderMissingCard()
+                          setFreezeError('Card is no longer available.')
+                          return
+                        }
                         setFreezeError('Unable to update card status right now.')
                       } finally {
                         setFreezeLoading(false)
@@ -2513,6 +2603,11 @@ const setCardPin = (nextPin) => {
                       setRevealPin('')
                       setRevealCooldownUntil(now + 3000)
                     } catch (error) {
+                      if (isProviderMissingCardError(error)) {
+                        await recoverFromProviderMissingCard()
+                        setCardRevealError('Card is no longer available. Create a new card to continue.')
+                        return
+                      }
                       setCardRevealError('Unable to reveal card details right now.')
                     } finally {
                       setCardRevealLoading(false)
