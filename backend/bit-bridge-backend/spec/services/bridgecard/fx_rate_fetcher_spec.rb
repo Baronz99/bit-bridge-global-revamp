@@ -87,4 +87,24 @@ RSpec.describe Bridgecard::FxRateFetcher do
       described_class.call(setting: setting)
     }.to raise_error(Bridgecard::FxRateFetcher::Error, /out of range/i)
   end
+
+  it 'syncs base_usd_ngn_rate with provider rate when bridgecard source lock is enabled' do
+    ENV['FX_BASE_RATE_SOURCE'] = 'bridgecard'
+    setting.update!(base_usd_ngn_rate: 1500)
+
+    response = instance_double(
+      HTTParty::Response,
+      success?: true,
+      code: 200,
+      body: '{"data":{"NGN-USD":"141406"}}',
+      parsed_response: { 'data' => { 'NGN-USD' => '141406' } }
+    )
+    allow(HTTParty).to receive(:get).and_return(response)
+
+    described_class.call(setting: setting)
+    setting.reload
+
+    expect(setting.provider_usd_ngn_rate.to_d).to eq(1414.06.to_d)
+    expect(setting.base_usd_ngn_rate.to_d).to eq(1414.06.to_d)
+  end
 end

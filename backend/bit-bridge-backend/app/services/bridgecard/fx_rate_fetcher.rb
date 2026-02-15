@@ -65,7 +65,8 @@ module Bridgecard
         provider_raw: raw_int,
         provider_usd_ngn_rate: computed_rate,
         provider_source: 'bridgecard',
-        provider_updated_at: Time.current
+        provider_updated_at: Time.current,
+        base_usd_ngn_rate: (bridgecard_base_lock_enabled? ? computed_rate : @setting.base_usd_ngn_rate)
       )
 
       {
@@ -110,6 +111,11 @@ module Bridgecard
       return if computed_rate.to_d.positive? && computed_rate.to_d < 1_000_000
 
       raise Error, "Bridgecard FX rate out of range: #{computed_rate}"
+    end
+
+    def bridgecard_base_lock_enabled?
+      ENV['FX_BASE_RATE_SOURCE'].to_s.casecmp('bridgecard').zero? ||
+        ActiveModel::Type::Boolean.new.cast(ENV['FX_BASE_RATE_BRIDGECARD_LOCK'])
     end
   end
 end
