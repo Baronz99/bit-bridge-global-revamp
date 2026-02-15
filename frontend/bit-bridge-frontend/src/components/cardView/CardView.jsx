@@ -443,6 +443,35 @@ const setCardPin = (nextPin) => {
     return null
   }
 
+  const isLikelyCreateNetworkError = useCallback((error) => {
+    const message = String(error?.message || '').toLowerCase()
+    const code = String(error?.code || '').toLowerCase()
+    return (
+      error?.isNetworkError === true ||
+      code === 'ecconnaborted' ||
+      message.includes('network error') ||
+      message.includes('timeout')
+    )
+  }, [])
+
+  const recoverCreatedCardAfterNetworkError = useCallback(async () => {
+    const maxAttempts = 6
+    for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+      try {
+        const response = await client.get('/cards/user_card')
+        const payload = response?.data?.data ?? response?.data
+        if (payload?.card_id) {
+          await dispatch(getUserCard())
+          return true
+        }
+      } catch {
+        // keep retrying briefly before giving up
+      }
+      await new Promise((resolve) => setTimeout(resolve, 1500))
+    }
+    return false
+  }, [dispatch])
+
   // Register cardholder
   async function handleSubmitCardholder(e) {
     e.preventDefault()
@@ -567,9 +596,31 @@ const setCardPin = (nextPin) => {
           ok: true,
           message: result?.message || 'Card request submitted successfully.',
         })
+        dispatch(getUserCard())
         dispatch(getWallet())
       })
-      .catch((err) => {
+      .catch(async (err) => {
+        if (isLikelyCreateNetworkError(err)) {
+          const recovered = await recoverCreatedCardAfterNetworkError()
+          if (recovered) {
+            setSuccessCreate({
+              ok: true,
+              message:
+                'Card request completed. We detected your active card after a network timeout.',
+            })
+            dispatch(getWallet())
+            setHistoryTick((value) => value + 1)
+            return
+          }
+
+          setSuccessCreate({
+            ok: false,
+            message:
+              'Network timeout while creating card. We could not confirm final status yet. Refresh once before retrying.',
+          })
+          return
+        }
+
         setSuccessCreate({
           ok: false,
           message: `Card creation failed. ${err.message || ''}`,
@@ -1575,6 +1626,12 @@ const setCardPin = (nextPin) => {
                         >
                           {submitting ? 'Processing...' : fundingCta}
                         </button>
+                        {submitting && !successCreate && (
+                          <p className="text-[11px] text-cyan-200 flex items-center gap-2">
+                            <span className="inline-block h-2 w-2 rounded-full bg-cyan-400 vc-pulse" />
+                            Finalizing card request. Please wait...
+                          </p>
+                        )}
                         {successCreate && (
                           <div
                             className={`mt-2 p-3 rounded-md text-xs ${
@@ -2461,6 +2518,12 @@ const setCardPin = (nextPin) => {
               >
                 {submitting ? 'Processing...' : fundingCta}
               </button>
+              {submitting && !successCreate && (
+                <p className="text-[11px] text-cyan-200 flex items-center gap-2">
+                  <span className="inline-block h-2 w-2 rounded-full bg-cyan-400 vc-pulse" />
+                  Finalizing card request. Please wait...
+                </p>
+              )}
 
               {successCreate && (
                 <div

@@ -188,7 +188,12 @@ export const createCard = createAsyncThunk(
     } catch (error) {
       const message = getErrorMessage(error)
       toast(message, { type: 'error' })
-      return rejectWithValue({ message })
+      return rejectWithValue({
+        message,
+        code: error?.code,
+        status: error?.response?.status,
+        isNetworkError: !error?.response,
+      })
     }
   }
 )
