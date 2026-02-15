@@ -160,6 +160,10 @@ class BridgeCardService
   encrypted_pin = encrypt_pin_for_bridge(params[:pin])
 
   if wallet_type == 'usd'
+    if card.card_id.present? && !card.provider_missing?
+      return { data: card, message: 'Card already exists for this cardholder.', status: :ok }
+    end
+
     usd_wallet = user.usd_wallet
     raise StandardError, 'USD wallet not found. Activate tunnel first.' if usd_wallet.blank?
 
@@ -189,24 +193,38 @@ class BridgeCardService
     ActiveRecord::Base.transaction do
       fee_txn = nil
       if !fee_charged
-        fee_reference = "card-fee-#{SecureRandom.uuid}"
+        fee_reference = "card-fee-#{transaction_reference}"
 
-        fee_amount_usd = (fee_cents / 100.0).round(2)
-        fee_txn = usd_wallet.transactions.create!(
-          transaction_type: 'withdrawal',
-          status: 'approved',
-          amount: fee_amount_usd,
-          coin_type: 'bank',
-          address: 'Virtual Card Creation Fee',
-          unique_transaction_id: fee_reference
-        )
+        if usd_wallet.transactions.exists?(unique_transaction_id: fee_reference)
+          fee_charged = true
+          meta['creation_fee_charged'] = true
+          meta['creation_fee_reference'] = fee_reference
+        end
 
-        usd_wallet.debit_cents!(fee_cents)
+        unless fee_charged
+          fee_amount_usd = (fee_cents / 100.0).round(2)
+          fee_txn = usd_wallet.transactions.create!(
+            transaction_type: 'withdrawal',
+            status: 'approved',
+            amount: fee_amount_usd,
+            coin_type: 'bank',
+            address: 'Virtual Card Creation Fee',
+            unique_transaction_id: fee_reference,
+            metadata: {
+              subtype: 'card_creation_fee',
+              local_card_id: card.id,
+              cardholder_id: cardholder_id,
+              transaction_reference: transaction_reference
+            }
+          )
 
-        meta['creation_fee_charged'] = true
-        meta['creation_fee_cents'] = fee_cents
-        meta['creation_fee_reference'] = fee_reference
-        meta['creation_fee_charged_at'] = Time.current
+          usd_wallet.debit_cents!(fee_cents)
+
+          meta['creation_fee_charged'] = true
+          meta['creation_fee_cents'] = fee_cents
+          meta['creation_fee_reference'] = fee_reference
+          meta['creation_fee_charged_at'] = Time.current
+        end
       end
 
       unless requires_funding

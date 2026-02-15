@@ -638,8 +638,47 @@ module Api
         return if wallet.balance_cents.to_i < fee_cents
 
         reference_seed = data.is_a?(Hash) ? data['transaction_reference'].to_s : ''
-        fee_reference = meta['creation_fee_reference'].presence || "card-fee-reconcile-#{reference_seed.presence || card.id}"
-        return if wallet.transactions.exists?(unique_transaction_id: fee_reference)
+        expected_fee_reference = reference_seed.present? ? "card-fee-#{reference_seed}" : nil
+        fee_reference = meta['creation_fee_reference'].presence || expected_fee_reference || "card-fee-reconcile-#{reference_seed.presence || card.id}"
+
+        existing_fee_txn =
+          wallet.transactions
+                .where(transaction_type: 'withdrawal')
+                .where(address: 'Virtual Card Creation Fee')
+                .where(
+                  "unique_transaction_id = :fee_reference OR " \
+                  "unique_transaction_id = :expected_fee_reference OR " \
+                  "bridge_card_id = :bridge_card_id OR " \
+                  "metadata ->> 'local_card_id' = :local_card_id",
+                  fee_reference: fee_reference.to_s,
+                  expected_fee_reference: expected_fee_reference.to_s,
+                  bridge_card_id: card.card_id.to_s,
+                  local_card_id: card.id.to_s
+                )
+                .order(created_at: :desc)
+                .first
+
+        if existing_fee_txn.blank?
+          # Fallback race-condition guard:
+          # creation event can arrive before card_id linkage; detect fee debited moments earlier.
+          existing_fee_txn =
+            wallet.transactions
+                  .where(transaction_type: 'withdrawal')
+                  .where(address: 'Virtual Card Creation Fee')
+                  .where(amount: (fee_cents / 100.0).round(2))
+                  .where('created_at >= ?', 10.minutes.ago)
+                  .order(created_at: :desc)
+                  .first
+        end
+
+        if existing_fee_txn.present?
+          meta['creation_fee_charged'] = true
+          meta['creation_fee_cents'] = fee_cents
+          meta['creation_fee_reference'] = existing_fee_txn.unique_transaction_id
+          meta['creation_fee_charged_at'] ||= existing_fee_txn.created_at
+          card.update!(meta_data: meta)
+          return
+        end
 
         ActiveRecord::Base.transaction do
           wallet.transactions.create!(
