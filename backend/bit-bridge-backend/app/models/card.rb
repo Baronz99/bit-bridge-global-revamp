@@ -3,6 +3,8 @@
 class Card < ApplicationRecord
   belongs_to :user
 
+  TERMINAL_STATUSES = %w[provider_missing closed deleted].freeze
+
   STATUS_MAP = {
     'active' => 'active',
     'activated' => 'active',
@@ -14,6 +16,23 @@ class Card < ApplicationRecord
     'pending' => 'pending',
     'created' => 'pending'
   }.freeze
+
+  def provider_missing?
+    status.to_s == 'provider_missing'
+  end
+
+  def mark_provider_missing!(provider_message: nil)
+    meta = meta_data.is_a?(Hash) ? meta_data.dup : {}
+    meta['provider_missing_at'] = Time.current.iso8601
+    meta['provider_missing_reason'] = provider_message.to_s[0, 300] if provider_message.present?
+
+    update!(
+      status: 'provider_missing',
+      provider_status: 'not_found',
+      provider_updated_at: Time.current,
+      meta_data: meta
+    )
+  end
 
   def apply_provider_status!(provider_status, livemode: nil)
     return if provider_status.blank?

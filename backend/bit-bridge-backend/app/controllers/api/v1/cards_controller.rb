@@ -67,7 +67,12 @@ module Api
 
       # GET /api/v1/cards/user_card
       def user_card
-        card = current_user.cards.order(created_at: :asc).last
+        card =
+          current_user
+          .cards
+          .where.not(status: Card::TERMINAL_STATUSES)
+          .order(created_at: :asc)
+          .last
         render json: { data: card, status: :ok }
       end
 
@@ -202,6 +207,7 @@ module Api
       # GET /api/v1/cards/:id/details
       def details
         card = find_user_card!(params[:id])
+        return render_provider_missing_card if card.provider_missing?
         return render json: { message: 'card_id not available' }, status: :unprocessable_entity if card.card_id.blank?
 
         service = BridgeCardService.new
@@ -209,6 +215,9 @@ module Api
 
         if service_response[:status] == :ok
           render json: { data: service_response[:data], status: :ok }
+        elsif provider_missing_error?(service_response[:message])
+          mark_card_provider_missing(card, service_response[:message])
+          render_provider_missing_card
         else
           render json: { message: service_response[:message] }, status: :unprocessable_entity
         end
@@ -217,6 +226,7 @@ module Api
       # GET /api/v1/cards/:id/balance
       def balance
         card = find_user_card!(params[:id])
+        return render_provider_missing_card if card.provider_missing?
         return render json: { message: 'card_id not available' }, status: :unprocessable_entity if card.card_id.blank?
 
         service = BridgeCardService.new
@@ -224,6 +234,9 @@ module Api
 
         if service_response[:status] == :ok
           render json: { data: service_response[:data], status: :ok }
+        elsif provider_missing_error?(service_response[:message])
+          mark_card_provider_missing(card, service_response[:message])
+          render_provider_missing_card
         else
           render json: { message: service_response[:message] }, status: :unprocessable_entity
         end
@@ -390,6 +403,7 @@ module Api
       # PATCH /api/v1/cards/:id/freeze
       def freeze
         card = find_user_card!(params[:id])
+        return render_provider_missing_card if card.provider_missing?
         return render json: { message: 'card_id not available' }, status: :unprocessable_entity if card.card_id.blank?
 
         service = BridgeCardService.new
@@ -398,6 +412,9 @@ module Api
         if service_response[:status] == :ok
           card.update!(status: 'frozen', frozen_by: 'user', frozen_reason: 'User requested freeze')
           render json: { data: service_response[:data], message: service_response[:message], status: :ok }
+        elsif provider_missing_error?(service_response[:message])
+          mark_card_provider_missing(card, service_response[:message])
+          render_provider_missing_card
         else
           render json: { message: service_response[:message] }, status: :unprocessable_entity
         end
@@ -406,6 +423,7 @@ module Api
       # PATCH /api/v1/cards/:id/unfreeze
       def unfreeze
         card = find_user_card!(params[:id])
+        return render_provider_missing_card if card.provider_missing?
         return render json: { message: 'card_id not available' }, status: :unprocessable_entity if card.card_id.blank?
 
         service = BridgeCardService.new
@@ -415,6 +433,9 @@ module Api
           card.update!(status: 'active', frozen_by: nil, frozen_reason: nil)
           Cards::RiskEngine.reset_declines!(card: card)
           render json: { data: service_response[:data], message: service_response[:message], status: :ok }
+        elsif provider_missing_error?(service_response[:message])
+          mark_card_provider_missing(card, service_response[:message])
+          render_provider_missing_card
         else
           render json: { message: service_response[:message] }, status: :unprocessable_entity
         end
@@ -500,6 +521,26 @@ module Api
         return amount.to_f unless currency == 'USD'
 
         (amount / 100).to_f
+      end
+
+      def provider_missing_error?(message)
+        normalized = message.to_s.downcase
+        normalized.include?('invalid card id') ||
+          normalized.include?("there's no card with this id") ||
+          normalized.include?('card not found')
+      end
+
+      def mark_card_provider_missing(card, provider_message)
+        card.mark_provider_missing!(provider_message: provider_message)
+      rescue StandardError => e
+        Rails.logger.warn("[CardsController] provider_missing_mark_failed card=#{card&.id} message=#{e.message}")
+      end
+
+      def render_provider_missing_card
+        render json: {
+          message: 'Card is no longer available. Please create a new card.',
+          code: 'CARD_PROVIDER_MISSING'
+        }, status: :not_found
       end
     end
   end

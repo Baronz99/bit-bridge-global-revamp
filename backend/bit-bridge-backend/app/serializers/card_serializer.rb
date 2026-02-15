@@ -68,16 +68,10 @@ class CardSerializer < ActiveModel::Serializer
 
   def card_last4
     meta = object.meta_data || {}
-    last4 =
-      meta['last4'] ||
+    meta['last4'] ||
       meta['last_4'] ||
       meta['pan_last4'] ||
       meta['card_last4']
-
-    return last4 if last4.present?
-
-    raw = object.card_id.to_s
-    raw.length >= 4 ? raw[-4, 4] : nil
   end
 
   def exp_month
