@@ -17,6 +17,21 @@ const PIN_LENGTH = 4
 const CARD_CREATION_FEE_USD = 4
 const DEBUG_STRIP = false
 
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
+
+const normalizeFundingState = (value) => {
+  const state = String(value || '').trim().toLowerCase()
+  if (!state) return null
+  if (['successful', 'success', 'succeeded', 'approved', 'completed', 'complete'].includes(state)) {
+    return 'successful'
+  }
+  if (['failed', 'failure', 'declined', 'error', 'cancelled', 'canceled', 'reversed'].includes(state)) {
+    return 'failed'
+  }
+  if (['pending', 'processing', 'queued', 'initiated', 'in_progress'].includes(state)) return 'pending'
+  return null
+}
+
 export default function VirtualCardApplication() {
   const dispatch = useDispatch()
   const navigate = useNavigate()
@@ -557,11 +572,31 @@ const setCardPin = (nextPin) => {
             wallet_type: 'usd',
           },
         })
-        .then((response) => {
+        .then(async (response) => {
+          const responseData = response?.data?.data || {}
+          const fundingReference = responseData?.transaction_reference
+          const cardLookupId = card?.id || card?.card_id
+
           setSuccessCreate({
             ok: true,
-            message: response?.data?.message || 'Funding submitted successfully.',
+            message: 'Card funding in progress. Confirming final status...',
           })
+
+          if (fundingReference && cardLookupId) {
+            const statusResult = await pollFundingStatus({
+              cardId: cardLookupId,
+              reference: fundingReference,
+            })
+
+            if (statusResult.state === 'successful') {
+              setSuccessCreate({ ok: true, message: 'Card funded successfully.' })
+            } else if (statusResult.state === 'failed') {
+              setSuccessCreate({ ok: false, message: 'Card funding failed. Provider rejected the transaction.' })
+            } else {
+              setSuccessCreate({ ok: true, message: 'Card funding is still processing. Pull to refresh shortly.' })
+            }
+          }
+
           dispatch(getWallet())
           setHistoryTick((value) => value + 1)
         })
@@ -713,6 +748,34 @@ const setCardPin = (nextPin) => {
     await dispatch(getUserCard())
     toast.info('This card is no longer available. We refreshed your active card state.')
   }, [dispatch])
+
+  const pollFundingStatus = useCallback(
+    async ({ cardId, reference, maxAttempts = 10, delayMs = 1500 }) => {
+      if (!cardId || !reference) return { state: 'pending', payload: null }
+
+      for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+        try {
+          const response = await client.get(`/cards/${cardId}/funding_status`, {
+            params: { reference },
+          })
+          const payload = response?.data?.data || {}
+          const state = normalizeFundingState(payload?.state || payload?.status || payload?.provider_state)
+
+          if (state === 'successful') return { state, payload }
+          if (state === 'failed') return { state, payload }
+        } catch (_) {
+          // Ignore transient polling failures and continue polling.
+        }
+
+        if (attempt < maxAttempts - 1) {
+          await sleep(delayMs)
+        }
+      }
+
+      return { state: 'pending', payload: null }
+    },
+    []
+  )
 
   const onCardMove = (event) => {
     const rect = event.currentTarget.getBoundingClientRect()
