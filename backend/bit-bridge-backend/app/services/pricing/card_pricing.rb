@@ -92,15 +92,15 @@ module Pricing
         tx_currency = data['currency'].presence || data['transaction_currency'].presence
 
         if settlement_currency&.upcase == 'USD' && data['settled_amount'].present?
-          return BigDecimal(data['settled_amount'].to_s)
+          return parse_usd_amount(data['settled_amount'])
         end
 
         if billing_currency&.upcase == 'USD' && data['billing_amount'].present?
-          return BigDecimal(data['billing_amount'].to_s)
+          return parse_usd_amount(data['billing_amount'])
         end
 
         if tx_currency&.upcase == 'USD' && data['amount'].present?
-          return BigDecimal(data['amount'].to_s)
+          return parse_usd_amount(data['amount'])
         end
 
         if data['amount_usd'].present?
@@ -114,6 +114,20 @@ module Pricing
 
       def usd_round(value)
         BigDecimal(value.to_s).round(2)
+      rescue ArgumentError
+        0.to_d
+      end
+
+      # Bridgecard card event payloads frequently provide USD amounts as integer cents.
+      # Keep decimal payloads as-is, but treat plain integer strings/numbers as cents.
+      def parse_usd_amount(value)
+        raw = value.to_s.strip
+        return 0.to_d if raw.blank?
+
+        amount = BigDecimal(raw)
+        return amount / 100 if raw.match?(/\A-?\d+\z/)
+
+        amount
       rescue ArgumentError
         0.to_d
       end

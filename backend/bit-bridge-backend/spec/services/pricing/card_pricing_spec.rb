@@ -3,8 +3,17 @@
 require 'rails_helper'
 
 RSpec.describe Pricing::CardPricing do
-  it 'applies usd fees with caps' do
-    quote = described_class.quote({ 'currency' => 'USD', 'amount' => 2000 })
+  it 'treats integer USD amount payload as cents' do
+    quote = described_class.quote({ 'currency' => 'USD', 'amount' => 1900 })
+
+    expect(quote[:principal_usd].to_f).to eq(19.0)
+    expect(quote[:provider_fee_usd].to_f).to eq(0.19)
+    expect(quote[:bitbridge_fee_usd].to_f).to eq(0.19)
+    expect(quote[:total_debit_usd].to_f).to eq(19.38)
+  end
+
+  it 'keeps decimal USD payload values as dollars' do
+    quote = described_class.quote({ 'currency' => 'USD', 'amount' => '2000.00' })
 
     expect(quote[:principal_usd].to_f).to eq(2000.0)
     expect(quote[:provider_fee_usd].to_f).to eq(10.0)

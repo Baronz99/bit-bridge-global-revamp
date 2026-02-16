@@ -37,7 +37,7 @@ RSpec.describe Cards::Ledger::PostCardSettlement do
 
   it 'does not debit when balance is insufficient and records decline' do
     wallet.update!(balance_cents: 100)
-    event = build_event(amount: 50, provider_ref: 'ref_low')
+    event = build_event(amount: 5_000, provider_ref: 'ref_low')
 
     result = described_class.call(card: card, card_event: event)
 
@@ -47,7 +47,7 @@ RSpec.describe Cards::Ledger::PostCardSettlement do
   end
 
   it 'is idempotent for the same provider reference' do
-    event = build_event(amount: 10, provider_ref: 'ref_idem')
+    event = build_event(amount: 1_000, provider_ref: 'ref_idem')
 
     described_class.call(card: card, card_event: event)
     described_class.call(card: card, card_event: event)
@@ -63,7 +63,7 @@ RSpec.describe Cards::Ledger::PostCardSettlement do
 
     wallet.update!(balance_cents: 100)
     card.update!(decline_count: 2)
-    event = build_event(amount: 50, provider_ref: 'ref_freeze')
+    event = build_event(amount: 5_000, provider_ref: 'ref_freeze')
 
     described_class.call(card: card, card_event: event)
 
