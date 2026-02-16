@@ -59,6 +59,24 @@ const getHistorySubtitle = (entry) => {
   return parts.join(' • ')
 }
 
+const getBreakdownTransactionFee = (breakdown) => {
+  if (!breakdown || typeof breakdown !== 'object') return 0
+
+  const principal = Number(breakdown.principal_usd || 0)
+  const totalDebit = Number(breakdown.total_debit_usd || 0)
+  if (Number.isFinite(totalDebit) && Number.isFinite(principal) && totalDebit > 0 && principal >= 0) {
+    return Math.max(0, totalDebit - principal)
+  }
+
+  const feeSum =
+    Number(breakdown.provider_fee_usd || 0) +
+    Number(breakdown.bitbridge_fee_usd || 0) +
+    Number(breakdown.fx_markup_usd || 0) +
+    Number(breakdown.funding_fee_usd || 0) +
+    Number(breakdown.withdrawal_fee_usd || 0)
+  return Number.isFinite(feeSum) ? Math.max(0, feeSum) : 0
+}
+
 export default function VirtualCardApplication() {
   const dispatch = useDispatch()
   const navigate = useNavigate()
@@ -1910,34 +1928,12 @@ const setCardPin = (nextPin) => {
                                   <span>Principal</span>
                                   <span>USD {Number(entry.breakdown.principal_usd || 0).toFixed(2)}</span>
                                 </div>
-                                <div className="flex items-center justify-between">
-                                  <span>Provider fee</span>
-                                  <span>USD {Number(entry.breakdown.provider_fee_usd || 0).toFixed(2)}</span>
-                                </div>
-                                <div className="flex items-center justify-between">
-                                  <span>BitBridge fee</span>
-                                  <span>USD {Number(entry.breakdown.bitbridge_fee_usd || 0).toFixed(2)}</span>
-                                </div>
-                                {entry.breakdown.funding_fee_usd !== undefined ? (
+                                {getBreakdownTransactionFee(entry.breakdown) > 0 ? (
                                   <div className="flex items-center justify-between">
-                                    <span>Funding fee</span>
-                                    <span>
-                                      USD {Number(entry.breakdown.funding_fee_usd || 0).toFixed(2)}
-                                    </span>
+                                    <span>Transaction fee</span>
+                                    <span>USD {getBreakdownTransactionFee(entry.breakdown).toFixed(2)}</span>
                                   </div>
                                 ) : null}
-                                {entry.breakdown.withdrawal_fee_usd !== undefined ? (
-                                  <div className="flex items-center justify-between">
-                                    <span>Withdrawal fee</span>
-                                    <span>
-                                      USD {Number(entry.breakdown.withdrawal_fee_usd || 0).toFixed(2)}
-                                    </span>
-                                  </div>
-                                ) : null}
-                                <div className="flex items-center justify-between">
-                                  <span>FX markup</span>
-                                  <span>USD {Number(entry.breakdown.fx_markup_usd || 0).toFixed(2)}</span>
-                                </div>
                                 <div className="flex items-center justify-between text-slate-200 font-semibold">
                                   <span>Total debit</span>
                                   <span>USD {Number(entry.breakdown.total_debit_usd || 0).toFixed(2)}</span>
