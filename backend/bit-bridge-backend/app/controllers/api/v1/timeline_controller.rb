@@ -11,7 +11,8 @@ module Api
           TimelineQuery.new(
             user: current_user,
             limit: params[:limit],
-            cursor: params[:cursor]
+            cursor: params[:cursor],
+            type: params[:type]
           ).call
 
         render json: result

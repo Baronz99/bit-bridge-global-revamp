@@ -133,5 +133,46 @@ RSpec.describe TimelineQuery do
       expect(timeline_ids).not_to include("wallet-tx-#{initialized_tx.id}")
       expect(timeline_ids).to include("wallet-tx-#{settled_tx.id}")
     end
+
+    it 'filters cards type at query level' do
+      CardEvent.create!(
+        user: user,
+        event: 'card.authorization',
+        card_id: 'provider-card-1',
+        amount: 500,
+        status: 'successful',
+        transaction_at: Time.current
+      )
+      user.ngn_wallet.transactions.create!(
+        status: :approved,
+        coin_type: :bank,
+        transaction_type: :deposit,
+        amount: 2500
+      )
+
+      result = described_class.new(user: user, type: 'cards', limit: 25).call
+      kinds = result[:items].map { |item| item[:kind] }.uniq
+
+      expect(kinds).to eq(['card_event'])
+    end
+
+    it 'keeps card event amount in cents when metadata indicates provider minor units' do
+      event =
+        CardEvent.create!(
+          user: user,
+          event: 'card.authorization',
+          card_id: 'provider-card-2',
+          amount: 1900,
+          status: 'successful',
+          transaction_at: Time.current,
+          metadata: { principal_usd: 19.0, total_debit_usd: 20.0 }
+        )
+
+      result = described_class.new(user: user, type: 'cards', limit: 25).call
+      item = result[:items].find { |entry| entry[:id] == "card-evt-#{event.id}" }
+
+      expect(item).to be_present
+      expect(item[:amount_cents]).to eq(1900)
+    end
   end
 end

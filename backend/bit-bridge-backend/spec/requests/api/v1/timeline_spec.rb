@@ -122,5 +122,35 @@ RSpec.describe 'Timeline', type: :request do
       expect(items.first.fetch('id')).to eq("circle-tx-#{older_tx.id}")
       expect(body.fetch('next_cursor')).to eq(older_time.iso8601)
     end
+
+    it 'supports server-side cards type filtering' do
+      circle = Circle.create!(name: 'Alpha', owner: user)
+      CircleMembership.create!(circle: circle, user: user, role: :admin)
+      user.ngn_wallet.transactions.create!(
+        status: :approved,
+        coin_type: :bank,
+        transaction_type: :deposit,
+        amount: 1000
+      )
+      card_event =
+        CardEvent.create!(
+          user: user,
+          event: 'card.authorization',
+          card_id: 'card-1',
+          amount: 1550,
+          status: 'successful',
+          transaction_at: Time.current
+        )
+
+      get '/api/v1/timeline', params: { type: 'cards' }, headers: headers
+
+      expect(response).to have_http_status(:ok)
+      body = JSON.parse(response.body)
+      items = body.fetch('items')
+
+      expect(items).not_to be_empty
+      expect(items.map { |item| item.fetch('kind') }.uniq).to eq(['card_event'])
+      expect(items.map { |item| item.fetch('id') }).to include("card-evt-#{card_event.id}")
+    end
   end
 end

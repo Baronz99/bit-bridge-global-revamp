@@ -8,6 +8,7 @@ class TimelineQuery
     user:,
     limit: nil,
     cursor: nil,
+    type: nil,
     circle_id: nil,
     default_limit: DEFAULT_LIMIT,
     max_limit: MAX_LIMIT,
@@ -20,6 +21,7 @@ class TimelineQuery
     @include_card_events = include_card_events
     @limit = normalize_limit(limit)
     @cursor = parse_cursor(cursor)
+    @type = normalize_type(type)
   end
 
   # GET /api/v1/timeline
@@ -30,6 +32,7 @@ class TimelineQuery
     merged += card_items if include_card_events?
 
     merged = collapse_circle_fund_groups(merged)
+    merged = apply_type_filter(merged)
 
     sorted =
       merged
@@ -223,7 +226,7 @@ class TimelineQuery
       id: "card-evt-#{event.id}",
       kind: 'card_event',
       label: timeline_label(event.description, event.event),
-      amount_cents: amount_to_cents(event.amount),
+      amount_cents: card_event_amount_cents(event),
       status: event.status,
       occurred_at: occurred_at,
       actor: actor_json(event.user),
@@ -351,6 +354,33 @@ class TimelineQuery
     (amount.to_d * 100).to_i
   end
 
+  # Card provider events are typically emitted in minor units.
+  # Preserve provider amount shape to avoid inflating card purchases in timeline.
+  def card_event_amount_cents(event)
+    return nil if event.nil? || event.amount.nil?
+
+    raw = BigDecimal(event.amount.to_s) rescue nil
+    return nil if raw.nil?
+
+    metadata = event.metadata.is_a?(Hash) ? event.metadata : {}
+    total_debit = metadata['total_debit_usd'] || metadata[:total_debit_usd]
+    principal = metadata['principal_usd'] || metadata[:principal_usd]
+    major_hint = total_debit || principal
+
+    major = BigDecimal(major_hint.to_s) rescue nil
+    if major.present?
+      major_as_cents = (major * 100).round(0).to_i
+      major_as_major_units = major.round(0).to_i
+
+      return raw.to_i if (raw - major_as_cents).abs <= 1
+      return (raw * 100).to_i if (raw - major_as_major_units).abs <= 1
+    end
+
+    return (raw * 100).to_i if raw.frac != 0
+
+    raw.to_i
+  end
+
   def anchor_transfer_component?(metadata)
     metadata[:provider].to_s == 'anchor' && metadata[:transfer_reference].present?
   end
@@ -442,6 +472,34 @@ class TimelineQuery
     Time.iso8601(raw.to_s)
   rescue ArgumentError
     nil
+  end
+
+  def normalize_type(raw)
+    key = raw.to_s.downcase.strip
+    return 'all' if key.blank?
+    return 'wallet' if key == 'wallets'
+    return 'cards' if key == 'card'
+    return 'bills' if key == 'bill'
+    return 'circles' if key == 'circle'
+
+    key
+  end
+
+  def apply_type_filter(items)
+    return items if @type == 'all'
+
+    case @type
+    when 'wallet'
+      items.select { |item| item[:kind] == 'wallet_transaction' }
+    when 'cards'
+      items.select { |item| item[:kind] == 'card_event' }
+    when 'bills'
+      items.select { |item| item[:kind] == 'bill_order' }
+    when 'circles'
+      items.select { |item| item[:kind] == 'circle_transaction' || item[:kind] == 'circle_fund_group' }
+    else
+      items
+    end
   end
 
   def include_card_events?
