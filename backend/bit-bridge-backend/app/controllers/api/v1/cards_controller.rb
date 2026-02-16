@@ -241,7 +241,14 @@ module Api
           provider_error = service_response[:message]
         end
 
-        effective_state = local_state || provider_state || fallback_funding_state(reference)
+        effective_state =
+          if local_state == 'successful'
+            'successful'
+          elsif provider_state.present?
+            provider_state
+          else
+            local_state || fallback_funding_state(card:, reference:)
+          end
         message =
           case effective_state
           when 'successful'
@@ -612,12 +619,16 @@ module Api
           .first
       end
 
-      def fallback_funding_state(reference)
+      def fallback_funding_state(card:, reference:)
         funding_txn =
           Transaction
           .joins(:wallet)
           .where(wallets: { user_id: current_user.id })
-          .find_by(unique_transaction_id: reference)
+          .find_by(
+            unique_transaction_id: reference,
+            bridge_card_id: card.card_id,
+            address: 'Virtual Card Funding (USD)'
+          )
         return 'failed' if funding_txn&.failed?
 
         'pending'
