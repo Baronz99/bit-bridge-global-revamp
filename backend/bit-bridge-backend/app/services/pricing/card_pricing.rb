@@ -17,27 +17,35 @@ module Pricing
         data = payload.is_a?(Hash) ? payload : {}
         principal_usd = to_usd_amount(data)
         is_non_usd = non_usd_spend?(data)
+        observed_provider_fee = observed_provider_fee_usd(data)
+        observed_bitbridge_fee = observed_bitbridge_fee_usd(data)
+        observed_fx_markup = observed_fx_markup_usd(data)
 
-        provider_fee_usd =
-          if is_non_usd
-            usd_round(principal_usd * PROVIDER_FEE_PERCENT_NON_USD)
-          else
-            usd_round([principal_usd * PROVIDER_FEE_PERCENT_USD, PROVIDER_FEE_CAP_USD].min)
-          end
+        provider_fee_usd = if observed_provider_fee
+                             observed_provider_fee
+                           elsif is_non_usd
+                             usd_round(principal_usd * PROVIDER_FEE_PERCENT_NON_USD)
+                           else
+                             usd_round([principal_usd * PROVIDER_FEE_PERCENT_USD, PROVIDER_FEE_CAP_USD].min)
+                           end
 
-        bitbridge_fee_usd =
-          if is_non_usd
-            0.to_d
-          else
-            usd_round([principal_usd * BITBRIDGE_FEE_PERCENT_USD, BITBRIDGE_FEE_CAP_USD].min)
-          end
+        bitbridge_fee_usd = if observed_bitbridge_fee
+                              observed_bitbridge_fee
+                            elsif observed_provider_fee
+                              0.to_d
+                            elsif is_non_usd
+                              0.to_d
+                            else
+                              usd_round([principal_usd * BITBRIDGE_FEE_PERCENT_USD, BITBRIDGE_FEE_CAP_USD].min)
+                            end
 
-        fx_markup_usd =
-          if is_non_usd
-            usd_round(principal_usd * BITBRIDGE_FX_MARKUP_PERCENT)
-          else
-            0.to_d
-          end
+        fx_markup_usd = if observed_fx_markup
+                          observed_fx_markup
+                        elsif is_non_usd
+                          usd_round(principal_usd * BITBRIDGE_FX_MARKUP_PERCENT)
+                        else
+                          0.to_d
+                        end
 
         total_debit_usd = usd_round(principal_usd + provider_fee_usd + bitbridge_fee_usd + fx_markup_usd)
 
@@ -55,7 +63,8 @@ module Pricing
             percent: is_non_usd ? BITBRIDGE_FX_MARKUP_PERCENT : BITBRIDGE_FEE_PERCENT_USD,
             cap: is_non_usd ? nil : BITBRIDGE_FEE_CAP_USD
           },
-          is_non_usd: is_non_usd
+          is_non_usd: is_non_usd,
+          pricing_mode: observed_provider_fee ? 'provider_observed' : 'policy_computed'
         }
       end
 
@@ -130,6 +139,27 @@ module Pricing
         amount
       rescue ArgumentError
         0.to_d
+      end
+
+      def observed_provider_fee_usd(data)
+        raw_fee = data['partner_interchange_fee'] || data['provider_fee'] || data['fee']
+        return nil if raw_fee.nil?
+
+        parse_usd_amount(raw_fee)
+      end
+
+      def observed_bitbridge_fee_usd(data)
+        raw_fee = data['bitbridge_fee'] || data['bitbridge_fee_usd']
+        return nil if raw_fee.nil?
+
+        parse_usd_amount(raw_fee)
+      end
+
+      def observed_fx_markup_usd(data)
+        raw_fee = data['fx_markup'] || data['fx_markup_usd']
+        return nil if raw_fee.nil?
+
+        parse_usd_amount(raw_fee)
       end
     end
   end

@@ -26,48 +26,39 @@ RSpec.describe Cards::Ledger::PostCardSettlement do
     )
   end
 
-  it 'posts ledger debits when balance covers total' do
+  it 'records settlement metadata without debiting usd wallet' do
     event = build_event(amount: 50)
+    before_balance = wallet.reload.balance_cents
     result = described_class.call(card: card, card_event: event)
 
     expect(result[:status]).to eq(:ok)
+    expect(event.reload.metadata['ledger_posted']).to eq(true)
+    expect(wallet.reload.balance_cents).to eq(before_balance)
     txns = wallet.transactions.where("metadata ->> 'transfer_reference' = ?", event.provider_transaction_reference)
-    expect(txns.count).to eq(3)
+    expect(txns.count).to eq(0)
   end
 
-  it 'does not debit when balance is insufficient and records decline' do
+  it 'does not mark provider-successful event declined when usd wallet is low' do
     wallet.update!(balance_cents: 100)
     event = build_event(amount: 5_000, provider_ref: 'ref_low')
 
     result = described_class.call(card: card, card_event: event)
 
-    expect(result[:status]).to eq(:error)
-    expect(event.reload.status).to eq('declined')
+    expect(result[:status]).to eq(:ok)
+    expect(event.reload.status).to eq('successful')
+    expect(event.metadata['ledger_posted']).to eq(true)
     expect(wallet.transactions.where("metadata ->> 'transfer_reference' = ?", 'ref_low')).to be_empty
   end
 
   it 'is idempotent for the same provider reference' do
     event = build_event(amount: 1_000, provider_ref: 'ref_idem')
 
-    described_class.call(card: card, card_event: event)
-    described_class.call(card: card, card_event: event)
+    first = described_class.call(card: card, card_event: event)
+    second = described_class.call(card: card, card_event: event)
 
     txns = wallet.transactions.where("metadata ->> 'transfer_reference' = ?", 'ref_idem')
-    expect(txns.count).to eq(3)
-  end
-
-  it 'freezes card after three declines' do
-    stub_service = instance_double(BridgeCardService)
-    allow(BridgeCardService).to receive(:new).and_return(stub_service)
-    allow(stub_service).to receive(:freeze_card).and_return(status: :ok, data: {})
-
-    wallet.update!(balance_cents: 100)
-    card.update!(decline_count: 2)
-    event = build_event(amount: 5_000, provider_ref: 'ref_freeze')
-
-    described_class.call(card: card, card_event: event)
-
-    expect(card.reload.status).to eq('frozen')
-    expect(card.frozen_by).to eq('system')
+    expect(first[:code]).to eq('posted')
+    expect(second[:code]).to eq('already_posted')
+    expect(txns.count).to eq(0)
   end
 end
