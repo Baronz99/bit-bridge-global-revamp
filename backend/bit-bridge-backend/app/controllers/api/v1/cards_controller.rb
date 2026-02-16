@@ -12,6 +12,7 @@ module Api
                       get_all_states
                       fund_wallet
                       unload_wallet
+                      funding_status
                       details
                       balance
                       reveal
@@ -29,6 +30,7 @@ module Api
                       create_card
                       fund_wallet
                       unload_wallet
+                      funding_status
                       details
                       balance
                       reveal
@@ -207,6 +209,63 @@ module Api
         else
           render json: { message: service_response[:message] }, status: :unprocessable_entity
         end
+      end
+
+      # GET /api/v1/cards/:id/funding_status
+      def funding_status
+        card = find_user_card!(params[:id])
+        return render_provider_missing_card if card.provider_missing?
+        return render json: { message: 'card_id not available' }, status: :unprocessable_entity if card.card_id.blank?
+
+        reference = resolve_funding_reference(card)
+        return render json: { message: 'transaction reference is required' }, status: :unprocessable_entity if reference.blank?
+
+        local_event = local_funding_event(card:, reference:)
+        local_state = normalize_funding_state(local_event&.status)
+        provider_state = nil
+        provider_payload = nil
+        provider_error = nil
+
+        service_response =
+          BridgeCardService
+          .new
+          .get_card_transaction_status(card_id: card.card_id, client_transaction_reference: reference)
+
+        if service_response[:status] == :ok
+          provider_payload = service_response[:data].is_a?(Hash) ? service_response[:data] : {}
+          provider_state =
+            normalize_funding_state(
+              provider_payload['status'] || provider_payload['transaction_status'] || provider_payload['state']
+            )
+        else
+          provider_error = service_response[:message]
+        end
+
+        effective_state = local_state || provider_state || fallback_funding_state(reference)
+        message =
+          case effective_state
+          when 'successful'
+            'Funding completed.'
+          when 'failed'
+            'Funding failed.'
+          else
+            'Funding is being processed.'
+          end
+
+        render json: {
+          message: message,
+          data: {
+            card_id: card.id,
+            provider_card_id: card.card_id,
+            transaction_reference: reference,
+            state: effective_state,
+            provider_state: provider_state,
+            local_state: local_state,
+            status: effective_state,
+            provider: provider_payload,
+            provider_error: provider_error
+          }
+        }, status: :ok
       end
 
       # GET /api/v1/cards/:id
@@ -519,6 +578,60 @@ module Api
 
       def normalized_card_params
         card_params.to_h.symbolize_keys
+      end
+
+      def resolve_funding_reference(card)
+        candidates = [
+          params[:reference],
+          params[:transaction_reference],
+          params[:client_transaction_reference]
+        ].map { |value| value.to_s.strip.presence }.compact
+        return candidates.first if candidates.first.present?
+
+        latest_funding_transaction(card)&.unique_transaction_id
+      end
+
+      def latest_funding_transaction(card)
+        Transaction
+          .joins(:wallet)
+          .where(wallets: { user_id: current_user.id })
+          .where(bridge_card_id: card.card_id, address: 'Virtual Card Funding (USD)')
+          .order(created_at: :desc)
+          .first
+      end
+
+      def local_funding_event(card:, reference:)
+        CardEvent
+          .where(card_id: card.card_id)
+          .where(card_transaction_type: 'CREDIT')
+          .where(
+            "provider_transaction_reference = :reference OR transaction_reference = :reference",
+            reference: reference
+          )
+          .order(transaction_at: :desc)
+          .first
+      end
+
+      def fallback_funding_state(reference)
+        funding_txn =
+          Transaction
+          .joins(:wallet)
+          .where(wallets: { user_id: current_user.id })
+          .find_by(unique_transaction_id: reference)
+        return 'failed' if funding_txn&.failed?
+
+        'pending'
+      end
+
+      def normalize_funding_state(raw_status)
+        status = raw_status.to_s.strip.downcase
+        return nil if status.blank?
+
+        return 'successful' if %w[successful success succeeded approved completed complete].include?(status)
+        return 'failed' if %w[failed failure declined error cancelled canceled reversed].include?(status)
+        return 'pending' if %w[pending processing queued initiated in_progress].include?(status)
+
+        nil
       end
 
       def bridge_event_amount_usd(event)

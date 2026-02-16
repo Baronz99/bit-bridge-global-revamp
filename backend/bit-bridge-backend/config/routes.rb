@@ -112,6 +112,7 @@ Rails.application.routes.draw do
         member do
           get :details
           get :balance
+          get :funding_status
           get :history
           get :insights
           patch :freeze
