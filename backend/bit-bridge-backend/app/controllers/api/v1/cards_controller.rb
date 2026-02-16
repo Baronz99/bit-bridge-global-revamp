@@ -366,6 +366,7 @@ module Api
           event_time = event.transaction_at || event.created_at
           label = event.description.presence || event.event.to_s.tr('._', ' ').strip
           metadata = event.metadata.is_a?(Hash) ? event.metadata : {}
+          merchant_meta = metadata['merchant'].is_a?(Hash) ? metadata['merchant'] : {}
           normalized_event_amount = bridge_event_amount_usd(event)
 
           fx_payload =
@@ -388,6 +389,16 @@ module Api
             status: event.status,
             created_at: event_time,
             source: 'bridge',
+            merchant: {
+              name: merchant_meta['name'],
+              logo: merchant_meta['logo'],
+              website: merchant_meta['website'],
+              category: merchant_meta['category'],
+              group: merchant_meta['group'],
+              city: merchant_meta['city'],
+              code: merchant_meta['code'],
+              recurring: merchant_meta['recurring']
+            }.compact,
             breakdown: {
               principal_usd: metadata['principal_usd'],
               provider_fee_usd: metadata['provider_fee_usd'],

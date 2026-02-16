@@ -142,13 +142,14 @@ class CardEvent < ApplicationRecord
         enriched = data['enriched_data'].is_a?(Hash) ? data['enriched_data'] : {}
         merchant = enriched['merchant'].is_a?(Hash) ? enriched['merchant'] : {}
         metadata['merchant'] = {
-          name: merchant['name'],
-          website: merchant['website'],
-          code: merchant['code'],
-          city: merchant['city'],
-          logo: merchant['logo'],
-          group: merchant['group'],
-          category: merchant['category']
+          name: merchant['name'] || enriched['merchant_name'],
+          website: merchant['website'] || enriched['merchant_website'],
+          code: merchant['code'] || enriched['merchant_code'],
+          city: merchant['city'] || enriched['merchant_city'],
+          logo: merchant['logo'] || enriched['merchant_logo'],
+          group: merchant['group'] || enriched['transaction_group'],
+          category: merchant['category'] || enriched['transaction_category'],
+          recurring: enriched['is_recurring']
         }.compact
 
         fx_discovery = data.each_with_object({}) do |(key, value), acc|

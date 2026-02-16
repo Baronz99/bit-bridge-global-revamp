@@ -65,4 +65,40 @@ RSpec.describe CardEvent, type: :model do
     expect(event.fx_margin_usd.to_s('F')).to eq('0.0')
     expect(event.metadata['fx_discovery_present']).to eq(true)
   end
+
+  it 'maps flat enriched_data merchant fields into metadata' do
+    data = {
+      'bridgecard_transaction_reference' => 'ref_enriched_flat',
+      'card_transaction_type' => 'DEBIT',
+      'status' => 'successful',
+      'amount' => '19.00',
+      'currency' => 'USD',
+      'enriched_data' => {
+        'merchant_name' => 'Facebook',
+        'merchant_logo' => 'https://logos.ntropy.com/facebook.com',
+        'merchant_website' => 'facebook.com',
+        'merchant_city' => 'US',
+        'merchant_code' => '123478',
+        'transaction_category' => 'Advertisement',
+        'transaction_group' => 'Other Outgoing Transactions',
+        'is_recurring' => true
+      }
+    }
+
+    event = described_class.upsert_bridgecard_event!(
+      event_name: 'card_debit_event.successful',
+      data: data,
+      raw_payload: data,
+      card: card,
+      user_id: user.id
+    )
+
+    merchant = event.metadata['merchant']
+    expect(merchant['name']).to eq('Facebook')
+    expect(merchant['logo']).to eq('https://logos.ntropy.com/facebook.com')
+    expect(merchant['website']).to eq('facebook.com')
+    expect(merchant['category']).to eq('Advertisement')
+    expect(merchant['group']).to eq('Other Outgoing Transactions')
+    expect(merchant['recurring']).to eq(true)
+  end
 end

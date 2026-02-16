@@ -32,6 +32,33 @@ const normalizeFundingState = (value) => {
   return null
 }
 
+const getHistoryMerchant = (entry) => {
+  const merchant = entry?.merchant
+  return merchant && typeof merchant === 'object' ? merchant : {}
+}
+
+const getHistoryTitle = (entry) => {
+  const raw = String(entry?.address || entry?.description || entry?.type || 'Card activity').trim()
+  const lower = raw.toLowerCase()
+  if (lower.includes('virtual card funding')) return 'Funding from Tunnel wallet'
+  if (lower.includes('virtual card withdrawal')) return 'Withdrawal to Tunnel wallet'
+
+  const merchantName = String(getHistoryMerchant(entry)?.name || '').trim()
+  if (merchantName) return merchantName
+
+  if (lower.includes('authorization')) return 'Card purchase'
+  if (lower.includes('reversal')) return 'Card reversal'
+  if (lower.includes('refund')) return 'Card refund'
+  if (lower.includes('conversion')) return 'Card conversion'
+  return raw
+}
+
+const getHistorySubtitle = (entry) => {
+  const merchant = getHistoryMerchant(entry)
+  const parts = [merchant?.category, merchant?.group].filter((value) => String(value || '').trim().length > 0)
+  return parts.join(' • ')
+}
+
 export default function VirtualCardApplication() {
   const dispatch = useDispatch()
   const navigate = useNavigate()
@@ -1816,12 +1843,38 @@ const setCardPin = (nextPin) => {
                     <div className="space-y-2 text-xs">
                       {cardHistory.slice(0, 8).map((entry) => (
                         <div key={entry.id} className="vc-inset rounded-xl border border-slate-800 px-3 py-2">
+                          {(() => {
+                            const merchant = getHistoryMerchant(entry)
+                            const title = getHistoryTitle(entry)
+                            const subtitle = getHistorySubtitle(entry)
+                            const merchantLogo = String(merchant?.logo || '').trim()
+                            const hasLogo = merchantLogo.startsWith('http://') || merchantLogo.startsWith('https://')
+
+                            return (
                           <div className="flex items-center justify-between">
-                            <span className="text-slate-300">{entry.address || 'Card activity'}</span>
-                            <span className="text-slate-200">
-                              {entry.amount ? `USD ${Number(entry.amount).toFixed(2)}` : '--'}
-                            </span>
-                          </div>
+                                <div className="flex items-center gap-2 min-w-0">
+                                  {hasLogo ? (
+                                    <img
+                                      src={merchantLogo}
+                                      alt=""
+                                      className="h-5 w-5 rounded-full border border-slate-700 object-cover"
+                                      loading="lazy"
+                                      referrerPolicy="no-referrer"
+                                    />
+                                  ) : null}
+                                  <div className="min-w-0">
+                                    <p className="text-slate-300 truncate">{title || 'Card activity'}</p>
+                                    {subtitle ? (
+                                      <p className="text-[11px] text-slate-500 truncate">{subtitle}</p>
+                                    ) : null}
+                                  </div>
+                                </div>
+                                <span className="text-slate-200">
+                                  {entry.amount ? `USD ${Number(entry.amount).toFixed(2)}` : '--'}
+                                </span>
+                              </div>
+                            )
+                          })()}
                           <div className="mt-1 flex items-center justify-between text-[11px] text-slate-400">
                             <span>{entry.status}</span>
                             <span>{entry.created_at ? new Date(entry.created_at).toLocaleString() : ''}</span>
