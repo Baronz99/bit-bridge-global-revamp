@@ -381,10 +381,7 @@ module Api
       def merge_fee_arrays(primary_fees, fallback_fees)
         existing = Array(primary_fees).compact
         additions = Array(fallback_fees).compact
-        return existing if additions.blank?
-        return additions if existing.blank?
-
-        existing + additions
+        normalize_fee_entries(existing + additions)
       end
 
       def receipt_from_card_funding(txn, card_event, original_reference:)
@@ -504,10 +501,11 @@ module Api
         }.compact
 
         value_amount = order.amount || order.total_amount
-        reward_amount = (order.reward_applied || order.commission_used).to_f
+        reward_amount = order.reward_applied.to_f
+        commission_amount = order.commission_used.to_f
         inferred_wallet_amount = order.wallet_amount_charged
         if inferred_wallet_amount.blank? && value_amount.present?
-          inferred_wallet_amount = [value_amount.to_d - reward_amount.to_d, 0.to_d]
+          inferred_wallet_amount = [value_amount.to_d - reward_amount.to_d - commission_amount.to_d, 0.to_d]
         end
 
         service_charge_value = order.service_charge.to_d
@@ -566,6 +564,7 @@ module Api
           value_amount: value_amount,
           wallet_amount_charged: inferred_wallet_amount,
           reward_applied: reward_amount,
+          commission_applied: commission_amount,
           total_display: value_amount
         )
       end
@@ -602,10 +601,11 @@ module Api
         }.compact
 
         value_amount = bill_order&.amount
-        reward_amount = bill_order ? ((bill_order.reward_applied || bill_order.commission_used).to_f) : nil
+        reward_amount = bill_order&.reward_applied.to_f
+        commission_amount = bill_order&.commission_used.to_f
         inferred_wallet_amount = bill_order&.wallet_amount_charged
         if inferred_wallet_amount.blank? && bill_order.present? && value_amount.present?
-          inferred_wallet_amount = [value_amount.to_d - reward_amount.to_d, 0.to_d]
+          inferred_wallet_amount = [value_amount.to_d - reward_amount.to_d - commission_amount.to_d, 0.to_d]
         end
 
         service_charge_value = bill_order&.service_charge.to_d
@@ -674,6 +674,7 @@ module Api
           value_amount: value_amount || (transfer_fee_context[:applies] ? record.amount : nil),
           wallet_amount_charged: inferred_wallet_amount,
           reward_applied: reward_amount,
+          commission_applied: commission_amount,
           total_display: value_amount || amount
         )
       end
@@ -735,9 +736,46 @@ module Api
         false
       end
 
-      def build_dto(reference:, kind:, event:, status:, amount:, currency:, occurred_at:, title:, subtitle:, parties:, provider:, meta:, fees:, legacy:, timeline: nil, value_amount: nil, wallet_amount_charged: nil, reward_applied: nil, total_display: nil)
-        fee_array = Array(fees).compact
-        total_fees = fee_array.reduce(0) { |sum, f| sum + (f[:amount].to_d rescue 0) }
+      def build_dto(reference:, kind:, event:, status:, amount:, currency:, occurred_at:, title:, subtitle:, parties:, provider:, meta:, fees:, legacy:, timeline: nil, value_amount: nil, wallet_amount_charged: nil, reward_applied: nil, commission_applied: nil, total_display: nil)
+        canonical_fees = normalize_fee_entries(fees)
+        value_decimal = decimal_or_nil(value_amount)
+        reward_decimal = decimal_or_zero(reward_applied)
+        commission_decimal = decimal_or_zero(commission_applied)
+        total_fees = canonical_fees.sum { |fee| decimal_or_zero(fee[:amount]) }
+        total_debit_decimal = decimal_or_nil(total_display) || decimal_or_nil(amount)
+        expected_total =
+          if value_decimal
+            (value_decimal + total_fees - reward_decimal - commission_decimal).round(2)
+          end
+        total_debit_decimal ||= expected_total
+        wallet_debit_decimal = decimal_or_nil(wallet_amount_charged)
+        if wallet_debit_decimal.nil? && total_debit_decimal
+          wallet_debit_decimal = (total_debit_decimal - reward_decimal - commission_decimal).round(2)
+        end
+        reconciliation_delta =
+          if expected_total && total_debit_decimal
+            (total_debit_decimal - expected_total).round(2)
+          end
+        reconciliation_status =
+          if reconciliation_delta.nil?
+            'unknown'
+          elsif reconciliation_delta.abs <= 0.01
+            'ok'
+          else
+            'mismatch'
+          end
+        financials = {
+          value_amount: value_decimal&.to_f,
+          fees: canonical_fees,
+          total_fees: total_fees.to_f,
+          reward_applied: reward_decimal.to_f,
+          commission_applied: commission_decimal.to_f,
+          wallet_amount_charged: wallet_debit_decimal&.to_f,
+          total_debit: total_debit_decimal&.to_f,
+          expected_total_debit: expected_total&.to_f,
+          reconciliation_delta: reconciliation_delta&.to_f,
+          reconciliation_status: reconciliation_status
+        }.compact
 
         {
           reference: reference,
@@ -746,7 +784,7 @@ module Api
           status: status,
           amount: amount,
           currency: currency,
-          fees: fee_array,
+          fees: canonical_fees,
           net_amount: (amount && total_fees ? (amount.to_d - total_fees) : nil),
           occurred_at: occurred_at,
           title: title,
@@ -759,7 +797,9 @@ module Api
           value_amount: value_amount,
           wallet_amount_charged: wallet_amount_charged,
           reward_applied: reward_applied,
-          total_display: total_display || value_amount
+          commission_applied: commission_applied,
+          total_display: total_display || value_amount,
+          financials: financials
         }.compact
       end
 
@@ -1215,19 +1255,25 @@ module Api
       def fee_array(raw_breakdown, currency)
         return [] if raw_breakdown.blank?
         if raw_breakdown.is_a?(Array)
-          return raw_breakdown.map do |item|
+          entries = raw_breakdown.map do |item|
+            label = normalize_fee_label(item[:label] || item['label'] || 'fee')
             {
-              label: normalize_fee_label(item[:label] || item['label'] || 'fee'),
+              code: canonical_fee_code(label),
+              label: label,
               amount: item[:amount] || item['amount'],
-              currency: item[:currency] || item['currency'] || currency
+              currency: item[:currency] || item['currency'] || currency,
+              source: item[:source] || item['source']
             }.compact
           end
+          return normalize_fee_entries(entries)
         end
 
         if raw_breakdown.is_a?(Hash)
-          raw_breakdown.map do |label, amount|
-            { label: normalize_fee_label(label.to_s.tr('_', ' ')), amount: amount, currency: currency }.compact
+          entries = raw_breakdown.map do |label, amount|
+            normalized_label = normalize_fee_label(label.to_s.tr('_', ' '))
+            { code: canonical_fee_code(normalized_label), label: normalized_label, amount: amount, currency: currency }.compact
           end
+          return normalize_fee_entries(entries)
         else
           []
         end
@@ -1239,6 +1285,65 @@ module Api
         return 'stamp duty' if normalized == 'stamp duty fee'
 
         label.to_s
+      end
+
+      def canonical_fee_code(label)
+        key = label.to_s.tr('_', ' ').strip.downcase
+        return 'service_charge' if key == 'service charge'
+        return 'processing_fee' if key == 'processing fee'
+        return 'transfer_fee' if key == 'transfer fee' || key == 'platform fee'
+        return 'stamp_duty' if key == 'stamp duty' || key == 'stamp duty fee'
+        return 'provider_fee' if key == 'provider fee'
+        return 'bitbridge_fee' if key == 'bitbridge fee'
+        return 'conversion_fee' if key == 'conversion fee'
+        return 'fx_markup' if key == 'fx markup'
+
+        key.gsub(/\s+/, '_')
+      end
+
+      def normalize_fee_entries(entries)
+        grouped = {}
+        Array(entries).compact.each do |fee|
+          next unless fee.is_a?(Hash)
+
+          amount = decimal_or_nil(fee[:amount] || fee['amount'])
+          next unless amount
+
+          currency = (fee[:currency] || fee['currency']).presence || 'NGN'
+          label = normalize_fee_label(fee[:label] || fee['label'] || 'fee')
+          code = (fee[:code] || fee['code']).presence || canonical_fee_code(label)
+          source = fee[:source] || fee['source']
+          group_key = "#{code}:#{currency}"
+          current = grouped[group_key]
+
+          if current
+            current[:amount] = (current[:amount].to_d + amount).to_f
+            current[:source] ||= source
+          else
+            grouped[group_key] = {
+              code: code,
+              label: label,
+              amount: amount.to_f,
+              currency: currency,
+              source: source
+            }.compact
+          end
+        end
+
+        grouped.values
+      end
+
+      def decimal_or_nil(value)
+        return nil if value.nil?
+        return nil if value.respond_to?(:empty?) && value.empty?
+
+        BigDecimal(value.to_s)
+      rescue StandardError
+        nil
+      end
+
+      def decimal_or_zero(value)
+        decimal_or_nil(value) || 0.to_d
       end
 
       def implied_fee_from_totals(total_amount:, value_amount:, known_fees:)

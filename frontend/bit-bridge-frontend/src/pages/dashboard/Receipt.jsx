@@ -19,6 +19,89 @@ const formatAmount = (amount, currency) => {
 }
 
 const fallbackValue = (value) => (value === null || value === undefined || value === '' ? 'Not available' : value)
+const toNumber = (value) => {
+  const parsed = Number(value)
+  return Number.isFinite(parsed) ? parsed : null
+}
+
+const sumFees = (fees) =>
+  Array.isArray(fees)
+    ? fees.reduce((sum, fee) => sum + (toNumber(fee?.amount) || 0), 0)
+    : null
+
+const normalizeTimelineItem = (item) => {
+  if (!item || typeof item !== 'object') return null
+  const state = String(item.state || item.status || 'pending').toLowerCase()
+  return {
+    label: item.label || item.event_type || item.step_key || 'Update',
+    description: item.description || '',
+    status: state,
+    occurred_at: item.occurred_at || item.created_at || null,
+  }
+}
+
+const normalizeReceiptPayload = (raw, fallbackReference = '') => {
+  const payload = raw && typeof raw === 'object' ? raw : {}
+  const financials = payload.financials && typeof payload.financials === 'object' ? payload.financials : null
+  const fees = Array.isArray(financials?.fees) ? financials.fees : Array.isArray(payload.fees) ? payload.fees : []
+  const computedFee = financials?.total_fees ?? payload.fee ?? sumFees(fees)
+  const amount =
+    toNumber(financials?.value_amount) ??
+    toNumber(payload.value_amount) ??
+    toNumber(payload.amount) ??
+    toNumber(payload.wallet_amount_charged) ??
+    toNumber(payload.total_display)
+  const fee = toNumber(computedFee)
+  const total =
+    toNumber(financials?.total_debit) ??
+    toNumber(payload.total) ??
+    toNumber(payload.total_display) ??
+    toNumber(payload.wallet_amount_charged) ??
+    (amount !== null && fee !== null ? amount + fee : null)
+
+  const providerRaw = payload.provider
+  const provider =
+    typeof providerRaw === 'string'
+      ? { name: providerRaw }
+      : providerRaw && typeof providerRaw === 'object'
+        ? {
+            ...providerRaw,
+            reference: providerRaw.reference || providerRaw.transaction_reference || null,
+          }
+        : {}
+
+  const timeline = Array.isArray(payload.timeline)
+    ? payload.timeline.map(normalizeTimelineItem).filter(Boolean)
+    : []
+
+  const hasUnifiedFields = Boolean(
+    payload.kind ||
+      payload.event ||
+      payload.occurred_at ||
+      payload.title ||
+      payload.subtitle ||
+      payload.value_amount !== undefined ||
+      payload.total_display !== undefined ||
+      Array.isArray(payload.fees)
+  )
+  const hasLegacyMarkers = Boolean(payload.type || payload.source || payload.transaction_reference)
+
+  return {
+    ...payload,
+    reference: payload.reference || fallbackReference,
+    title: payload.title || payload.description || payload.kind || payload.type || 'Transaction receipt',
+    subtitle: payload.subtitle || '',
+    created_at: payload.created_at || payload.occurred_at || payload.updated_at || null,
+    amount,
+    fee,
+    total,
+    fees,
+    financials,
+    provider,
+    timeline,
+    __isLegacy: !hasUnifiedFields && hasLegacyMarkers,
+  }
+}
 
 const statusTone = (status) => {
   const normalized = String(status || '').toLowerCase()
@@ -48,7 +131,7 @@ const Receipt = () => {
       try {
         const res = await getTransactionReceipt(reference)
         if (!active) return
-        setReceipt(res?.data?.data || null)
+        setReceipt(normalizeReceiptPayload(res?.data?.data || null, reference))
         setIsLegacy(false)
       } catch (error) {
         if (!active) return
@@ -56,9 +139,10 @@ const Receipt = () => {
           try {
             const legacy = await getReceipt(reference)
             if (!active) return
-            setReceipt(legacy?.data?.data || null)
-            setIsLegacy(true)
-            console.warn('[receipt] legacy receipt format in use')
+            const normalized = normalizeReceiptPayload(legacy?.data?.data || null, reference)
+            setReceipt(normalized)
+            setIsLegacy(Boolean(normalized?.__isLegacy))
+            if (normalized?.__isLegacy) console.warn('[receipt] legacy receipt format in use')
           } catch (fallbackError) {
             if (!active) return
             toast.error(fallbackError?.response?.data?.message || 'Unable to load receipt.')
@@ -82,7 +166,7 @@ const Receipt = () => {
     }
   }, [reference])
 
-  const title = receipt?.description || receipt?.kind || 'Transaction receipt'
+  const title = receipt?.title || receipt?.description || receipt?.kind || 'Transaction receipt'
   const createdAt = receipt?.created_at ? new Date(receipt.created_at).toLocaleString() : '--'
   const currency = receipt?.currency || 'NGN'
   const amount = receipt?.amount
@@ -92,11 +176,8 @@ const Receipt = () => {
   const isPending = ['pending', 'processing', 'initialized'].includes(statusValue)
   const isFailed = ['failed', 'declined', 'cancelled', 'reversed', 'expired', 'provider_unavailable', 'timedout', 'timeout'].includes(statusValue)
   const isSuccess = ['approved', 'completed', 'success', 'paid'].includes(statusValue)
-  const provider = useMemo(() => {
-    if (!receipt?.provider) return {}
-    if (typeof receipt.provider === 'string') return { name: receipt.provider }
-    return receipt.provider
-  }, [receipt])
+  const provider = useMemo(() => receipt?.provider || {}, [receipt])
+  const financials = useMemo(() => receipt?.financials || null, [receipt])
   const generatedAt = useMemo(() => new Date().toLocaleString(), [])
   const timeline = useMemo(() => receipt?.timeline || [], [receipt])
   const fx = useMemo(() => receipt?.fx || null, [receipt])
@@ -178,6 +259,11 @@ const Receipt = () => {
         {isLegacy && (
           <div className="text-xs text-amber-300 bg-amber-500/10 border border-amber-500/30 rounded-xl px-4 py-2">
             Legacy receipt format in use. Details may be limited.
+          </div>
+        )}
+        {financials?.reconciliation_status === 'mismatch' && (
+          <div className="text-xs text-rose-300 bg-rose-500/10 border border-rose-500/30 rounded-xl px-4 py-2">
+            Receipt totals are being reconciled. Contact support with your reference if this persists.
           </div>
         )}
 
@@ -287,9 +373,10 @@ const Receipt = () => {
           <div className="mt-4 space-y-3">
             {timeline.length === 0 && <p className="text-xs text-slate-400">No events recorded.</p>}
             {timeline.map((event, idx) => (
-              <div key={`${event.event_type}-${idx}`} className="flex items-start justify-between gap-4">
+              <div key={`${event.label || 'event'}-${idx}`} className="flex items-start justify-between gap-4">
                 <div>
-                  <p className="text-sm text-slate-100 print-text">{event.event_type}</p>
+                  <p className="text-sm text-slate-100 print-text">{event.label}</p>
+                  {event.description ? <p className="text-xs text-slate-400 mt-1">{event.description}</p> : null}
                   <p className="text-xs text-slate-500 print-muted">
                     {event.occurred_at ? new Date(event.occurred_at).toLocaleString() : 'Not available'}
                   </p>
@@ -378,3 +465,5 @@ const Receipt = () => {
 }
 
 export default Receipt
+
+
