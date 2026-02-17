@@ -48,7 +48,7 @@ const AccountNumbers = ({ accounts, generate, onView, showView = true }) => {
                         {filteredAccounts[i].account_name}
                       </p>
                       <p className="text-sm text-slate-400 mt-1">
-                        Bank: {filteredAccounts[0]?.account_number}
+                        Bank: {filteredAccounts[i]?.bank_name || 'Anchor'}
                       </p>
 
                       {showView && onView ? (

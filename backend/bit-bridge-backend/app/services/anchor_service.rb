@@ -156,15 +156,17 @@ class AnchorService
       # bank_name = response&.dig("data", "attributes", "bank", "accountName")
 
 
-      bank_name = response.dig('data', 'attributes', 'bank', 'name')
       useable_id = response.dig('data', 'id')
-      account_number = response.dig('data', 'attributes', 'accountNumber')
+      account_number = response.dig('data', 'attributes', 'accountNumber').to_s.strip
       account_name = response.dig('data', 'attributes', 'accountName')
       account_number_details = fetch_account_number_details_by_account_id(useable_id) || {}
-      resolved_account_number = account_number_details[:account_number].presence || account_number
-      resolved_bank_name = account_number_details[:bank_name].presence || bank_name
+      canonical_account_number = account_number_details[:account_number].to_s.strip
+      fallback_account_number = numeric_account_number?(account_number) ? account_number : nil
+      resolved_account_number = canonical_account_number.presence || fallback_account_number
+      resolved_bank_name = account_number_details[:bank_name].presence || account_record.bank_name
       resolved_bank_code = account_number_details[:bank_code].presence || account_record.bank_code
       resolved_account_name = account_number_details[:account_name].presence || account_name
+      log_bank_name_mismatch!(account_id: useable_id, canonical_bank_name: account_number_details[:bank_name])
 
 
       provider_status = response.code
@@ -883,6 +885,7 @@ class AnchorService
     updates[:bank_name] = details[:bank_name] if details[:bank_name].present? && details[:bank_name] != account_record.bank_name
     updates[:bank_code] = details[:bank_code] if details[:bank_code].present? && details[:bank_code] != account_record.bank_code
     updates[:account_name] = details[:account_name] if details[:account_name].present? && details[:account_name] != account_record.account_name
+    log_bank_name_mismatch!(account_id: account_record.useable_id, canonical_bank_name: details[:bank_name])
 
     account_record.update(updates) if updates.any?
     account_record
@@ -937,6 +940,32 @@ class AnchorService
     cleaned = reference.to_s.downcase.gsub(/[^a-z0-9]/, '')
     cleaned = "fbg#{Time.now.to_i}" if cleaned.blank?
     cleaned[0, 100]
+  end
+
+  def numeric_account_number?(value)
+    value.to_s.strip.match?(/\A\d{10}\z/)
+  end
+
+  def log_bank_name_mismatch!(account_id:, canonical_bank_name:)
+    return if account_id.blank? || canonical_bank_name.blank?
+
+    detail_response = fetch_account_detail(account_id, true)
+    return unless detail_response[:status] == :ok
+
+    provider_bank_name =
+      detail_response.dig(:data, 'attributes', 'bank', 'name').to_s.strip
+    return if provider_bank_name.blank? || provider_bank_name.casecmp(canonical_bank_name.to_s.strip).zero?
+
+    Rails.logger.warn(
+      {
+        event: 'anchor.bank_mismatch',
+        account_id: account_id,
+        canonical_bank_name: canonical_bank_name,
+        provider_bank_name: provider_bank_name
+      }.to_json
+    )
+  rescue StandardError
+    nil
   end
 
   def sanitize_transfer_reason(reason)
