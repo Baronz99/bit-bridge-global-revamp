@@ -27,10 +27,9 @@ const AccountNumbers = ({ accounts, generate, onView, showView = true }) => {
             const useraccountExists =
               filteredAccounts[i]?.vendor && accountVendors.some((acc) => acc == filteredAccounts[i]?.vendor)
             const accountIndex = accountVendors.indexOf(filteredAccounts[i]?.vendor ?? 'nil')
-            const indexTogen = accountVendors.indexOf(
-              accountNonexisting[i - accountexisting.length]
-            )
             const canGenerate = accountNonexisting[i - accountexisting.length] === 'anchor'
+            const existingVendor = accountVendors[accountIndex]
+            const missingVendor = accountNonexisting[i - accountexisting.length]
 
             if (useraccountExists) {
               return (
@@ -63,7 +62,7 @@ const AccountNumbers = ({ accounts, generate, onView, showView = true }) => {
                     </>
                   ) : accountVendors[accountIndex] === 'anchor' ? (
                     <button
-                      onClick={() => generate(accountIndex, accounts[i])}
+                      onClick={() => generate(existingVendor, filteredAccounts[i])}
                       className="text-slate-400 text-base font-normal hover:text-alt italic"
                     >
                       + Continue
@@ -87,7 +86,7 @@ const AccountNumbers = ({ accounts, generate, onView, showView = true }) => {
                   </h3>
                   {canGenerate ? (
                     <button
-                      onClick={() => generate(indexTogen)}
+                      onClick={() => generate(missingVendor)}
                       className="text-slate-400 text-base font-normal hover:text-alt italic"
                     >
                       + generate

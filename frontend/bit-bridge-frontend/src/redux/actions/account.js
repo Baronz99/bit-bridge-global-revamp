@@ -92,7 +92,7 @@ export const createDepositAccount = createAsyncThunk(
   'account/create-deposite-account',
   async (_data, { rejectWithValue }) => {
     try {
-      const response = await client.get('/accounts/get_account_number')
+      const response = await client.post('/accounts/provision_account_number')
       const result = response.data
 
       toast(result?.message || 'Account initialized: Account has been provided', {
@@ -228,3 +228,6 @@ export const getUserCard = createAsyncThunk('card/GET_USER_CARD', async (_, { re
     return rejectWithValue({ message })
   }
 })
+
+
+

@@ -6,6 +6,7 @@ import dateFormater from '../../../utils/dateFormat'
 import nairaFormat from '../../../utils/nairaFormat'
 import { getUserTransactions } from '../../../redux/actions/transaction'
 import statusStyle from '../../../utils/statusStyle'
+import { resolveReceiptReference } from '../../../utils/receiptReference'
 
 const DepositTransaction = () => {
   const dispatch = useDispatch()
@@ -79,9 +80,9 @@ const DepositTransaction = () => {
                         {dateFormater(item?.created_at)}
                       </td>
                       <td className="relative whitespace-nowrap border-b text-center border-gray-200 py-3 pr-4 pl-3 text-sm sm:pr-8 lg:pr-8">
-                        {item?.reference ? (
+                        {resolveReceiptReference(item, { kindHint: 'wallet', preferWallet: true }) ? (
                           <NavLink
-                            to={`/dashboard/receipt/${item.reference}`}
+                            to={`/dashboard/receipt/${resolveReceiptReference(item, { kindHint: 'wallet', preferWallet: true })}`}
                             className="text-indigo-600 hover:text-indigo-500 text-xs"
                           >
                             View receipt
@@ -109,3 +110,4 @@ const DepositTransaction = () => {
 }
 
 export default DepositTransaction
+

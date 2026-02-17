@@ -6,6 +6,7 @@ import { NavLink, useOutletContext } from 'react-router-dom'
 import { getUserTransactions } from '../../../redux/actions/transaction'
 import Loading from '../../../components/loader/Loading'
 import statusStyleCard from '../../../utils/statusCard'
+import { resolveReceiptReference } from '../../../utils/receiptReference'
 
 const Withdrawals = () => {
   const { transactions, loading } = useSelector((state) => state.transaction)
@@ -141,9 +142,9 @@ const Withdrawals = () => {
                         </td>
 
                         <td className="relative whitespace-nowrap border-b text-center border-gray-600 py-3 pr-4 pl-3 text-sm sm:pr-8 lg:pr-8">
-                          {item?.reference ? (
+                          {resolveReceiptReference(item, { kindHint: 'wallet', preferWallet: true }) ? (
                             <NavLink
-                              to={`/dashboard/receipt/${item.reference}`}
+                              to={`/dashboard/receipt/${resolveReceiptReference(item, { kindHint: 'wallet', preferWallet: true })}`}
                               className="text-indigo-300 hover:text-indigo-200 text-xs"
                             >
                               View receipt
@@ -172,3 +173,4 @@ const Withdrawals = () => {
 }
 
 export default Withdrawals
+

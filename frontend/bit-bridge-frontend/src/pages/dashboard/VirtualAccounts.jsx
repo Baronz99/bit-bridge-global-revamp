@@ -1,15 +1,11 @@
 import { useEffect, useState } from 'react'
 import { useDispatch, useSelector } from 'react-redux'
 import { useNavigate } from 'react-router-dom'
-import { Button, Form } from 'antd'
 import { toast } from 'react-toastify'
 import AppModal from '../../components/modal/Modal'
 import AccountCreationWizard from '../../components/accountCreationWizard/AccountCreationWizard'
 import AccountNumbers from '../../components/accountComponents/AccountComponents'
-import FormInput from '../../components/formInput/FormInput'
-import { createAccount, getAccounts, getUserAccount } from '../../redux/actions/account'
-import { userProfile } from '../../redux/actions/auth'
-import { SET_LOADING } from '../../redux/app'
+import { getAccounts, getUserAccount } from '../../redux/actions/account'
 import { needsTier2Access, withTier2MissingDetails } from '../../utils/kycGate'
 
 const VirtualAccounts = () => {
@@ -19,9 +15,8 @@ const VirtualAccounts = () => {
   const { user } = useSelector((state) => state.auth)
   const { accounts } = useSelector((state) => state.account)
 
-  const [openMonify, setIsOpenMonify] = useState(false)
   const [isAnchorModal, setIsAnchorModal] = useState(false)
-  const [current, setCurrent] = useState(1)
+  const [current, setCurrent] = useState(0)
   const [formData, setFormData] = useState({})
   const [visibleAccounts, setVisibleAccounts] = useState({})
 
@@ -30,24 +25,21 @@ const VirtualAccounts = () => {
     dispatch(getAccounts())
   }, [dispatch])
 
-  const handleSubmit = (values) => {
-    dispatch(SET_LOADING(true))
-    dispatch(createAccount({ account: values }))
-      .unwrap()
-      .then(() => {
-        dispatch(userProfile())
-        dispatch(SET_LOADING(false))
-        setIsOpenMonify(false)
+  const handleGenerate = (vendor, data = {}) => {
+    if (vendor === 'monnify' || vendor === 'moniepoint') {
+      toast.info('New Monnify/Moniepoint account creation is currently disabled.', {
+        position: 'top-right',
+        autoClose: 4000,
+        pauseOnHover: true,
       })
-      .catch((error) => {
-        dispatch(SET_LOADING(false))
-        console.error('Error creating account:', error)
+      return
+    }
+    if (vendor !== 'anchor') {
+      toast.info('Only Anchor account creation is currently enabled.', {
+        position: 'top-right',
+        autoClose: 4000,
+        pauseOnHover: true,
       })
-  }
-
-  const handleGenerate = (i, data = {}) => {
-    if (i === 0) {
-      setIsOpenMonify(true)
       return
     }
 
@@ -62,7 +54,7 @@ const VirtualAccounts = () => {
     }
 
     setFormData(data)
-    setCurrent(data?.status === 'verifying' ? 2 : data?.status === 'unverified' ? 1 : 0)
+    setCurrent(data?.account_number ? 3 : data?.vendor === 'anchor' ? 2 : 0)
     setIsAnchorModal(true)
   }
 
@@ -92,7 +84,7 @@ const VirtualAccounts = () => {
         document.body.removeChild(textarea)
       }
       toast.success('Account number copied')
-    } catch (err) {
+    } catch {
       toast.error('Unable to copy account number')
     }
   }
@@ -112,8 +104,7 @@ const VirtualAccounts = () => {
             Bank accounts for transfers
           </h2>
           <p className="mt-2 text-sm text-slate-300 max-w-2xl">
-            Generate Anchor or Moniepoint virtual accounts to receive NGN transfers directly into your BitBridge
-            wallet.
+            Generate Anchor virtual accounts to receive NGN transfers directly into your BitBridge wallet.
           </p>
 
           <div className="mt-6 grid grid-cols-1 sm:grid-cols-3 gap-3 text-[11px] text-slate-300">
@@ -210,47 +201,12 @@ const VirtualAccounts = () => {
           current={current}
           setCurrent={setCurrent}
           setIsAncorModal={setIsAnchorModal}
+          user={user}
         />
-      </AppModal>
-
-      <AppModal
-        title={'Create Account Number'}
-        handleCancel={() => setIsOpenMonify(false)}
-        isModalOpen={openMonify}
-      >
-        <Form
-          layout="vertical"
-          initialValues={{
-            bvn: '',
-            currency: 'ngn',
-            vendor: 'moniepoint',
-            account_name: '',
-          }}
-          onFinish={(values) => {
-            handleSubmit({ ...values, currency: 'ngn', vendor: 'moniepoint' })
-          }}
-        >
-          <FormInput
-            required={true}
-            className="add-fund"
-            name="bvn"
-            type="text"
-            label="BVN"
-          />
-
-          <Form.Item label={null}>
-            <Button
-              className="border-alt m-auto block w-full h-12 md:h-14 bg-primary text-white rounded-lg border shadow-md font-medium text-lg"
-              type="primary"
-              htmlType="submit"
-            >
-              Generate Account
-            </Button>
-          </Form.Item>
-        </Form>
       </AppModal>
     </div>
   )
 }
 
 export default VirtualAccounts
+

@@ -41,10 +41,8 @@ const HomeDashboard = () => {
   const { shadowMode } = useSelector((state) => state.app || {})
   const {
     accounts,
-    account,
     altBank,
-    altAccountNumber,
-    loading: accountLoading,
+    altAccountNumber
   } = useSelector((state) => state.account)
 
   const dispatch = useDispatch()
@@ -129,13 +127,12 @@ const HomeDashboard = () => {
   }
 
   // 🔐 KYC gate for virtual accounts
-const handleGenerate = (i, data = {}) => {
-  const vendor = items[i]?.name
+const handleGenerate = (vendor) => {
   const needsTier2 = needsTier2Access(user)
 
-  // 🚫 Monnify intentionally disabled
-  if (vendor === 'monnify') {
-    toast.info('Monnify virtual account creation is currently disabled.', {
+  // Monnify/Moniepoint intentionally disabled for new account creation
+  if (vendor === 'monnify' || vendor === 'moniepoint') {
+    toast.info('New Monnify/Moniepoint account creation is currently disabled.', {
       position: 'top-right',
       autoClose: 4000,
       pauseOnHover: true,
@@ -143,9 +140,8 @@ const handleGenerate = (i, data = {}) => {
     return
   }
 
-  // 🏦 Anchor
+  // Anchor
   if (vendor === 'anchor') {
-    // Require Tier 2
     if (needsTier2) {
       toast.info(withTier2MissingDetails(user, 'Complete Tier 2 verification'), {
         position: 'top-right',
@@ -155,23 +151,16 @@ const handleGenerate = (i, data = {}) => {
       return
     }
 
-    // ✅ Correct behavior — open Anchor wizard
     navigate('/dashboard/virtual-accounts')
     return
   }
 
-
-    // Passed KYC gate → open Anchor wizard
-    setFormData(data)
-    setCurrent(
-      data?.status === 'verifying'
-        ? 2
-        : data?.status === 'unverified'
-        ? 1
-        : 0
-    )
-    setIsAncorModal(true)
-  }
+  toast.info('Only Anchor virtual account creation is currently enabled.', {
+    position: 'top-right',
+    autoClose: 4000,
+    pauseOnHover: true,
+  })
+}
 
   const maskAccountNumber = (num) => {
     if (!num) return ''
@@ -675,6 +664,7 @@ const handleGenerate = (i, data = {}) => {
           setIsOpenAccount={setIsOpenAccount}
           openAccount={openAccount}
           setIsAncorModal={setIsAncorModal}
+          user={user}
         />
       </AppModal>
 
@@ -683,3 +673,5 @@ const handleGenerate = (i, data = {}) => {
 }
 
 export default HomeDashboard
+
+

@@ -6,6 +6,7 @@ import nairaFormat from '../../../utils/nairaFormat'
 import dateFormater from '../../../utils/dateFormat'
 import Loading from '../../../components/loader/Loading'
 import statusStyleCard from '../../../utils/statusCard'
+import { resolveReceiptReference } from '../../../utils/receiptReference'
 
 const Orders = () => {
   const dispatch = useDispatch()
@@ -134,9 +135,9 @@ const Orders = () => {
                       </td>
 
                       <td className="whitespace-nowrap border-b border-slate-800 px-3 py-3 text-xs md:text-sm text-center">
-                        {item?.receipt_reference ? (
+                        {resolveReceiptReference(item, { kindHint: 'bill' }) ? (
                           <NavLink
-                            to={`/dashboard/receipt/${item.receipt_reference}`}
+                            to={`/dashboard/receipt/${resolveReceiptReference(item, { kindHint: 'bill' })}`}
                             className="text-indigo-300 hover:text-indigo-200"
                           >
                             View receipt
@@ -164,3 +165,4 @@ const Orders = () => {
 }
 
 export default Orders
+

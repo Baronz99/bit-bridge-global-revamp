@@ -8,6 +8,7 @@ import { getWallet } from '../../redux/actions/wallet'
 import ShadowValue from '../../components/ShadowValue'
 import client from '../../api/client'
 import { toast } from 'react-toastify'
+import { resolveReceiptReference } from '../../utils/receiptReference'
 import { needsTier2Access, withTier2MissingDetails } from '../../utils/kycGate'
 
 //  Use your reusable masked PIN input (4 digits)
@@ -1898,10 +1899,10 @@ const setCardPin = (nextPin) => {
                             <span>{entry.created_at ? new Date(entry.created_at).toLocaleString() : ''}</span>
                           </div>
                           <div className="mt-2 text-[11px]">
-                            {entry?.reference ? (
+                            {resolveReceiptReference(entry, { kindHint: 'card' }) ? (
                               <button
                                 type="button"
-                                onClick={() => navigate(`/dashboard/receipt/${entry.reference}`)}
+                                onClick={() => navigate(`/dashboard/receipt/${resolveReceiptReference(entry, { kindHint: 'card' })}`)}
                                 className="text-indigo-300 hover:text-indigo-200"
                               >
                                 View receipt
@@ -2804,3 +2805,4 @@ const setCardPin = (nextPin) => {
     </>
   )
 }
+

@@ -7,6 +7,7 @@ import { getUserTransactions } from '../../../redux/actions/transaction'
 import AppModal from '../../../components/modal/Modal'
 import Loading from '../../../components/loader/Loading'
 import statusStyleCard from '../../../utils/statusCard'
+import { resolveReceiptReference } from '../../../utils/receiptReference'
 
 const Deposits = () => {
   const [toggle, setToggle] = useState(false)
@@ -131,9 +132,9 @@ const Deposits = () => {
                           {dateFormater(item?.created_at)}
                         </td>
                         <td className="relative whitespace-nowrap border-b border-gray-200 py-3 pr-4 pl-3 text-center text-sm sm:pr-8 lg:pr-8">
-                          {item?.reference ? (
+                          {resolveReceiptReference(item, { kindHint: 'wallet', preferWallet: true }) ? (
                             <NavLink
-                              to={`/dashboard/receipt/${item.reference}`}
+                              to={`/dashboard/receipt/${resolveReceiptReference(item, { kindHint: 'wallet', preferWallet: true })}`}
                               className="text-indigo-300 hover:text-indigo-200 text-xs"
                             >
                               View receipt
@@ -168,3 +169,4 @@ const Deposits = () => {
 }
 
 export default Deposits
+

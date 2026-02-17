@@ -17,6 +17,7 @@ import { NavLink, useNavigate, useSearchParams } from 'react-router-dom'
 import ShadowValue from '../../components/ShadowValue'
 import { toast } from 'react-toastify'
 import { needsTier2Access, withTier2MissingDetails } from '../../utils/kycGate'
+import { resolveReceiptReference } from '../../utils/receiptReference'
 
 // NEW
 import {
@@ -712,7 +713,9 @@ const Account = () => {
 
                           <tbody>
                             {txList?.length ? (
-                              txList.map((item) => (
+                              txList.map((item) => {
+                                const receiptRef = resolveReceiptReference(item, { kindHint: 'wallet', preferWallet: true })
+                                return (
                                 <tr key={item?.id} className="bg-slate-950">
                                   <td className="whitespace-nowrap border-b border-slate-800 py-2 pl-4 pr-3 text-sm font-normal sm:pl-6">
                                     <p className="text-slate-200 leading-5 capitalize font-semibold">
@@ -743,9 +746,9 @@ const Account = () => {
                                     {dateFormater(item?.created_at)}
                                   </td>
                                   <td className="whitespace-nowrap border-b border-slate-800 px-3 py-3 text-xs text-center">
-                                    {item?.reference ? (
+                                    {receiptRef ? (
                                       <NavLink
-                                        to={`/dashboard/receipt/${item.reference}`}
+                                        to={`/dashboard/receipt/${receiptRef}`}
                                         className="text-indigo-300 hover:text-indigo-200"
                                       >
                                         View receipt
@@ -755,7 +758,8 @@ const Account = () => {
                                     )}
                                   </td>
                                 </tr>
-                              ))
+                                )
+                              })
                             ) : (
                               <tr>
                                 <td colSpan={5} className="py-8 text-center text-sm text-slate-500">
@@ -986,3 +990,5 @@ TransactionComp.propTypes = {
 }
 
 export default Account
+
+
