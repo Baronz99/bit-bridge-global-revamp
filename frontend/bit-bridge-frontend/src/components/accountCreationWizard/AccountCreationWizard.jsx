@@ -75,15 +75,20 @@ const AccountCreationWizard = ({
       gender: values?.gender,
     }
 
-    try {
-      await dispatch(createBankAccount({ account: payload })).unwrap()
-    } catch (err) {
-      const message = String(err?.message || '').toLowerCase()
-      const isAlreadyExists =
-        message.includes('already exists') ||
-        message.includes('already present') ||
-        message.includes('phone number already')
-      if (!isAlreadyExists) throw err
+    const hasExistingAnchorRecord =
+      String(formData?.vendor || values?.vendor || '').toLowerCase() === 'anchor'
+
+    if (!hasExistingAnchorRecord) {
+      try {
+        await dispatch(createBankAccount({ account: payload })).unwrap()
+      } catch (err) {
+        const message = String(err?.message || '').toLowerCase()
+        const isAlreadyExists =
+          message.includes('already exists') ||
+          message.includes('already present') ||
+          message.includes('phone number already')
+        if (!isAlreadyExists) throw err
+      }
     }
 
     try {
@@ -233,7 +238,7 @@ const AccountCreationWizard = ({
           <h2 className="text-lg font-semibold mb-4 text-alt">Review your information</h2>
           <div className="bg-gray- rounded-xl p-4">
             {Object.entries(formData)?.map(([key, val]) => {
-              const displayVal = dayjs.isDayjs(val) ? val.format('YYYY-MM-DD') : val || '—'
+              const displayVal = dayjs.isDayjs(val) ? val.format('YYYY-MM-DD') : val || '--'
 
               return (
                 <p key={key} className="text-alt capitalize">
@@ -253,13 +258,13 @@ const AccountCreationWizard = ({
           className="border text-alt rounded-xl p-6 shadow-md text-left max-w-md mx-auto"
         >
           <p className="text-gray-">
-            <strong>Account Number:</strong> {accountDetails?.account_number || '—'}
+            <strong>Account Number:</strong> {accountDetails?.account_number || '--'}
           </p>
           <p className="text-gray-">
-            <strong>Bank Name:</strong> {accountDetails?.bank_name || '—'}
+            <strong>Bank Name:</strong> {accountDetails?.bank_name || '--'}
           </p>
           <p className="text-gray-">
-            <strong>Account ID:</strong> {accountDetails?.account_id || accountDetails?.id || '—'}
+            <strong>Account ID:</strong> {accountDetails?.account_id || accountDetails?.id || '--'}
           </p>
 
           <div className="mt-6 text-center">

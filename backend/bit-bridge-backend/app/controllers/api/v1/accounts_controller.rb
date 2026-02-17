@@ -586,6 +586,33 @@ module Api
           }, status: :ok
         else
           duplicate_phone_error = duplicate_anchor_phone_error?(service_response[:message])
+          duplicate_customer_error =
+            duplicate_anchor_customer_error?(service_response[:message]) ||
+            duplicate_anchor_customer_error?(safe_provider_body(service_response[:provider_body]))
+
+          if duplicate_customer_error
+            existing_anchor = current_user.accounts.find_by(vendor: 'anchor')
+            if existing_anchor.present?
+              return render json: {
+                data: existing_anchor,
+                message: 'Anchor profile already exists. Continue onboarding.',
+                flow: {
+                  state: 'customer_created_no_deposit_account',
+                  next_action: 'provision_account_number'
+                }
+              }, status: :ok
+            end
+
+            return render json: {
+              message: 'Anchor profile already exists. Refresh and continue onboarding.',
+              error_code: 'ANCHOR_CUSTOMER_EXISTS',
+              flow: {
+                state: 'customer_created_no_deposit_account',
+                next_action: 'provision_account_number'
+              }
+            }, status: :conflict
+          end
+
           if duplicate_phone_error
             log_anchor_onboarding_error(
               code: 'ANCHOR_PHONE_EXISTS',
@@ -866,6 +893,14 @@ module Api
         msg = message.to_s.downcase
         return true if msg.include?('phonenumber already exist in this organization')
         return true if msg.include?('phone number already attached')
+
+        false
+      end
+
+      def duplicate_anchor_customer_error?(message)
+        msg = message.to_s.downcase
+        return true if msg.include?('customer with email already exist in this organization')
+        return true if msg.include?('customer already exist')
 
         false
       end

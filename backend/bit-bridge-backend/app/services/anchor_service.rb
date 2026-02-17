@@ -160,7 +160,7 @@ class AnchorService
       useable_id = response.dig('data', 'id')
       account_number = response.dig('data', 'attributes', 'accountNumber')
       account_name = response.dig('data', 'attributes', 'accountName')
-      account_number_details = fetch_account_number_details_by_account_id(useable_id)
+      account_number_details = fetch_account_number_details_by_account_id(useable_id) || {}
       resolved_account_number = account_number_details[:account_number].presence || account_number
       resolved_bank_name = account_number_details[:bank_name].presence || bank_name
       resolved_bank_code = account_number_details[:bank_code].presence || account_record.bank_code
