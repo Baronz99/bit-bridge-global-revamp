@@ -169,8 +169,15 @@ module Api
       def user_update
         attrs = user_update_params.to_h.deep_symbolize_keys
         profile_attrs = attrs.delete(:user_profile_attributes)
+        id_document_upload = params.dig(:user, :id_document)
+        proof_of_address_upload = params.dig(:user, :proof_of_address)
         should_recheck = should_recheck_bvn_snapshot?(current_user, profile_attrs)
-        should_recalculate_kyc = profile_attrs.present? || attrs[:id_type].present?
+        should_recalculate_kyc =
+          profile_attrs.present? ||
+          attrs[:id_type].present? ||
+          attrs[:id_number].present? ||
+          id_document_upload.present? ||
+          proof_of_address_upload.present?
 
         if ENV['DEBUG_UPLOADS'].present?
           Rails.logger.info(
@@ -190,17 +197,20 @@ module Api
 
         Rails.logger.info(
           "[USER_UPDATE] profile_keys=#{profile_attrs&.keys} " \
-          "attachments={id_document=#{profile_attrs&.dig(:id_document)&.class} " \
-          "proof_of_address=#{profile_attrs&.dig(:proof_of_address)&.class}}"
+          "attachments={id_document=#{id_document_upload&.class} " \
+          "proof_of_address=#{proof_of_address_upload&.class}}"
         )
 
         begin
           User.transaction do
             current_user.update!(attrs)
 
-            if profile_attrs.present?
+            if profile_attrs.present? || id_document_upload.present? || proof_of_address_upload.present?
               profile = current_user.user_profile || current_user.build_user_profile
-              profile.update!(profile_attrs)
+              profile.assign_attributes(profile_attrs || {})
+              profile.id_document.attach(id_document_upload) if id_document_upload.present?
+              profile.proof_of_address.attach(proof_of_address_upload) if proof_of_address_upload.present?
+              profile.save!
               profile.reload
               Rails.logger.info(
                 "[USER_UPDATE] saved profile attachments id_document_attached=#{profile.id_document.attached?} " \
@@ -214,8 +224,11 @@ module Api
               current_user.save! if current_user.changed?
             end
           end
+        rescue ActiveRecord::RecordInvalid => e
+          errors = e.record&.errors&.full_messages.presence || [e.message]
+          return render json: { message: errors.join(', '), errors: errors }, status: :unprocessable_entity
         rescue StandardError => e
-          return render json: { message: e.message }, status: :unprocessable_entity
+          return render json: { message: e.message, errors: [e.message] }, status: :unprocessable_entity
         end
 
         current_user.reload
@@ -643,6 +656,7 @@ module Api
           :primary_use_case,
           :kyc_level,
           :id_type,
+          :id_number,
           :id_document,
           :proof_of_address,
           user_profile_attributes: %i[
@@ -670,6 +684,7 @@ module Api
           :email,
           :active,
           :id_type,
+          :id_number,
           :id_document,
           :proof_of_address,
           user_profile_attributes: %i[
@@ -695,6 +710,7 @@ module Api
       def basic_profile_params
         params.require(:user).permit(
           :id_type,
+          :id_number,
           :id_document,
           :proof_of_address,
           user_profile_attributes: %i[
