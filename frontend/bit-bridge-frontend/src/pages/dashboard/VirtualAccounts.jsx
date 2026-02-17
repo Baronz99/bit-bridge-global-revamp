@@ -53,8 +53,9 @@ const VirtualAccounts = () => {
       return
     }
 
+    const hasAnchorRecord = String(data?.vendor || '').toLowerCase() === 'anchor'
     setFormData(data)
-    setCurrent(data?.account_number ? 3 : data?.vendor === 'anchor' ? 2 : 0)
+    setCurrent(data?.account_number ? 3 : hasAnchorRecord ? 1 : 0)
     setIsAnchorModal(true)
   }
 

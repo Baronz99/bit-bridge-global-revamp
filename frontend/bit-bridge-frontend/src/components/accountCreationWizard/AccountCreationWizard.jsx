@@ -56,8 +56,7 @@ const AccountCreationWizard = ({
 
   useEffect(() => {
     form.setFieldsValue(prefilledValues)
-    setFormData((prev) => ({ ...prefilledValues, ...prev }))
-  }, [form, prefilledValues, setFormData])
+  }, [form, prefilledValues])
 
   const runCreateFlow = async (values) => {
     const normalizedDob = dayjs.isDayjs(values?.dob) ? values.dob.format('YYYY-MM-DD') : values?.dob
@@ -167,7 +166,11 @@ const AccountCreationWizard = ({
     {
       title: 'Personal Info',
       content: (
-        <Form layout="vertical" form={form}>
+        <Form
+          layout="vertical"
+          form={form}
+          onValuesChange={(_, allValues) => setFormData((prev) => ({ ...prev, ...allValues }))}
+        >
           <FormInput label="First Name" name="first_name" required placeholder="First name" />
 
           <FormInput label="Last Name" name="last_name" required placeholder="Last name" />
@@ -186,7 +189,11 @@ const AccountCreationWizard = ({
     {
       title: 'Address & BVN',
       content: (
-        <Form layout="vertical" form={form}>
+        <Form
+          layout="vertical"
+          form={form}
+          onValuesChange={(_, allValues) => setFormData((prev) => ({ ...prev, ...allValues }))}
+        >
           <FormInput label="Address" name="address" required placeholder="Street address" />
 
           <FormInput label="City" name="city" required placeholder="Enter city" />
@@ -320,3 +327,4 @@ const AccountCreationWizard = ({
 }
 
 export default AccountCreationWizard
+
