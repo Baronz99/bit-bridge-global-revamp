@@ -75,11 +75,9 @@ const AccountCreationWizard = ({
       gender: values?.gender,
     }
 
-    let createFailed = false
     try {
       await dispatch(createBankAccount({ account: payload })).unwrap()
     } catch (err) {
-      createFailed = true
       const message = String(err?.message || '').toLowerCase()
       const isAlreadyExists =
         message.includes('already exists') ||
@@ -88,27 +86,25 @@ const AccountCreationWizard = ({
       if (!isAlreadyExists) throw err
     }
 
-    if (!createFailed) {
-      try {
-        await dispatch(
-          verifyKYC({
-            account: {
-              vendor: 'anchor',
-              bvn: payload.bvn,
-              dob: payload.dob,
-              gender: payload.gender,
-            },
-          })
-        ).unwrap()
-      } catch (err) {
-        const msg = String(err?.message || '').toLowerCase()
-        const canContinue =
-          msg.includes('already completed') ||
-          msg.includes('already verified') ||
-          msg.includes('already has') ||
-          msg.includes('already exists')
-        if (!canContinue) throw err
-      }
+    try {
+      await dispatch(
+        verifyKYC({
+          account: {
+            vendor: 'anchor',
+            bvn: payload.bvn,
+            dob: payload.dob,
+            gender: payload.gender,
+          },
+        })
+      ).unwrap()
+    } catch (err) {
+      const msg = String(err?.message || '').toLowerCase()
+      const canContinue =
+        msg.includes('already completed') ||
+        msg.includes('already verified') ||
+        msg.includes('already has') ||
+        msg.includes('already exists')
+      if (!canContinue) throw err
     }
 
     const provisionRes = await dispatch(createDepositAccount({ account: payload })).unwrap()
@@ -125,9 +121,9 @@ const AccountCreationWizard = ({
     try {
       const stepFields =
         current === 0
-          ? ['first_name', 'last_name', 'email', 'phone_number']
+          ? ['first_name', 'last_name', 'email', 'phone_number', 'address', 'city', 'state', 'postal_code']
           : current === 1
-          ? ['address', 'city', 'state', 'postal_code', 'bvn', 'dob', 'gender']
+          ? ['bvn', 'dob', 'gender']
           : []
 
       const values =
@@ -164,7 +160,7 @@ const AccountCreationWizard = ({
 
   const steps = [
     {
-      title: 'Personal Info',
+      title: 'Confirm Details',
       content: (
         <Form
           layout="vertical"
@@ -183,17 +179,7 @@ const AccountCreationWizard = ({
             required
             placeholder="Enter phone number"
           />
-        </Form>
-      ),
-    },
-    {
-      title: 'Address & BVN',
-      content: (
-        <Form
-          layout="vertical"
-          form={form}
-          onValuesChange={(_, allValues) => setFormData((prev) => ({ ...prev, ...allValues }))}
-        >
+
           <FormInput label="Address" name="address" required placeholder="Street address" />
 
           <FormInput label="City" name="city" required placeholder="Enter city" />
@@ -201,7 +187,17 @@ const AccountCreationWizard = ({
           <FormInput label="State" name="state" required placeholder="Enter state" />
 
           <FormInput label="Postal Code" name="postal_code" required placeholder="Enter postal code" />
-
+        </Form>
+      ),
+    },
+    {
+      title: 'Verify Identity',
+      content: (
+        <Form
+          layout="vertical"
+          form={form}
+          onValuesChange={(_, allValues) => setFormData((prev) => ({ ...prev, ...allValues }))}
+        >
           <FormInput label="BVN" name="bvn" required placeholder="Enter BVN" />
 
           <FormSelect
@@ -327,4 +323,3 @@ const AccountCreationWizard = ({
 }
 
 export default AccountCreationWizard
-
