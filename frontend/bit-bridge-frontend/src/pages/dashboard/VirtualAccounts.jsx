@@ -54,8 +54,11 @@ const VirtualAccounts = () => {
     }
 
     const hasAnchorRecord = String(data?.vendor || '').toLowerCase() === 'anchor'
+    const anchorStatus = String(data?.status || '').toLowerCase()
+    const isAnchorKycVerified = ['verified', 'completed'].includes(anchorStatus)
+    const requiresProvisionOnly = hasAnchorRecord && isAnchorKycVerified && !data?.account_number
     setFormData(data)
-    setCurrent(data?.account_number ? 3 : hasAnchorRecord ? 1 : 0)
+    setCurrent(data?.account_number ? 3 : requiresProvisionOnly ? 0 : hasAnchorRecord ? 1 : 0)
     setIsAnchorModal(true)
   }
 

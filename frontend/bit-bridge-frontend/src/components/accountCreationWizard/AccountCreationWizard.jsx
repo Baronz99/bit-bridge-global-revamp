@@ -29,6 +29,11 @@ const AccountCreationWizard = ({
   const [form] = Form.useForm()
   const [accountDetails, setAccountDetails] = useState(null)
   const dispatch = useDispatch()
+  const anchorStatus = String(formData?.status || '').toLowerCase()
+  const hasExistingAnchorRecord = String(formData?.vendor || '').toLowerCase() === 'anchor'
+  const isAnchorKycVerified = ['verified', 'completed'].includes(anchorStatus)
+  const requiresProvisionOnly =
+    hasExistingAnchorRecord && isAnchorKycVerified && !formData?.account_number
 
   const prefilledValues = useMemo(() => {
     const profile = user?.user_profile || {}
@@ -57,6 +62,21 @@ const AccountCreationWizard = ({
   useEffect(() => {
     form.setFieldsValue(prefilledValues)
   }, [form, prefilledValues])
+
+  useEffect(() => {
+    if (requiresProvisionOnly && current > 1) {
+      setCurrent(0)
+    }
+  }, [requiresProvisionOnly, current, setCurrent])
+
+  const runProvisionOnly = async () => {
+    const provisionRes = await dispatch(createDepositAccount({ account: { vendor: 'anchor' } })).unwrap()
+    const provisionData = provisionRes?.data || provisionRes
+    setAccountDetails(provisionData || null)
+    setCurrent(1)
+    await dispatch(getAccounts())
+    toast.success('Account number generated successfully')
+  }
 
   const runCreateFlow = async (values) => {
     const normalizedDob = dayjs.isDayjs(values?.dob) ? values.dob.format('YYYY-MM-DD') : values?.dob
@@ -124,6 +144,13 @@ const AccountCreationWizard = ({
   const next = async () => {
     dispatch(SET_LOADING(true))
     try {
+      if (requiresProvisionOnly) {
+        if (current === 0) {
+          await runProvisionOnly()
+        }
+        return
+      }
+
       const stepFields =
         current === 0
           ? ['first_name', 'last_name', 'email', 'phone_number', 'address', 'city', 'state', 'postal_code']
@@ -163,7 +190,7 @@ const AccountCreationWizard = ({
     setCurrent((prevStep) => prevStep - 1)
   }
 
-  const steps = [
+  const standardSteps = [
     {
       title: 'Confirm Details',
       content: (
@@ -280,6 +307,31 @@ const AccountCreationWizard = ({
     },
   ]
 
+  const provisionOnlySteps = [
+    {
+      title: 'Provision Account Number',
+      content: (
+        <div className="space-y-3">
+          <div className="bg-gray- rounded-xl p-4 space-y-2">
+            <h2 className="text-lg font-semibold text-alt">KYC already verified</h2>
+            <p className="text-sm text-gray-300">
+              Your Anchor profile is verified. Continue to generate your deposit account number.
+            </p>
+            <p className="text-alt capitalize">
+              <strong>Status:</strong> {formData?.status || '--'}
+            </p>
+            <p className="text-alt capitalize">
+              <strong>Customer ID:</strong> {formData?.useable_id || formData?.account_id || '--'}
+            </p>
+          </div>
+        </div>
+      ),
+    },
+    standardSteps[3],
+  ]
+
+  const steps = requiresProvisionOnly ? provisionOnlySteps : standardSteps
+
   return (
     <div className="max-w-2xl mx-auto bg-gray shadow-xl rounded-2xl p-8 mt-10">
       <Steps current={current} className="mb-8">
@@ -308,7 +360,7 @@ const AccountCreationWizard = ({
         )}
         {current < steps.length - 1 ? (
           <AppButton className=" !text-alt" onClick={next}>
-            Next
+            {requiresProvisionOnly && current === 0 ? 'Generate Account Number' : 'Next'}
           </AppButton>
         ) : (
           <div className="text-center ">
