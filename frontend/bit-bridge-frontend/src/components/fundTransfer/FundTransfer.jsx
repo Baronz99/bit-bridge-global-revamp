@@ -74,6 +74,7 @@ export default function MoneyTransferFlow({ setIsfundTransferOpen }) {
   const amountValue = Number(formData.amount || 0)
   const hasValidAmount = Number.isFinite(amountValue) && amountValue > 0
   const hasDescription = String(formData.description || '').trim().length > 0
+  const bankFlowStep = step === 1 ? 1 : step === 2 ? 2 : 3
 
   const generateTransferReference = () => {
     if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
@@ -347,6 +348,26 @@ export default function MoneyTransferFlow({ setIsfundTransferOpen }) {
             ? 'Transfer Details'
             : 'Confirm Transfer'}
         </h2>
+        {!isInternal && (
+          <div className="grid grid-cols-3 gap-2">
+            {['Recipient', 'Details', 'Confirm'].map((label, index) => {
+              const current = index + 1
+              const active = bankFlowStep >= current
+              return (
+                <div
+                  key={label}
+                  className={`rounded-lg border px-2 py-2 text-center text-xs font-semibold ${
+                    active
+                      ? 'border-blue-500/70 bg-blue-900/30 text-blue-100'
+                      : 'border-gray-700 bg-gray-800 text-gray-500'
+                  }`}
+                >
+                  {current}. {label}
+                </div>
+              )
+            })}
+          </div>
+        )}
 
         {step === 1 && (
           <div className="grid grid-cols-2 gap-2">
