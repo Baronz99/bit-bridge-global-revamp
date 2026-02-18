@@ -210,6 +210,14 @@ export default function MoneyTransferFlow({ setIsfundTransferOpen }) {
     lastLookupKeyRef.current = `${item.bank_code || ''}:${item.account_number || ''}`
   }
 
+  const handleRecipientContinue = () => {
+    if (isInternal) return
+    if (!canVerify) return toast('Enter a valid account number and bank', { type: 'error' })
+    if (!accountResolved || !formData?.account_name)
+      return toast('Please verify the account details', { type: 'error' })
+    setStep(2)
+  }
+
   const handleSend = async () => {
     if (isInternal) {
       if (!String(formData.phone_number || '').trim()) {
@@ -236,7 +244,7 @@ export default function MoneyTransferFlow({ setIsfundTransferOpen }) {
     } finally {
       setQuoteLoading(false)
     }
-    setStep(2)
+    setStep(3)
   }
 
   const handleConfirm = async () => {
@@ -329,7 +337,15 @@ export default function MoneyTransferFlow({ setIsfundTransferOpen }) {
     <div className="flex flex-col items-center justify-center bg-gray-950 text-gray-100 p-6">
       <div className="w-full max-w-md bg-gray-900 rounded-2xl shadow-xl border border-gray-800 p-6 space-y-6">
         <h2 className="text-2xl font-semibold text-center text-gray-100">
-          {step === 1 ? 'Send Money (NGN)' : 'Confirm Transfer'}
+          {isInternal
+            ? step === 1
+              ? 'Send Money (NGN)'
+              : 'Confirm Transfer'
+            : step === 1
+            ? 'Recipient Details'
+            : step === 2
+            ? 'Transfer Details'
+            : 'Confirm Transfer'}
         </h2>
 
         {step === 1 && (
@@ -380,48 +396,6 @@ export default function MoneyTransferFlow({ setIsfundTransferOpen }) {
                 />
               </div>
             )}
-
-            {!isInternal && beneficiaries?.length ? (
-              <div className="space-y-2">
-                <label className="block text-sm font-medium text-gray-400">Beneficiary (optional)</label>
-                <input
-                  type="text"
-                  value={beneficiarySearch}
-                  onChange={(e) => setBeneficiarySearch(e.target.value)}
-                  className="w-full bg-gray-800 border border-gray-700 rounded-lg p-2 text-gray-100 focus:ring-2 focus:ring-blue-500 focus:outline-none"
-                  placeholder="Search beneficiaries"
-                />
-                <select
-                  value=""
-                  onChange={(e) => {
-                    const id = e.target.value
-                    const item = (beneficiaries || []).find((b) => String(b.id) === id)
-                    selectBeneficiary(item)
-                  }}
-                  className="w-full bg-gray-800 border border-gray-700 rounded-lg p-2 text-gray-100 focus:ring-2 focus:ring-blue-500 focus:outline-none"
-                >
-                  <option value="">Select beneficiary</option>
-                  {(beneficiaries || [])
-                    .filter((item) => {
-                      const term = beneficiarySearch.toLowerCase().trim()
-                      if (!term) return true
-                      const name = (item.account_name || '').toLowerCase()
-                      const bank = (item.bank_name || '').toLowerCase()
-                      const acct = String(item.account_number || '')
-                      return name.includes(term) || bank.includes(term) || acct.includes(term)
-                    })
-                    .map((item) => {
-                      const last4 = String(item.account_number || '').slice(-4)
-                      const masked = last4 ? `****${last4}` : '****'
-                      return (
-                        <option key={item.id} value={item.id}>
-                          {`${item.account_name || 'Unknown'} - ${masked} - ${item.bank_name || item.bank_code}`}
-                        </option>
-                      )
-                    })}
-                </select>
-              </div>
-            ) : null}
 
             {!isInternal && (
               <>
@@ -478,8 +452,90 @@ export default function MoneyTransferFlow({ setIsfundTransferOpen }) {
                     </button>
                   </div>
                 )}
+
+                {beneficiaries?.length ? (
+                  <div className="space-y-2 rounded-lg border border-gray-800 bg-gray-950/40 p-3">
+                    <label className="block text-sm font-medium text-gray-400">
+                      Use saved beneficiary (optional)
+                    </label>
+                    <input
+                      type="text"
+                      value={beneficiarySearch}
+                      onChange={(e) => setBeneficiarySearch(e.target.value)}
+                      className="w-full bg-gray-800 border border-gray-700 rounded-lg p-2 text-gray-100 focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                      placeholder="Search beneficiaries"
+                    />
+                    <select
+                      value=""
+                      onChange={(e) => {
+                        const id = e.target.value
+                        const item = (beneficiaries || []).find((b) => String(b.id) === id)
+                        selectBeneficiary(item)
+                      }}
+                      className="w-full bg-gray-800 border border-gray-700 rounded-lg p-2 text-gray-100 focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                    >
+                      <option value="">Select beneficiary</option>
+                      {(beneficiaries || [])
+                        .filter((item) => {
+                          const term = beneficiarySearch.toLowerCase().trim()
+                          if (!term) return true
+                          const name = (item.account_name || '').toLowerCase()
+                          const bank = (item.bank_name || '').toLowerCase()
+                          const acct = String(item.account_number || '')
+                          return name.includes(term) || bank.includes(term) || acct.includes(term)
+                        })
+                        .map((item) => {
+                          const last4 = String(item.account_number || '').slice(-4)
+                          const masked = last4 ? `****${last4}` : '****'
+                          return (
+                            <option key={item.id} value={item.id}>
+                              {`${item.account_name || 'Unknown'} - ${masked} - ${item.bank_name || item.bank_code}`}
+                            </option>
+                          )
+                        })}
+                    </select>
+                  </div>
+                ) : null}
               </>
             )}
+
+            <AppButton
+              loading={loading || accountLoading}
+              onClick={isInternal ? handleSend : handleRecipientContinue}
+              disabled={
+                loading ||
+                (isInternal
+                  ? !formData.phone_number
+                  : !accountResolved)
+              }
+              className={`w-full py-2 rounded-lg font-semibold transition-colors ${
+                (isInternal
+                  ? formData.phone_number
+                  : accountResolved)
+                  ? '!bg-green-600 hover:bg-blue-500 '
+                  : 'bg-gray-700 !text-gray-400 '
+              }`}
+            >
+              {isInternal ? 'Continue' : 'Continue to transfer details'}
+            </AppButton>
+          </div>
+        )}
+
+        {!isInternal && step === 2 && (
+          <div className="space-y-4">
+            <div className="bg-gray-800 border border-gray-700 p-4 rounded-lg space-y-2">
+              <p className="text-gray-300">
+                <span className="font-medium text-gray-400">Bank:</span> {formData.bank}
+              </p>
+              <p className="text-gray-300">
+                <span className="font-medium text-gray-400">Account Number:</span>{' '}
+                {formData.account_number}
+              </p>
+              <p className="text-gray-300">
+                <span className="font-medium text-gray-400">Account Name:</span>{' '}
+                {formData.account_name}
+              </p>
+            </div>
 
             <div>
               <label className="block text-sm font-medium text-gray-400">Amount (NGN)</label>
@@ -505,42 +561,40 @@ export default function MoneyTransferFlow({ setIsfundTransferOpen }) {
               />
             </div>
 
-            {!isInternal && (
-              <label className="flex items-center gap-2 text-xs text-gray-300">
-                <input
-                  type="checkbox"
-                  checked={saveBeneficiary}
-                  onChange={(e) => setSaveBeneficiary(e.target.checked)}
-                  className="h-4 w-4 rounded border-gray-700 bg-gray-800 text-blue-500 focus:ring-blue-500"
-                />
-                Save beneficiary
-              </label>
-            )}
+            <label className="flex items-center gap-2 text-xs text-gray-300">
+              <input
+                type="checkbox"
+                checked={saveBeneficiary}
+                onChange={(e) => setSaveBeneficiary(e.target.checked)}
+                className="h-4 w-4 rounded border-gray-700 bg-gray-800 text-blue-500 focus:ring-blue-500"
+              />
+              Save beneficiary
+            </label>
 
             <AppButton
-              loading={loading || accountLoading}
+              loading={loading || accountLoading || quoteLoading}
               onClick={handleSend}
-              disabled={
-                loading ||
-                quoteLoading ||
-                (isInternal
-                  ? !formData.phone_number || !hasValidAmount
-                  : !accountResolved || !hasValidAmount || !hasDescription)
-              }
+              disabled={loading || quoteLoading || !hasValidAmount || !hasDescription}
               className={`w-full py-2 rounded-lg font-semibold transition-colors ${
-                (isInternal
-                  ? formData.phone_number && hasValidAmount
-                  : accountResolved && hasValidAmount && hasDescription)
+                hasValidAmount && hasDescription
                   ? '!bg-green-600 hover:bg-blue-500 '
                   : 'bg-gray-700 !text-gray-400 '
               }`}
             >
-              {quoteLoading ? 'Checking transfer...' : 'Send'}
+              {quoteLoading ? 'Checking transfer...' : 'Continue to confirm'}
             </AppButton>
+
+            <button
+              onClick={() => setStep(1)}
+              className="w-full text-blue-400 font-medium text-sm underline mt-2 hover:text-blue-300"
+              type="button"
+            >
+              Back to recipient
+            </button>
           </div>
         )}
 
-        {step === 2 && (
+        {((isInternal && step === 2) || (!isInternal && step === 3)) && (
           <div className="space-y-4">
             <div className="bg-gray-800 border border-gray-700 p-4 rounded-lg space-y-2">
               {isInternal ? (
@@ -626,7 +680,7 @@ export default function MoneyTransferFlow({ setIsfundTransferOpen }) {
             </AppButton>
 
             <button
-              onClick={() => setStep(1)}
+              onClick={() => setStep(isInternal ? 1 : 2)}
               className="w-full text-blue-400 font-medium text-sm underline mt-2 hover:text-blue-300"
               type="button"
             >
