@@ -5,6 +5,7 @@ import {
   getBeneficiaries,
   initiateTransfer,
   resolveAccountName,
+  transferQuote,
 } from '../../redux/actions/account'
 import AppButton from '../button/Button'
 import nairaFormat from '../../utils/nairaFormat'
@@ -60,7 +61,10 @@ export default function MoneyTransferFlow({ setIsfundTransferOpen }) {
   const [saveBeneficiary, setSaveBeneficiary] = useState(false)
   const [beneficiarySearch, setBeneficiarySearch] = useState('')
   const lastLookupKeyRef = useRef('')
+  const latestLookupInputRef = useRef('')
   const [transferReference, setTransferReference] = useState('')
+  const [quoteLoading, setQuoteLoading] = useState(false)
+  const [quoteData, setQuoteData] = useState(null)
 
   const canVerify = useMemo(() => {
     return String(formData.account_number || '').trim().length === 10 && !!formData.bank_code
@@ -69,6 +73,7 @@ export default function MoneyTransferFlow({ setIsfundTransferOpen }) {
   const accountResolved = accountLookupStatus === 'success'
   const amountValue = Number(formData.amount || 0)
   const hasValidAmount = Number.isFinite(amountValue) && amountValue > 0
+  const hasDescription = String(formData.description || '').trim().length > 0
 
   const generateTransferReference = () => {
     if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
@@ -97,6 +102,10 @@ export default function MoneyTransferFlow({ setIsfundTransferOpen }) {
     dispatch(getBeneficiaries())
   }, [dispatch, user])
 
+  useEffect(() => {
+    latestLookupInputRef.current = `${formData.bank_code}:${String(formData.account_number || '').trim()}`
+  }, [formData.account_number, formData.bank_code])
+
   const handleChange = (e) => {
     const { name, value } = e.target
     setFormData((prev) => {
@@ -114,9 +123,11 @@ export default function MoneyTransferFlow({ setIsfundTransferOpen }) {
       setAccountLookupError('')
       lastLookupKeyRef.current = ''
       setTransferReference('')
+      setQuoteData(null)
     }
-    if (name === 'amount') {
+    if (name === 'amount' || name === 'description') {
       setTransferReference('')
+      setQuoteData(null)
     }
   }
 
@@ -133,7 +144,7 @@ export default function MoneyTransferFlow({ setIsfundTransferOpen }) {
       const payload = {
         account_number: String(formData.account_number || '').trim(),
         bank_code: formData.bank_code,
-        inter_bank: !!formData.inter_bank,
+        inter_bank: true,
       }
 
       const lookupKey = `${payload.bank_code}:${payload.account_number}`
@@ -141,8 +152,10 @@ export default function MoneyTransferFlow({ setIsfundTransferOpen }) {
 
       setAccountLookupStatus('loading')
       setAccountLookupError('')
+      const requestKey = `${payload.bank_code}:${payload.account_number}`
 
       const res = await dispatch(resolveAccountName({ account: payload })).unwrap()
+      if (latestLookupInputRef.current !== requestKey) return
 
       setFormData((prev) => ({
         ...prev,
@@ -197,7 +210,7 @@ export default function MoneyTransferFlow({ setIsfundTransferOpen }) {
     lastLookupKeyRef.current = `${item.bank_code || ''}:${item.account_number || ''}`
   }
 
-  const handleSend = () => {
+  const handleSend = async () => {
     if (isInternal) {
       if (!String(formData.phone_number || '').trim()) {
         return toast('Enter a valid phone number', { type: 'error' })
@@ -210,8 +223,18 @@ export default function MoneyTransferFlow({ setIsfundTransferOpen }) {
     if (!accountResolved || !formData?.account_name)
       return toast('Please verify the account details', { type: 'error' })
     if (!hasValidAmount) return toast('Enter a valid amount', { type: 'error' })
+    if (!hasDescription) return toast('Description is required', { type: 'error' })
     if (!transferReference) {
       setTransferReference(generateTransferReference())
+    }
+    try {
+      setQuoteLoading(true)
+      const quote = await dispatch(transferQuote({ amount: formData.amount })).unwrap()
+      setQuoteData(quote || null)
+    } catch (err) {
+      return toast(pickErrorMessage(err), { type: 'error' })
+    } finally {
+      setQuoteLoading(false)
     }
     setStep(2)
   }
@@ -252,7 +275,7 @@ export default function MoneyTransferFlow({ setIsfundTransferOpen }) {
           account_name: formData.account_name,
           counter_party_id: formData.counter_party_id,
           amount: formData.amount,
-          inter_bank: !!formData.inter_bank,
+          inter_bank: true,
           description: formData.description,
           save_beneficiary: saveBeneficiary,
           transfer_reference: transferReference,
@@ -264,10 +287,14 @@ export default function MoneyTransferFlow({ setIsfundTransferOpen }) {
         const result = await dispatch(initiateTransfer({ account: transferPayload })).unwrap()
 
         const transferId = result?.meta?.transfer_id
-        const successMessage = transferId
-          ? `Transfer Successful (ID: ${transferId})`
-          : 'Transfer Successful'
-        toast(successMessage, { type: 'success' })
+        const transferStatus = String(result?.status || '').toLowerCase()
+        const successMessage =
+          transferStatus === 'pending'
+            ? `Transfer submitted and pending confirmation${transferId ? ` (ID: ${transferId})` : ''}`
+            : transferId
+            ? `Transfer Successful (ID: ${transferId})`
+            : 'Transfer Successful'
+        toast(successMessage, { type: transferStatus === 'pending' ? 'info' : 'success' })
       }
       dispatch(getWallet())
 
@@ -290,6 +317,7 @@ export default function MoneyTransferFlow({ setIsfundTransferOpen }) {
       setAccountLookupError('')
       setSaveBeneficiary(false)
       setTransferReference('')
+      setQuoteData(null)
     } catch (err) {
       toast(pickErrorMessage(err), { type: 'error' })
     } finally {
@@ -494,15 +522,20 @@ export default function MoneyTransferFlow({ setIsfundTransferOpen }) {
               onClick={handleSend}
               disabled={
                 loading ||
-                (isInternal ? !formData.phone_number || !hasValidAmount : !accountResolved || !hasValidAmount)
+                quoteLoading ||
+                (isInternal
+                  ? !formData.phone_number || !hasValidAmount
+                  : !accountResolved || !hasValidAmount || !hasDescription)
               }
               className={`w-full py-2 rounded-lg font-semibold transition-colors ${
-                (isInternal ? formData.phone_number && hasValidAmount : accountResolved && hasValidAmount)
+                (isInternal
+                  ? formData.phone_number && hasValidAmount
+                  : accountResolved && hasValidAmount && hasDescription)
                   ? '!bg-green-600 hover:bg-blue-500 '
                   : 'bg-gray-700 !text-gray-400 '
               }`}
             >
-              Send
+              {quoteLoading ? 'Checking transfer...' : 'Send'}
             </AppButton>
           </div>
         )}
@@ -543,6 +576,26 @@ export default function MoneyTransferFlow({ setIsfundTransferOpen }) {
                     <span className="font-medium text-gray-400">Amount:</span>{' '}
                     {nairaFormat(formData.amount, 'ngn')}
                   </p>
+                  <p className="text-gray-300">
+                    <span className="font-medium text-gray-400">Narration:</span>{' '}
+                    {formData.description}
+                  </p>
+                  <p className="text-gray-300">
+                    <span className="font-medium text-gray-400">Reference:</span>{' '}
+                    {transferReference}
+                  </p>
+                  {quoteData?.fee != null && (
+                    <p className="text-gray-300">
+                      <span className="font-medium text-gray-400">Fee:</span>{' '}
+                      {nairaFormat(quoteData.fee, 'ngn')}
+                    </p>
+                  )}
+                  {quoteData?.total_debit != null && (
+                    <p className="text-gray-300">
+                      <span className="font-medium text-gray-400">Total debit:</span>{' '}
+                      {nairaFormat(quoteData.total_debit, 'ngn')}
+                    </p>
+                  )}
                 </>
               )}
             </div>

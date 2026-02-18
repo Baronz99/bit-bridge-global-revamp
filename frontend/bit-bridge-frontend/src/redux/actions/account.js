@@ -198,6 +198,21 @@ export const createCard = createAsyncThunk(
   }
 )
 
+export const transferQuote = createAsyncThunk(
+  'account/transfer_quote',
+  async ({ amount }, { rejectWithValue }) => {
+    try {
+      const response = await client.get('/accounts/transfer_quote', {
+        params: { amount },
+      })
+      return response.data
+    } catch (error) {
+      const message = getErrorMessage(error)
+      return rejectWithValue({ message })
+    }
+  }
+)
+
 export const registerCardHolder = createAsyncThunk(
   'account/register-card-holder',
   async (data, { rejectWithValue }) => {
