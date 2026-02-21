@@ -172,9 +172,9 @@ const Receipt = () => {
   const amount = receipt?.amount
   const fee = receipt?.fee
   const total = receipt?.total
-  const statusValue = String(receipt?.status || '').toLowerCase()
-  const isPending = ['pending', 'processing', 'initialized'].includes(statusValue)
-  const isFailed = ['failed', 'declined', 'cancelled', 'reversed', 'expired', 'provider_unavailable', 'timedout', 'timeout'].includes(statusValue)
+  const statusValue = String(receipt?.lifecycle_state || receipt?.status || '').toLowerCase()
+  const isPending = ['pending', 'processing', 'initialized', 'reserved', 'pending_provider'].includes(statusValue)
+  const isFailed = ['failed', 'declined', 'cancelled', 'reversed', 'expired', 'provider_unavailable', 'timedout', 'timeout', 'failed_unrecovered', 'failed_reversal_pending', 'failed_refunded'].includes(statusValue)
   const isSuccess = ['approved', 'completed', 'success', 'paid'].includes(statusValue)
   const provider = useMemo(() => receipt?.provider || {}, [receipt])
   const financials = useMemo(() => receipt?.financials || null, [receipt])
@@ -273,8 +273,8 @@ const Receipt = () => {
               <p className="text-lg font-semibold print-text">{title}</p>
               <p className="text-xs text-slate-500 mt-1 print-muted">{createdAt}</p>
             </div>
-            <span className={`text-[11px] uppercase tracking-widest px-3 py-1 rounded-full ${statusTone(receipt?.status)}`}>
-              {receipt?.status || 'pending'}
+            <span className={`text-[11px] uppercase tracking-widest px-3 py-1 rounded-full ${statusTone(statusValue)}`}>
+              {statusValue || 'pending'}
             </span>
           </div>
 
@@ -323,9 +323,14 @@ const Receipt = () => {
             {isFailed && (
               <div className="space-y-1">
                 <p>
-                  This transaction failed. You can retry the action or contact support with your receipt reference.
+                  {statusValue === 'failed_refunded'
+                    ? 'This transaction failed but funds were returned to your wallet.'
+                    : statusValue === 'failed_reversal_pending' || statusValue === 'failed_unrecovered'
+                    ? 'This transaction failed and reversal is in progress. Contact support if this persists.'
+                    : 'This transaction failed. You can retry the action or contact support with your receipt reference.'}
                 </p>
                 {provider?.status && <p>Provider status: {provider.status}</p>}
+                {receipt?.display_message && <p>{receipt.display_message}</p>}
               </div>
             )}
             {isSuccess && (
@@ -465,5 +470,4 @@ const Receipt = () => {
 }
 
 export default Receipt
-
 

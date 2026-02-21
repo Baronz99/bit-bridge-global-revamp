@@ -62,21 +62,18 @@ class TransactionSerializer < ActiveModel::Serializer
   def lifecycle_state
     return object.status.to_s unless anchor_transfer_component?
 
-    case transfer_component
-    when 'reversal'
-      'released'
-    else
-      case object.status.to_s
-      when 'pending'
-        'reserved'
-      when 'approved'
-        'completed'
-      when 'failed', 'declined'
-        'failed'
-      else
-        object.status.to_s
-      end
+    status_value = object.status.to_s
+    return 'completed' if status_value == 'approved'
+
+    if status_value == 'pending'
+      return debit_entry_exists? ? 'pending_provider' : 'reserved'
     end
+
+    return status_value unless %w[failed declined].include?(status_value)
+    return 'failed_refunded' if refund_entry_exists? || release_entry_exists?
+    return 'failed_reversal_pending' if debit_entry_exists?
+
+    'failed_unrecovered'
   end
 
   def show_in_primary_feed
@@ -120,8 +117,16 @@ class TransactionSerializer < ActiveModel::Serializer
     case lifecycle_state
     when 'reserved'
       'Transfer initiated. Funds reserved.'
+    when 'pending_provider'
+      'Transfer submitted. Awaiting provider confirmation.'
     when 'completed'
       'Transfer completed.'
+    when 'failed_refunded'
+      'Transfer failed. Funds returned.'
+    when 'failed_reversal_pending'
+      'Transfer failed. Reversal in progress.'
+    when 'failed_unrecovered'
+      'Transfer failed. Reversal pending.'
     when 'released'
       'Transfer failed. Funds released.'
     when 'failed'
@@ -199,13 +204,39 @@ class TransactionSerializer < ActiveModel::Serializer
     case lifecycle_state
     when 'reserved'
       'hold'
+    when 'pending_provider'
+      'debit'
     when 'completed'
       'debit'
-    when 'released', 'failed'
+    when 'failed_refunded'
+      refund_entry_exists? ? 'refund' : 'release'
+    when 'failed_reversal_pending'
+      'debit'
+    when 'released', 'failed', 'failed_unrecovered'
       'release'
     else
       nil
     end
+  end
+
+  def debit_entry_exists?
+    ledger_entry_exists?('debit')
+  end
+
+  def release_entry_exists?
+    ledger_entry_exists?('release')
+  end
+
+  def refund_entry_exists?
+    ledger_entry_exists?('refund')
+  end
+
+  def ledger_entry_exists?(entry_type)
+    transfer_reference.present? &&
+      WalletLedgerEntry
+        .where(wallet_id: object.wallet_id, entry_type: entry_type)
+        .where("metadata ->> 'transfer_reference' = ?", transfer_reference)
+        .exists?
   end
 
   def ledger_snapshot_columns_available?

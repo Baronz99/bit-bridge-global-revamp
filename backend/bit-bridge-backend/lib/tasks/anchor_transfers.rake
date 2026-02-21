@@ -25,4 +25,23 @@ namespace :anchor do
 
     puts "Anchor double-debit reconcile done: #{results.inspect}"
   end
+
+  desc 'Detect/repair failed Anchor transfers with debit entries but no refund. DRY_RUN=true by default'
+  task reconcile_failed_debit_refunds: :environment do
+    dry_run = ENV.fetch('DRY_RUN', 'true').to_s.downcase != 'false'
+    limit = ENV.fetch('LIMIT', Transfers::AnchorFailedDebitRefundReconciler::DEFAULT_LIMIT.to_s).to_i
+    email = ENV['EMAIL']
+    from = ENV['FROM']
+    to = ENV['TO']
+
+    results = Transfers::AnchorFailedDebitRefundReconciler.call(
+      email: email,
+      from: from,
+      to: to,
+      limit: limit,
+      dry_run: dry_run
+    )
+
+    puts "Anchor failed-debit refund reconcile done: #{results.inspect}"
+  end
 end

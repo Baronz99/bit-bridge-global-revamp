@@ -134,4 +134,95 @@ RSpec.describe TransactionSerializer, type: :serializer do
     expect(snapshot.dig(:before_event_balance, :available)).to eq(500.0)
     expect(snapshot.dig(:after_event_balance, :available)).to eq(600.0)
   end
+
+  it 'maps failed anchor transfer with refund ledger entry to failed_refunded lifecycle' do
+    wallet = user.ngn_wallet
+    transfer_reference = "tx-ref-refunded-#{SecureRandom.hex(3)}"
+
+    order = BillOrder.create!(
+      user: user,
+      meter_number: transfer_reference,
+      meter_type: 'PREPAID',
+      address: 'Test',
+      name: 'Anchor Transfer',
+      tariff_class: 'A',
+      service_type: 'OTHER',
+      email: user.email,
+      amount: 150,
+      phone: '08000000000',
+      biller: 'Anchor',
+      description: 'Anchor transfer hold',
+      payment_type: 'online',
+      payment_method: 'wallet',
+      status: 'failed',
+      metadata: { source: 'anchor_transfer', transfer_reference: transfer_reference }
+    )
+
+    WalletLedgerEntry.ensure_hold!(wallet: wallet, bill_order: order, amount: 150, metadata: { transfer_reference: transfer_reference })
+    WalletLedgerEntry.record_debit!(
+      wallet: wallet,
+      bill_order: order,
+      amount: 150,
+      metadata: { 'source' => 'anchor_transfer', 'transfer_reference' => transfer_reference }
+    )
+    WalletLedgerEntry.record_refund!(wallet: wallet, bill_order: order, amount: 150, metadata: { transfer_reference: transfer_reference })
+
+    tx = wallet.transactions.create!(
+      transaction_type: 'withdrawal',
+      status: 'failed',
+      coin_type: 'bank',
+      amount: 100,
+      address: 'Anchor payout',
+      metadata: { provider: 'anchor', subtype: 'principal', transfer_reference: transfer_reference }
+    )
+
+    payload = described_class.new(tx).as_json
+    expect(payload[:lifecycle_state]).to eq('failed_refunded')
+    expect(payload[:display_message]).to eq('Transfer failed. Funds returned.')
+  end
+
+  it 'maps failed anchor transfer without refund to failed_reversal_pending lifecycle when debit exists' do
+    wallet = user.ngn_wallet
+    transfer_reference = "tx-ref-reversal-#{SecureRandom.hex(3)}"
+
+    order = BillOrder.create!(
+      user: user,
+      meter_number: transfer_reference,
+      meter_type: 'PREPAID',
+      address: 'Test',
+      name: 'Anchor Transfer',
+      tariff_class: 'A',
+      service_type: 'OTHER',
+      email: user.email,
+      amount: 150,
+      phone: '08000000000',
+      biller: 'Anchor',
+      description: 'Anchor transfer hold',
+      payment_type: 'online',
+      payment_method: 'wallet',
+      status: 'failed',
+      metadata: { source: 'anchor_transfer', transfer_reference: transfer_reference }
+    )
+
+    WalletLedgerEntry.ensure_hold!(wallet: wallet, bill_order: order, amount: 150, metadata: { transfer_reference: transfer_reference })
+    WalletLedgerEntry.record_debit!(
+      wallet: wallet,
+      bill_order: order,
+      amount: 150,
+      metadata: { 'source' => 'anchor_transfer', 'transfer_reference' => transfer_reference }
+    )
+
+    tx = wallet.transactions.create!(
+      transaction_type: 'withdrawal',
+      status: 'failed',
+      coin_type: 'bank',
+      amount: 100,
+      address: 'Anchor payout',
+      metadata: { provider: 'anchor', subtype: 'principal', transfer_reference: transfer_reference }
+    )
+
+    payload = described_class.new(tx).as_json
+    expect(payload[:lifecycle_state]).to eq('failed_reversal_pending')
+    expect(payload[:display_message]).to eq('Transfer failed. Reversal in progress.')
+  end
 end

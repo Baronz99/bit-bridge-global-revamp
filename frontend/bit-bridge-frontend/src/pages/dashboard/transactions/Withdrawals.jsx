@@ -21,11 +21,20 @@ const Withdrawals = () => {
   )
 
   const displayStatus = (item) => String(item?.lifecycle_state || item?.status || 'pending').toLowerCase()
+  const displayStatusLabel = (item) => {
+    const state = displayStatus(item)
+    if (state === 'pending_provider') return 'pending provider'
+    if (state === 'failed_refunded') return 'failed - refunded'
+    if (state === 'failed_reversal_pending') return 'failed - reversal pending'
+    if (state === 'failed_unrecovered') return 'failed - reversal pending'
+    return state
+  }
   const statusForStyle = (item) => {
     const state = displayStatus(item)
     if (state === 'completed') return 'approved'
-    if (state === 'reserved') return 'initialized'
-    if (state === 'released') return 'failed'
+    if (state === 'reserved' || state === 'pending_provider') return 'initialized'
+    if (state === 'failed_refunded') return 'approved'
+    if (state === 'released' || state === 'failed_reversal_pending' || state === 'failed_unrecovered') return 'failed'
     return state
   }
   const displayAmount = (item) => item?.display_total ?? item?.display_amount ?? item?.amount
@@ -130,7 +139,7 @@ const Withdrawals = () => {
                           <span
                             className={`${statusStyleCard(statusForStyle(item))} py-1 w-full max-w-[200px] block text-center px-3 border rounded-3xl`}
                           >
-                            {displayStatus(item)}
+                            {displayStatusLabel(item)}
                           </span>
                           {item?.display_message ? (
                             <p className="text-xs text-slate-400 mt-2 max-w-[220px]">{item.display_message}</p>

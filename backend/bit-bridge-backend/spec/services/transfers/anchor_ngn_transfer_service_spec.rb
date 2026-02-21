@@ -240,4 +240,55 @@ RSpec.describe Transfers::AnchorNgnTransferService do
     expect(principal_dupes.count).to eq(1)
     expect(fee_dupes.count).to eq(1)
   end
+
+  it 'records refund instead of release when provider later fails after debit' do
+    anchor_service = instance_double(AnchorService)
+    allow(AnchorService).to receive(:new).and_return(anchor_service)
+    allow(anchor_service).to receive(:initiate_transfer).and_return(
+      status: :ok,
+      data: { transfer_id: 'tr_refund_1', status: 'pending' }
+    )
+
+    transfer_reference = 'ref-fail-after-debit'
+    described_class.call(
+      user: user,
+      sender_wallet: wallet,
+      amount_ngn: 7_500,
+      bank_payload: bank_payload,
+      narration: 'Transfer',
+      transfer_reference: transfer_reference
+    )
+
+    principal = wallet.transactions.where("metadata ->> 'subtype' = ?", 'principal').last
+    expect(principal).to be_present
+    expect(principal.status).to eq('pending')
+
+    described_class.reverse_transfer!(
+      principal,
+      reason: 'BENEFICIARY_BANK_NOT_AVAILABLE',
+      provider_status: 'nip.transfer.failed'
+    )
+
+    order = BillOrder.find_by(meter_number: transfer_reference)
+    expect(order).to be_present
+
+    refund = WalletLedgerEntry.find_by(wallet: wallet, bill_order: order, entry_type: :refund)
+    release = WalletLedgerEntry.find_by(wallet: wallet, bill_order: order, entry_type: :release)
+    expect(refund).to be_present
+    expect(release).to be_nil
+    expect(order.reload.status).to eq('failed')
+
+    record = TransactionRecord.find_by(reference: transfer_reference)
+    expect(record).to be_present
+    expect(record.status).to eq('failed')
+    expect(record.provider_error_category).to eq('beneficiary_bank_unavailable')
+
+    expect do
+      described_class.reverse_transfer!(
+        principal.reload,
+        reason: 'BENEFICIARY_BANK_NOT_AVAILABLE',
+        provider_status: 'nip.transfer.failed'
+      )
+    end.not_to change { WalletLedgerEntry.where(wallet: wallet, bill_order: order, entry_type: :refund).count }
+  end
 end

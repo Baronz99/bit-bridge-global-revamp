@@ -90,14 +90,12 @@ module Transfers
           hold_entry: hold_entry
         )
       else
-        release_entry = release_hold!(transfer_reference, total_debit, transfer_order)
         finalize_failure!(
           principal_tx,
           fee_tx,
           anchor_response[:message],
           transfer_reference,
-          hold_entry: hold_entry,
-          release_entry: release_entry
+          hold_entry: hold_entry
         )
       end
     rescue ActiveRecord::RecordInvalid => e
@@ -129,7 +127,12 @@ module Transfers
       update_failed!(principal_tx, reason: reason, provider_status: provider_status)
       update_failed!(fee_tx, reason: reason, provider_status: provider_status) if fee_tx
 
-      release_transfer_hold!(wallet: wallet, transfer_reference: transfer_reference)
+      settle_failed_transfer!(
+        wallet: wallet,
+        transfer_reference: transfer_reference,
+        reason: reason,
+        provider_status: provider_status
+      )
     end
 
     def self.mark_success!(principal_tx, provider_status:, provider_transfer_id: nil)
@@ -250,11 +253,18 @@ module Transfers
           total_debit: format_ngn(total_debit, decimals: 2).to_f,
           fee_breakdown: fee_breakdown,
           status: status,
+          lifecycle_state: transfer_lifecycle_state(
+            status: status,
+            debit_entry: find_ledger_entry(transfer_reference, :debit),
+            release_entry: find_ledger_entry(transfer_reference, :release),
+            refund_entry: find_ledger_entry(transfer_reference, :refund)
+          ),
           provider: 'anchor',
           balance_snapshot: {
             reserve: ledger_snapshot_hash(find_ledger_entry(transfer_reference, :hold)),
             settle: ledger_snapshot_hash(find_ledger_entry(transfer_reference, :debit)),
-            release: ledger_snapshot_hash(find_ledger_entry(transfer_reference, :release))
+            release: ledger_snapshot_hash(find_ledger_entry(transfer_reference, :release)),
+            refund: ledger_snapshot_hash(find_ledger_entry(transfer_reference, :refund))
           }
         }
       }
@@ -377,6 +387,12 @@ module Transfers
           total_debit: format_ngn(total_debit, decimals: 2).to_f,
           fee_breakdown: fee_tx.metadata.fetch('fee_breakdown', {}),
           status: status,
+          lifecycle_state: transfer_lifecycle_state(
+            status: status,
+            debit_entry: debit_entry,
+            release_entry: find_ledger_entry(transfer_reference, :release),
+            refund_entry: find_ledger_entry(transfer_reference, :refund)
+          ),
           provider: 'anchor',
           balance_snapshot: {
             reserve: ledger_snapshot_hash(hold_entry || find_ledger_entry(transfer_reference, :hold)),
@@ -386,7 +402,7 @@ module Transfers
       }
     end
 
-    def finalize_failure!(principal_tx, fee_tx, error_message, transfer_reference, hold_entry: nil, release_entry: nil)
+    def finalize_failure!(principal_tx, fee_tx, error_message, transfer_reference, hold_entry: nil)
       principal_tx.update!(
         status: 'failed',
         metadata: principal_tx.metadata.merge(provider_status: 'failed', provider_error: error_message)
@@ -397,16 +413,41 @@ module Transfers
         metadata: fee_tx.metadata.merge(provider_status: 'failed', provider_error: error_message)
       )
 
+      settlement = self.class.settle_failed_transfer!(
+        wallet: @sender_wallet,
+        transfer_reference: transfer_reference,
+        reason: error_message,
+        provider_status: 'failed'
+      )
+      release_entry = settlement[:release_entry]
+      refund_entry = settlement[:refund_entry]
+      lifecycle_state =
+        if refund_entry.present? || release_entry.present?
+          'failed_refunded'
+        elsif settlement[:debit_exists]
+          'failed_reversal_pending'
+        else
+          'failed_unrecovered'
+        end
+
       {
         status: :bad_gateway,
         body: {
           message: error_message.presence || 'Transfer failed',
           transfer_reference: transfer_reference,
           status: 'failed',
+          lifecycle_state: lifecycle_state,
           provider: 'anchor',
+          reversal: {
+            required: settlement[:debit_exists],
+            state: (refund_entry.present? ? 'refunded' : (settlement[:debit_exists] ? 'pending' : 'not_required')),
+            refunded_amount: refund_entry&.amount&.to_f
+          },
           balance_snapshot: {
             reserve: ledger_snapshot_hash(hold_entry || find_ledger_entry(transfer_reference, :hold)),
-            release: ledger_snapshot_hash(release_entry || find_ledger_entry(transfer_reference, :release))
+            settle: ledger_snapshot_hash(find_ledger_entry(transfer_reference, :debit)),
+            release: ledger_snapshot_hash(release_entry || find_ledger_entry(transfer_reference, :release)),
+            refund: ledger_snapshot_hash(refund_entry || find_ledger_entry(transfer_reference, :refund))
           }
         }
       }
@@ -509,14 +550,81 @@ module Transfers
       transaction.update!(status: 'failed', metadata: meta)
     end
 
-    def self.release_transfer_hold!(wallet:, transfer_reference:)
+    def self.settle_failed_transfer!(wallet:, transfer_reference:, reason: nil, provider_status: nil, bill_order: nil)
+      return {} if wallet.blank? || transfer_reference.blank?
+
+      bill_order =
+        bill_order.presence ||
+        BillOrder.find_by(user_id: wallet.user_id, meter_number: transfer_reference)
+      return {} if bill_order.blank?
+
+      debit_exists = WalletLedgerEntry.debit_exists?(wallet: wallet, bill_order: bill_order)
+      hold_amount = derive_failed_transfer_amount(wallet: wallet, transfer_reference: transfer_reference, bill_order: bill_order)
+
+      release_entry = nil
+      refund_entry = nil
+
+      if debit_exists
+        refund_entry = WalletLedgerEntry.record_refund!(
+          wallet: wallet,
+          bill_order: bill_order,
+          amount: hold_amount,
+          reference: "anchor-transfer-refund/#{transfer_reference}",
+          metadata: {
+            transfer_reference: transfer_reference,
+            provider_status: provider_status,
+            reason: reason
+          }.compact
+        )
+      else
+        release_entry = release_transfer_hold!(
+          wallet: wallet,
+          transfer_reference: transfer_reference,
+          bill_order: bill_order,
+          amount: hold_amount
+        )
+      end
+
+      record = TransactionRecord.find_by(reference: transfer_reference)
+      update_failed_record!(record: record, reason: reason, provider_status: provider_status)
+      update_failed_bill_order!(bill_order: bill_order, reason: reason, provider_status: provider_status)
+
+      {
+        bill_order: bill_order,
+        release_entry: release_entry,
+        refund_entry: refund_entry,
+        debit_exists: debit_exists
+      }
+    end
+
+    def self.release_transfer_hold!(wallet:, transfer_reference:, bill_order: nil, amount: nil)
       return if wallet.blank? || transfer_reference.blank?
 
-      bill_order = BillOrder.find_by(user_id: wallet.user_id, meter_number: transfer_reference)
+      bill_order =
+        bill_order.presence ||
+        BillOrder.find_by(user_id: wallet.user_id, meter_number: transfer_reference)
       return if bill_order.blank?
       return if WalletLedgerEntry.debit_exists?(wallet: wallet, bill_order: bill_order)
-      return if WalletLedgerEntry.release_exists?(wallet: wallet, bill_order: bill_order)
+      if WalletLedgerEntry.release_exists?(wallet: wallet, bill_order: bill_order)
+        return WalletLedgerEntry.find_by(wallet: wallet, bill_order: bill_order, entry_type: :release)
+      end
 
+      hold_amount = amount.to_d
+      if hold_amount <= 0
+        hold_amount = derive_failed_transfer_amount(wallet: wallet, transfer_reference: transfer_reference, bill_order: bill_order)
+      end
+      return if hold_amount <= 0
+
+      WalletLedgerEntry.release_hold!(
+        wallet: wallet,
+        bill_order: bill_order,
+        amount: hold_amount,
+        reference: "anchor-transfer-release/#{transfer_reference}",
+        metadata: { transfer_reference: transfer_reference }
+      )
+    end
+
+    def self.derive_failed_transfer_amount(wallet:, transfer_reference:, bill_order:)
       principal_tx = wallet.transactions
                          .where("metadata ->> 'transfer_reference' = ?", transfer_reference)
                          .where("metadata ->> 'subtype' = ?", 'principal')
@@ -527,17 +635,66 @@ module Transfers
                     .where("metadata ->> 'subtype' = ?", 'fee')
                     .order(created_at: :desc)
                     .first
-      hold_amount = principal_tx&.amount.to_d + fee_tx&.amount.to_d
-      hold_amount = bill_order.amount.to_d if hold_amount <= 0
-      return if hold_amount <= 0
+      amount = principal_tx&.amount.to_d + fee_tx&.amount.to_d
+      amount = bill_order.amount.to_d if amount <= 0
+      amount
+    end
 
-      WalletLedgerEntry.release_hold!(
-        wallet: wallet,
-        bill_order: bill_order,
-        amount: hold_amount,
-        reference: "anchor-transfer-release/#{transfer_reference}",
-        metadata: { transfer_reference: transfer_reference }
+    def self.update_failed_record!(record:, reason:, provider_status:)
+      return if record.blank?
+
+      updates = { status: 'failed' }
+      updates[:response_message] = reason.to_s if reason.present?
+      updates[:provider_error_category] = classify_provider_failure(provider_status: provider_status, reason: reason)
+      record.update!(updates)
+    end
+
+    def self.update_failed_bill_order!(bill_order:, reason:, provider_status:)
+      return if bill_order.blank?
+      return if BillOrder::TERMINAL_STATUSES.include?(bill_order.status.to_s)
+
+      payload = bill_order.provider_response.is_a?(Hash) ? bill_order.provider_response.deep_dup : {}
+      payload['provider_status'] = provider_status if provider_status.present?
+      payload['provider_error'] = reason if reason.present?
+      payload['failure_code'] = classify_provider_failure(provider_status: provider_status, reason: reason)
+      payload['failed_at'] = Time.current.utc.iso8601
+
+      bill_order.update!(
+        status: 'failed',
+        reason: reason.presence || 'Transfer failed',
+        provider_response: payload
       )
+    end
+
+    def self.classify_provider_failure(provider_status:, reason:)
+      status_text = provider_status.to_s.downcase
+      reason_text = reason.to_s.downcase
+      source = [status_text, reason_text].join(' ')
+
+      return 'beneficiary_bank_unavailable' if source.include?('beneficiary_bank_not_available')
+      return 'provider_liquidity_insufficient' if source.include?('insufficient_balance_in_master_account')
+      return 'provider_timeout' if source.match?(/timeout|timed out/)
+      return 'provider_unavailable' if source.match?(/unavailable|bad gateway|internal error|service unavailable/)
+      return 'provider_declined' if source.match?(/failed|rejected|reversed|cancelled|canceled/)
+
+      'unknown_failure'
+    end
+
+    def transfer_lifecycle_state(status:, debit_entry:, release_entry:, refund_entry:)
+      normalized = status.to_s
+
+      return 'completed' if normalized == 'approved'
+
+      if normalized == 'pending'
+        return debit_entry.present? ? 'pending_provider' : 'reserved'
+      end
+
+      return normalized unless %w[failed declined].include?(normalized)
+
+      return 'failed_refunded' if refund_entry.present? || release_entry.present?
+      return 'failed_reversal_pending' if debit_entry.present?
+
+      'failed_unrecovered'
     end
 
     def serialize_fee_breakdown(fee_breakdown)

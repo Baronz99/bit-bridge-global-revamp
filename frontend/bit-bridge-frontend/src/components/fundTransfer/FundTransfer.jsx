@@ -297,13 +297,25 @@ export default function MoneyTransferFlow({ setIsfundTransferOpen }) {
 
         const transferId = result?.meta?.transfer_id
         const transferStatus = String(result?.status || '').toLowerCase()
-        const successMessage =
-          transferStatus === 'pending'
-            ? `Transfer submitted and pending confirmation${transferId ? ` (ID: ${transferId})` : ''}`
-            : transferId
-            ? `Transfer Successful (ID: ${transferId})`
-            : 'Transfer Successful'
-        toast(successMessage, { type: transferStatus === 'pending' ? 'info' : 'success' })
+        const lifecycleState = String(result?.lifecycle_state || '').toLowerCase()
+
+        if (['failed_refunded', 'failed_reversal_pending', 'failed_unrecovered', 'failed'].includes(lifecycleState) || transferStatus === 'failed') {
+          const failMessage =
+            lifecycleState === 'failed_refunded'
+              ? result?.message || 'Transfer failed. Funds returned.'
+              : lifecycleState === 'failed_reversal_pending'
+              ? result?.message || 'Transfer failed. Reversal in progress.'
+              : result?.message || 'Transfer failed.'
+          toast(failMessage, { type: lifecycleState === 'failed_reversal_pending' ? 'info' : 'error' })
+        } else {
+          const successMessage =
+            lifecycleState === 'pending_provider' || transferStatus === 'pending'
+              ? `Transfer submitted and awaiting provider confirmation${transferId ? ` (ID: ${transferId})` : ''}`
+              : transferId
+              ? `Transfer Successful (ID: ${transferId})`
+              : 'Transfer Successful'
+          toast(successMessage, { type: lifecycleState === 'pending_provider' || transferStatus === 'pending' ? 'info' : 'success' })
+        }
       }
       dispatch(getWallet())
 
@@ -713,3 +725,4 @@ export default function MoneyTransferFlow({ setIsfundTransferOpen }) {
     </div>
   )
 }
+

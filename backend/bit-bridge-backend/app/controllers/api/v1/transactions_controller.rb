@@ -196,6 +196,7 @@ module Api
       def build_receipt(txn)
         metadata = txn.metadata.is_a?(Hash) ? txn.metadata : {}
         record = txn.transaction_record
+        serialized_txn = TransactionSerializer.new(txn).as_json
         anchor_details = extract_anchor_receipt_details(metadata, record)
         circle_tx = resolve_circle_transaction(txn, metadata)
         fx_quote = resolve_fx_quote(txn, metadata)
@@ -211,6 +212,8 @@ module Api
           id: txn.id,
           reference: record&.reference || txn.id,
           status: txn.status,
+          lifecycle_state: serialized_txn[:lifecycle_state],
+          display_message: serialized_txn[:display_message],
           transaction_type: txn.transaction_type,
           kind: circle_tx&.kind || metadata['kind'],
           direction: resolve_direction(txn.transaction_type),
