@@ -4,10 +4,8 @@ import { confirmPayment, getPurchaseOrder } from '../../../redux/actions/purchas
 import { NavLink, useNavigate, useOutletContext, useSearchParams } from 'react-router-dom'
 import { CheckCircleOutlined } from '@ant-design/icons'
 import { toast } from 'react-toastify'
-import { PaystackButton } from 'react-paystack'
 import { SET_LOADING } from '../../../redux/app'
 import BillOrderDetails from '../../../components/confirmationDetails/billOrderDetails'
-import { publicKey } from '../../../redux/baseUrl'
 
 const PurchaseCableDetails = () => {
   const { purchaseOrder, message } = useSelector((state) => state.purchase)
@@ -39,17 +37,6 @@ const PurchaseCableDetails = () => {
     })
   }
 
-  const componentProps = {
-    email: purchaseOrder?.email ?? user?.emal,
-    amount: purchaseOrder?.total_amount * 100,
-    publicKey,
-    text: 'Pay From Bank',
-    onSuccess: () => {
-      handleConfirmation('card')
-    },
-    // onClose: () => alert('Are you sure'),
-  }
-
   useEffect(() => {
     dispatch(getPurchaseOrder(queryId))
   }, [])
@@ -72,14 +59,14 @@ const PurchaseCableDetails = () => {
         {user ? (
           <div className="w-full">
             <button
-              className="border-alt m-auto block max-w-sm w-full h-20 bg-alt rounded-lg  border px-4 py-2 shadow-md text-primary text-xl font-medium"
+              className="border-alt m-auto block max-w-sm w-full h-20 bg-alt rounded-lg border px-4 py-2 shadow-md text-primary text-xl font-medium"
               onClick={() => handleConfirmation('wallet')}
             >
               Pay from Wallet
             </button>
           </div>
         ) : (
-          <p className="text-center font-medium text-primary  text-lg">
+          <p className="text-center font-medium text-primary text-lg">
             <NavLink className={'hover:text-alt'} to={'/login'}>
               Login
             </NavLink>{' '}
@@ -87,15 +74,9 @@ const PurchaseCableDetails = () => {
           </p>
         )}
 
-        <div className="w-full">
-          {/* <ClassicBtn onclick={()=> handleConfirmation("card")}>Pay with Card</ClassicBtn> */}
-
-          <PaystackButton
-            disabled={!purchaseOrder.email}
-            className="border-alt m-auto block max-w-sm w-full h-20 bg-primary rounded-lg  border px-4 py-2 shadow-md text-alt font-medium text-xl"
-            {...componentProps}
-          />
-        </div>
+        <p className="text-xs text-gray-500 text-center">
+          Bank/card bill checkout is disabled. Fund wallet to continue.
+        </p>
       </div>
     </>
   )

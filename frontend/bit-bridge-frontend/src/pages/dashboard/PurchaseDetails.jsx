@@ -5,7 +5,6 @@ import { CheckCircleOutlined } from '@ant-design/icons'
 import { toast } from 'react-toastify'
 
 import { SET_LOADING } from '../../redux/app'
-import { publicKey } from '../../redux/baseUrl'
 import { confirmPayment, getPurchaseOrder } from '../../redux/actions/purchasePower'
 import BillOrderDetails from '../../components/confirmationDetails/billOrderDetails'
 import PaymentOptions from '../../components/paymentOptions/PaymentOptions'
@@ -15,7 +14,6 @@ import { getWallet } from '../../redux/actions/wallet'
 import nairaFormat from '../../utils/nairaFormat'
 
 const DashboardPurchaseDetails = () => {
-  const { user } = useSelector((state) => state.auth)
   const { data: walletData } = useSelector((state) => state.wallet)
   const wallet = walletData?.bridge || null
   const [applyCommission, setApplyCommission] = useState(false)
@@ -62,18 +60,6 @@ const DashboardPurchaseDetails = () => {
     const billCommission = Number(order?.bill_commission) || 0
     return { value: billCommission, sourceField: 'bill_commission' }
   }
-
-  const componentProps = {
-    email: purchaseOrder?.email ?? user?.emal,
-    amount: totalAmount * 100,
-    publicKey: publicKey,
-    text: 'Pay From Bank',
-    onSuccess: () => {
-      handleConfirmation('card')
-    },
-    // // onClose: () => alert('Are you sure'),
-  }
-
   const queryId = searchParams.get('transaction_id')
   const dispatch = useDispatch()
 
@@ -347,7 +333,6 @@ const DashboardPurchaseDetails = () => {
       </div>
 
       <PaymentOptions
-        componentProps={componentProps}
         handleConfirmation={handleConfirmation}
         purchaseOrder={purchaseOrder}
         // redirect_url={`https://www.bitbridgeglobal.com/checkout`}
@@ -359,3 +344,4 @@ const DashboardPurchaseDetails = () => {
 }
 
 export default DashboardPurchaseDetails
+

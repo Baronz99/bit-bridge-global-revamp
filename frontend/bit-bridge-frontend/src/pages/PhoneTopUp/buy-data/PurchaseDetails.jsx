@@ -6,28 +6,12 @@ import { CheckCircleOutlined } from '@ant-design/icons'
 import { toast } from 'react-toastify'
 import BillOrderDetails from '../../../components/confirmationDetails/billOrderDetails'
 import PaymentOptions from '../../../components/paymentOptions/PaymentOptions'
-import { publicKey } from '../../../redux/baseUrl'
 import { SET_LOADING } from '../../../redux/app'
 
 const PurchaseDataDetails = () => {
   const { purchaseOrder, message } = useSelector((state) => state.purchase)
   const [searchParams] = useSearchParams()
   const [id, toView] = useOutletContext()
-  const { user } = useSelector((state) => state.auth)
-
-  const totalAmount = Number(purchaseOrder?.total_amount) || 0
-
-  const componentProps = {
-    email: purchaseOrder?.email ?? user?.emal,
-    amount: totalAmount * 100,
-
-    publicKey: publicKey,
-    text: 'Pay From Bank',
-    onSuccess: () => {
-      handleConfirmation('card')
-    },
-    // onClose: () => alert('Are you sure'),
-  }
 
   const navigate = useNavigate()
 
@@ -57,6 +41,7 @@ const PurchaseDataDetails = () => {
   useEffect(() => {
     dispatch(getPurchaseOrder(queryId))
   }, [])
+
   return (
     <>
       <div className="py-1">
@@ -72,11 +57,7 @@ const PurchaseDataDetails = () => {
         <BillOrderDetails purchaseOrder={purchaseOrder} />
 
         <div>
-          <PaymentOptions
-            componentProps={componentProps}
-            handleConfirmation={handleConfirmation}
-            purchaseOrder={purchaseOrder}
-          />{' '}
+          <PaymentOptions handleConfirmation={handleConfirmation} purchaseOrder={purchaseOrder} />
           {/* <ClassicBtn onclick={handleConfirmation}>Confirm Payment</ClassicBtn> */}
         </div>
       </div>

@@ -7,28 +7,14 @@ import { toast } from 'react-toastify'
 import BillOrderDetails from '../../../components/confirmationDetails/billOrderDetails'
 import { SET_LOADING } from '../../../redux/app'
 import PaymentOptions from '../../../components/paymentOptions/PaymentOptions'
-import { publicKey } from '../../../redux/baseUrl'
 
 const PurchaseDetails = () => {
-  const { user } = useSelector((state) => state.auth)
-
   const { purchaseOrder } = useSelector((state) => state.purchase)
   const [searchParams] = useSearchParams()
   const [id] = useOutletContext()
   const [message, setMessage] = useState()
   const [err, setErr] = useState()
   const navigate = useNavigate()
-
-  const componentProps = {
-    email: purchaseOrder?.email ?? user?.emal,
-    amount: purchaseOrder?.total_amount * 100,
-    publicKey,
-    text: 'Pay From Bank',
-    onSuccess: () => {
-      handleConfirmation('card')
-    },
-    // onClose: () => alert('Are you sure'),
-  }
 
   const queryId = searchParams.get('transaction_id')
   const dispatch = useDispatch()
@@ -61,6 +47,7 @@ const PurchaseDetails = () => {
     }
     dispatch(getPurchaseOrder(queryId))
   }, [dispatch, queryId])
+
   return (
     <>
       {message && (
@@ -76,11 +63,7 @@ const PurchaseDetails = () => {
 
       <BillOrderDetails purchaseOrder={purchaseOrder} />
 
-      <PaymentOptions
-        componentProps={componentProps}
-        handleConfirmation={handleConfirmation}
-        purchaseOrder={purchaseOrder}
-      />
+      <PaymentOptions handleConfirmation={handleConfirmation} purchaseOrder={purchaseOrder} />
     </>
   )
 }

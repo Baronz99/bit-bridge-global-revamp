@@ -115,14 +115,14 @@ export const getRescentPurchaseOrder = createAsyncThunk(
 
 export const confirmPayment = createAsyncThunk(
   'data/buy-data-orders',
-  async ({ queryId, data, payment_method, idempotency_key }, { rejectWithValue }) => {
+  async ({ queryId, data, idempotency_key }, { rejectWithValue }) => {
     try {
       if (!queryId) {
         return rejectWithValue({ message: 'Missing bill order ID for confirmation' })
       }
 
       const payload = data || {}
-      if (!payload.payment_method && payment_method) payload.payment_method = payment_method
+      payload.payment_method = 'wallet'
 
       let idempotencyKey = idempotency_key
       if (!idempotencyKey) {
@@ -193,3 +193,4 @@ export const getRefOrder = createAsyncThunk('order/ref-order', async (id, { reje
     return rejectWithValue({ message: getErrorMessage(error) })
   }
 })
+
