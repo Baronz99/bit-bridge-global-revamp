@@ -12,6 +12,7 @@ import nairaFormat from '../../utils/nairaFormat'
 import { toast } from 'react-toastify'
 import { needsTier2Access, withTier2MissingDetails } from '../../utils/kycGate'
 import { getWallet, sendMoneyToUser } from '../../redux/actions/wallet'
+import PlainSelect from '../formSelect/plainSelect'
 
 //  Masked PIN input
 import TransactionPinInput from '../pin/TransactionPinInput' // adjust path if needed
@@ -60,6 +61,8 @@ export default function MoneyTransferFlow({ setIsfundTransferOpen }) {
   const [accountLookupError, setAccountLookupError] = useState('')
   const [saveBeneficiary, setSaveBeneficiary] = useState(false)
   const [beneficiarySearch, setBeneficiarySearch] = useState('')
+  const [showBeneficiaryPicker, setShowBeneficiaryPicker] = useState(false)
+  const [selectedBeneficiaryId, setSelectedBeneficiaryId] = useState('')
   const lastLookupKeyRef = useRef('')
   const latestLookupInputRef = useRef('')
   const [transferReference, setTransferReference] = useState('')
@@ -75,6 +78,15 @@ export default function MoneyTransferFlow({ setIsfundTransferOpen }) {
   const hasValidAmount = Number.isFinite(amountValue) && amountValue > 0
   const hasDescription = String(formData.description || '').trim().length > 0
   const bankFlowStep = step === 1 ? 1 : step === 2 ? 2 : 3
+  const bankOptions = useMemo(() => {
+    return (banks || [])
+      .map(({ attributes: { name, nipCode }, id }) => ({
+        value: nipCode,
+        label: name,
+        key: id,
+      }))
+      .sort((a, b) => String(a.label || '').localeCompare(String(b.label || '')))
+  }, [banks])
 
   const generateTransferReference = () => {
     if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
@@ -120,6 +132,7 @@ export default function MoneyTransferFlow({ setIsfundTransferOpen }) {
     })
 
     if (name === 'account_number' || name === 'bank_code') {
+      setSelectedBeneficiaryId('')
       setAccountLookupStatus('idle')
       setAccountLookupError('')
       lastLookupKeyRef.current = ''
@@ -198,6 +211,7 @@ export default function MoneyTransferFlow({ setIsfundTransferOpen }) {
 
   const selectBeneficiary = (item) => {
     if (!item) return
+    setSelectedBeneficiaryId(String(item.id || ''))
     setFormData((prev) => ({
       ...prev,
       account_number: item.account_number || '',
@@ -209,6 +223,27 @@ export default function MoneyTransferFlow({ setIsfundTransferOpen }) {
     setAccountLookupStatus('success')
     setAccountLookupError('')
     lastLookupKeyRef.current = `${item.bank_code || ''}:${item.account_number || ''}`
+  }
+
+  const clearSelectedBeneficiary = () => {
+    setSelectedBeneficiaryId('')
+  }
+
+  const handleBankSelect = (bankCode) => {
+    const selected = bankOptions.find((option) => option.value === bankCode)
+    setSelectedBeneficiaryId('')
+    setFormData((prev) => ({
+      ...prev,
+      bank_code: bankCode || '',
+      bank: selected?.label || '',
+      account_name: '',
+      counter_party_id: '',
+    }))
+    setAccountLookupStatus('idle')
+    setAccountLookupError('')
+    lastLookupKeyRef.current = ''
+    setTransferReference('')
+    setQuoteData(null)
   }
 
   const handleRecipientContinue = () => {
@@ -432,6 +467,78 @@ export default function MoneyTransferFlow({ setIsfundTransferOpen }) {
 
             {!isInternal && (
               <>
+                {beneficiaries?.length ? (
+                  <div className="space-y-2 rounded-lg border border-gray-800 bg-gray-950/40 p-3">
+                    <div className="flex items-center justify-between">
+                      <span className="block text-sm font-medium text-gray-400">
+                        Saved beneficiary
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setShowBeneficiaryPicker((prev) => !prev)}
+                        className="text-xs text-blue-300 underline underline-offset-2"
+                      >
+                        {showBeneficiaryPicker ? 'Hide' : 'Use saved beneficiary instead'}
+                      </button>
+                    </div>
+
+                    {showBeneficiaryPicker ? (
+                      <>
+                        <input
+                          type="text"
+                          value={beneficiarySearch}
+                          onChange={(e) => setBeneficiarySearch(e.target.value)}
+                          className="w-full bg-gray-800 border border-gray-700 rounded-lg p-2 text-gray-100 focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                          placeholder="Search beneficiaries"
+                        />
+                        <select
+                          value={selectedBeneficiaryId}
+                          onChange={(e) => {
+                            const id = e.target.value
+                            setSelectedBeneficiaryId(id)
+                            const item = (beneficiaries || []).find((b) => String(b.id) === id)
+                            selectBeneficiary(item)
+                          }}
+                          className="w-full bg-gray-800 border border-gray-700 rounded-lg p-2 text-gray-100 focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                        >
+                          <option value="">Select beneficiary</option>
+                          {(beneficiaries || [])
+                            .filter((item) => {
+                              const term = beneficiarySearch.toLowerCase().trim()
+                              if (!term) return true
+                              const name = (item.account_name || '').toLowerCase()
+                              const bank = (item.bank_name || '').toLowerCase()
+                              const acct = String(item.account_number || '')
+                              return name.includes(term) || bank.includes(term) || acct.includes(term)
+                            })
+                            .map((item) => {
+                              const last4 = String(item.account_number || '').slice(-4)
+                              const masked = last4 ? `****${last4}` : '****'
+                              return (
+                                <option key={item.id} value={item.id}>
+                                  {`${item.account_name || 'Unknown'} - ${masked} - ${item.bank_name || item.bank_code}`}
+                                </option>
+                              )
+                            })}
+                        </select>
+                      </>
+                    ) : null}
+                  </div>
+                ) : null}
+
+                {selectedBeneficiaryId ? (
+                  <div className="inline-flex items-center gap-2 rounded-full bg-blue-900/30 border border-blue-600 px-3 py-1 text-xs text-blue-200">
+                    Using saved beneficiary
+                    <button
+                      type="button"
+                      onClick={clearSelectedBeneficiary}
+                      className="text-[11px] font-semibold text-blue-100 underline underline-offset-2"
+                    >
+                      Clear
+                    </button>
+                  </div>
+                ) : null}
+
                 <div>
                   <label className="block text-sm font-medium text-gray-400">Account Number</label>
                   <input
@@ -447,19 +554,13 @@ export default function MoneyTransferFlow({ setIsfundTransferOpen }) {
 
                 <div>
                   <label className="block text-sm font-medium text-gray-400">Bank</label>
-                  <select
-                    name="bank_code"
-                    value={formData.bank_code}
-                    onChange={handleChange}
-                    className="w-full bg-gray-800 border border-gray-700 rounded-lg p-2 mt-1 text-gray-100 focus:ring-2 focus:ring-blue-500 focus:outline-none"
-                  >
-                    <option value="">Select Bank</option>
-                    {(banks || []).map(({ attributes: { name, nipCode }, id }) => (
-                      <option key={id} value={nipCode}>
-                        {name}
-                      </option>
-                    ))}
-                  </select>
+                  <PlainSelect
+                    className="w-full mt-1"
+                    placeholder="Search and select bank"
+                    options={bankOptions}
+                    onChange={handleBankSelect}
+                    value={formData.bank_code || undefined}
+                  />
                 </div>
 
                 {accountLookupStatus === 'loading' && (
@@ -486,49 +587,6 @@ export default function MoneyTransferFlow({ setIsfundTransferOpen }) {
                   </div>
                 )}
 
-                {beneficiaries?.length ? (
-                  <div className="space-y-2 rounded-lg border border-gray-800 bg-gray-950/40 p-3">
-                    <label className="block text-sm font-medium text-gray-400">
-                      Use saved beneficiary (optional)
-                    </label>
-                    <input
-                      type="text"
-                      value={beneficiarySearch}
-                      onChange={(e) => setBeneficiarySearch(e.target.value)}
-                      className="w-full bg-gray-800 border border-gray-700 rounded-lg p-2 text-gray-100 focus:ring-2 focus:ring-blue-500 focus:outline-none"
-                      placeholder="Search beneficiaries"
-                    />
-                    <select
-                      value=""
-                      onChange={(e) => {
-                        const id = e.target.value
-                        const item = (beneficiaries || []).find((b) => String(b.id) === id)
-                        selectBeneficiary(item)
-                      }}
-                      className="w-full bg-gray-800 border border-gray-700 rounded-lg p-2 text-gray-100 focus:ring-2 focus:ring-blue-500 focus:outline-none"
-                    >
-                      <option value="">Select beneficiary</option>
-                      {(beneficiaries || [])
-                        .filter((item) => {
-                          const term = beneficiarySearch.toLowerCase().trim()
-                          if (!term) return true
-                          const name = (item.account_name || '').toLowerCase()
-                          const bank = (item.bank_name || '').toLowerCase()
-                          const acct = String(item.account_number || '')
-                          return name.includes(term) || bank.includes(term) || acct.includes(term)
-                        })
-                        .map((item) => {
-                          const last4 = String(item.account_number || '').slice(-4)
-                          const masked = last4 ? `****${last4}` : '****'
-                          return (
-                            <option key={item.id} value={item.id}>
-                              {`${item.account_name || 'Unknown'} - ${masked} - ${item.bank_name || item.bank_code}`}
-                            </option>
-                          )
-                        })}
-                    </select>
-                  </div>
-                ) : null}
               </>
             )}
 
