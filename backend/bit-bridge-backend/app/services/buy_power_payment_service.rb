@@ -860,13 +860,36 @@ end
   def tv_verify_success?(payload)
     return false unless payload.is_a?(Hash)
 
-    response_code = payload['responseCode'] || payload[:responseCode]
-    error_flag = payload['error']
+    error_flag =
+      payload['error'] ||
+      payload[:error] ||
+      payload.dig('data', 'error') ||
+      payload.dig(:data, :error) ||
+      payload.dig('result', 'error') ||
+      payload.dig(:result, :error)
 
-    return false unless response_code.to_s == '00'
     return false if error_flag == true
 
-    true
+    status_flag =
+      payload['status'] ||
+      payload[:status] ||
+      payload.dig('result', 'status') ||
+      payload.dig(:result, :status) ||
+      payload.dig('data', 'status') ||
+      payload.dig(:data, :status)
+    return true if status_flag == true
+    return true if %w[success successful completed ok].include?(status_flag.to_s.strip.downcase)
+
+    code =
+      payload['responseCode'] ||
+      payload[:responseCode] ||
+      payload.dig('data', 'responseCode') ||
+      payload.dig(:data, :responseCode) ||
+      payload.dig('result', 'responseCode') ||
+      payload.dig(:result, :responseCode)
+    return true if %w[00 100 200].include?(code.to_s.strip)
+
+    false
   end
 
   def valid_amount?(raw)

@@ -214,6 +214,65 @@ RSpec.describe BuyPowerPaymentService do
       expect(result[:response].name).to eq('Jane Doe')
     end
 
+    it 'accepts TV verify success when nested data.responseCode is 100' do
+      user = create(:user)
+      service = described_class.new
+
+      allow(service).to receive(:verify_tv_account).and_return({
+        status: 'success',
+        response: {
+          'status' => true,
+          'responseCode' => 200,
+          'data' => {
+            'responseCode' => 100,
+            'responseMessage' => 'SUCCESSFUL',
+            'name' => 'DSTV Customer'
+          }
+        }
+      })
+
+      result = service.process_payment(user, {
+        billersCode: '9876543210',
+        amount: 17150,
+        tariff_class: 'PWLE490',
+        service_type: 'TV',
+        biller: 'dstv',
+        email: user.email
+      })
+
+      expect(result[:status]).to eq('success')
+      expect(result[:response].name).to eq('DSTV Customer')
+    end
+
+    it 'accepts TV verify success when result.status is true' do
+      user = create(:user)
+      service = described_class.new
+
+      allow(service).to receive(:verify_tv_account).and_return({
+        status: 'success',
+        response: {
+          'result' => {
+            'status' => true,
+            'data' => {
+              'customerName' => 'Decoder Owner'
+            }
+          }
+        }
+      })
+
+      result = service.process_payment(user, {
+        billersCode: '9876543210',
+        amount: 17150,
+        tariff_class: 'PWLE490',
+        service_type: 'TV',
+        biller: 'dstv',
+        email: user.email
+      })
+
+      expect(result[:status]).to eq('success')
+      expect(result[:response].name).to eq('Decoder Owner')
+    end
+
     it 'returns error without calling verify when TV amount is blank' do
       user = create(:user)
       service = described_class.new
