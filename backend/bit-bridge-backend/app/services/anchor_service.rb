@@ -4,6 +4,8 @@ class AnchorService
   include HTTParty
 
   SANDBOX_BASE_URL = 'https://api.sandbox.getanchor.co/'.freeze
+  VERIFY_ACCOUNT_OPEN_TIMEOUT = 3
+  VERIFY_ACCOUNT_READ_TIMEOUT = 5
 
   def initialize
     base_url = anchor_base_url
@@ -214,7 +216,12 @@ class AnchorService
 
   def verify_account_details(bank_id, account_number)
     path = "/api/v1/payments/verify-account/#{bank_id}/#{account_number}"
-    response = self.class.get(path, headers: @headers)
+    response = self.class.get(
+      path,
+      headers: @headers,
+      open_timeout: VERIFY_ACCOUNT_OPEN_TIMEOUT,
+      timeout: VERIFY_ACCOUNT_READ_TIMEOUT
+    )
 
 
     unless response.success?
