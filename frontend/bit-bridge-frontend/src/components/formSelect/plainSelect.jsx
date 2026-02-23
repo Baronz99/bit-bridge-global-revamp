@@ -6,6 +6,7 @@ const PlainSelect = ({ options, placeholder = 'Search to Select', className, onC
     showSearch
     value={value}
     onChange={onChange}
+    popupClassName="plain-select-dropdown"
     style={{
       height: 40,
     }}
@@ -15,7 +16,7 @@ const PlainSelect = ({ options, placeholder = 'Search to Select', className, onC
       (optionA?.label ?? '').toLowerCase().localeCompare((optionB?.label ?? '').toLowerCase())
     }
     options={options}
-    className={className}
+    className={`plain-select ${className || ''}`}
   />
 )
 

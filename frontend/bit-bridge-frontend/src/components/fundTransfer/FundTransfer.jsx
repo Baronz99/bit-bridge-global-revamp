@@ -197,7 +197,7 @@ export default function MoneyTransferFlow({ setIsfundTransferOpen }) {
 
     const timer = setTimeout(() => {
       fetchAccountName()
-    }, 500)
+    }, 200)
 
     return () => clearTimeout(timer)
   }, [
@@ -783,4 +783,5 @@ export default function MoneyTransferFlow({ setIsfundTransferOpen }) {
     </div>
   )
 }
+
 

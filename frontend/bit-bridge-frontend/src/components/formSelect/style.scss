@@ -63,3 +63,50 @@
     }
   }
 }
+
+.plain-select.ant-select {
+  .ant-select-selector {
+    background-color: #1f2937 !important;
+    border-color: #374151 !important;
+    color: #e5e7eb !important;
+  }
+
+  .ant-select-selection-placeholder {
+    color: rgba(229, 231, 235, 0.55) !important;
+  }
+
+  .ant-select-selection-item {
+    color: #e5e7eb !important;
+  }
+
+  .ant-select-selection-search-input {
+    color: #f3f4f6 !important;
+    background-color: transparent !important;
+  }
+
+  .ant-select-arrow {
+    color: #9ca3af !important;
+  }
+}
+
+.plain-select-dropdown.ant-select-dropdown {
+  background-color: #111827 !important;
+  border: 1px solid #374151 !important;
+
+  .ant-select-item {
+    color: #e5e7eb !important;
+  }
+
+  .ant-select-item-option-active:not(.ant-select-item-option-disabled) {
+    background-color: #1f2937 !important;
+  }
+
+  .ant-select-item-option-selected:not(.ant-select-item-option-disabled) {
+    background-color: #0f172a !important;
+    color: #f3f4f6 !important;
+  }
+
+  .ant-empty-description {
+    color: #9ca3af !important;
+  }
+}
