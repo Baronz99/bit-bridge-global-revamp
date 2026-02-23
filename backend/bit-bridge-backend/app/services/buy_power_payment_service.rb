@@ -751,6 +751,35 @@ rescue StandardError => e
   { response: e.message.to_s, status: 'error' }
 end
 
+def reliability_index
+  request_tag = 'providers/reliability-index'
+  Rails.logger.info("BuyPower reliability request start #{request_tag}")
+
+  call_started_at = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+
+  response = Timeout.timeout(PROVIDER_OPEN_TIMEOUT + PROVIDER_READ_TIMEOUT + 2) do
+    self.class.get(
+      '/providers/reliability-index',
+      headers: @get_headers,
+      timeout: PROVIDER_READ_TIMEOUT,
+      open_timeout: PROVIDER_OPEN_TIMEOUT
+    )
+  end
+
+  call_duration_ms = ((Process.clock_gettime(Process::CLOCK_MONOTONIC) - call_started_at) * 1000).round
+  Rails.logger.info("BuyPower reliability request finish #{request_tag} duration_ms=#{call_duration_ms} success=#{response&.success?}")
+
+  raise response['message'] unless response.success?
+
+  { response: provider_response_payload(response), status: 'success' }
+rescue Timeout::Error, Net::OpenTimeout, Net::ReadTimeout => e
+  Rails.logger.error("BuyPower reliability timeout #{request_tag} error=#{e.class}")
+  { response: 'Provider timeout. Please try again.', status: 'error', code: 503 }
+rescue StandardError => e
+  Rails.logger.error("BuyPower reliability error #{request_tag} error=#{e.class} message=#{e.message}")
+  { response: e.message.to_s, status: 'error' }
+end
+
 
 
   def re_query(order_id)
