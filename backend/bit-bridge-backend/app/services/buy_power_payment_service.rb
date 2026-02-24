@@ -491,6 +491,21 @@ class BuyPowerPaymentService
       message = response&.dig('message') || 'No error message'
       provider_payload = provider_response_payload(response)
 
+      if electricity_service_type?(electric_bill_order['service_type']) && token.to_s.strip.blank?
+        electric_bill_order.update(
+          status: 'processing',
+          payment_method: payment_method,
+          provider_reference: transaction_id.presence || electric_bill_order.provider_reference,
+          provider_response: provider_payload,
+          reason: 'Payment confirmed. Token delivery is in progress.'
+        )
+        enqueue_reconciliation(electric_bill_order)
+        return {
+          status: 'pending',
+          response: 'Payment confirmed. Token delivery is in progress.'
+        }
+      end
+
       if response&.dig('error')
         return handle_wallet_failure(
           electric_bill_order,
@@ -956,6 +971,10 @@ end
 
   def commission_eligible_service_type?(service_type)
     %w[VTU AIRTIME DATA].include?(service_type.to_s.strip.upcase)
+  end
+
+  def electricity_service_type?(service_type)
+    service_type.to_s.strip.upcase == 'ELECTRICITY'
   end
 
   def sandbox_vtu_blocked?(body)

@@ -78,6 +78,18 @@ class BuyPowerReconcileJob < ApplicationJob
 
       case outcome
       when :success
+        if electricity_service_type?(order) && data['token'].to_s.strip.blank?
+          order.update(
+            status: 'processing',
+            provider_reference: provider_id.presence || order.provider_reference,
+            provider_response: raw,
+            reason: 'Payment confirmed. Token delivery is in progress.'
+          )
+          sync_bill_payment_intent!(order)
+          self.class.set(wait: next_reconcile_wait(order)).perform_later(order.id)
+          return
+        end
+
         service.send(
           :handle_wallet_success,
           order,
@@ -301,9 +313,19 @@ class BuyPowerReconcileJob < ApplicationJob
   end
 
   def next_reconcile_wait(order)
-    return 30.seconds if order.service_type.to_s.strip.upcase == 'ELECTRICITY'
+    if electricity_service_type?(order)
+      age = Time.current - order.created_at
+      return 10.seconds if age < 2.minutes
+      return 20.seconds if age < 10.minutes
+
+      return 30.seconds
+    end
 
     10.minutes
+  end
+
+  def electricity_service_type?(order)
+    order.service_type.to_s.strip.upcase == 'ELECTRICITY'
   end
 
   def sync_bill_payment_intent!(order)

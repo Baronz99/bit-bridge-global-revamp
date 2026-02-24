@@ -28,8 +28,15 @@ class ProcessBuypowerWebhookJob < ApplicationJob
     response_code = data.is_a?(Hash) ? (data['responseCode'] || data[:responseCode]) : nil
     status_flag = data.is_a?(Hash) ? (data['status'] || data[:status]) : nil
     message = payload['message'] || payload.dig('data', 'message') || 'Webhook update'
+    token = data.is_a?(Hash) ? (data['token'] || data[:token]) : nil
+    units = data.is_a?(Hash) ? (data['units'] || data[:units]) : nil
+    provider_txn_id =
+      if data.is_a?(Hash)
+        data['id'] || data[:id] || data['transactionId'] || data[:transactionId] || data['transaction_id'] || data[:transaction_id]
+      end
 
     status_normalized = status_flag.to_s.downcase
+    electricity_order = bill_order.service_type.to_s.strip.upcase == 'ELECTRICITY'
 
     success =
       response_code.to_i == 100 ||
@@ -43,21 +50,33 @@ class ProcessBuypowerWebhookJob < ApplicationJob
       %w[failed reversed cancelled refund refunded].include?(status_normalized)
 
     if bill_order.completed?
-      bill_order.update(provider_response: provider_response) if provider_response.present?
+      if electricity_order && bill_order.token.to_s.strip.blank? && token.to_s.strip.present?
+        bill_order.update(
+          token: token,
+          units: units,
+          transaction_id: provider_txn_id.presence || bill_order.transaction_id,
+          provider_response: provider_response
+        )
+      elsif provider_response.present?
+        bill_order.update(provider_response: provider_response)
+      end
       event.update(processed_at: Time.current)
       return
     end
 
     if success
       old_status = bill_order.status
-      new_status = 'completed'
+      new_status = electricity_order && token.to_s.strip.blank? ? 'processing' : 'completed'
       log_pre_update(bill_order.id, old_status, new_status, provider_reference, response_code, status_flag)
 
       attrs = {
-        status: BillOrder.statuses[:completed],
-        provider_reference: provider_reference || bill_order.provider_reference,
+        status: BillOrder.statuses[new_status],
+        provider_reference: provider_reference || provider_txn_id || bill_order.provider_reference,
         provider_response: provider_response,
-        reason: nil,
+        transaction_id: provider_txn_id || bill_order.transaction_id,
+        units: units || bill_order.units,
+        token: token || bill_order.token,
+        reason: (new_status == 'processing' ? 'Payment confirmed. Token delivery is in progress.' : nil),
         updated_at: Time.current
       }
 
@@ -67,6 +86,9 @@ class ProcessBuypowerWebhookJob < ApplicationJob
       else
         bill_order.update(attrs)
       end
+
+      BillOrders::Finalizer.call(bill_order: bill_order) if bill_order.status.to_s == 'completed'
+      BuyPowerReconcileJob.set(wait: 15.seconds).perform_later(bill_order.id) if new_status == 'processing'
 
       log_post_update(bill_order.id, old_status, new_status, provider_reference, response_code, status_flag)
     elsif failure
