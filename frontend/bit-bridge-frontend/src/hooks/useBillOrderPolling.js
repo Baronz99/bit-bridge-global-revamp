@@ -4,7 +4,7 @@ const SUCCESS_STATUSES = new Set(['approved', 'completed', 'success', 'paid'])
 const FAILED_STATUSES = new Set(['failed', 'declined', 'cancelled', 'reversed', 'expired', 'refunded'])
 const TERMINAL_STATUSES = new Set([...SUCCESS_STATUSES, ...FAILED_STATUSES])
 const POLL_INTERVAL_MS = 5_000
-const POLL_TIMEOUT_MS = 60_000
+const POLL_TIMEOUT_MS = 300_000
 
 const normalizeStatus = (status) => String(status || '').toLowerCase()
 
@@ -42,3 +42,4 @@ const useBillOrderPolling = ({ queryId, dispatch, getPurchaseOrder, status }) =>
 }
 
 export default useBillOrderPolling
+

@@ -324,6 +324,7 @@ Rails.application.routes.draw do
         resources :kyc_reviews, only: %i[index update]
         get "pricing-spec", to: "pricing_spec#show"
         get "ops/health",   to: "ops#health"
+        get "ops/summary",  to: "ops#summary"
         resources :transaction_records, only: [:index]
         resources :unmatched_credits, only: %i[index update] do
           member do

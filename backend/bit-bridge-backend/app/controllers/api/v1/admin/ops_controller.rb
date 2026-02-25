@@ -17,6 +17,11 @@ module Api
           }, status: :ok
         end
 
+        def summary
+          data = Ops::SummaryBuilder.new(now: Time.current, window_hours: 24).call
+          render json: { success: true, data: data }, status: :ok
+        end
+
         private
 
         def anchor_health
