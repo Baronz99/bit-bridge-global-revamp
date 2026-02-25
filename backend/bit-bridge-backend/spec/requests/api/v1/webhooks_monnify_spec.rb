@@ -59,17 +59,22 @@ RSpec.describe 'Monnify webhook', type: :request do
       post_webhook(payload)
     end.to change(Transaction, :count).by(1)
       .and change(TransactionRecord, :count).by(1)
+      .and change(WebhookEvent, :count).by(1)
 
     expect(response).to have_http_status(:ok)
 
     expect do
       post_webhook(payload)
     end.not_to change(Transaction, :count)
+    expect(WebhookEvent.count).to eq(1)
 
     expect(response).to have_http_status(:ok)
     record = TransactionRecord.find_by(reference: 'mon-123')
     expect(record).to be_present
     expect(record.event_type).to start_with('monnify.webhook')
+    event = WebhookEvent.find_by(provider: 'monnify', reference: 'mon-123')
+    expect(event).to be_present
+    expect(event.processing_status).to eq('processed')
   end
 
   it 'rejects webhook when signature is invalid' do
@@ -77,11 +82,16 @@ RSpec.describe 'Monnify webhook', type: :request do
     user.ngn_wallet
     payload = build_payload(user_id: user.id)
 
-    post_webhook(payload, signature: 'bad-signature')
+    expect do
+      post_webhook(payload, signature: 'bad-signature')
+    end.to change(WebhookEvent, :count).by(1)
 
     expect(response).to have_http_status(:unauthorized)
     expect(Transaction.count).to eq(0)
     expect(TransactionRecord.count).to eq(0)
+    event = WebhookEvent.where(provider: 'monnify').order(created_at: :desc).first
+    expect(event.signature_valid).to eq(false)
+    expect(event.processing_status).to eq('rejected')
   end
 
   it 'does not create deposits when payment status is pending' do

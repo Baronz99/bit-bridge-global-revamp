@@ -15,6 +15,30 @@ module Api
         end
 
         raw_body = request.raw_post
+        payload = parse_json_payload(raw_body)
+        event_name = payload['event'].to_s
+        data = payload['data'] || {}
+        reference = extract_bridgecard_reference(data)
+        provider_event_id = extract_bridgecard_event_id(payload, data)
+
+        webhook_event, created = persist_provider_webhook_event!(
+          provider: 'bridgecard',
+          event_type: event_name,
+          reference: reference,
+          provider_event_id: provider_event_id,
+          raw_body: raw_body,
+          payload: payload,
+          signature_valid: false
+        )
+
+        unless created
+          if webhook_event&.processing_status == 'processed'
+            Rails.logger.info("[BridgecardWebhook] duplicate skipped reference=#{reference} event=#{event_name}")
+            return head :ok
+          end
+          webhook_event&.mark_processing!
+        end
+
         signature = request.headers['x-webhook-signature'] || request.headers['X-Webhook-Signature']
 
         secrets = Bridgecard::Config.webhook_secrets
@@ -27,12 +51,15 @@ module Api
 
         unless verifier.valid?
           Rails.logger.warn('[BridgecardWebhook] invalid signature')
+          webhook_event&.update_columns(signature_valid: false, updated_at: Time.current)
+          webhook_event&.mark_rejected!(reason: 'invalid_signature')
           return head :unauthorized
         end
 
-        payload = JSON.parse(raw_body) rescue {}
-        event = payload['event'].to_s
-        data = payload['data'] || {}
+        webhook_event&.update_columns(signature_valid: true, updated_at: Time.current)
+        webhook_event&.mark_processing!
+
+        event = event_name
 
         card_id = data['card_id'].to_s
         cardholder_id = data['cardholder_id'].to_s
@@ -82,50 +109,76 @@ module Api
           # stored via CardEvent upsert
         end
         update_cardholder_verification_state(card: card, event: event, data: data)
+        webhook_event&.mark_processed!
 
         head :ok
+      rescue StandardError => e
+        webhook_event&.mark_failed!(error_message: e.message)
+        raise
       end
 
       def monnify
         raw_body = request.raw_post.to_s
+        data = parse_json_payload(raw_body)
+        event_data = data['eventData'] || {}
+        event_name = data['eventType'].to_s
+        monnify_event_type =
+          event_name.present? ? "monnify.webhook.#{event_name.downcase}" : 'monnify.webhook'
+        payment_reference =
+          event_data['paymentReference'].presence || event_data.dig('product', 'reference')
+        transaction_reference =
+          event_data['transactionReference'].presence || data['transactionReference'].presence
+        reference = payment_reference.presence || transaction_reference
+
+        webhook_event, created = persist_provider_webhook_event!(
+          provider: 'monnify',
+          event_type: monnify_event_type,
+          reference: reference,
+          provider_event_id: transaction_reference.presence || payment_reference,
+          raw_body: raw_body,
+          payload: data,
+          signature_valid: false
+        )
+
+        unless created
+          if webhook_event&.processing_status == 'processed'
+            Rails.logger.info("[MonnifyWebhook] duplicate skipped reference=#{reference}")
+            return head :ok
+          end
+          webhook_event&.mark_processing!
+        end
+
         signature = request.headers['monnify-signature'] || request.headers['Monnify-Signature'] || request.headers['MONNIFY-SIGNATURE']
         secret = monnify_webhook_secret
 
         if secret.blank?
           Rails.logger.error('[MonnifyWebhook] missing webhook signing secret')
+          webhook_event&.mark_failed!(error_message: 'missing_webhook_secret')
           return head :service_unavailable
         end
 
         unless valid_monnify_signature?(raw_body: raw_body, signature: signature, secret: secret)
           Rails.logger.warn('[MonnifyWebhook] invalid signature')
+          webhook_event&.update_columns(signature_valid: false, updated_at: Time.current)
+          webhook_event&.mark_rejected!(reason: 'invalid_signature')
           return head :unauthorized
         end
 
-        data =
-          begin
-            JSON.parse(raw_body)
-          rescue JSON::ParserError => e
-            Rails.logger.warn("[MonnifyWebhook] invalid_json error=#{e.class}")
-            return head :ok
-          end
+        webhook_event&.update_columns(signature_valid: true, updated_at: Time.current)
+        webhook_event&.mark_processing!
 
-        return head :ok unless data['eventType'] == 'SUCCESSFUL_TRANSACTION'
+        unless data['eventType'] == 'SUCCESSFUL_TRANSACTION'
+          webhook_event&.mark_ignored!(reason: 'unsupported_event_type')
+          return head :ok
+        end
+        unless event_data['paymentStatus'].to_s.downcase == 'paid'
+          webhook_event&.mark_ignored!(reason: 'non_paid_status')
+          return head :ok
+        end
 
-        event_data = data['eventData'] || {}
-        return head :ok unless event_data['paymentStatus'].to_s.downcase == 'paid'
-
-        event_name = data['eventType'].to_s
-        monnify_event_type =
-          event_name.present? ? "monnify.webhook.#{event_name.downcase}" : 'monnify.webhook'
-
-        payment_reference =
-          event_data['paymentReference'].presence || event_data.dig('product', 'reference')
-        transaction_reference =
-          event_data['transactionReference'].presence || data['transactionReference'].presence
-
-        reference = payment_reference.presence || transaction_reference
         if reference.blank?
           Rails.logger.warn('[MonnifyWebhook] missing reference')
+          webhook_event&.mark_ignored!(reason: 'missing_reference')
           return head :ok
         end
 
@@ -138,17 +191,20 @@ module Api
           transaction_record = TransactionRecord.find_by(reference: reference)
           unless transaction_record
             Rails.logger.warn("[MonnifyWebhook] record_not_found reference=#{reference}")
+            webhook_event&.mark_ignored!(reason: 'record_not_found')
             return Rails.env.production? ? head(:ok) : head(:not_found)
           end
 
           transaction_record.update(event_type: monnify_event_type) if transaction_record.event_type != monnify_event_type
           handle_bills_confirmation(transaction_record, event_data)
+          webhook_event&.mark_processed!
           return head :ok
 
         when 'fbg'
           transaction_record = TransactionRecord.find_by(reference: reference)
           unless transaction_record
             Rails.logger.warn("[MonnifyWebhook] record_not_found reference=#{reference}")
+            webhook_event&.mark_ignored!(reason: 'record_not_found')
             return Rails.env.production? ? head(:ok) : head(:not_found)
           end
 
@@ -188,6 +244,7 @@ module Api
           if exchange.present?
             if terminal_exchange_statuses.include?(ex_status)
               Rails.logger.info("[MonnifyWebhook] exchange_terminal_skip_confirm reference=#{reference} exchange_status=#{exchange_status_before}")
+              webhook_event&.mark_processed!
               return head :ok
             end
 
@@ -208,6 +265,7 @@ module Api
             "[MonnifyWebhook] status_after reference=#{reference} record_status=#{transaction_record.status} exchange_status=#{exchange&.status}"
           )
 
+          webhook_event&.mark_processed!
           return head :ok
         else
           result = handleTransactionConfirmation(
@@ -217,10 +275,19 @@ module Api
             event_type: monnify_event_type,
             raw_payload: data
           )
+          if result.is_a?(Symbol)
+            webhook_event&.mark_failed!(error_message: "business_handler_returned_#{result}")
+          else
+            webhook_event&.mark_processed!
+          end
           return head(result) if result.is_a?(Symbol)
         end
 
+        webhook_event&.mark_processed!
         head :ok
+      rescue StandardError => e
+        webhook_event&.mark_failed!(error_message: e.message)
+        raise
       end
 
       def anchor
@@ -262,6 +329,62 @@ module Api
       def handleKycVerificatiion(account_id)
         account = Account.find_by(account_id: account_id)
         account.update(status: 'verified')
+      end
+
+      def persist_provider_webhook_event!(provider:, event_type:, reference:, provider_event_id:, raw_body:, payload:, signature_valid:)
+        parsed_payload = payload.is_a?(Hash) ? payload : parse_json_payload(raw_body)
+        headers = webhook_headers_snapshot
+        payload_for_storage =
+          if parsed_payload.present?
+            parsed_payload
+          else
+            { raw_body: raw_body.to_s }
+          end
+
+        WebhookEvent.persist_received!(
+          provider: provider,
+          event_type: event_type,
+          reference: reference,
+          provider_event_id: provider_event_id,
+          headers: headers,
+          payload: payload_for_storage,
+          signature_valid: signature_valid,
+          received_at: Time.current
+        )
+      end
+
+      def parse_json_payload(raw_body)
+        JSON.parse(raw_body.to_s)
+      rescue JSON::ParserError
+        {}
+      end
+
+      def webhook_headers_snapshot
+        request.headers.env.each_with_object({}) do |(key, value), acc|
+          next unless key.to_s.start_with?('HTTP_') || %w[CONTENT_TYPE CONTENT_LENGTH].include?(key.to_s)
+
+          acc[key] = value.to_s
+        end
+      end
+
+      def extract_bridgecard_reference(data)
+        return nil unless data.is_a?(Hash)
+
+        data['transaction_reference'].presence ||
+          data['bridgecard_transaction_reference'].presence ||
+          data['client_transaction_reference'].presence
+      end
+
+      def extract_bridgecard_event_id(payload, data)
+        if payload.is_a?(Hash)
+          return payload['id'].presence if payload['id'].present?
+          return payload['event_id'].presence if payload['event_id'].present?
+          return payload.dig('data', 'id').presence if payload.dig('data', 'id').present?
+        end
+
+        return data['id'].presence if data.is_a?(Hash)
+
+        nil
       end
 
       def valid_anchor_signature?(raw_body, signature, secret)

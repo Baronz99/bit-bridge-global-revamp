@@ -52,12 +52,20 @@ RSpec.describe 'Bridgecard webhook', type: :request do
       }
     }
 
-    post_webhook(payload)
-    post_webhook(payload)
+    expect do
+      post_webhook(payload)
+    end.to change(WebhookEvent, :count).by(1)
+    expect do
+      post_webhook(payload)
+    end.to change(WebhookEvent, :count).by(0)
 
     expect(response).to have_http_status(:ok)
     expect(CardEvent.count).to eq(1)
     expect(CardEvent.first.event_status).to eq('failed')
+    event = WebhookEvent.find_by(provider: 'bridgecard', reference: 'tx_1')
+    expect(event).to be_present
+    expect(event.signature_valid).to eq(true)
+    expect(event.processing_status).to eq('processed')
   end
 
   it 'updates status when a later event arrives for same provider reference' do
@@ -101,10 +109,12 @@ RSpec.describe 'Bridgecard webhook', type: :request do
     }
 
     post_webhook(payload)
-    post_webhook(payload)
+    txns_after_first = wallet.transactions.where("metadata ->> 'transfer_reference' = ?", 'bc_tx_3').count
 
-    txns = wallet.transactions.where("metadata ->> 'transfer_reference' = ?", 'bc_tx_3')
-    expect(txns.count).to eq(3)
+    post_webhook(payload)
+    txns_after_second = wallet.transactions.where("metadata ->> 'transfer_reference' = ?", 'bc_tx_3').count
+
+    expect(txns_after_second).to eq(txns_after_first)
   end
 
   it 'enqueues enrichment job for debit events' do

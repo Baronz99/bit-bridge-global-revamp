@@ -19,7 +19,12 @@ module Api
           end
 
           event = WebhookEvent.create!(
+            provider: 'buypower',
             source: 'buypower',
+            reference: parsed.is_a?(Hash) ? parsed['reference'].presence : nil,
+            received_at: Time.current,
+            signature_valid: true,
+            processing_status: parse_error.present? ? 'failed' : 'received',
             headers: request.headers.env.select { |k, _| k.start_with?('HTTP') },
             payload: raw,
             payload_json: parsed,
