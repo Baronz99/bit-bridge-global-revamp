@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[7.1].define(version: 2026_02_14_142100) do
+ActiveRecord::Schema[7.1].define(version: 2026_02_25_162000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pgcrypto"
   enable_extension "plpgsql"
@@ -666,6 +666,27 @@ ActiveRecord::Schema[7.1].define(version: 2026_02_14_142100) do
     t.index ["product_id"], name: "index_provisions_on_product_id"
   end
 
+  create_table "refund_requests", id: :uuid, default: -> { "gen_random_uuid()" }, force: :cascade do |t|
+    t.uuid "user_id"
+    t.string "transaction_reference", null: false
+    t.string "provider"
+    t.string "reason", null: false
+    t.integer "status", default: 0, null: false
+    t.datetime "requested_at", null: false
+    t.datetime "acknowledged_at"
+    t.datetime "approved_at"
+    t.datetime "rejected_at"
+    t.datetime "refunded_at"
+    t.uuid "handled_by_admin_id"
+    t.text "notes"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["provider"], name: "index_refund_requests_on_provider"
+    t.index ["requested_at"], name: "index_refund_requests_on_requested_at"
+    t.index ["status"], name: "index_refund_requests_on_status"
+    t.index ["transaction_reference"], name: "index_refund_requests_on_transaction_reference"
+  end
+
   create_table "reward_transactions", id: :uuid, default: -> { "gen_random_uuid()" }, force: :cascade do |t|
     t.uuid "user_id", null: false
     t.uuid "bill_order_id"
@@ -961,7 +982,17 @@ ActiveRecord::Schema[7.1].define(version: 2026_02_14_142100) do
     t.datetime "updated_at", null: false
     t.string "event_type"
     t.jsonb "payload_json"
+    t.string "provider"
+    t.string "reference"
+    t.string "provider_event_id"
+    t.datetime "received_at"
+    t.boolean "signature_valid", default: false, null: false
+    t.string "processing_status", default: "received", null: false
     t.index ["created_at"], name: "index_webhook_events_on_created_at"
+    t.index ["processing_status"], name: "index_webhook_events_on_processing_status"
+    t.index ["provider", "event_type", "reference"], name: "idx_webhook_events_provider_event_ref_unique", unique: true, where: "((reference IS NOT NULL) AND ((reference)::text <> ''::text))"
+    t.index ["provider", "provider_event_id"], name: "idx_webhook_events_provider_event_id_unique", unique: true, where: "((provider_event_id IS NOT NULL) AND ((provider_event_id)::text <> ''::text))"
+    t.index ["received_at"], name: "index_webhook_events_on_received_at"
     t.index ["source"], name: "index_webhook_events_on_source"
   end
 
@@ -1005,6 +1036,8 @@ ActiveRecord::Schema[7.1].define(version: 2026_02_14_142100) do
   add_foreign_key "order_items", "provisions"
   add_foreign_key "phone_verification_codes", "users"
   add_foreign_key "provisions", "products"
+  add_foreign_key "refund_requests", "users"
+  add_foreign_key "refund_requests", "users", column: "handled_by_admin_id"
   add_foreign_key "reward_transactions", "bill_orders"
   add_foreign_key "reward_transactions", "users"
   add_foreign_key "transaction_pin_reset_codes", "users"

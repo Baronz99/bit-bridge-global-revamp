@@ -33,6 +33,7 @@ RSpec.describe 'Admin ops summary', type: :request do
         'window_hours',
         'provider_availability',
         'unmatched_credits',
+        'refund_requests',
         'bill_orders',
         'webhooks',
         'disputes',
@@ -57,6 +58,15 @@ RSpec.describe 'Admin ops summary', type: :request do
       expect(data.dig('unmatched_credits', 'age_buckets', 'older_than_6h')).to be_a(Integer)
       expect(data.dig('unmatched_credits', 'age_buckets', 'older_than_24h')).to be_a(Integer)
 
+      expect(data.dig('refund_requests', 'counts_by_status', 'received')).to be_a(Integer)
+      expect(data.dig('refund_requests', 'counts_by_status', 'investigating')).to be_a(Integer)
+      expect(data.dig('refund_requests', 'counts_by_status', 'approved')).to be_a(Integer)
+      expect(data.dig('refund_requests', 'counts_by_status', 'rejected')).to be_a(Integer)
+      expect(data.dig('refund_requests', 'counts_by_status', 'refunded')).to be_a(Integer)
+      expect(data.dig('refund_requests', 'counts_by_status', 'total')).to be_a(Integer)
+      expect(data.dig('refund_requests', 'sla_breaches', 'received_older_than_48h')).to be_a(Integer)
+      expect(data.dig('refund_requests', 'sla_breaches', 'investigating_older_than_10_business_days')).to be_a(Integer)
+
       expect(data.dig('bill_orders', 'stuck_counts', 'initialized', 'older_than_15m')).to be_a(Integer)
       expect(data.dig('bill_orders', 'stuck_counts', 'initialized', 'older_than_30m')).to be_a(Integer)
       expect(data.dig('bill_orders', 'stuck_counts', 'initialized', 'older_than_2h')).to be_a(Integer)
@@ -65,6 +75,8 @@ RSpec.describe 'Admin ops summary', type: :request do
 
       expect(data.dig('webhooks', 'providers', 'buypower', 'received_last_24h')).to be_a(Integer)
       expect(data.dig('webhooks', 'providers', 'anchor', 'received_last_24h')).to be_a(Integer)
+      expect(data.dig('webhooks', 'providers', 'monnify', 'received_last_24h')).to be_a(Integer)
+      expect(data.dig('webhooks', 'providers', 'bridgecard', 'received_last_24h')).to be_a(Integer)
 
       expect(data.dig('disputes', 'open_count')).to be_a(Integer)
 

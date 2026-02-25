@@ -326,6 +326,7 @@ Rails.application.routes.draw do
         get "ops/health",   to: "ops#health"
         get "ops/summary",  to: "ops#summary"
         resources :transaction_records, only: [:index]
+        resources :refund_requests, only: %i[index create update]
         resources :unmatched_credits, only: %i[index update] do
           member do
             post :apply

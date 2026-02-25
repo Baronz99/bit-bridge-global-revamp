@@ -31,6 +31,11 @@ class User < ApplicationRecord
   has_many :beneficiaries, dependent: :destroy
   has_one :user_kyc, dependent: :destroy
   has_many :kyc_reviews, dependent: :destroy
+  has_many :refund_requests, dependent: :nullify
+  has_many :handled_refund_requests,
+           class_name: 'RefundRequest',
+           foreign_key: :handled_by_admin_id,
+           dependent: :nullify
   has_many :admin_audit_events_as_admin,
            class_name: 'AdminAuditEvent',
            foreign_key: :admin_user_id,
