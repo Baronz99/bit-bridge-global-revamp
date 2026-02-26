@@ -239,9 +239,22 @@ module Api
         transfer_fee_context = inferred_transfer_fee_context(txn: txn, currency: currency)
         base_amount = txn.amount.to_d
         amount = transfer_fee_context[:applies] ? (base_amount + transfer_fee_context[:total_fee]).to_f : txn.amount
-        title = wallet_label(txn, record)
         fx_quote = resolve_fx_quote_for_receipt(metadata)
         conversion_meta = build_conversion_meta(txn, metadata, fx_quote)
+        incoming_transfer_context = incoming_transfer_receipt_context(
+          txn: txn,
+          metadata: metadata,
+          record: record,
+          anchor_details: anchor_details,
+          conversion_meta: conversion_meta
+        )
+        title = incoming_transfer_context.present? ? 'Incoming bank transfer' : wallet_label(txn, record)
+        subtitle =
+          if incoming_transfer_context.present?
+            'Funds received into your wallet'
+          else
+            metadata['description'] || anchor_details[:narration] || txn.address
+          end
         balance_snapshot = resolve_wallet_balance_snapshot(txn, metadata)
         conversion_fees = conversion_fee_array(currency, fx_quote)
         merged_fees = merge_fee_arrays(
@@ -282,10 +295,11 @@ module Api
           currency: currency,
           occurred_at: txn.created_at,
           title: title,
-          subtitle: metadata['description'] || anchor_details[:narration] || txn.address,
+          subtitle: subtitle,
           parties: {
             from: txn.address,
             wallet_type: txn.wallet&.wallet_type,
+            wallet_currency: currency,
             account_name: record&.customer_name,
             account_number: record&.account_number,
             sender_name: anchor_details[:sender_name],
@@ -295,19 +309,21 @@ module Api
             beneficiary_account_name: anchor_details[:beneficiary_account_name]
           }.compact,
           provider: {
-            name: metadata['provider'],
+            name: incoming_transfer_context.dig(:incoming_transfer, :provider_name) || metadata['provider'],
             reference: anchor_details[:payment_reference] || metadata['transfer_reference'] || record&.reference,
             payment_id: anchor_details[:payment_id],
             settlement_account_id: anchor_details[:settlement_account_id]
           }.compact,
           meta: {
             transaction_record_reference: record&.reference,
+            transaction_direction: incoming_transfer_context.present? ? 'inbound' : nil,
+            receipt_category: incoming_transfer_context.present? ? 'incoming_transfer' : nil,
             unique_transaction_id: txn.unique_transaction_id,
             bridge_card_id: txn.bridge_card_id,
             anchor: anchor_details,
             balance_snapshot: balance_snapshot,
             transfer_fee_inferred: transfer_fee_context[:applies]
-          }.merge(conversion_meta).compact,
+          }.merge(conversion_meta).merge(incoming_transfer_context).compact,
           timeline: build_wallet_timeline(txn, record, fx_quote),
           fees: merged_fees,
           legacy: legacy,
@@ -575,23 +591,50 @@ module Api
         txn = record.exchange
         txn_meta = txn&.metadata.is_a?(Hash) ? txn.metadata : {}
         anchor_details = extract_anchor_receipt_details(txn_meta, record)
+        incoming_transfer_context =
+          if txn.present?
+            incoming_transfer_receipt_context(
+              txn: txn,
+              metadata: txn_meta,
+              record: record,
+              anchor_details: anchor_details,
+              conversion_meta: {}
+            )
+          else
+            {}
+          end
         transfer_fee_context = txn.present? ? inferred_transfer_fee_context(txn: txn, currency: 'NGN') : { applies: false, total_fee: 0.to_d, fees: [] }
         if transfer_fee_context[:applies]
           amount = amount.to_d + transfer_fee_context[:total_fee]
         end
-        provider_name =
-          if record.event_type.to_s.start_with?('anchor.')
-            'anchor'
+        provider_name = infer_incoming_transfer_provider(metadata: txn_meta, record: record)
+        currency = txn&.wallet&.currency || txn&.currency || 'NGN'
+        receipt_kind = if bill_order.present?
+                         'bill'
+                       elsif incoming_transfer_context.present?
+                         'wallet'
+                       else
+                         'checkout'
+                       end
+        receipt_title =
+          if incoming_transfer_context.present?
+            'Incoming bank transfer'
           else
-            nil
+            record.description || bill_order&.biller || bill_order&.service_type
+          end
+        receipt_subtitle =
+          if incoming_transfer_context.present?
+            'Funds received into your wallet'
+          else
+            anchor_details[:narration] || bill_order&.service_type
           end
         legacy = {
           reference: record.reference,
-          type: bill_order ? 'bill' : 'checkout',
+          type: receipt_kind,
           source: bill_order&.service_type || record.event_type || 'checkout',
           status: record.status.presence || 'pending',
           amount: amount,
-          currency: 'NGN',
+          currency: currency,
           description: record.description || anchor_details[:narration] || bill_order&.biller || bill_order&.service_type,
           created_at: record.created_at,
           transaction_reference: record.reference,
@@ -630,17 +673,19 @@ module Api
 
         build_dto(
           reference: record.reference || original_reference,
-          kind: bill_order ? 'bill' : 'checkout',
+          kind: receipt_kind,
           event: record.event_type || 'checkout',
           status: record.status.presence || 'pending',
           amount: amount,
-          currency: 'NGN',
+          currency: currency,
           occurred_at: record.created_at,
-          title: record.description || bill_order&.biller || bill_order&.service_type,
-          subtitle: anchor_details[:narration] || bill_order&.service_type,
+          title: receipt_title,
+          subtitle: receipt_subtitle,
           parties: {
             recipient: bill_order&.meter_number || bill_order&.phone_number,
             biller: bill_order&.biller,
+            wallet_type: txn&.wallet&.wallet_type,
+            wallet_currency: currency,
             sender_name: anchor_details[:sender_name],
             sender_account_number: anchor_details[:sender_account_number],
             sender_bank_name: anchor_details[:sender_bank_name],
@@ -665,9 +710,11 @@ module Api
             amount: bill_order&.amount,
             total_amount: bill_order&.total_amount,
             transaction_id: bill_order&.transaction_id,
+            receipt_category: incoming_transfer_context.present? ? 'incoming_transfer' : nil,
+            transaction_direction: incoming_transfer_context.present? ? 'inbound' : nil,
             anchor: anchor_details,
             transfer_fee_inferred: transfer_fee_context[:applies]
-          }.compact,
+          }.merge(incoming_transfer_context).compact,
           timeline: build_record_timeline(record, bill_order),
           fees: bill_fees,
           legacy: legacy,
@@ -1405,6 +1452,71 @@ module Api
           sender_bank_name: sender['bank_name'] || record&.bank,
           beneficiary_account_number: virtual_account['account_number'] || record&.account_number,
           beneficiary_account_name: virtual_account['account_name']
+        }.compact
+      end
+
+      def incoming_transfer_receipt_context(txn:, metadata:, record:, anchor_details:, conversion_meta:)
+        return {} unless incoming_transfer_receipt?(txn: txn, metadata: metadata, record: record, conversion_meta: conversion_meta)
+
+        provider_name = infer_incoming_transfer_provider(metadata: metadata, record: record)
+        sender_name = anchor_details[:sender_name] || record&.customer_name
+        sender_account_number = anchor_details[:sender_account_number] || record&.account_number
+        sender_bank_name = anchor_details[:sender_bank_name] || record&.bank
+
+        {
+          incoming_transfer: {
+            provider_name: provider_name,
+            provider_reference: record&.transaction_id || anchor_details[:payment_reference] || record&.reference,
+            session_id: metadata['nibss_session_id'] || metadata['session_id'],
+            sender_name: sender_name,
+            sender_bank_name: sender_bank_name,
+            sender_account_number: sender_account_number,
+            recipient_wallet_type: txn.wallet&.wallet_type,
+            recipient_wallet_currency: txn.wallet&.currency || txn.currency,
+            timestamps: incoming_transfer_timestamps(txn: txn, record: record, anchor_details: anchor_details)
+          }.compact
+        }
+      end
+
+      def incoming_transfer_receipt?(txn:, metadata:, record:, conversion_meta:)
+        return false unless txn.transaction_type.to_s == 'deposit'
+        return false if conversion_meta.present?
+
+        provider = metadata['provider'].to_s.downcase
+        purpose = metadata['purpose'].to_s.downcase
+        record_reference = record&.reference.to_s
+        event_type = record&.event_type.to_s.downcase
+
+        provider.present? ||
+          %w[wallet_fund wallet_fund_pooled].include?(purpose) ||
+          event_type.start_with?('monnify.') ||
+          event_type.start_with?('anchor.') ||
+          record_reference.match?(/\A(fbg|bbg)-/i) ||
+          record_reference.match?(/\ABBG-[A-Z0-9]{6}-[A-Z0-9]{4}\z/i)
+      end
+
+      def infer_incoming_transfer_provider(metadata:, record:)
+        provider = metadata['provider'].to_s.downcase
+        return provider if provider.present?
+
+        event_type = record&.event_type.to_s.downcase
+        return 'anchor' if event_type.start_with?('anchor.')
+        return 'monnify' if event_type.start_with?('monnify.')
+
+        reference = record&.reference.to_s
+        return 'monnify' if reference.match?(/\Afbg-/i)
+        return 'anchor' if reference.match?(/\ABBG-/i)
+
+        nil
+      end
+
+      def incoming_transfer_timestamps(txn:, record:, anchor_details:)
+        {
+          initiated_at: record&.created_at&.iso8601 || txn.created_at&.iso8601,
+          provider_received_at: anchor_details[:provider_created_at] || record&.created_at&.iso8601,
+          settled_at: anchor_details[:paid_at] || record&.updated_at&.iso8601,
+          credited_at: txn.created_at&.iso8601,
+          last_updated_at: [txn.updated_at, record&.updated_at].compact.max&.iso8601
         }.compact
       end
 
