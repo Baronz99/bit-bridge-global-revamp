@@ -340,6 +340,9 @@ class TimelineQuery
   end
 
   def wallet_label(tx, record)
+    metadata = tx.metadata.is_a?(Hash) ? tx.metadata.symbolize_keys : {}
+    return 'Incoming bank transfer' if incoming_bank_transfer_timeline?(tx: tx, record: record, metadata: metadata)
+    return 'Bank transfer' if outgoing_bank_transfer_timeline?(tx: tx, record: record, metadata: metadata)
     return record.description if record&.description.present?
 
     base = tx.transaction_type == 'deposit' ? 'Wallet deposit' : 'Wallet withdrawal'
@@ -347,6 +350,32 @@ class TimelineQuery
 
     suffix = tx.transaction_type == 'deposit' ? "from #{tx.address}" : "to #{tx.address}"
     "#{base} #{suffix}"
+  end
+
+  def incoming_bank_transfer_timeline?(tx:, record:, metadata:)
+    return false unless tx.transaction_type.to_s == 'deposit'
+
+    provider = metadata[:provider].to_s.downcase
+    purpose = metadata[:purpose].to_s.downcase
+    event_type = record&.event_type.to_s.downcase
+    reference = record&.reference.to_s
+
+    provider.present? ||
+      %w[wallet_fund wallet_fund_pooled].include?(purpose) ||
+      event_type.start_with?('monnify.') ||
+      event_type.start_with?('anchor.') ||
+      reference.match?(/\A(fbg|bbg)-/i) ||
+      reference.match?(/\ABBG-[A-Z0-9]{6}-[A-Z0-9]{4}\z/i)
+  end
+
+  def outgoing_bank_transfer_timeline?(tx:, record:, metadata:)
+    return false unless tx.transaction_type.to_s == 'withdrawal'
+
+    provider = metadata[:provider].to_s.downcase
+    subtype = metadata[:subtype].to_s.downcase
+    event_type = record&.event_type.to_s.downcase
+
+    provider == 'anchor' && (subtype == 'principal' || event_type.start_with?('anchor.transfer'))
   end
 
   def amount_to_cents(amount)

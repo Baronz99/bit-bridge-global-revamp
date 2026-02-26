@@ -174,5 +174,28 @@ RSpec.describe TimelineQuery do
       expect(item).to be_present
       expect(item[:amount_cents]).to eq(1900)
     end
+
+    it 'normalizes inbound bank transfer title for timeline wallet items' do
+      tx = user.ngn_wallet.transactions.create!(
+        status: :approved,
+        coin_type: :bank,
+        transaction_type: :deposit,
+        amount: 2500,
+        address: 'NIP transfer to 0123456789',
+        metadata: { provider: 'anchor', purpose: 'wallet_fund' }
+      )
+      tx.create_transaction_record!(
+        reference: 'fbg-10001',
+        status: 'approved',
+        event_type: 'anchor.webhook.payment.settled',
+        description: 'NIP transfer to 0123456789'
+      )
+
+      result = described_class.new(user: user, limit: 25).call
+      item = result[:items].find { |entry| entry[:id] == "wallet-tx-#{tx.id}" }
+
+      expect(item).to be_present
+      expect(item[:label]).to eq('Incoming bank transfer')
+    end
   end
 end
