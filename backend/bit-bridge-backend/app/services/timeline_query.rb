@@ -345,6 +345,11 @@ class TimelineQuery
     return 'Bank transfer' if outgoing_bank_transfer_timeline?(tx: tx, record: record, metadata: metadata)
     return record.description if record&.description.present?
 
+    if tx.transaction_type == 'deposit'
+      sender_name = record&.customer_name.to_s.strip
+      return "Wallet deposit from #{sender_name}" if sender_name.present?
+    end
+
     base = tx.transaction_type == 'deposit' ? 'Wallet deposit' : 'Wallet withdrawal'
     return base if tx.address.blank?
 

@@ -197,5 +197,30 @@ RSpec.describe TimelineQuery do
       expect(item).to be_present
       expect(item[:label]).to eq('Incoming bank transfer')
     end
+
+    it 'uses sender name (not account number) for wallet deposit fallback label' do
+      tx = user.ngn_wallet.transactions.create!(
+        status: :approved,
+        coin_type: :bank,
+        transaction_type: :deposit,
+        amount: 1200,
+        address: '0123456789',
+        metadata: {}
+      )
+      tx.create_transaction_record!(
+        reference: 'misc-deposit-1',
+        status: 'approved',
+        event_type: 'manual.deposit',
+        customer_name: 'Ada Sender',
+        description: nil
+      )
+
+      result = described_class.new(user: user, limit: 25).call
+      item = result[:items].find { |entry| entry[:id] == "wallet-tx-#{tx.id}" }
+
+      expect(item).to be_present
+      expect(item[:label]).to eq('Wallet deposit from Ada Sender')
+      expect(item[:label]).not_to include('0123456789')
+    end
   end
 end
