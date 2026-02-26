@@ -248,10 +248,29 @@ module Api
           anchor_details: anchor_details,
           conversion_meta: conversion_meta
         )
-        title = incoming_transfer_context.present? ? 'Incoming bank transfer' : wallet_label(txn, record)
+        outgoing_transfer_context = outgoing_transfer_receipt_context(
+          txn: txn,
+          metadata: metadata,
+          record: record,
+          anchor_details: anchor_details,
+          conversion_meta: conversion_meta
+        )
+        title =
+          if incoming_transfer_context.present?
+            'Incoming bank transfer'
+          elsif outgoing_transfer_context.present?
+            'Bank transfer'
+          else
+            wallet_label(txn, record)
+          end
         subtitle =
           if incoming_transfer_context.present?
             'Funds received into your wallet'
+          elsif outgoing_transfer_context.present?
+            outgoing_transfer_subtitle(
+              status: txn.status,
+              lifecycle_state: transaction_lifecycle_state_for_receipt(txn: txn, metadata: metadata)
+            )
           else
             metadata['description'] || anchor_details[:narration] || txn.address
           end
@@ -305,6 +324,8 @@ module Api
             sender_name: anchor_details[:sender_name],
             sender_account_number: anchor_details[:sender_account_number],
             sender_bank_name: anchor_details[:sender_bank_name],
+            beneficiary_name: outgoing_transfer_context.dig(:outgoing_transfer, :beneficiary_name),
+            beneficiary_bank_name: outgoing_transfer_context.dig(:outgoing_transfer, :beneficiary_bank_name),
             beneficiary_account_number: anchor_details[:beneficiary_account_number],
             beneficiary_account_name: anchor_details[:beneficiary_account_name]
           }.compact,
@@ -316,14 +337,17 @@ module Api
           }.compact,
           meta: {
             transaction_record_reference: record&.reference,
-            transaction_direction: incoming_transfer_context.present? ? 'inbound' : nil,
-            receipt_category: incoming_transfer_context.present? ? 'incoming_transfer' : nil,
+            transaction_direction: receipt_transaction_direction(incoming_transfer_context, outgoing_transfer_context),
+            receipt_category: receipt_category(incoming_transfer_context, outgoing_transfer_context),
             unique_transaction_id: txn.unique_transaction_id,
             bridge_card_id: txn.bridge_card_id,
             anchor: anchor_details,
             balance_snapshot: balance_snapshot,
+            beneficiary: outgoing_transfer_context.dig(:outgoing_transfer, :beneficiary_name),
+            bankName: outgoing_transfer_context.dig(:outgoing_transfer, :beneficiary_bank_name),
+            accountNumber: outgoing_transfer_context.dig(:outgoing_transfer, :beneficiary_account_number),
             transfer_fee_inferred: transfer_fee_context[:applies]
-          }.merge(conversion_meta).merge(incoming_transfer_context).compact,
+          }.merge(conversion_meta).merge(incoming_transfer_context).merge(outgoing_transfer_context).compact,
           timeline: build_wallet_timeline(txn, record, fx_quote),
           fees: merged_fees,
           legacy: legacy,
@@ -603,6 +627,18 @@ module Api
           else
             {}
           end
+        outgoing_transfer_context =
+          if txn.present?
+            outgoing_transfer_receipt_context(
+              txn: txn,
+              metadata: txn_meta,
+              record: record,
+              anchor_details: anchor_details,
+              conversion_meta: {}
+            )
+          else
+            {}
+          end
         transfer_fee_context = txn.present? ? inferred_transfer_fee_context(txn: txn, currency: 'NGN') : { applies: false, total_fee: 0.to_d, fees: [] }
         if transfer_fee_context[:applies]
           amount = amount.to_d + transfer_fee_context[:total_fee]
@@ -611,7 +647,7 @@ module Api
         currency = txn&.wallet&.currency || txn&.currency || 'NGN'
         receipt_kind = if bill_order.present?
                          'bill'
-                       elsif incoming_transfer_context.present?
+                       elsif incoming_transfer_context.present? || outgoing_transfer_context.present?
                          'wallet'
                        else
                          'checkout'
@@ -619,12 +655,19 @@ module Api
         receipt_title =
           if incoming_transfer_context.present?
             'Incoming bank transfer'
+          elsif outgoing_transfer_context.present?
+            'Bank transfer'
           else
             record.description || bill_order&.biller || bill_order&.service_type
           end
         receipt_subtitle =
           if incoming_transfer_context.present?
             'Funds received into your wallet'
+          elsif outgoing_transfer_context.present?
+            outgoing_transfer_subtitle(
+              status: record.status,
+              lifecycle_state: transaction_lifecycle_state_for_receipt(txn: txn, metadata: txn_meta)
+            )
           else
             anchor_details[:narration] || bill_order&.service_type
           end
@@ -689,6 +732,8 @@ module Api
             sender_name: anchor_details[:sender_name],
             sender_account_number: anchor_details[:sender_account_number],
             sender_bank_name: anchor_details[:sender_bank_name],
+            beneficiary_name: outgoing_transfer_context.dig(:outgoing_transfer, :beneficiary_name),
+            beneficiary_bank_name: outgoing_transfer_context.dig(:outgoing_transfer, :beneficiary_bank_name),
             beneficiary_account_number: anchor_details[:beneficiary_account_number],
             beneficiary_account_name: anchor_details[:beneficiary_account_name]
           }.compact,
@@ -710,11 +755,14 @@ module Api
             amount: bill_order&.amount,
             total_amount: bill_order&.total_amount,
             transaction_id: bill_order&.transaction_id,
-            receipt_category: incoming_transfer_context.present? ? 'incoming_transfer' : nil,
-            transaction_direction: incoming_transfer_context.present? ? 'inbound' : nil,
+            receipt_category: receipt_category(incoming_transfer_context, outgoing_transfer_context),
+            transaction_direction: receipt_transaction_direction(incoming_transfer_context, outgoing_transfer_context),
+            beneficiary: outgoing_transfer_context.dig(:outgoing_transfer, :beneficiary_name),
+            bankName: outgoing_transfer_context.dig(:outgoing_transfer, :beneficiary_bank_name),
+            accountNumber: outgoing_transfer_context.dig(:outgoing_transfer, :beneficiary_account_number),
             anchor: anchor_details,
             transfer_fee_inferred: transfer_fee_context[:applies]
-          }.merge(incoming_transfer_context).compact,
+          }.merge(incoming_transfer_context).merge(outgoing_transfer_context).compact,
           timeline: build_record_timeline(record, bill_order),
           fees: bill_fees,
           legacy: legacy,
@@ -1377,7 +1425,17 @@ module Api
           end
         end
 
-        grouped.values
+        normalized = grouped.values
+        grouped_by_currency = normalized.group_by { |entry| entry[:currency].to_s.upcase }
+
+        grouped_by_currency.values.flat_map do |rows|
+          has_component_fees = rows.any? { |row| row[:code].to_s != 'total_fee' }
+          if has_component_fees
+            rows.reject { |row| row[:code].to_s == 'total_fee' }
+          else
+            rows
+          end
+        end
       end
 
       def decimal_or_nil(value)
@@ -1518,6 +1576,103 @@ module Api
           credited_at: txn.created_at&.iso8601,
           last_updated_at: [txn.updated_at, record&.updated_at].compact.max&.iso8601
         }.compact
+      end
+
+      def outgoing_transfer_receipt_context(txn:, metadata:, record:, anchor_details:, conversion_meta:)
+        return {} unless outgoing_transfer_receipt?(txn: txn, metadata: metadata, record: record, conversion_meta: conversion_meta)
+
+        beneficiary_name =
+          record&.customer_name ||
+          metadata['beneficiary_name'] ||
+          metadata['account_name']
+        beneficiary_account_number =
+          record&.account_number ||
+          metadata['beneficiary_account_number'] ||
+          metadata['account_number']
+        beneficiary_bank_name =
+          record&.bank ||
+          metadata['beneficiary_bank_name'] ||
+          metadata['bank']
+
+        {
+          outgoing_transfer: {
+            provider_name: metadata['provider'] || infer_incoming_transfer_provider(metadata: metadata, record: record),
+            provider_reference: metadata['provider_transfer_id'] || record&.transaction_id || record&.reference || metadata['transfer_reference'],
+            transfer_reference: metadata['transfer_reference'] || record&.reference,
+            beneficiary_name: beneficiary_name,
+            beneficiary_bank_name: beneficiary_bank_name,
+            beneficiary_account_number: beneficiary_account_number,
+            sender_wallet_type: txn.wallet&.wallet_type,
+            sender_wallet_currency: txn.wallet&.currency || txn.currency,
+            timestamps: outgoing_transfer_timestamps(txn: txn, record: record, anchor_details: anchor_details)
+          }.compact
+        }
+      end
+
+      def outgoing_transfer_receipt?(txn:, metadata:, record:, conversion_meta:)
+        return false unless txn.transaction_type.to_s == 'withdrawal'
+        return false if conversion_meta.present?
+
+        provider = metadata['provider'].to_s.downcase
+        subtype = metadata['subtype'].to_s.downcase
+        event_type = record&.event_type.to_s.downcase
+
+        provider == 'anchor' &&
+          (
+            subtype == 'principal' ||
+            event_type.start_with?('anchor.transfer')
+          )
+      end
+
+      def outgoing_transfer_timestamps(txn:, record:, anchor_details:)
+        {
+          initiated_at: record&.created_at&.iso8601 || txn.created_at&.iso8601,
+          provider_received_at: anchor_details[:provider_created_at] || record&.created_at&.iso8601,
+          provider_settled_at: anchor_details[:paid_at] || record&.updated_at&.iso8601,
+          debited_at: txn.created_at&.iso8601,
+          last_updated_at: [txn.updated_at, record&.updated_at].compact.max&.iso8601
+        }.compact
+      end
+
+      def receipt_category(incoming_transfer_context, outgoing_transfer_context)
+        return 'incoming_transfer' if incoming_transfer_context.present?
+        return 'outgoing_transfer' if outgoing_transfer_context.present?
+
+        nil
+      end
+
+      def receipt_transaction_direction(incoming_transfer_context, outgoing_transfer_context)
+        return 'inbound' if incoming_transfer_context.present?
+        return 'outbound' if outgoing_transfer_context.present?
+
+        nil
+      end
+
+      def transaction_lifecycle_state_for_receipt(txn:, metadata:)
+        metadata_hash = metadata.is_a?(Hash) ? metadata : {}
+        explicit = metadata_hash['lifecycle_state'].to_s
+        return explicit if explicit.present?
+        return nil unless txn.present?
+
+        serialized = TransactionSerializer.new(txn).as_json
+        serialized[:lifecycle_state].presence || serialized['lifecycle_state'].presence
+      rescue StandardError
+        nil
+      end
+
+      def outgoing_transfer_subtitle(status:, lifecycle_state:)
+        normalized_lifecycle = lifecycle_state.to_s.downcase
+        normalized_status = status.to_s.downcase
+
+        return 'Transfer failed. Funds returned to wallet' if %w[failed_refunded released].include?(normalized_lifecycle)
+        return 'Transfer failed. Reversal in progress' if normalized_lifecycle == 'failed_reversal_pending'
+        return 'Transfer is being processed by provider' if %w[pending_provider reserved pending processing initialized].include?(normalized_lifecycle)
+        return 'Transfer did not complete successfully' if %w[failed_unrecovered failed declined timeout timedout timed_out].include?(normalized_lifecycle)
+
+        return 'Transfer is being processed by provider' if %w[pending processing initialized reserved].include?(normalized_status)
+        return 'Transfer did not complete successfully' if %w[failed declined timeout timedout timed_out].include?(normalized_status)
+
+        'Funds sent to recipient bank account'
       end
 
       def resolve_wallet_balance_snapshot(txn, metadata)
