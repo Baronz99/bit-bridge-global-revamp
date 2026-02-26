@@ -39,6 +39,7 @@ RSpec.describe Tier3VerificationJob, type: :job do
     expect(kyc.tier3_status).to eq("failed")
     expect(kyc.tier3_reference).to eq("liv-ref-1")
     expect(kyc.tier3_error).to include("temporarily unavailable")
+    expect(KycTier3Event.where(user_kyc_id: kyc.id, status: "retryable_failed").count).to be >= 1
   end
 
   it "accepts successful verification status payloads even when top-level status is absent" do
@@ -62,5 +63,6 @@ RSpec.describe Tier3VerificationJob, type: :job do
     expect(kyc.tier3_status).to eq("verified")
     expect(kyc.tier3_reference).to eq("match-ref-2")
     expect(kyc.tier3_error).to be_nil
+    expect(KycTier3Event.where(user_kyc_id: kyc.id, status: "success").count).to be >= 1
   end
 end

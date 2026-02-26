@@ -58,6 +58,19 @@ class Tier3VerificationJob < ApplicationJob
     liveness_code       = response_code_for(liveness)
 
     Rails.logger.warn("[Tier3] LIVENESS code=#{liveness_code.inspect} verify_status=#{liveness_verify_stat.inspect} ref=#{liveness_ref.inspect} conf=#{liveness_conf} msg=#{liveness_msg.inspect}")
+    record_tier3_event(
+      user: user,
+      kyc: kyc,
+      stage: "liveness",
+      status: classify_stage_status(liveness, liveness_code, liveness_msg),
+      code: liveness_code,
+      reference: liveness_ref,
+      message: liveness_msg,
+      payload: {
+        verification_status: liveness_verify_stat,
+        confidence: liveness_conf
+      }
+    )
 
     # Provider downtime / endpoint unavailable should be RETRYABLE, not "rejected"
     if provider_unavailable?(liveness_code, liveness_msg)
@@ -85,6 +98,18 @@ class Tier3VerificationJob < ApplicationJob
     msg         = response_message_for(match)
 
     Rails.logger.warn("[Tier3] FACE_MATCH code=#{resp_code.inspect} verify_status=#{verify_stat.inspect} ref=#{match_ref.inspect} msg=#{msg.inspect}")
+    record_tier3_event(
+      user: user,
+      kyc: kyc,
+      stage: "face_match",
+      status: classify_stage_status(match, resp_code, msg),
+      code: resp_code,
+      reference: match_ref,
+      message: msg,
+      payload: {
+        verification_status: verify_stat
+      }
+    )
 
     # Treat "unavailable" / provider issues here as retryable too
     if provider_unavailable?(resp_code, msg)
@@ -103,6 +128,15 @@ class Tier3VerificationJob < ApplicationJob
         )
         user.update!(kyc_level: "tier_3")
       end
+      record_tier3_event(
+        user: user,
+        kyc: kyc,
+        stage: "tier3",
+        status: "success",
+        code: resp_code,
+        reference: match_ref.presence || liveness_ref.presence,
+        message: "Tier 3 verification completed"
+      )
     else
       pretty = msg.presence || "Face match failed"
       pretty = "#{pretty} [code=#{resp_code}]" if resp_code.present?
@@ -112,9 +146,18 @@ class Tier3VerificationJob < ApplicationJob
     raise
   rescue StandardError => e
     # network errors, unexpected parsing errors, etc = retryable fail
-    User.find_by(id: user_id)&.user_kyc&.update!(
+    rescue_user = User.find_by(id: user_id)
+    rescue_kyc = rescue_user&.user_kyc
+    rescue_kyc&.update!(
       tier3_status: "failed",
       tier3_error: "Tier 3 verification failed: #{e.message}"
+    )
+    record_tier3_event(
+      user: rescue_user,
+      kyc: rescue_kyc,
+      stage: "tier3",
+      status: "failed",
+      message: e.message
     )
     raise
   end
@@ -143,6 +186,14 @@ class Tier3VerificationJob < ApplicationJob
         tier3_error: msg
       )
     end
+    record_tier3_event(
+      user: kyc.user,
+      kyc: kyc,
+      stage: "tier3",
+      status: "retryable_failed",
+      reference: ref,
+      message: msg
+    )
     raise ProviderTemporarilyUnavailableError, msg
   end
 
@@ -154,6 +205,14 @@ class Tier3VerificationJob < ApplicationJob
         tier3_error: msg
       )
     end
+    record_tier3_event(
+      user: kyc.user,
+      kyc: kyc,
+      stage: "tier3",
+      status: "rejected",
+      reference: ref,
+      message: msg
+    )
   end
 
   def response_code_for(payload)
@@ -186,5 +245,32 @@ class Tier3VerificationJob < ApplicationJob
     return true if payload.dig("data", "status") == true
 
     false
+  end
+
+  def classify_stage_status(payload, code, message)
+    return "retryable_failed" if provider_unavailable?(code, message)
+    return "success" if success_payload?(payload)
+
+    "failed"
+  end
+
+  def record_tier3_event(user:, kyc:, stage:, status:, code: nil, reference: nil, message: nil, payload: {})
+    return unless defined?(KycTier3Event)
+    return unless KycTier3Event.table_exists?
+
+    KycTier3Event.record!(
+      user: user,
+      user_kyc: kyc,
+      provider: "prembly",
+      stage: stage,
+      status: status,
+      provider_code: code,
+      provider_reference: reference,
+      message: message,
+      payload: payload
+    )
+  rescue StandardError => e
+    Rails.logger.warn("[Tier3Event] log_failed #{e.class}: #{e.message}")
+    nil
   end
 end

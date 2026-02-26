@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[7.1].define(version: 2026_02_25_162000) do
+ActiveRecord::Schema[7.1].define(version: 2026_02_26_101500) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pgcrypto"
   enable_extension "plpgsql"
@@ -553,6 +553,28 @@ ActiveRecord::Schema[7.1].define(version: 2026_02_25_162000) do
     t.index ["user_id"], name: "index_kyc_reviews_on_user_id"
   end
 
+  create_table "kyc_tier3_events", id: :uuid, default: -> { "gen_random_uuid()" }, force: :cascade do |t|
+    t.uuid "user_id"
+    t.uuid "user_kyc_id"
+    t.string "provider", default: "prembly", null: false
+    t.string "stage", null: false
+    t.string "status", null: false
+    t.string "provider_code"
+    t.string "provider_reference"
+    t.string "message"
+    t.jsonb "payload", default: {}, null: false
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["created_at"], name: "index_kyc_tier3_events_on_created_at"
+    t.index ["provider"], name: "index_kyc_tier3_events_on_provider"
+    t.index ["stage"], name: "index_kyc_tier3_events_on_stage"
+    t.index ["status", "created_at"], name: "index_kyc_tier3_events_on_status_and_created_at"
+    t.index ["status"], name: "index_kyc_tier3_events_on_status"
+    t.index ["user_id"], name: "index_kyc_tier3_events_on_user_id"
+    t.index ["user_kyc_id", "created_at"], name: "index_kyc_tier3_events_on_user_kyc_id_and_created_at"
+    t.index ["user_kyc_id"], name: "index_kyc_tier3_events_on_user_kyc_id"
+  end
+
   create_table "monify_tokens", id: :uuid, default: -> { "gen_random_uuid()" }, force: :cascade do |t|
     t.string "token"
     t.datetime "expires_in"
@@ -1030,6 +1052,8 @@ ActiveRecord::Schema[7.1].define(version: 2026_02_25_162000) do
   add_foreign_key "inbound_bank_transfers", "funding_intents"
   add_foreign_key "inbound_bank_transfers", "transactions", column: "credited_transaction_id"
   add_foreign_key "inbound_bank_transfers", "users", column: "matched_user_id"
+  add_foreign_key "kyc_tier3_events", "user_kycs"
+  add_foreign_key "kyc_tier3_events", "users"
   add_foreign_key "order_details", "users"
   add_foreign_key "order_items", "order_details"
   add_foreign_key "order_items", "products"

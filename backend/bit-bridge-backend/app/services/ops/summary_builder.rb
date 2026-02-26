@@ -18,6 +18,7 @@ module Ops
         generated_at: @now.iso8601,
         window_hours: @window_hours,
         provider_availability: provider_availability_section,
+        tier3_liveness: tier3_liveness_section,
         unmatched_credits: unmatched_credits_section,
         refund_requests: refund_requests_section,
         bill_orders: bill_orders_section,
@@ -69,6 +70,50 @@ module Ops
           older_than_6h: pending_scope.where('created_at <= ?', now - 6.hours).count,
           older_than_24h: pending_scope.where('created_at <= ?', now - 24.hours).count
         }
+      }
+    end
+
+    def tier3_liveness_section
+      processing_scope = UserKyc.where(tier3_status: "processing")
+
+      {
+        processing_current: processing_scope.count,
+        processing_stuck: {
+          older_than_15m: processing_scope.where("updated_at <= ?", now - 15.minutes).count,
+          older_than_30m: processing_scope.where("updated_at <= ?", now - 30.minutes).count,
+          older_than_2h: processing_scope.where("updated_at <= ?", now - 2.hours).count
+        },
+        events: tier3_event_metrics
+      }
+    end
+
+    def tier3_event_metrics
+      return non_persisted_tier3_metrics unless tier3_events_available?
+
+      scoped = KycTier3Event.where(provider: "prembly")
+      windowed = scoped.where(created_at: window_start..now)
+      {
+        total_last_24h: windowed.count,
+        success_last_24h: windowed.where(status: "success").count,
+        retryable_failed_last_24h: windowed.where(status: "retryable_failed").count,
+        failed_last_24h: windowed.where(status: %w[failed rejected timed_out]).count,
+        last_event_at: scoped.maximum(:created_at)&.iso8601
+      }
+    end
+
+    def tier3_events_available?
+      defined?(KycTier3Event) && KycTier3Event.table_exists?
+    rescue StandardError
+      false
+    end
+
+    def non_persisted_tier3_metrics
+      {
+        total_last_24h: 0,
+        success_last_24h: 0,
+        retryable_failed_last_24h: 0,
+        failed_last_24h: 0,
+        last_event_at: nil
       }
     end
 

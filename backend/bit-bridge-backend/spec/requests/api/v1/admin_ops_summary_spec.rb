@@ -32,6 +32,7 @@ RSpec.describe 'Admin ops summary', type: :request do
         'generated_at',
         'window_hours',
         'provider_availability',
+        'tier3_liveness',
         'unmatched_credits',
         'refund_requests',
         'bill_orders',
@@ -49,6 +50,15 @@ RSpec.describe 'Admin ops summary', type: :request do
       expect(data.dig('provider_availability', 'services_summary', 'degraded')).to be_a(Integer)
       expect(data.dig('provider_availability', 'services_summary', 'outage')).to be_a(Integer)
       expect(data.dig('provider_availability', 'services_summary', 'unknown')).to be_a(Integer)
+
+      expect(data.dig('tier3_liveness', 'processing_current')).to be_a(Integer)
+      expect(data.dig('tier3_liveness', 'processing_stuck', 'older_than_15m')).to be_a(Integer)
+      expect(data.dig('tier3_liveness', 'processing_stuck', 'older_than_30m')).to be_a(Integer)
+      expect(data.dig('tier3_liveness', 'processing_stuck', 'older_than_2h')).to be_a(Integer)
+      expect(data.dig('tier3_liveness', 'events', 'total_last_24h')).to be_a(Integer)
+      expect(data.dig('tier3_liveness', 'events', 'success_last_24h')).to be_a(Integer)
+      expect(data.dig('tier3_liveness', 'events', 'retryable_failed_last_24h')).to be_a(Integer)
+      expect(data.dig('tier3_liveness', 'events', 'failed_last_24h')).to be_a(Integer)
 
       expect(data.dig('unmatched_credits', 'totals_by_status', 'pending')).to be_a(Integer)
       expect(data.dig('unmatched_credits', 'totals_by_status', 'resolved')).to be_a(Integer)
