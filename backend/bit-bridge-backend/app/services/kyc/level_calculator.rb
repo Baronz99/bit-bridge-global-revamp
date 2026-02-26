@@ -6,6 +6,9 @@ module Kyc
       profile = user.user_profile
       kyc = user.user_kyc
 
+      # Preserve Tier 3 once liveness has been verified.
+      return 'tier_3' if tier3_verified?(kyc)
+
       tier1 = tier1_complete?(profile)
       tier2 = tier1 && tier2_complete?(user, profile, kyc)
 
@@ -13,6 +16,12 @@ module Kyc
       return 'tier_1' if tier1
 
       'tier_0'
+    end
+
+    def self.tier3_verified?(kyc)
+      return false unless kyc
+
+      kyc.tier3_status.to_s == 'verified' || kyc.tier3_verified_at.present?
     end
 
     def self.tier1_complete?(profile)

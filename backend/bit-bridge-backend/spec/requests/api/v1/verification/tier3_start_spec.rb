@@ -52,4 +52,18 @@ RSpec.describe 'Tier3 start', type: :request do
     json = JSON.parse(response.body)
     expect(json['status']).to eq('pending')
   end
+
+  it 'normalizes data URL image before enqueueing Tier3 job' do
+    user.user_kyc.update!(bvn_encrypted: '12345678901')
+    expect(Tier3VerificationJob).to receive(:perform_later).with(
+      user.id,
+      'ZmFrZQ=='
+    )
+
+    post '/api/v1/verification/tier3/start',
+         params: { image: 'data:image/jpeg;base64, ZmFrZQ== ' },
+         headers: headers
+
+    expect(response).to have_http_status(:ok)
+  end
 end

@@ -4,6 +4,12 @@ class Tier3VerificationJob < ApplicationJob
   queue_as :default
 
   LIVENESS_MIN_CONFIDENCE = 0.90
+  SUCCESS_VERIFY_STATUSES = %w[VERIFIED PASSED SUCCESS SUCCESSFUL].freeze
+  RETRYABLE_PROVIDER_CODES = %w[02 429 500 502 503 504].freeze
+  REJECTED_VERIFY_STATUSES = %w[FAILED REJECTED ERROR].freeze
+  class ProviderTemporarilyUnavailableError < StandardError; end
+
+  retry_on ProviderTemporarilyUnavailableError, wait: 2.minutes, attempts: 3
 
   def perform(user_id, image_base64)
     user = User.find(user_id)
@@ -45,13 +51,11 @@ class Tier3VerificationJob < ApplicationJob
     # ---------- LIVENESS ----------
     liveness = client.liveness_check(image_base64)
 
-    liveness_verify_stat = liveness.dig("verification", "status").to_s
+    liveness_verify_stat = verification_status_for(liveness)
     liveness_ref        = liveness.dig("verification", "reference").to_s
     liveness_conf       = liveness.dig("data", "confidence").to_f
-    liveness_top_status = liveness["status"]
-    liveness_data_stat  = liveness.dig("data", "status")
-    liveness_msg        = liveness["message"].to_s.presence || liveness["detail"].to_s.presence || liveness.dig("data", "message").to_s
-    liveness_code       = liveness["response_code"].to_s
+    liveness_msg        = response_message_for(liveness)
+    liveness_code       = response_code_for(liveness)
 
     Rails.logger.warn("[Tier3] LIVENESS code=#{liveness_code.inspect} verify_status=#{liveness_verify_stat.inspect} ref=#{liveness_ref.inspect} conf=#{liveness_conf} msg=#{liveness_msg.inspect}")
 
@@ -60,12 +64,7 @@ class Tier3VerificationJob < ApplicationJob
       return fail_retryable!(kyc, liveness_ref, "Face liveness is temporarily unavailable. Please try again in a few minutes. [code=#{liveness_code.presence || 'N/A'}]")
     end
 
-    liveness_passed =
-      liveness_top_status == true ||
-      liveness_data_stat == true ||
-      liveness_verify_stat.casecmp("VERIFIED").zero? ||
-      liveness_verify_stat.casecmp("PASSED").zero? ||
-      liveness_verify_stat.casecmp("SUCCESS").zero?
+    liveness_passed = success_payload?(liveness)
 
     unless liveness_passed
       pretty = liveness_msg.presence || "Liveness failed"
@@ -81,10 +80,9 @@ class Tier3VerificationJob < ApplicationJob
     match = client.bvn_face_match(bvn, image_base64)
 
     match_ref   = match.dig("verification", "reference").to_s
-    verify_stat = match.dig("verification", "status").to_s
-    top_status  = match["status"]
-    resp_code   = match["response_code"].to_s
-    msg         = match["message"].to_s.presence || match.dig("data", "message").to_s
+    verify_stat = verification_status_for(match)
+    resp_code   = response_code_for(match)
+    msg         = response_message_for(match)
 
     Rails.logger.warn("[Tier3] FACE_MATCH code=#{resp_code.inspect} verify_status=#{verify_stat.inspect} ref=#{match_ref.inspect} msg=#{msg.inspect}")
 
@@ -93,10 +91,7 @@ class Tier3VerificationJob < ApplicationJob
       return fail_retryable!(kyc, match_ref.presence || liveness_ref.presence, "Face match is temporarily unavailable. Please try again. [code=#{resp_code.presence || 'N/A'}]")
     end
 
-    passed =
-      top_status == true ||
-      verify_stat.casecmp("VERIFIED").zero? ||
-      match.dig("data", "status") == true
+    passed = success_payload?(match)
 
     if passed
       kyc.with_lock do
@@ -113,6 +108,8 @@ class Tier3VerificationJob < ApplicationJob
       pretty = "#{pretty} [code=#{resp_code}]" if resp_code.present?
       reject!(kyc, match_ref.presence || liveness_ref.presence, pretty)
     end
+  rescue ProviderTemporarilyUnavailableError
+    raise
   rescue StandardError => e
     # network errors, unexpected parsing errors, etc = retryable fail
     User.find_by(id: user_id)&.user_kyc&.update!(
@@ -129,7 +126,7 @@ class Tier3VerificationJob < ApplicationJob
     c = code.to_s.strip
     m = msg.to_s.downcase
 
-    return true if c == "02" # your observed "unavailable" code
+    return true if RETRYABLE_PROVIDER_CODES.include?(c)
     return true if m.include?("unavailable")
     return true if m.include?("temporarily")
     return true if m.include?("try again")
@@ -146,6 +143,7 @@ class Tier3VerificationJob < ApplicationJob
         tier3_error: msg
       )
     end
+    raise ProviderTemporarilyUnavailableError, msg
   end
 
   def reject!(kyc, ref, msg)
@@ -156,5 +154,37 @@ class Tier3VerificationJob < ApplicationJob
         tier3_error: msg
       )
     end
+  end
+
+  def response_code_for(payload)
+    payload["response_code"].to_s.presence ||
+      payload.dig("data", "response_code").to_s.presence ||
+      payload.dig("verification", "response_code").to_s.presence ||
+      ""
+  end
+
+  def response_message_for(payload)
+    payload["message"].to_s.presence ||
+      payload["detail"].to_s.presence ||
+      payload["error"].to_s.presence ||
+      payload.dig("data", "message").to_s.presence ||
+      payload.dig("data", "error").to_s.presence ||
+      payload.dig("verification", "message").to_s.presence ||
+      ""
+  end
+
+  def verification_status_for(payload)
+    payload.dig("verification", "status").to_s.upcase
+  end
+
+  def success_payload?(payload)
+    verify_status = verification_status_for(payload)
+    return true if SUCCESS_VERIFY_STATUSES.include?(verify_status)
+    return false if REJECTED_VERIFY_STATUSES.include?(verify_status)
+
+    return true if payload["status"] == true
+    return true if payload.dig("data", "status") == true
+
+    false
   end
 end

@@ -132,7 +132,7 @@ module Api
             )
           end
 
-          Tier3VerificationJob.perform_later(current_user.id, input)
+          Tier3VerificationJob.perform_later(current_user.id, normalize_image_for_job(input))
 
           render_with_requirements({ message: "Tier 3 submitted", status: "pending" }, :ok)
         rescue ActiveRecord::RecordInvalid => e
@@ -162,6 +162,12 @@ module Api
           return "data_url" if value.start_with?("data:")
 
           "base64"
+        end
+
+        def normalize_image_for_job(value)
+          input = value.to_s.strip
+          input = input.split("base64,", 2).last.to_s.strip if input.include?("base64,")
+          input.gsub(/\s+/, "")
         end
       end
     end

@@ -60,6 +60,7 @@ module Kyc
       {
         "x-api-key" => @api_key,
         "app-id" => @app_id,
+        "Accept" => "application/json",
         "Content-Type" => "application/json"
       }
     end
