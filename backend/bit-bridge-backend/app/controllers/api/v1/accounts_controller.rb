@@ -48,19 +48,32 @@ module Api
       def verify_kyc
         account = Account.find_by(user_id: current_user.id, vendor: 'anchor')
         unless account
-          return render json: { message: 'No Anchor account present' }, status: :not_found
+          return render json: anchor_error_payload(
+            'anchor_account_missing',
+            'No Anchor account present',
+            retryable: false
+          ), status: :not_found
         end
 
         service = AnchorService.new
         service_response = service.user_kyc_verification(account_params, account)
 
         if service_response[:status] == :ok
-          render json: {
-            data:     service_response[:response],
-            messsage: service_response[:message]
-          }, status: :ok
+          account.reload
+          flow = anchor_flow_snapshot(account, has_deposit_account: account.account_number.present?)
+          render json: anchor_success_payload(
+            data: service_response[:response],
+            message: service_response[:message].presence || 'KYC verification submitted',
+            flow: flow
+          ), status: :ok
         else
-          render json: { message: service_response[:message] }, status: :unprocessable_entity
+          code, retryable = map_anchor_kyc_error(service_response[:message], service_response[:provider_body])
+          render json: anchor_error_payload(
+            code,
+            service_response[:message],
+            retryable: retryable,
+            details: { provider_status: service_response[:provider_status] }.compact
+          ), status: :unprocessable_entity
         end
       end
 
@@ -95,12 +108,12 @@ module Api
             return render json: anchor_error_payload(code, 'Anchor did not return an account number', retryable: true),
                           status: :unprocessable_entity
           end
-          render json: {
-            data:     service_response[:response],
-            message:  'Account created',
-            messsage: 'Account created',
-            flow: anchor_flow_snapshot(account, has_deposit_account: true)
-          }, status: :ok
+          flow = anchor_flow_snapshot(account, has_deposit_account: true)
+          render json: anchor_success_payload(
+            data: service_response[:response],
+            message: 'Account created',
+            flow: flow
+          ), status: :ok
         else
           raw_message = service_response[:message] || service_response[:response]
           provider_status = service_response[:provider_status]
@@ -463,12 +476,16 @@ module Api
         # We return 200 with data: null so the frontend can quietly show
         # "no Anchor account yet" instead of a red error toast.
         unless account
-          return render json: {
-            data:    nil,
+          flow = anchor_flow_snapshot(nil)
+          return render json: anchor_success_payload(
+            data: nil,
             message: 'No Anchor account yet',
-            has_anchor_account: false,
-            flow: anchor_flow_snapshot(nil)
-          }, status: :ok
+            flow: flow,
+            extra: {
+              has_anchor_account: false,
+              has_deposit_account: false
+            }
+          ), status: :ok
         end
 
         account_identifier = account.useable_id.presence || account.account_id
@@ -488,28 +505,58 @@ module Api
         service_response = service.fetch_account_detail(account_identifier, true)
 
         if service_response[:status] == :ok
-          render json: {
-            data:     service_response[:data],
-            message:  'Account Numbers fetched',
-            messsage: 'Account Numbers fetched',
-            has_anchor_account: true,
-            flow: anchor_flow_snapshot(account, has_deposit_account: true)
-          }, status: :ok
+          flow = anchor_flow_snapshot(account, has_deposit_account: true)
+          render json: anchor_success_payload(
+            data: service_response[:data],
+            message: 'Account Numbers fetched',
+            flow: flow,
+            extra: {
+              has_anchor_account: true,
+              has_deposit_account: true
+            }
+          ), status: :ok
         else
           message = service_response[:message] || service_response[:response]
           if message.to_s.downcase.include?('no account found')
-            return render json: {
+            flow = anchor_flow_snapshot(account, has_deposit_account: false)
+            return render json: anchor_success_payload(
               data: nil,
               message: 'No deposit account yet',
-              has_anchor_account: true,
-              flow: anchor_flow_snapshot(account, has_deposit_account: false)
-            }, status: :ok
+              flow: flow,
+              extra: {
+                has_anchor_account: true,
+                has_deposit_account: false
+              }
+            ), status: :ok
           end
 
-          render json: {
-            message: message
-          }, status: :unprocessable_entity
+          render json: anchor_error_payload(
+            'anchor_detail_fetch_failed',
+            message,
+            retryable: true,
+            flow: anchor_flow_snapshot(account, has_deposit_account: account.account_number.present?)
+          ), status: :unprocessable_entity
         end
+      end
+
+      def anchor_onboarding_state
+        account = Account.find_by(user_id: current_user.id, vendor: 'anchor')
+        has_deposit_account = account&.account_number.present? || false
+        flow = anchor_flow_snapshot(account, has_deposit_account: has_deposit_account)
+
+        render json: anchor_success_payload(
+          data: {
+            account_id: account&.id,
+            account_number_masked: masked_account_number(account&.account_number),
+            kyc_status: account&.status
+          }.compact,
+          message: 'Anchor onboarding state fetched',
+          flow: flow,
+          extra: {
+            has_anchor_account: account.present?,
+            has_deposit_account: has_deposit_account
+          }
+        ), status: :ok
       end
 
       def get_account_details
@@ -561,29 +608,35 @@ module Api
         missing_fields = anchor_onboarding_missing_fields(account_info)
         log_anchor_onboarding_fields(account_info, missing_fields)
         if missing_fields.any?
-          return render json: {
-            message: 'Complete your profile to create an Anchor account.',
-            error_code: 'ANCHOR_ONBOARDING_INCOMPLETE',
-            missing_fields: missing_fields,
+          return render json: anchor_error_payload(
+            'ANCHOR_ONBOARDING_INCOMPLETE',
+            'Complete your profile to create an Anchor account.',
+            retryable: false,
             flow: {
               state: 'blocked_profile_incomplete',
               next_action: 'complete_profile'
-            }
-          }, status: :unprocessable_entity
+            },
+            details: { missing_fields: missing_fields }
+          ).merge(missing_fields: missing_fields), status: :unprocessable_entity
         end
 
         log_anchor_onboarding_will_call(account_info)
         service_response = service.create_individual_account(account_info)
 
         if service_response[:status] == :ok
-          render json: {
-            data:    service_response[:response],
+          flow = {
+            state: 'customer_created_no_deposit_account',
+            next_action: 'provision_account_number'
+          }
+          render json: anchor_success_payload(
+            data: service_response[:response],
             message: 'User onboarded successfully',
-            flow: {
-              state: 'customer_created_no_deposit_account',
-              next_action: 'provision_account_number'
+            flow: flow,
+            extra: {
+              has_anchor_account: true,
+              has_deposit_account: false
             }
-          }, status: :ok
+          ), status: :ok
         else
           duplicate_phone_error = duplicate_anchor_phone_error?(service_response[:message])
           duplicate_customer_error =
@@ -593,24 +646,30 @@ module Api
           if duplicate_customer_error
             existing_anchor = current_user.accounts.find_by(vendor: 'anchor')
             if existing_anchor.present?
-              return render json: {
+              flow = {
+                state: 'customer_created_no_deposit_account',
+                next_action: 'provision_account_number'
+              }
+              return render json: anchor_success_payload(
                 data: existing_anchor,
                 message: 'Anchor profile already exists. Continue onboarding.',
-                flow: {
-                  state: 'customer_created_no_deposit_account',
-                  next_action: 'provision_account_number'
+                flow: flow,
+                extra: {
+                  has_anchor_account: true,
+                  has_deposit_account: existing_anchor.account_number.present?
                 }
-              }, status: :ok
+              ), status: :ok
             end
 
-            return render json: {
-              message: 'Anchor profile already exists. Refresh and continue onboarding.',
-              error_code: 'ANCHOR_CUSTOMER_EXISTS',
+            return render json: anchor_error_payload(
+              'ANCHOR_CUSTOMER_EXISTS',
+              'Anchor profile already exists. Refresh and continue onboarding.',
+              retryable: false,
               flow: {
                 state: 'customer_created_no_deposit_account',
                 next_action: 'provision_account_number'
               }
-            }, status: :conflict
+            ), status: :conflict
           end
 
           if duplicate_phone_error
@@ -619,14 +678,15 @@ module Api
               phone: account_info[:phone_number],
               debug_message: service_response[:message]
             )
-            return render json: {
-              message: 'This phone number already exists in Anchor Sandbox.',
-              error_code: 'ANCHOR_PHONE_EXISTS',
+            return render json: anchor_error_payload(
+              'ANCHOR_PHONE_EXISTS',
+              'This phone number already exists in Anchor Sandbox.',
+              retryable: false,
               flow: {
                 state: 'blocked_phone_exists',
                 next_action: 'contact_support_or_retry_detail_fetch'
               }
-            }, status: :conflict
+            ), status: :conflict
           end
 
           Rails.logger.info(
@@ -640,14 +700,15 @@ module Api
             }.compact
           )
 
-          render json: {
-            message: service_response[:message].presence || 'Unable to create Anchor account.',
-            error_code: 'ANCHOR_ONBOARDING_FAILED',
+          render json: anchor_error_payload(
+            'ANCHOR_ONBOARDING_FAILED',
+            service_response[:message].presence || 'Unable to create Anchor account.',
+            retryable: true,
             flow: {
               state: 'temporary_provider_failure',
               next_action: 'retry_create_anchor_account'
             }
-          }, status: :unprocessable_entity
+          ), status: :unprocessable_entity
         end
       end
 
@@ -916,18 +977,95 @@ module Api
         ['anchor_account_number_failed', true]
       end
 
-      def anchor_error_payload(code, message, retryable:)
+      def map_anchor_kyc_error(message, provider_body = nil)
+        text = message.to_s.downcase
+        body_text = provider_body.to_s.downcase
+
+        return ['anchor_kyc_already_verified', false] if text.include?('already completed') || text.include?('already verified')
+        return ['provider_unavailable', true] if [text, body_text].any? { |t| t.include?('unavailable') || t.include?('timeout') || t.include?('timed out') || t.include?('503') }
+
+        ['anchor_kyc_verification_failed', false]
+      end
+
+      def anchor_success_payload(data:, message:, flow:, extra: {})
+        payload = {
+          success: true,
+          data: data,
+          message: message,
+          flow: flow,
+          requirements: anchor_requirements(flow[:state]),
+          capabilities: anchor_capabilities(flow[:state]),
+          request_id: request.request_id
+        }
+        payload.merge(extra)
+      end
+
+      def anchor_error_payload(code, message, retryable:, flow: nil, details: nil)
+        resolved_flow = flow || anchor_error_flow(code)
+        resolved_message = message.presence || 'Unable to complete Anchor onboarding action'
         {
+          success: false,
           error: code,
           error_code: code,
-          errors: [message.presence || 'Unable to generate account number'],
+          message: resolved_message,
+          details: details || {},
+          errors: [resolved_message],
+          retryable: retryable,
+          flow: resolved_flow,
+          requirements: anchor_requirements(resolved_flow[:state], details: details),
+          capabilities: anchor_capabilities(resolved_flow[:state]),
+          request_id: request.request_id,
           meta: {
             provider: 'anchor',
             request_id: request.request_id,
             retryable: retryable,
-            flow: anchor_error_flow(code)
+            flow: resolved_flow
           }
         }
+      end
+
+      def anchor_requirements(flow_state, details: nil)
+        base = {
+          platform_kyc_level_required: 'tier_2',
+          profile_fields: %w[first_name last_name email phone address city state postal_code bvn dob]
+        }
+        if details.is_a?(Hash) && details[:missing_fields].present?
+          base[:missing_fields] = details[:missing_fields]
+        end
+
+        case flow_state.to_s
+        when 'blocked_kyc'
+          base.merge(
+            current_blocker: 'Complete Tier 2 verification',
+            next_action_hint: 'complete_kyc'
+          )
+        when 'blocked_profile_incomplete'
+          base.merge(
+            current_blocker: 'Complete required profile fields',
+            next_action_hint: 'complete_profile'
+          )
+        else
+          base
+        end
+      end
+
+      def anchor_capabilities(flow_state)
+        state = flow_state.to_s
+        {
+          can_create_anchor_profile: %w[not_started blocked_profile_incomplete blocked_phone_exists temporary_provider_failure].include?(state),
+          can_submit_anchor_kyc: !%w[not_started].include?(state),
+          can_provision_account_number: %w[customer_created_no_deposit_account].include?(state),
+          can_fund_wallet: %w[provisioned].include?(state)
+        }
+      end
+
+      def masked_account_number(account_number)
+        return nil if account_number.blank?
+
+        digits = account_number.to_s
+        return '*' * digits.length if digits.length <= 4
+
+        "****#{digits[-4, 4]}"
       end
 
       def anchor_flow_snapshot(account, has_deposit_account: false)
@@ -953,12 +1091,26 @@ module Api
         case code
         when 'anchor_account_missing'
           { state: 'not_started', next_action: 'create_anchor_account' }
+        when 'ANCHOR_ONBOARDING_INCOMPLETE'
+          { state: 'blocked_profile_incomplete', next_action: 'complete_profile' }
+        when 'ANCHOR_PHONE_EXISTS'
+          { state: 'blocked_phone_exists', next_action: 'contact_support_or_retry_detail_fetch' }
+        when 'ANCHOR_CUSTOMER_EXISTS'
+          { state: 'customer_created_no_deposit_account', next_action: 'provision_account_number' }
+        when 'ANCHOR_ONBOARDING_FAILED'
+          { state: 'temporary_provider_failure', next_action: 'retry_create_anchor_account' }
         when 'anchor_kyc_incomplete'
+          { state: 'blocked_kyc', next_action: 'complete_kyc' }
+        when 'anchor_kyc_already_verified'
+          { state: 'customer_created_no_deposit_account', next_action: 'provision_account_number' }
+        when 'anchor_kyc_verification_failed'
           { state: 'blocked_kyc', next_action: 'complete_kyc' }
         when 'anchor_phone_already_exists'
           { state: 'blocked_phone_exists', next_action: 'contact_support_or_retry_detail_fetch' }
         when 'provider_unavailable'
           { state: 'temporary_provider_failure', next_action: 'retry_provision' }
+        when 'anchor_detail_fetch_failed'
+          { state: 'temporary_provider_failure', next_action: 'retry_detail_fetch' }
         else
           { state: 'customer_created_no_deposit_account', next_action: 'retry_provision' }
         end
@@ -1097,17 +1249,24 @@ module Api
 
         return if current_user&.kyc_at_least?(required_level)
 
-        render json: {
-          error_code: 'TIER_INELIGIBLE',
-          error: 'kyc_required',
-          current_level: current_user&.kyc_level.to_s.presence || 'tier_0',
-          required_level: required_level,
-          message: 'Please complete Tier 2 verification before generating or using an Anchor virtual account.',
+        render json: anchor_error_payload(
+          'TIER_INELIGIBLE',
+          'Please complete Tier 2 verification before generating or using an Anchor virtual account.',
+          retryable: false,
           flow: {
             state: 'blocked_kyc',
             next_action: 'complete_kyc'
+          },
+          details: {
+            error: 'kyc_required',
+            current_level: current_user&.kyc_level.to_s.presence || 'tier_0',
+            required_level: required_level
           }
-        }, status: :forbidden
+        ).merge(
+          error: 'kyc_required',
+          current_level: current_user&.kyc_level.to_s.presence || 'tier_0',
+          required_level: required_level
+        ), status: :forbidden
       end
     end
   end

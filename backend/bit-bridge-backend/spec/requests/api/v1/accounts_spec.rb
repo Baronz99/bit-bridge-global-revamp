@@ -33,12 +33,13 @@ RSpec.describe 'Accounts', type: :request do
       expect(anchor_service).not_to have_received(:create_individual_account)
       expect(response).to have_http_status(:unprocessable_entity)
       body = JSON.parse(response.body)
-      expect(body.keys).to contain_exactly('message', 'error_code', 'missing_fields', 'flow')
+      expect(body['success']).to eq(false)
       expect(body.fetch('message')).to eq('Complete your profile to create an Anchor account.')
       expect(body.fetch('error_code')).to eq('ANCHOR_ONBOARDING_INCOMPLETE')
       expect(body.fetch('missing_fields')).to include('address.addressLine_1')
       expect(body.dig('flow', 'state')).to eq('blocked_profile_incomplete')
       expect(body.dig('flow', 'next_action')).to eq('complete_profile')
+      expect(body['request_id']).to be_present
     end
 
     it 'returns 409 with ANCHOR_PHONE_EXISTS when phone already exists' do
@@ -69,6 +70,7 @@ RSpec.describe 'Accounts', type: :request do
 
       expect(response).to have_http_status(:conflict)
       body = JSON.parse(response.body)
+      expect(body['success']).to eq(false)
       expect(body.fetch('message')).to eq('This phone number already exists in Anchor Sandbox.')
       expect(body.fetch('error_code')).to eq('ANCHOR_PHONE_EXISTS')
       expect(body.dig('flow', 'state')).to eq('blocked_phone_exists')
@@ -105,6 +107,7 @@ RSpec.describe 'Accounts', type: :request do
       )
       expect(response).to have_http_status(:ok)
       body = JSON.parse(response.body)
+      expect(body['success']).to eq(true)
       expect(body.dig('flow', 'state')).to eq('customer_created_no_deposit_account')
       expect(body.dig('flow', 'next_action')).to eq('provision_account_number')
     end

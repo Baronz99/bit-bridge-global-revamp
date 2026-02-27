@@ -89,6 +89,63 @@ RSpec.describe AnchorWebhookProcessor do
       expect(account.reload.status).to eq('verified')
     end
 
+    it 'updates account status for customer.identification.pending and rejected' do
+      user = create(:user, email: "anchor-webhook-status-#{SecureRandom.hex(4)}@example.com")
+      account = Account.create!(
+        user: user,
+        vendor: 'anchor',
+        account_id: 'cust_status_123',
+        status: :unverified
+      )
+
+      pending_payload = {
+        'type' => 'customer.identification.pending',
+        'relationships' => { 'customer' => { 'data' => { 'id' => account.account_id } } }
+      }
+      rejected_payload = {
+        'type' => 'customer.identification.rejected',
+        'relationships' => { 'customer' => { 'data' => { 'id' => account.account_id } } }
+      }
+
+      described_class.call(payload: pending_payload, raw_body: pending_payload.to_json)
+      expect(account.reload.status).to eq('verifying')
+
+      described_class.call(payload: rejected_payload, raw_body: rejected_payload.to_json)
+      expect(account.reload.status).to eq('unverified')
+    end
+
+    it 'updates account_number and completed status for account number created webhook' do
+      user = create(:user, email: "anchor-webhook-accountnumber-#{SecureRandom.hex(4)}@example.com")
+      account = Account.create!(
+        user: user,
+        vendor: 'anchor',
+        account_id: 'cust_accnum_123',
+        useable_id: nil,
+        status: :verified
+      )
+
+      payload = {
+        'type' => 'accountNumber.created',
+        'relationships' => {
+          'customer' => { 'data' => { 'id' => account.account_id } },
+          'accountNumber' => { 'data' => { 'id' => 'anc_accnum_123' } }
+        },
+        'attributes' => {
+          'accountNumber' => {
+            'id' => 'anc_accnum_123',
+            'accountNumber' => '0123456789'
+          }
+        }
+      }
+
+      described_class.call(payload: payload, raw_body: payload.to_json)
+
+      account.reload
+      expect(account.account_number).to eq('0123456789')
+      expect(account.useable_id).to eq('anc_accnum_123')
+      expect(account.status).to eq('completed')
+    end
+
     it 'creates one approved deposit exactly once for repeated payin.received delivery' do
       user = create(:user, email: "payin-#{SecureRandom.hex(4)}@example.com")
       wallet = user.ngn_wallet

@@ -50,11 +50,11 @@ class AnchorWebhookProcessor
 
   def process_event!(event_type, payload)
     service = AnchorService.new
+    normalized_event = event_type.to_s.strip.downcase
 
-    case event_type
-    when 'customer.identification.approved'
-      account_id = payload.dig('relationships', 'customer', 'data', 'id')
-      handle_kyc_verification(account_id)
+    case normalized_event
+    when 'customer.identification.approved', 'customer.identification.pending', 'customer.identification.rejected'
+      handle_kyc_event(event_type: normalized_event, payload: payload)
     when 'nip.inbound.completed'
       transfer_id = payload.dig('relationships', 'transfer', 'data', 'id')
       service.get_inbound_transfer(transfer_id) if transfer_id.present?
@@ -73,6 +73,11 @@ class AnchorWebhookProcessor
     when 'payin.received'
       process_payin_received!(payload: payload, service: service)
     else
+      if deposit_account_created_event?(normalized_event)
+        handle_deposit_account_created(payload: payload)
+        return
+      end
+
       if event_type.to_s.include?('transfer') &&
          event_type.to_s.match?(/failed|reversed|rejected/)
         service.fail_transfer_withdrawal(payload)
@@ -81,11 +86,36 @@ class AnchorWebhookProcessor
     end
   end
 
-  def handle_kyc_verification(account_id)
-    return if account_id.blank?
+  def handle_kyc_event(event_type:, payload:)
+    account = resolve_anchor_account(payload)
+    return if account.blank?
 
-    account = Account.find_by(account_id: account_id)
-    account&.update(status: 'verified')
+    next_status =
+      if event_type.include?('approved')
+        'verified'
+      elsif event_type.include?('pending')
+        'verifying'
+      elsif event_type.include?('rejected')
+        'unverified'
+      end
+    return if next_status.blank?
+
+    account.update(status: next_status)
+  end
+
+  def handle_deposit_account_created(payload:)
+    account = resolve_anchor_account(payload)
+    return if account.blank?
+
+    account_number = extract_webhook_account_number(payload)
+    useable_id = extract_webhook_account_number_id(payload)
+    updates = {}
+    updates[:account_number] = account_number if numeric_account_number?(account_number)
+    updates[:useable_id] = useable_id if useable_id.present?
+    updates[:status] = 'completed' if updates[:account_number].present? && account.status != 'completed'
+    return if updates.empty?
+
+    account.update(updates)
   end
 
   def process_nip_inbound_settled!(payload:, service:)
@@ -488,5 +518,52 @@ class AnchorWebhookProcessor
     parsed || Time.current
   rescue StandardError
     Time.current
+  end
+
+  def resolve_anchor_account(payload)
+    customer_id = payload.dig('relationships', 'customer', 'data', 'id').to_s.presence
+    account_id = payload.dig('relationships', 'account', 'data', 'id').to_s.presence
+    account_number_id =
+      payload.dig('relationships', 'accountNumber', 'data', 'id').to_s.presence ||
+      payload.dig('relationships', 'virtualNuban', 'data', 'id').to_s.presence
+    account_number = extract_webhook_account_number(payload)
+
+    scope = Account.where(vendor: 'anchor')
+    return scope.find_by(account_id: customer_id) if customer_id.present? && scope.find_by(account_id: customer_id).present?
+    return scope.find_by(useable_id: account_id) if account_id.present? && scope.find_by(useable_id: account_id).present?
+    return scope.find_by(useable_id: account_number_id) if account_number_id.present? && scope.find_by(useable_id: account_number_id).present?
+    return scope.find_by(account_number: account_number) if numeric_account_number?(account_number)
+
+    nil
+  end
+
+  def extract_webhook_account_number(payload)
+    payload.dig('attributes', 'accountNumber', 'accountNumber').to_s.presence ||
+      payload.dig('attributes', 'virtualNuban', 'accountNumber').to_s.presence ||
+      payload.dig('attributes', 'payment', 'virtualNuban', 'accountNumber').to_s.presence ||
+      payload.dig('data', 'attributes', 'accountNumber').to_s.presence ||
+      payload.dig('data', 'attributes', 'virtualNuban', 'accountNumber').to_s.presence
+  end
+
+  def extract_webhook_account_number_id(payload)
+    payload.dig('attributes', 'accountNumber', 'id').to_s.presence ||
+      payload.dig('data', 'id').to_s.presence ||
+      payload.dig('relationships', 'accountNumber', 'data', 'id').to_s.presence
+  end
+
+  def numeric_account_number?(value)
+    value.to_s.match?(/\A\d{10}\z/)
+  end
+
+  def deposit_account_created_event?(normalized_event)
+    event = normalized_event.to_s
+    return false if event.blank?
+
+    has_account_number_hint =
+      event.include?('accountnumber') || event.include?('account.number') || event.include?('virtualnuban')
+    has_created_or_linked_hint =
+      event.include?('created') || event.include?('linked') || event.include?('assigned')
+
+    has_account_number_hint && has_created_or_linked_hint
   end
 end

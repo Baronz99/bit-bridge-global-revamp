@@ -143,6 +143,7 @@ Rails.application.routes.draw do
           post :verify_kyc
           get  :get_account_number
           post :provision_account_number
+          get  :anchor_onboarding_state
           get  :user_accounts
           get  :get_user_account_detail
           get  :get_account_details

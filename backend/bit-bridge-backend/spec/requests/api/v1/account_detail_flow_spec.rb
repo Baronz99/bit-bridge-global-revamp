@@ -15,6 +15,7 @@ RSpec.describe 'Anchor account detail flow', type: :request do
 
       expect(response).to have_http_status(:ok)
       body = JSON.parse(response.body)
+      expect(body['success']).to eq(true)
       expect(body['has_anchor_account']).to eq(false)
       expect(body.dig('flow', 'state')).to eq('not_started')
       expect(body.dig('flow', 'next_action')).to eq('create_anchor_account')
@@ -38,10 +39,29 @@ RSpec.describe 'Anchor account detail flow', type: :request do
 
       expect(response).to have_http_status(:ok)
       body = JSON.parse(response.body)
+      expect(body['success']).to eq(true)
       expect(body['has_anchor_account']).to eq(true)
       expect(body['message']).to eq('No deposit account yet')
       expect(body.dig('flow', 'state')).to eq('customer_created_no_deposit_account')
       expect(body.dig('flow', 'next_action')).to eq('provision_account_number')
+    end
+  end
+
+  describe 'GET /api/v1/accounts/anchor_onboarding_state' do
+    it 'returns canonical not_started state when user has no anchor account' do
+      user = build_user(:tier2)
+
+      get '/api/v1/accounts/anchor_onboarding_state', headers: auth_headers(user)
+
+      expect(response).to have_http_status(:ok)
+      body = JSON.parse(response.body)
+      expect(body['success']).to eq(true)
+      expect(body['has_anchor_account']).to eq(false)
+      expect(body['has_deposit_account']).to eq(false)
+      expect(body.dig('flow', 'state')).to eq('not_started')
+      expect(body.dig('flow', 'next_action')).to eq('create_anchor_account')
+      expect(body['request_id']).to be_present
+      expect(body.dig('capabilities', 'can_create_anchor_profile')).to eq(true)
     end
   end
 end
