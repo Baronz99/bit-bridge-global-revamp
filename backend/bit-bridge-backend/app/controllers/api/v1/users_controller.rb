@@ -169,6 +169,9 @@ module Api
       def user_update
         attrs = user_update_params.to_h.deep_symbolize_keys
         profile_attrs = attrs.delete(:user_profile_attributes)
+        # Attachments are handled via UserProfile only; never mass-assign them on User.
+        attrs.delete(:id_document)
+        attrs.delete(:proof_of_address)
         id_document_upload = params.dig(:user, :id_document)
         proof_of_address_upload = params.dig(:user, :proof_of_address)
         should_recheck = should_recheck_bvn_snapshot?(current_user, profile_attrs)
@@ -226,9 +229,22 @@ module Api
           end
         rescue ActiveRecord::RecordInvalid => e
           errors = e.record&.errors&.full_messages.presence || [e.message]
+          Rails.logger.warn(
+            "[USER_UPDATE] validation_failed user_id=#{current_user&.id} " \
+            "error_class=#{e.class} errors=#{errors.join(' | ')} " \
+            "attrs_keys=#{attrs.keys} profile_keys=#{profile_attrs&.keys}"
+          )
           return render json: { message: errors.join(', '), errors: errors }, status: :unprocessable_entity
         rescue StandardError => e
-          return render json: { message: e.message, errors: [e.message] }, status: :unprocessable_entity
+          Rails.logger.error(
+            "[USER_UPDATE] unexpected_failure user_id=#{current_user&.id} " \
+            "error_class=#{e.class} error=#{e.message} " \
+            "attrs_keys=#{attrs.keys} profile_keys=#{profile_attrs&.keys}"
+          )
+          return render json: {
+            message: 'Unable to update profile at the moment. Please retry.',
+            error_code: 'user_update_failed'
+          }, status: :unprocessable_entity
         end
 
         current_user.reload
