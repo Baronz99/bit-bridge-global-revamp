@@ -24,6 +24,12 @@ module Kyc
       kyc.tier3_status.to_s == 'verified' || kyc.tier3_verified_at.present?
     end
 
+    def self.nin_verified?(kyc)
+      return false unless kyc
+
+      kyc.nin_status.to_s == 'verified' || kyc.nin_verified_at.present?
+    end
+
     def self.tier1_complete?(profile)
       return false unless profile
 
@@ -39,6 +45,7 @@ module Kyc
       return false unless profile && kyc
 
       has_bvn_verified = kyc.bvn_status == 'verified'
+      has_nin_verified = nin_verified?(kyc)
       has_id_type = user.id_type.present?
       has_address =
         profile.address_line1.present? &&
@@ -48,8 +55,9 @@ module Kyc
       has_proof = profile.proof_of_address_type.present?
       has_id_document = profile.respond_to?(:id_document) && profile.id_document.attached?
       has_proof_doc = profile.respond_to?(:proof_of_address) && profile.proof_of_address.attached?
+      has_identity_evidence = has_id_document || has_nin_verified
 
-      has_bvn_verified && has_id_type && has_address && has_proof && has_id_document && has_proof_doc
+      has_bvn_verified && has_id_type && has_address && has_proof && has_identity_evidence && has_proof_doc
     end
   end
 end

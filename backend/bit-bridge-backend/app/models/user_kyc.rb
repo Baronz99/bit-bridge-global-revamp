@@ -5,6 +5,7 @@ class UserKyc < ApplicationRecord
 
   # Rails 7.1 Active Record Encryption (stores ciphertext in DB)
   encrypts :bvn_encrypted
+  encrypts :nin_encrypted
   encrypts :bvn_snapshot_first_name,
            :bvn_snapshot_last_name,
            :bvn_snapshot_dob,
@@ -16,6 +17,10 @@ class UserKyc < ApplicationRecord
 
   def bvn_identity_confirmed?
     bvn_encrypted.present?
+  end
+
+  def nin_verified?
+    nin_status.to_s == "verified" || nin_verified_at.present?
   end
 
   def decrypted_bvn

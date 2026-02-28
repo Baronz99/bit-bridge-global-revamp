@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[7.1].define(version: 2026_02_26_101500) do
+ActiveRecord::Schema[7.1].define(version: 2026_02_28_204000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pgcrypto"
   enable_extension "plpgsql"
@@ -879,11 +879,27 @@ ActiveRecord::Schema[7.1].define(version: 2026_02_26_101500) do
     t.integer "bvn_retry_attempt", default: 0, null: false
     t.datetime "bvn_retry_next_at"
     t.datetime "bvn_retry_locked_at"
+    t.string "nin_status", default: "unverified", null: false
+    t.string "nin_last4"
+    t.string "nin_provider", default: "prembly", null: false
+    t.string "nin_provider_reference"
+    t.datetime "nin_verified_at"
+    t.string "nin_last_result_status"
+    t.string "nin_last_result_reason"
+    t.datetime "nin_last_checked_at"
+    t.string "nin_encrypted"
+    t.boolean "nin_name_match"
+    t.boolean "nin_dob_match"
+    t.boolean "nin_first_name_match"
+    t.boolean "nin_last_name_match"
+    t.decimal "nin_match_score", precision: 4, scale: 3
     t.index ["bvn_encrypted"], name: "index_user_kycs_on_bvn_encrypted"
     t.index ["bvn_fingerprint"], name: "index_user_kycs_on_bvn_fingerprint"
     t.index ["bvn_retry_locked_at"], name: "index_user_kycs_on_bvn_retry_locked_at"
     t.index ["bvn_snapshot_expires_at"], name: "index_user_kycs_on_bvn_snapshot_expires_at"
     t.index ["bvn_status"], name: "index_user_kycs_on_bvn_status"
+    t.index ["nin_encrypted"], name: "index_user_kycs_on_nin_encrypted"
+    t.index ["nin_status"], name: "index_user_kycs_on_nin_status"
     t.index ["user_id"], name: "index_user_kycs_on_user_id", unique: true
   end
 

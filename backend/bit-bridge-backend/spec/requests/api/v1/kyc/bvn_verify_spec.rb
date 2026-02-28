@@ -551,8 +551,10 @@ RSpec.describe 'BVN verification caching', type: :request do
       expect(response).to have_http_status(:ok)
       json = JSON.parse(response.body)
       requirements = json['requirements']
-      expect(requirements['missing']).to include('documents')
-      expect(requirements['next_steps']).to include('Upload your ID document and proof of address.')
+      expect(requirements['missing']).to include('identity')
+      expect(requirements['missing']).to include('proof_of_address')
+      expect(requirements['next_steps']).to include('Upload an ID document or complete NIN verification.')
+      expect(requirements['next_steps']).to include('Upload proof of address.')
     end
   end
 end

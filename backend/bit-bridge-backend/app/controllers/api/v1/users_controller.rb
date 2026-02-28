@@ -581,6 +581,10 @@ module Api
           bvn_last4: kyc.bvn_last4,
           bvn_verified_at: kyc.bvn_verified_at,
           bvn_last_result_reason: kyc.bvn_last_result_reason,
+          nin_status: kyc.nin_status,
+          nin_last4: kyc.nin_last4,
+          nin_verified_at: kyc.nin_verified_at,
+          nin_last_result_reason: kyc.nin_last_result_reason,
           tier3_status: kyc.tier3_status,
           tier3_verified_at: kyc.tier3_verified_at
         }.compact

@@ -83,6 +83,8 @@ Rails.application.routes.draw do
       namespace :kyc do
         post "bvn/verify", to: "bvn#verify"
         get  "bvn/status", to: "bvn#status"
+        post "nin/verify", to: "nin#verify"
+        get  "nin/status", to: "nin#status"
       end
 
       # ✅ Transaction PIN (single canonical routing)
