@@ -166,7 +166,7 @@ RSpec.describe 'Anchor account number', type: :request do
 
     it 'returns 200 when eligible and service succeeds' do
       user = build_user(:tier2)
-      Account.create!(user: user, vendor: 'anchor', account_type: :individual, useable_id: 'abc123')
+      Account.create!(user: user, vendor: 'anchor', account_type: :individual, useable_id: 'abc123', status: :completed)
 
       allow_any_instance_of(AnchorService).to receive(:create_account_number).and_wrap_original do |_m, **kwargs|
         kwargs[:account].update!(account_number: '1234567890')
@@ -179,6 +179,37 @@ RSpec.describe 'Anchor account number', type: :request do
       expect(body['data']['account_number']).to eq('1234567890')
       expect(body['message']).to eq('Account created')
       expect(body.dig('flow', 'state')).to eq('provisioned')
+    end
+
+    it 'returns blocked_kyc when anchor profile exists but kyc is not completed' do
+      user = build_user(:tier2)
+      Account.create!(user: user, vendor: 'anchor', account_type: :individual, useable_id: 'abc123', status: :unverified)
+
+      post '/api/v1/accounts/provision_account_number', headers: auth_headers(user)
+      expect(response).to have_http_status(:unprocessable_entity)
+      body = JSON.parse(response.body)
+      expect(body['error']).to eq('anchor_kyc_incomplete')
+      expect(body.dig('flow', 'state')).to eq('blocked_kyc')
+      expect(body.dig('flow', 'next_action')).to eq('complete_kyc')
+    end
+
+    it 'returns already provisioned when account number already exists and backfills status' do
+      user = build_user(:tier2)
+      account = Account.create!(
+        user: user,
+        vendor: 'anchor',
+        account_type: :individual,
+        useable_id: 'abc123',
+        account_number: '1234567890',
+        status: :unverified
+      )
+
+      post '/api/v1/accounts/provision_account_number', headers: auth_headers(user)
+      expect(response).to have_http_status(:ok)
+      body = JSON.parse(response.body)
+      expect(body['message']).to eq('Account already provisioned')
+      expect(body.dig('flow', 'state')).to eq('provisioned')
+      expect(account.reload.status).to eq('completed')
     end
   end
 end

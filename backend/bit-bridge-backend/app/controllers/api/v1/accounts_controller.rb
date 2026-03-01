@@ -90,6 +90,25 @@ module Api
                         status: :not_found
         end
 
+        backfill_anchor_completed_status!(account)
+
+        if account.account_number.present?
+          flow = anchor_flow_snapshot(account, has_deposit_account: true)
+          return render json: anchor_success_payload(
+            data: account,
+            message: 'Account already provisioned',
+            flow: flow
+          ), status: :ok
+        end
+
+        unless account.status.to_s == 'completed'
+          return render json: anchor_error_payload(
+            'anchor_kyc_incomplete',
+            'Complete Anchor KYC before generating an account number.',
+            retryable: false
+          ), status: :unprocessable_entity
+        end
+
         service = AnchorService.new
         service_response = service.create_account_number(type: account.account_type.to_sym, account: account)
 
@@ -494,6 +513,7 @@ module Api
         begin
           service.send(:sync_anchor_deposit_account!, account)
           account.reload
+          backfill_anchor_completed_status!(account)
         rescue StandardError => e
           Rails.logger.warn("[AccountsController] get_user_account_detail anchor sync skipped account_id=#{account.id} message=#{e.message}") if defined?(Rails) && Rails.logger
         end
@@ -548,6 +568,8 @@ module Api
 
       def anchor_onboarding_state
         account = Account.find_by(user_id: current_user.id, vendor: 'anchor')
+        backfill_anchor_completed_status!(account) if account.present?
+        account.reload if account.present?
         has_deposit_account = account&.account_number.present? || false
         flow = anchor_flow_snapshot(account, has_deposit_account: has_deposit_account)
 
@@ -1083,6 +1105,13 @@ module Api
           }
         end
 
+        if account.status.to_s != 'completed'
+          return {
+            state: 'blocked_kyc',
+            next_action: 'verify_kyc'
+          }
+        end
+
         return {
           state: 'customer_created_no_deposit_account',
           next_action: 'provision_account_number'
@@ -1092,6 +1121,14 @@ module Api
           state: 'provisioned',
           next_action: 'none'
         }
+      end
+
+      def backfill_anchor_completed_status!(account)
+        return if account.blank?
+        return unless account.account_number.present?
+        return if account.status.to_s == 'completed'
+
+        account.update(status: 'completed')
       end
 
       def canonicalize_anchor_detail_payload(detail_data, account)
