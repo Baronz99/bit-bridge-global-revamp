@@ -31,7 +31,7 @@ class AnchorService
     city         = user_data[:city]
     state        = user_data[:state]
     user_data[:dob]
-    phone_number = user_data[:phone_number]
+    phone_number = normalize_anchor_phone(user_data[:phone_number])
     address      = user_data[:address]
 
     body = {
@@ -317,6 +317,26 @@ class AnchorService
   rescue StandardError => e
     { status: :bad_request, message: e.message.to_s }
   end
+
+  def normalize_anchor_phone(value)
+    digits = value.to_s.gsub(/\D+/, '')
+    return digits if digits.blank?
+
+    if digits.start_with?('234') && digits.length == 13
+      return digits
+    end
+
+    if digits.start_with?('0') && digits.length == 11
+      return "234#{digits[1..]}"
+    end
+
+    if digits.length == 10
+      return "234#{digits}"
+    end
+
+    digits
+  end
+  private :normalize_anchor_phone
 
   def get_inbound_transfer(transfer_id)
     response = self.class.get("api/v1/inbound-transfers/#{transfer_id}", headers: @headers)

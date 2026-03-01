@@ -200,7 +200,10 @@ RSpec.describe AnchorService do
     result = service.verify_account_details('000013', '0210998196')
 
     expect(described_class).to have_received(:get)
-      .with('/api/v1/payments/verify-account/000013/0210998196', headers: anything)
+      .with(
+        '/api/v1/payments/verify-account/000013/0210998196',
+        hash_including(headers: anything, open_timeout: 3, timeout: 5)
+      )
     expect(result[:status]).to eq(:ok)
   end
 
@@ -214,5 +217,32 @@ RSpec.describe AnchorService do
 
     expect(result[:status]).to eq(:bad_request)
     expect(result[:message]).to eq('Endpoint not found')
+  end
+
+  it 'sends digits-only anchor phone number when creating individual customer' do
+    allow(service).to receive(:store_account_details).and_return(double('account'))
+    response = double('response', success?: true)
+    allow(response).to receive(:[]).with('data').and_return({ 'id' => 'cust_123' })
+
+    posted_body = nil
+    allow(described_class).to receive(:post) do |_path, headers:, body:|
+      posted_body = JSON.parse(body)
+      response
+    end
+
+    result = service.create_individual_account(
+      first_name: 'Ada',
+      last_name: 'Lovelace',
+      user_id: user.id,
+      email: 'ada@example.com',
+      postal_code: '100001',
+      city: 'Lagos',
+      state: 'Lagos',
+      phone_number: '+2348102312186',
+      address: '42 Marina'
+    )
+
+    expect(result[:status]).to eq(:ok)
+    expect(posted_body.dig('data', 'attributes', 'phoneNumber')).to eq('2348102312186')
   end
 end
