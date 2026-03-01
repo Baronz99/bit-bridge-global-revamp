@@ -176,18 +176,33 @@ class AnchorService
 
       raise response.dig('errors', 0, 'detail') || 'bad request' unless response.success?
 
+      base_updates = {
+        account_type: type,
+        active: true
+      }
+      base_updates[:useable_id] = useable_id if useable_id.present?
+      base_updates[:bank_name] = resolved_bank_name if resolved_bank_name.present?
+      base_updates[:bank_code] = resolved_bank_code if resolved_bank_code.present?
+      base_updates[:account_name] = resolved_account_name if resolved_account_name.present?
+
+      account_record.update(base_updates) if base_updates.any?
+
       if resolved_account_number.blank?
         return {
-          status: :bad_request,
-          message: 'Anchor returned no account number',
+          status: :accepted,
+          message: 'Anchor account created; account number pending',
+          response: account_record,
           provider_status: provider_status,
           provider_body: provider_body
         }
       end
 
-      unless account_record.update(account_number: resolved_account_number, account_type: type, status: 'completed',
-                                   active: true, bank_name: resolved_bank_name, bank_code: resolved_bank_code,
-                                   account_name: resolved_account_name, useable_id: useable_id)
+      success_updates = base_updates.merge(
+        account_number: resolved_account_number,
+        status: 'completed'
+      )
+
+      unless account_record.update(success_updates)
 
         account_record.errors.full_messages.to_sentence || 'bad request'
       end
@@ -846,8 +861,44 @@ class AnchorService
   end
 
   def store_account_details(account_id, user_data)
-    new_account = Account.create(user_id: user_data[:user_id], postal_code: user_data[:postal_code],
-                                 bvn: user_data[:bvn], city: user_data[:city], state: user_data[:state], dob: user_data[:dob], address: user_data[:address], account_id: account_id, useable_id: account_id, vendor: user_data[:vendor])
+    existing_anchor = Account.where(user_id: user_data[:user_id], vendor: user_data[:vendor])
+                            .order(
+                              Arel.sql("CASE WHEN account_number IS NOT NULL AND account_number <> '' THEN 0 WHEN useable_id IS NOT NULL AND useable_id <> '' THEN 1 ELSE 2 END ASC"),
+                              status: :desc,
+                              updated_at: :desc,
+                              created_at: :desc
+                            )
+                            .first
+
+    attributes = {
+      postal_code: user_data[:postal_code],
+      bvn: user_data[:bvn],
+      city: user_data[:city],
+      state: user_data[:state],
+      dob: user_data[:dob],
+      address: user_data[:address],
+      vendor: user_data[:vendor]
+    }
+
+    if existing_anchor.present?
+      # Keep existing provisioned customer linkage stable; only backfill ids when incomplete.
+      if existing_anchor.account_number.blank? || existing_anchor.account_id.blank?
+        attributes[:account_id] = account_id
+      end
+      if existing_anchor.account_number.blank? || existing_anchor.useable_id.blank?
+        attributes[:useable_id] = account_id
+      end
+      existing_anchor.update!(attributes.compact)
+      return existing_anchor
+    end
+
+    new_account = Account.create(
+      user_id: user_data[:user_id],
+      account_id: account_id,
+      useable_id: account_id,
+      active: true,
+      **attributes
+    )
 
     raise new_account.errors.full_messages.to_sentence unless new_account.persisted?
 

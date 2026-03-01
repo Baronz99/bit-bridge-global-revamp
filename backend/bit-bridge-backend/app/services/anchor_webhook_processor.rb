@@ -108,10 +108,14 @@ class AnchorWebhookProcessor
     return if account.blank?
 
     account_number = extract_webhook_account_number(payload)
-    useable_id = extract_webhook_account_number_id(payload)
+    deposit_account_id = extract_webhook_deposit_account_id(payload)
+    account_number_id = extract_webhook_account_number_id(payload)
     updates = {}
     updates[:account_number] = account_number if numeric_account_number?(account_number)
-    updates[:useable_id] = useable_id if useable_id.present?
+    updates[:useable_id] = deposit_account_id if deposit_account_id.present?
+    if updates[:useable_id].blank? && account.useable_id.blank? && account_number_id.present?
+      updates[:useable_id] = account_number_id
+    end
     updates[:status] = 'completed' if updates[:account_number].present? && account.status != 'completed'
     return if updates.empty?
 
@@ -549,6 +553,13 @@ class AnchorWebhookProcessor
     payload.dig('attributes', 'accountNumber', 'id').to_s.presence ||
       payload.dig('data', 'id').to_s.presence ||
       payload.dig('relationships', 'accountNumber', 'data', 'id').to_s.presence
+  end
+
+  def extract_webhook_deposit_account_id(payload)
+    payload.dig('relationships', 'account', 'data', 'id').to_s.presence ||
+      payload.dig('relationships', 'settlementAccount', 'data', 'id').to_s.presence ||
+      payload.dig('attributes', 'payment', 'settlementAccount', 'accountId').to_s.presence ||
+      payload.dig('attributes', 'settlementAccount', 'accountId').to_s.presence
   end
 
   def numeric_account_number?(value)

@@ -25,12 +25,12 @@ module Api
       end
 
       def user_accounts
-        @accounts = current_user.accounts.all
+        non_anchor_accounts = current_user.accounts.where.not(vendor: 'anchor').to_a
+        canonical_anchor = canonical_anchor_account_for(current_user)
+        @accounts = canonical_anchor.present? ? (non_anchor_accounts + [canonical_anchor]) : non_anchor_accounts
         begin
           anchor_service = AnchorService.new
-          @accounts.select { |account| account.vendor.to_s == 'anchor' }.each do |account|
-            anchor_service.send(:sync_anchor_deposit_account!, account)
-          end
+          anchor_service.send(:sync_anchor_deposit_account!, canonical_anchor) if canonical_anchor.present?
         rescue StandardError => e
           Rails.logger.warn("[AccountsController] user_accounts anchor sync skipped message=#{e.message}") if defined?(Rails) && Rails.logger
         end
@@ -46,7 +46,7 @@ module Api
       end
 
       def verify_kyc
-        account = Account.find_by(user_id: current_user.id, vendor: 'anchor')
+        account = canonical_anchor_account_for(current_user)
         unless account
           return render json: anchor_error_payload(
             'anchor_account_missing',
@@ -88,7 +88,7 @@ module Api
       end
 
       def get_account_number
-        account = current_user.accounts.find_by(vendor: 'anchor')
+        account = canonical_anchor_account_for(current_user)
         unless account
           log_anchor_account_number_failure(
             status: :not_found,
@@ -120,6 +120,38 @@ module Api
         end
 
         service = AnchorService.new
+
+        # If we already have a created deposit account id, avoid creating another one.
+        if account.useable_id.present? && account.account_number.blank?
+          begin
+            service.send(:sync_anchor_deposit_account!, account)
+            account.reload
+          rescue StandardError => e
+            Rails.logger.warn("[AccountsController] account_number sync skipped account_id=#{account.id} message=#{e.message}") if defined?(Rails) && Rails.logger
+          end
+
+          if account.account_number.present?
+            flow = anchor_flow_snapshot(account, has_deposit_account: true)
+            return render json: anchor_success_payload(
+              data: account,
+              message: 'Account already provisioned',
+              flow: flow
+            ), status: :ok
+          end
+
+          flow = anchor_flow_snapshot(account, has_deposit_account: false)
+          return render json: anchor_success_payload(
+            data: account,
+            message: 'Account provisioning is in progress',
+            flow: flow,
+            extra: {
+              provisioning_pending: true,
+              retryable: true,
+              retry_after_seconds: 5
+            }
+          ), status: :accepted
+        end
+
         service_response = service.create_account_number(type: account.account_type.to_sym, account: account)
 
         if service_response[:status] == :ok
@@ -143,6 +175,18 @@ module Api
             message: 'Account created',
             flow: flow
           ), status: :ok
+        elsif service_response[:status] == :accepted
+          flow = anchor_flow_snapshot(account.reload, has_deposit_account: false)
+          render json: anchor_success_payload(
+            data: service_response[:response] || account,
+            message: service_response[:message].presence || 'Account provisioning is in progress',
+            flow: flow,
+            extra: {
+              provisioning_pending: true,
+              retryable: true,
+              retry_after_seconds: 5
+            }
+          ), status: :accepted
         else
           raw_message = service_response[:message] || service_response[:response]
           provider_status = service_response[:provider_status]
@@ -349,7 +393,7 @@ module Api
       end
 
       def initiate_fund_transfer
-        anchor_account = current_user.accounts.find_by(vendor: 'anchor')
+        anchor_account = canonical_anchor_account_for(current_user)
 
         if anchor_account.nil? || anchor_account.useable_id.nil?
           return render json: { message: 'No Anchor account present' }, status: :not_found
@@ -499,7 +543,7 @@ module Api
       end
 
       def get_user_account_detail
-        account = Account.find_by(user_id: current_user.id, vendor: 'anchor')
+        account = canonical_anchor_account_for(current_user)
 
         # 👇 New behaviour: if there is *no* Anchor account yet, that's OK.
         # We return 200 with data: null so the frontend can quietly show
@@ -577,7 +621,7 @@ module Api
       end
 
       def anchor_onboarding_state
-        account = Account.find_by(user_id: current_user.id, vendor: 'anchor')
+        account = canonical_anchor_account_for(current_user)
         backfill_anchor_completed_status!(account) if account.present?
         account.reload if account.present?
         has_deposit_account = account&.account_number.present? || false
@@ -681,7 +725,7 @@ module Api
             duplicate_anchor_customer_error?(safe_provider_body(service_response[:provider_body]))
 
           if duplicate_customer_error
-            existing_anchor = current_user.accounts.find_by(vendor: 'anchor')
+            existing_anchor = canonical_anchor_account_for(current_user)
             if existing_anchor.present?
               flow = anchor_flow_snapshot(existing_anchor, has_deposit_account: existing_anchor.account_number.present?)
               return render json: anchor_success_payload(
@@ -1143,6 +1187,23 @@ module Api
         return if account.status.to_s == 'completed'
 
         account.update(status: 'completed')
+      end
+
+      # Deterministic selector for a user's canonical Anchor record.
+      # Priority: provisioned account_number, then deposit account id, then freshest state.
+      def canonical_anchor_account_for(user)
+        return nil if user.blank?
+
+        user.accounts
+            .where(vendor: 'anchor')
+            .order(
+              Arel.sql("CASE WHEN active = TRUE THEN 0 ELSE 1 END ASC"),
+              Arel.sql("CASE WHEN account_number IS NOT NULL AND account_number <> '' THEN 0 WHEN useable_id IS NOT NULL AND useable_id <> '' THEN 1 ELSE 2 END ASC"),
+              status: :desc,
+              updated_at: :desc,
+              created_at: :desc
+            )
+            .first
       end
 
       def canonicalize_anchor_detail_payload(detail_data, account)

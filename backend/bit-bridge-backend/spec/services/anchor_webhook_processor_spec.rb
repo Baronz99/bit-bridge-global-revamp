@@ -128,6 +128,7 @@ RSpec.describe AnchorWebhookProcessor do
         'type' => 'accountNumber.created',
         'relationships' => {
           'customer' => { 'data' => { 'id' => account.account_id } },
+          'account' => { 'data' => { 'id' => 'anc_dep_acc_123' } },
           'accountNumber' => { 'data' => { 'id' => 'anc_accnum_123' } }
         },
         'attributes' => {
@@ -142,7 +143,7 @@ RSpec.describe AnchorWebhookProcessor do
 
       account.reload
       expect(account.account_number).to eq('0123456789')
-      expect(account.useable_id).to eq('anc_accnum_123')
+      expect(account.useable_id).to eq('anc_dep_acc_123')
       expect(account.status).to eq('completed')
     end
 

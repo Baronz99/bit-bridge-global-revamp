@@ -152,6 +152,45 @@ RSpec.describe 'Anchor account number', type: :request do
       expect(body['message']).to eq('Account created')
       expect(body.dig('flow', 'state')).to eq('provisioned')
     end
+
+    it 'selects canonical anchor account when duplicates exist (prefers provisioned)' do
+      user = build_user(:tier2)
+      Account.create!(user: user, vendor: 'anchor', account_type: :individual, status: :completed, useable_id: 'dep_pending_1')
+      provisioned = Account.create!(
+        user: user,
+        vendor: 'anchor',
+        account_type: :individual,
+        status: :completed,
+        useable_id: 'dep_live_1',
+        account_number: '1234567890'
+      )
+
+      expect_any_instance_of(AnchorService).not_to receive(:create_account_number)
+
+      get '/api/v1/accounts/get_account_number', headers: auth_headers(user)
+      expect(response).to have_http_status(:ok)
+      body = JSON.parse(response.body)
+      expect(body['message']).to eq('Account already provisioned')
+      expect(body.dig('data', 'id')).to eq(provisioned.id)
+      expect(body.dig('data', 'account_number')).to eq('1234567890')
+      expect(body.dig('flow', 'state')).to eq('provisioned')
+    end
+
+    it 'returns 202 pending when anchor has accepted create but number is not yet assigned' do
+      user = build_user(:tier2)
+      account = Account.create!(user: user, vendor: 'anchor', account_type: :individual, status: :completed)
+      allow_any_instance_of(AnchorService).to receive(:create_account_number).and_return(
+        { status: :accepted, message: 'Anchor account created; account number pending', response: account, provider_status: 202, provider_body: {} }
+      )
+
+      get '/api/v1/accounts/get_account_number', headers: auth_headers(user)
+      expect(response).to have_http_status(:accepted)
+      body = JSON.parse(response.body)
+      expect(body['message']).to match(/provisioning is in progress/i)
+      expect(body.dig('meta', 'provisioning_pending')).to eq(true)
+      expect(body.dig('meta', 'retry_after_seconds')).to eq(5)
+      expect(body.dig('flow', 'next_action')).to eq('provision_account_number')
+    end
   end
 
   describe 'POST /api/v1/accounts/provision_account_number' do
@@ -210,6 +249,28 @@ RSpec.describe 'Anchor account number', type: :request do
       expect(body['message']).to eq('Account already provisioned')
       expect(body.dig('flow', 'state')).to eq('provisioned')
       expect(account.reload.status).to eq('completed')
+    end
+
+    it 'returns 202 pending and does not create a new deposit account when one is already pending' do
+      user = build_user(:tier2)
+      account = Account.create!(
+        user: user,
+        vendor: 'anchor',
+        account_type: :individual,
+        status: :completed,
+        useable_id: 'dep_acc_123'
+      )
+
+      allow_any_instance_of(AnchorService).to receive(:sync_anchor_deposit_account!).and_return(account)
+      expect_any_instance_of(AnchorService).not_to receive(:create_account_number)
+
+      post '/api/v1/accounts/provision_account_number', headers: auth_headers(user)
+      expect(response).to have_http_status(:accepted)
+      body = JSON.parse(response.body)
+      expect(body['message']).to match(/provisioning is in progress/i)
+      expect(body.dig('meta', 'provisioning_pending')).to eq(true)
+      expect(body.dig('meta', 'retry_after_seconds')).to eq(5)
+      expect(body.dig('flow', 'next_action')).to eq('provision_account_number')
     end
   end
 end
