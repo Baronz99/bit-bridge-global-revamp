@@ -54,5 +54,25 @@ RSpec.describe AnchorOnboardingMapper do
 
       expect(result[:phone_number]).to eq('+2348012345678')
     end
+
+    it 'normalizes state aliases to Anchor-compatible values' do
+      user = create(:user, email: 'user@example.com')
+      UserProfile.create!(
+        user: user,
+        first_name: 'Profile',
+        last_name: 'User',
+        phone_number: '08000000000',
+        address_line1: 'Profile Street',
+        city: 'Port Harcourt',
+        state: 'Rivers State',
+        postal_code: '500100',
+        bvn: '12345678901',
+        date_of_birth: Date.new(1990, 1, 1)
+      )
+
+      result = described_class.build_account_info(user: user, account_params: { vendor: 'anchor' })
+
+      expect(result[:state]).to eq('Rivers')
+    end
   end
 end

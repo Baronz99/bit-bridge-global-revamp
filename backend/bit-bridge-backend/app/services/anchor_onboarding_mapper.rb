@@ -1,6 +1,49 @@
 # frozen_string_literal: true
 
 class AnchorOnboardingMapper
+  NIGERIAN_STATE_CANONICAL = {
+    'ABIA' => 'Abia',
+    'ADAMAWA' => 'Adamawa',
+    'AKWA IBOM' => 'Akwa Ibom',
+    'ANAMBRA' => 'Anambra',
+    'BAUCHI' => 'Bauchi',
+    'BAYELSA' => 'Bayelsa',
+    'BENUE' => 'Benue',
+    'BORNO' => 'Borno',
+    'CROSS RIVER' => 'Cross River',
+    'DELTA' => 'Delta',
+    'EBONYI' => 'Ebonyi',
+    'EDO' => 'Edo',
+    'EKITI' => 'Ekiti',
+    'ENUGU' => 'Enugu',
+    'GOMBE' => 'Gombe',
+    'IMO' => 'Imo',
+    'JIGAWA' => 'Jigawa',
+    'KADUNA' => 'Kaduna',
+    'KANO' => 'Kano',
+    'KATSINA' => 'Katsina',
+    'KEBBI' => 'Kebbi',
+    'KOGI' => 'Kogi',
+    'KWARA' => 'Kwara',
+    'LAGOS' => 'Lagos',
+    'NASARAWA' => 'Nasarawa',
+    'NASSARAWA' => 'Nasarawa',
+    'NIGER' => 'Niger',
+    'OGUN' => 'Ogun',
+    'ONDO' => 'Ondo',
+    'OSUN' => 'Osun',
+    'OYO' => 'Oyo',
+    'PLATEAU' => 'Plateau',
+    'RIVERS' => 'Rivers',
+    'SOKOTO' => 'Sokoto',
+    'TARABA' => 'Taraba',
+    'YOBE' => 'Yobe',
+    'ZAMFARA' => 'Zamfara',
+    'FCT' => 'FCT',
+    'ABUJA' => 'FCT',
+    'FEDERAL CAPITAL TERRITORY' => 'FCT'
+  }.freeze
+
   CANONICAL_KEYS = %i[
     first_name
     last_name
@@ -93,10 +136,13 @@ class AnchorOnboardingMapper
     return nil if value.blank?
 
     raw = value.to_s.strip
-    return 'FCT' if raw.casecmp('fct (abuja)').zero? || raw.casecmp('abuja').zero? || raw.casecmp('fct').zero?
+    normalized = raw.gsub(/\s+/, ' ')
+    normalized = normalized.sub(/\s+state\z/i, '')
+    normalized = normalized.gsub(/[^A-Za-z0-9\s]/, '').gsub(/\s+/, ' ').strip
+    return 'FCT' if normalized.casecmp('fct (abuja)').zero? || normalized.casecmp('abuja').zero? || normalized.casecmp('fct').zero?
 
-    # Normalize common formatting variants
-    raw.gsub(/\s+/, ' ')
+    key = normalized.upcase
+    NIGERIAN_STATE_CANONICAL[key] || normalized
   end
 
   def normalize_string(value)
