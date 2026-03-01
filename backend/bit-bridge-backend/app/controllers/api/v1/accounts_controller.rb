@@ -55,6 +55,16 @@ module Api
           ), status: :not_found
         end
 
+        kyc_missing_fields = anchor_kyc_missing_fields(account_params, account)
+        if kyc_missing_fields.any?
+          return render json: anchor_error_payload(
+            'anchor_kyc_incomplete',
+            'Complete Anchor KYC fields before verification.',
+            retryable: false,
+            details: { missing_fields: kyc_missing_fields }
+          ), status: :unprocessable_entity
+        end
+
         service = AnchorService.new
         service_response = service.user_kyc_verification(account_params, account)
 
@@ -901,9 +911,17 @@ module Api
           'address.addressLine_1' => account_info[:address],
           'address.city' => account_info[:city],
           'address.state' => account_info[:state],
-          'address.postalCode' => account_info[:postal_code],
-          'bvn' => account_info[:bvn],
-          'dob' => account_info[:dob]
+          'address.postalCode' => account_info[:postal_code]
+        }
+
+        required.select { |_key, value| value.blank? }.keys
+      end
+
+      def anchor_kyc_missing_fields(params, account)
+        required = {
+          'bvn' => params[:bvn].presence || account&.bvn,
+          'dob' => params[:dob].presence || account&.dob,
+          'gender' => params[:gender].presence || account&.gender
         }
 
         required.select { |_key, value| value.blank? }.keys
@@ -1056,7 +1074,8 @@ module Api
       def anchor_requirements(flow_state, details: nil)
         base = {
           platform_kyc_level_required: 'tier_2',
-          profile_fields: %w[first_name last_name email phone address city state postal_code bvn dob]
+          profile_fields: %w[first_name last_name email phone address city state postal_code],
+          kyc_fields: %w[bvn dob gender]
         }
         if details.is_a?(Hash) && details[:missing_fields].present?
           base[:missing_fields] = details[:missing_fields]

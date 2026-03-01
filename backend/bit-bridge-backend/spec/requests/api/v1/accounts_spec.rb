@@ -144,5 +144,61 @@ RSpec.describe 'Accounts', type: :request do
       )
       expect(response).to have_http_status(:ok)
     end
+
+    it 'does not require bvn/dob at create-customer step' do
+      user = build_user(:tier2)
+      UserProfile.create!(
+        user: user,
+        first_name: 'Ada',
+        last_name: 'Lovelace',
+        phone_number: '08000000000',
+        address_line1: '42 Profile Street',
+        city: 'Lagos',
+        state: 'Lagos',
+        postal_code: '100001',
+        bvn: nil,
+        date_of_birth: nil
+      )
+
+      anchor_service = instance_double(AnchorService)
+      allow(AnchorService).to receive(:new).and_return(anchor_service)
+      allow(anchor_service).to receive(:create_individual_account).and_return(
+        status: :ok,
+        response: {}
+      )
+
+      post '/api/v1/accounts',
+           params: { account: { vendor: 'anchor' } },
+           headers: auth_headers(user)
+
+      expect(response).to have_http_status(:ok)
+      body = JSON.parse(response.body)
+      expect(body['success']).to eq(true)
+      expect(body.dig('flow', 'state')).to eq('customer_created_no_deposit_account')
+      expect(body.dig('flow', 'next_action')).to eq('provision_account_number')
+    end
+  end
+
+  describe 'POST /api/v1/accounts/verify_kyc' do
+    it 'returns missing kyc fields when bvn/dob/gender are absent' do
+      user = build_user(:tier2)
+      Account.create!(
+        user: user,
+        vendor: 'anchor',
+        account_type: :individual,
+        account_id: 'anc_customer_1',
+        status: :unverified
+      )
+
+      post '/api/v1/accounts/verify_kyc',
+           params: { account: {} },
+           headers: auth_headers(user)
+
+      expect(response).to have_http_status(:unprocessable_entity)
+      body = JSON.parse(response.body)
+      expect(body['error']).to eq('anchor_kyc_incomplete')
+      expect(body.dig('details', 'missing_fields')).to include('bvn', 'dob', 'gender')
+      expect(body.dig('flow', 'state')).to eq('blocked_kyc')
+    end
   end
 end
