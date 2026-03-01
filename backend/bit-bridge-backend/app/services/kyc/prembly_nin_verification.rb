@@ -43,20 +43,27 @@ module Kyc
       end
 
       data = parsed.is_a?(Hash) ? parsed : {}
-      payload = data["data"] || data["result"] || data["response"] || data["verification"] || data
-      if invalid_payload?(data) || invalid_payload?(payload)
+      container = data["data"] || data["result"] || data["response"] || data["verification"] || data
+      payload =
+        if container.is_a?(Hash) && container["nin_data"].is_a?(Hash)
+          container["nin_data"]
+        else
+          container
+        end
+
+      if invalid_payload?(data) || invalid_payload?(container) || invalid_payload?(payload)
         return { ok: false, error: parsed, status_code: status_code, invalid: true }
       end
 
       {
         ok: true,
-        reference: extract_reference(data, payload),
-        first_name: fetch_value(payload, %w[firstName first_name firstname]),
-        last_name: fetch_value(payload, %w[lastName last_name lastname]),
-        middle_name: fetch_value(payload, %w[middleName middle_name middlename]),
-        date_of_birth: fetch_value(payload, %w[dateOfBirth dob date_of_birth]),
+        reference: extract_reference(data, container, payload),
+        first_name: fetch_value(payload, %w[firstName first_name firstname given_name givenname]),
+        last_name: fetch_value(payload, %w[lastName last_name lastname surname sur_name]),
+        middle_name: fetch_value(payload, %w[middleName middle_name middlename other_name]),
+        date_of_birth: fetch_value(payload, %w[dateOfBirth dob date_of_birth birthdate birth_date]),
         phone_number: fetch_value(payload, %w[phoneNumber phone_number phone]),
-        watchlisted: fetch_value(payload, %w[watchListed watchlisted])
+        watchlisted: fetch_value(payload, %w[watchListed watchlisted is_watchlisted])
       }
     rescue StandardError => e
       Rails.logger.warn("[NIN] Prembly exception #{e.class}: #{e.message}")
@@ -88,8 +95,9 @@ module Kyc
       message.include?("invalid") || message.include?("not found")
     end
 
-    def extract_reference(top_level, payload)
+    def extract_reference(top_level, container, payload)
       fetch_value(top_level, %w[reference reference_id verificationReference verification_reference ref]) ||
+        fetch_value(container, %w[reference reference_id verificationReference verification_reference ref]) ||
         fetch_value(payload, %w[reference reference_id verificationReference verification_reference ref])
     end
 
@@ -103,4 +111,3 @@ module Kyc
     end
   end
 end
-
