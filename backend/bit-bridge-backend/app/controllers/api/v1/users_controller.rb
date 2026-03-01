@@ -174,6 +174,7 @@ module Api
         attrs.delete(:proof_of_address)
         id_document_upload = params.dig(:user, :id_document)
         proof_of_address_upload = params.dig(:user, :proof_of_address)
+        nin_changed = nin_value_changed?(user: current_user, attrs: attrs)
         should_recheck = should_recheck_bvn_snapshot?(current_user, profile_attrs)
         should_recalculate_kyc =
           profile_attrs.present? ||
@@ -207,6 +208,7 @@ module Api
         begin
           User.transaction do
             current_user.update!(attrs)
+            reset_nin_verification_state!(current_user) if nin_changed
 
             if profile_attrs.present? || id_document_upload.present? || proof_of_address_upload.present?
               profile = current_user.user_profile || current_user.build_user_profile
@@ -652,6 +654,39 @@ module Api
         end
 
         changed
+      end
+
+      def nin_value_changed?(user:, attrs:)
+        effective_id_type = attrs[:id_type].to_s.strip.presence || user.id_type.to_s.strip
+        return false unless effective_id_type.to_s.casecmp('nin').zero?
+        return false unless attrs.key?(:id_number)
+
+        incoming = attrs[:id_number].to_s.gsub(/\s+/, '').presence
+        return false if incoming.blank?
+
+        current = user.id_number.to_s.gsub(/\s+/, '').presence
+        incoming != current
+      end
+
+      def reset_nin_verification_state!(user)
+        kyc = user.user_kyc || user.build_user_kyc
+        kyc.assign_attributes(
+          nin_status: 'unverified',
+          nin_last4: nil,
+          nin_provider: 'prembly',
+          nin_provider_reference: nil,
+          nin_verified_at: nil,
+          nin_last_result_status: nil,
+          nin_last_result_reason: nil,
+          nin_last_checked_at: nil,
+          nin_name_match: nil,
+          nin_dob_match: nil,
+          nin_first_name_match: nil,
+          nin_last_name_match: nil,
+          nin_match_score: nil,
+          nin_encrypted: nil
+        )
+        kyc.save! if kyc.changed?
       end
 
       def run_bvn_snapshot_recheck!(user)
