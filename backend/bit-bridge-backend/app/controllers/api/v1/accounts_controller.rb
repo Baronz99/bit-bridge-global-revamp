@@ -663,10 +663,8 @@ module Api
         service_response = service.create_individual_account(account_info)
 
         if service_response[:status] == :ok
-          flow = {
-            state: 'customer_created_no_deposit_account',
-            next_action: 'provision_account_number'
-          }
+          created_account = service_response[:response]
+          flow = anchor_flow_snapshot(created_account, has_deposit_account: created_account&.account_number.present?)
           render json: anchor_success_payload(
             data: service_response[:response],
             message: 'User onboarded successfully',
@@ -685,10 +683,7 @@ module Api
           if duplicate_customer_error
             existing_anchor = current_user.accounts.find_by(vendor: 'anchor')
             if existing_anchor.present?
-              flow = {
-                state: 'customer_created_no_deposit_account',
-                next_action: 'provision_account_number'
-              }
+              flow = anchor_flow_snapshot(existing_anchor, has_deposit_account: existing_anchor.account_number.present?)
               return render json: anchor_success_payload(
                 data: existing_anchor,
                 message: 'Anchor profile already exists. Continue onboarding.',

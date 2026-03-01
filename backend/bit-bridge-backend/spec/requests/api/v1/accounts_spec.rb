@@ -108,8 +108,8 @@ RSpec.describe 'Accounts', type: :request do
       expect(response).to have_http_status(:ok)
       body = JSON.parse(response.body)
       expect(body['success']).to eq(true)
-      expect(body.dig('flow', 'state')).to eq('customer_created_no_deposit_account')
-      expect(body.dig('flow', 'next_action')).to eq('provision_account_number')
+      expect(body.dig('flow', 'state')).to eq('blocked_kyc')
+      expect(body.dig('flow', 'next_action')).to eq('verify_kyc')
     end
 
     it 'uses profile phone_e164 when phone_number is blank' do
@@ -174,8 +174,8 @@ RSpec.describe 'Accounts', type: :request do
       expect(response).to have_http_status(:ok)
       body = JSON.parse(response.body)
       expect(body['success']).to eq(true)
-      expect(body.dig('flow', 'state')).to eq('customer_created_no_deposit_account')
-      expect(body.dig('flow', 'next_action')).to eq('provision_account_number')
+      expect(body.dig('flow', 'state')).to eq('blocked_kyc')
+      expect(body.dig('flow', 'next_action')).to eq('verify_kyc')
     end
   end
 
