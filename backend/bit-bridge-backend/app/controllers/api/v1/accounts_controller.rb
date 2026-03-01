@@ -491,6 +491,12 @@ module Api
         account_identifier = account.useable_id.presence || account.account_id
 
         service = AnchorService.new
+        begin
+          service.send(:sync_anchor_deposit_account!, account)
+          account.reload
+        rescue StandardError => e
+          Rails.logger.warn("[AccountsController] get_user_account_detail anchor sync skipped account_id=#{account.id} message=#{e.message}") if defined?(Rails) && Rails.logger
+        end
 
         if account.status.to_s == 'verifying' || account.status.to_s == 'pending'
           customer_response = service.fetch_customer_detail(account.account_id)
@@ -505,9 +511,10 @@ module Api
         service_response = service.fetch_account_detail(account_identifier, true)
 
         if service_response[:status] == :ok
+          detail_data = canonicalize_anchor_detail_payload(service_response[:data], account)
           flow = anchor_flow_snapshot(account, has_deposit_account: true)
           render json: anchor_success_payload(
-            data: service_response[:data],
+            data: detail_data,
             message: 'Account Numbers fetched',
             flow: flow,
             extra: {
@@ -1085,6 +1092,41 @@ module Api
           state: 'provisioned',
           next_action: 'none'
         }
+      end
+
+      def canonicalize_anchor_detail_payload(detail_data, account)
+        data = detail_data.is_a?(Hash) ? detail_data.deep_dup : {}
+        attributes = data['attributes'].is_a?(Hash) ? data['attributes'].deep_dup : {}
+        bank = attributes['bank'].is_a?(Hash) ? attributes['bank'].deep_dup : {}
+
+        canonical_account_number = account.account_number.to_s.strip
+        canonical_account_name = account.account_name.to_s.strip
+        canonical_bank_name = account.bank_name.to_s.strip
+        canonical_bank_code = account.bank_code.to_s.strip
+
+        data['account_number'] = canonical_account_number if canonical_account_number.present?
+        data['accountNumber'] = canonical_account_number if canonical_account_number.present?
+        data['account_name'] = canonical_account_name if canonical_account_name.present?
+        data['accountName'] = canonical_account_name if canonical_account_name.present?
+        data['bank_name'] = canonical_bank_name if canonical_bank_name.present?
+        data['bankName'] = canonical_bank_name if canonical_bank_name.present?
+        data['bank_code'] = canonical_bank_code if canonical_bank_code.present?
+        data['bankCode'] = canonical_bank_code if canonical_bank_code.present?
+
+        if canonical_account_number.present?
+          attributes['accountNumber'] = canonical_account_number
+          bank['accountNumber'] = canonical_account_number
+        end
+        attributes['accountName'] = canonical_account_name if canonical_account_name.present?
+        attributes['name'] = canonical_account_name if canonical_account_name.present?
+        attributes['bank_name'] = canonical_bank_name if canonical_bank_name.present?
+        attributes['bankName'] = canonical_bank_name if canonical_bank_name.present?
+        bank['name'] = canonical_bank_name if canonical_bank_name.present?
+        bank['code'] = canonical_bank_code if canonical_bank_code.present?
+
+        attributes['bank'] = bank if bank.any?
+        data['attributes'] = attributes if attributes.any?
+        data
       end
 
       def anchor_error_flow(code)
