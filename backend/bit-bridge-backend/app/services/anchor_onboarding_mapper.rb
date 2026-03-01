@@ -20,7 +20,7 @@ class AnchorOnboardingMapper
     first_name: %w[first_name firstname given_name],
     last_name: %w[last_name lastname surname family_name],
     email: %w[email],
-    phone_number: %w[phone_number phone mobile msisdn],
+    phone_number: %w[phone_number phone mobile msisdn phone_e164],
     bvn: %w[bvn bvn_number],
     dob: %w[dob date_of_birth birthdate],
     address: %w[
@@ -53,7 +53,7 @@ class AnchorOnboardingMapper
 
     mapped[:user_id] = @user&.id
     mapped[:vendor] = @account_params['vendor'] || @profile_params['vendor'] || @user_params['vendor']
-    mapped[:phone_number] = normalize_string(mapped[:phone_number])
+    mapped[:phone_number] = normalize_phone(mapped[:phone_number])
     mapped[:address] = @profile&.address_line1 if mapped[:address].blank? && @profile&.address_line1.present?
     mapped[:state] = normalize_state(mapped[:state])
 
@@ -103,5 +103,15 @@ class AnchorOnboardingMapper
     return nil if value.blank?
 
     value.to_s.strip
+  end
+
+  def normalize_phone(value)
+    raw = normalize_string(value)
+    return nil if raw.blank?
+
+    digits = PhoneNormalizer.to_e164_ng(raw)
+    return raw if digits.blank?
+
+    "+#{digits}"
   end
 end

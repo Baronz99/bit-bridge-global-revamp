@@ -111,5 +111,38 @@ RSpec.describe 'Accounts', type: :request do
       expect(body.dig('flow', 'state')).to eq('customer_created_no_deposit_account')
       expect(body.dig('flow', 'next_action')).to eq('provision_account_number')
     end
+
+    it 'uses profile phone_e164 when phone_number is blank' do
+      user = build_user(:tier2)
+      UserProfile.create!(
+        user: user,
+        first_name: 'Ada',
+        last_name: 'Lovelace',
+        phone_number: nil,
+        phone_e164: '2348012345678',
+        address_line1: '42 Profile Street',
+        city: 'Lagos',
+        state: 'LA',
+        postal_code: '100001',
+        bvn: '12345678901',
+        date_of_birth: Date.new(1990, 1, 1)
+      )
+
+      anchor_service = instance_double(AnchorService)
+      allow(AnchorService).to receive(:new).and_return(anchor_service)
+      allow(anchor_service).to receive(:create_individual_account).and_return(
+        status: :ok,
+        response: {}
+      )
+
+      post '/api/v1/accounts',
+           params: { account: { vendor: 'anchor' } },
+           headers: auth_headers(user)
+
+      expect(anchor_service).to have_received(:create_individual_account).with(
+        hash_including(phone_number: '+2348012345678')
+      )
+      expect(response).to have_http_status(:ok)
+    end
   end
 end
