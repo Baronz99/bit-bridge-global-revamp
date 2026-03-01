@@ -121,90 +121,96 @@ module Api
 
         service = AnchorService.new
 
-        # If we already have a created deposit account id, avoid creating another one.
-        if account.useable_id.present? && account.account_number.blank?
-          begin
-            service.send(:sync_anchor_deposit_account!, account)
-            account.reload
-          rescue StandardError => e
-            Rails.logger.warn("[AccountsController] account_number sync skipped account_id=#{account.id} message=#{e.message}") if defined?(Rails) && Rails.logger
-          end
+        # Serialize provisioning attempts per account row so concurrent requests
+        # cannot create multiple provider deposit accounts for the same user.
+        account.with_lock do
+          account.reload
 
-          if account.account_number.present?
-            flow = anchor_flow_snapshot(account, has_deposit_account: true)
+          # If we already have a created deposit account id, avoid creating another one.
+          if account.useable_id.present? && account.account_number.blank?
+            begin
+              service.send(:sync_anchor_deposit_account!, account)
+              account.reload
+            rescue StandardError => e
+              Rails.logger.warn("[AccountsController] account_number sync skipped account_id=#{account.id} message=#{e.message}") if defined?(Rails) && Rails.logger
+            end
+
+            if account.account_number.present?
+              flow = anchor_flow_snapshot(account, has_deposit_account: true)
+              return render json: anchor_success_payload(
+                data: account,
+                message: 'Account already provisioned',
+                flow: flow
+              ), status: :ok
+            end
+
+            flow = anchor_flow_snapshot(account, has_deposit_account: false)
             return render json: anchor_success_payload(
               data: account,
-              message: 'Account already provisioned',
-              flow: flow
-            ), status: :ok
+              message: 'Account provisioning is in progress',
+              flow: flow,
+              extra: {
+                provisioning_pending: true,
+                retryable: true,
+                retry_after_seconds: 5
+              }
+            ), status: :accepted
           end
 
-          flow = anchor_flow_snapshot(account, has_deposit_account: false)
-          return render json: anchor_success_payload(
-            data: account,
-            message: 'Account provisioning is in progress',
-            flow: flow,
-            extra: {
-              provisioning_pending: true,
-              retryable: true,
-              retry_after_seconds: 5
-            }
-          ), status: :accepted
-        end
+          service_response = service.create_account_number(type: account.account_type.to_sym, account: account)
 
-        service_response = service.create_account_number(type: account.account_type.to_sym, account: account)
+          if service_response[:status] == :ok
+            unless account.reload.account_number.present?
+              code = 'anchor_account_number_failed'
+              log_anchor_account_number_failure(
+                status: :unprocessable_entity,
+                code: code,
+                message: 'Anchor did not return an account number',
+                account_id: account.id,
+                retryable: true,
+                provider_status: service_response[:provider_status],
+                provider_body: service_response[:provider_body]
+              )
+              return render json: anchor_error_payload(code, 'Anchor did not return an account number', retryable: true),
+                            status: :unprocessable_entity
+            end
+            flow = anchor_flow_snapshot(account, has_deposit_account: true)
+            render json: anchor_success_payload(
+              data: service_response[:response],
+              message: 'Account created',
+              flow: flow
+            ), status: :ok
+          elsif service_response[:status] == :accepted
+            flow = anchor_flow_snapshot(account.reload, has_deposit_account: false)
+            render json: anchor_success_payload(
+              data: service_response[:response] || account,
+              message: service_response[:message].presence || 'Account provisioning is in progress',
+              flow: flow,
+              extra: {
+                provisioning_pending: true,
+                retryable: true,
+                retry_after_seconds: 5
+              }
+            ), status: :accepted
+          else
+            raw_message = service_response[:message] || service_response[:response]
+            provider_status = service_response[:provider_status]
+            provider_body = service_response[:provider_body]
+            code, retryable = map_anchor_account_number_error(raw_message, provider_body)
 
-        if service_response[:status] == :ok
-          unless account.reload.account_number.present?
-            code = 'anchor_account_number_failed'
             log_anchor_account_number_failure(
               status: :unprocessable_entity,
               code: code,
-              message: 'Anchor did not return an account number',
+              message: raw_message,
               account_id: account.id,
-              retryable: true,
-              provider_status: service_response[:provider_status],
-              provider_body: service_response[:provider_body]
+              retryable: retryable,
+              provider_status: provider_status,
+              provider_body: provider_body
             )
-            return render json: anchor_error_payload(code, 'Anchor did not return an account number', retryable: true),
-                          status: :unprocessable_entity
+
+            render json: anchor_error_payload(code, raw_message, retryable: retryable),
+                   status: :unprocessable_entity
           end
-          flow = anchor_flow_snapshot(account, has_deposit_account: true)
-          render json: anchor_success_payload(
-            data: service_response[:response],
-            message: 'Account created',
-            flow: flow
-          ), status: :ok
-        elsif service_response[:status] == :accepted
-          flow = anchor_flow_snapshot(account.reload, has_deposit_account: false)
-          render json: anchor_success_payload(
-            data: service_response[:response] || account,
-            message: service_response[:message].presence || 'Account provisioning is in progress',
-            flow: flow,
-            extra: {
-              provisioning_pending: true,
-              retryable: true,
-              retry_after_seconds: 5
-            }
-          ), status: :accepted
-        else
-          raw_message = service_response[:message] || service_response[:response]
-          provider_status = service_response[:provider_status]
-          provider_body = service_response[:provider_body]
-          code, retryable = map_anchor_account_number_error(raw_message, provider_body)
-
-          log_anchor_account_number_failure(
-            status: :unprocessable_entity,
-            code: code,
-            message: raw_message,
-            account_id: account.id,
-            retryable: retryable,
-            provider_status: provider_status,
-            provider_body: provider_body
-          )
-
-          render json: anchor_error_payload(code, raw_message, retryable: retryable),
-                 status: :unprocessable_entity
         end
       end
 
