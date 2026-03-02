@@ -367,8 +367,8 @@ module Api
 
       def conversion_direction_from_address(address)
         normalized = address.to_s.upcase
-        return 'ngn_to_usd' if normalized.include?('(NGN -> USD)')
-        return 'usd_to_ngn' if normalized.include?('(USD -> NGN)')
+        return 'ngn_to_usd' if normalized.include?('(NGN -> USD)') || normalized.include?('(NGN TO USD)')
+        return 'usd_to_ngn' if normalized.include?('(USD -> NGN)') || normalized.include?('(USD TO NGN)')
 
         ''
       end

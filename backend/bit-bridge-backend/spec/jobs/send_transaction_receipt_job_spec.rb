@@ -107,7 +107,7 @@ RSpec.describe SendTransactionReceiptJob, type: :job do
       transaction_type: :withdrawal,
       coin_type: :bank,
       status: :approved,
-      address: 'Tunnel Conversion (NGN -> USD)',
+      address: 'Tunnel Conversion (NGN to USD)',
       metadata: {
         ledger_hold_reserved: true,
         fx_quote_token: quote.token,
@@ -127,7 +127,7 @@ RSpec.describe SendTransactionReceiptJob, type: :job do
       transaction_type: :deposit,
       coin_type: :bank,
       status: :approved,
-      address: 'Tunnel Conversion (NGN -> USD)',
+      address: 'Tunnel Conversion (NGN to USD)',
       metadata: { fx_quote_token: 'token-123' }
     )
 

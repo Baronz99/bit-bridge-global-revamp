@@ -136,7 +136,7 @@ module Api
             status: 'approved',
             amount: amount_in,
             coin_type: 'bank',
-            address: 'Tunnel Conversion (NGN -> USD)',
+            address: 'Tunnel Conversion (NGN to USD)',
             metadata: fx_quote.present? ? { fx_quote_token: fx_quote.token, fx_execution_reference: execution_reference } : {}
           )
 
@@ -149,7 +149,7 @@ module Api
             status: 'approved',
             amount: amount_out,
             coin_type: 'bank',
-            address: 'Tunnel Conversion (NGN -> USD)',
+            address: 'Tunnel Conversion (NGN to USD)',
             metadata: fx_quote.present? ? { fx_quote_token: fx_quote.token, fx_execution_reference: execution_reference } : {}
           )
 
@@ -247,7 +247,7 @@ module Api
             status: 'approved',
             amount: amount_in,
             coin_type: 'bank',
-            address: 'Tunnel Conversion (USD -> NGN)',
+            address: 'Tunnel Conversion (USD to NGN)',
             metadata: fx_quote.present? ? { fx_quote_token: fx_quote.token, fx_execution_reference: execution_reference } : {}
           )
 
@@ -260,7 +260,7 @@ module Api
             status: 'approved',
             amount: amount_out,
             coin_type: 'bank',
-            address: 'Tunnel Conversion (USD -> NGN)',
+            address: 'Tunnel Conversion (USD to NGN)',
             metadata: fx_quote.present? ? { fx_quote_token: fx_quote.token, fx_execution_reference: execution_reference } : {}
           )
 

@@ -136,7 +136,7 @@ RSpec.describe 'Api::V1::ReceiptsController', type: :request do
         amount: 10_000,
         transaction_type: :withdrawal,
         status: :declined,
-        address: 'Tunnel Conversion (NGN -> USD)',
+        address: 'Tunnel Conversion (NGN to USD)',
         metadata: {
           fx_quote_token: fx_quote.token,
           fx_execution_reference: SecureRandom.uuid
