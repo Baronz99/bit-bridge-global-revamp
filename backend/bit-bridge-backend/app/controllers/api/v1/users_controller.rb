@@ -615,7 +615,7 @@ module Api
           nin_last4: kyc.nin_last4,
           nin_verified_at: kyc.nin_verified_at,
           nin_last_result_reason: kyc.nin_last_result_reason,
-          tier3_status: kyc.tier3_status,
+          tier3_status: kyc.effective_tier3_status,
           tier3_verified_at: kyc.tier3_verified_at
         }.compact
       end

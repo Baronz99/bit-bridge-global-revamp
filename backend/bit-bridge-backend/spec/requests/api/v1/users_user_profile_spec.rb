@@ -27,4 +27,16 @@ RSpec.describe "Users profile", type: :request do
     expect(body.dig("data", "kyc_requirements")).to be_present
     expect(body.dig("data", "kyc_requirements", "missing")).to be_an(Array)
   end
+
+  it "returns tier3_status as verified when tier3_verified_at is present" do
+    user = create(:user, :confirmed, email: "tier3_#{SecureRandom.hex(6)}@example.com")
+    user.create_user_kyc!(tier3_status: "pending", tier3_verified_at: Time.current)
+    token, = Warden::JWTAuth::UserEncoder.new.call(user, :user, nil)
+
+    get "/api/v1/users/user_profile", headers: { "Authorization" => "Bearer #{token}" }
+
+    expect(response).to have_http_status(:ok)
+    body = JSON.parse(response.body)
+    expect(body.dig("data", "user_kyc", "tier3_status")).to eq("verified")
+  end
 end
