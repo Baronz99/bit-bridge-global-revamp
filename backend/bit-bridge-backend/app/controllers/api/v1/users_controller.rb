@@ -49,7 +49,8 @@ module Api
             wallet: serialize_compact_wallet(ngn_wallet),
             account: serialize_compact_account(account),
             user_profile: serialize_compact_profile(profile, id_doc_review: id_doc_review, proof_doc_review: proof_doc_review),
-            user_kyc: serialize_compact_kyc(kyc)
+            user_kyc: serialize_compact_kyc(kyc),
+            kyc_requirements: ::Kyc::RequirementsCalculator.new(user).call
           }.compact
         }, status: :ok
       end

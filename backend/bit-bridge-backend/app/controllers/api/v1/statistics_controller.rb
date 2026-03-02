@@ -3,6 +3,8 @@
 module Api
   module V1
     class StatisticsController < ApplicationController
+      before_action :require_admin_access!
+
       def index
         stats = Statistics.new
         render json: {
@@ -10,6 +12,14 @@ module Api
                          total_deposits: stats.total_deposits }
                },
                status: :ok
+      end
+
+      private
+
+      def require_admin_access!
+        return if current_user&.admin_access?
+
+        render json: { message: 'Not authorized' }, status: :forbidden
       end
     end
   end

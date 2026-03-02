@@ -8,7 +8,7 @@ class Statistics
 
 
   def initialize
-    @total_users = User.all.count
+    @total_users = User.count
     @total_deposits = Transaction.where(transaction_type: :deposit, status: :approved).sum(:amount)
     @total_withdrawals = Transaction.where(transaction_type: :withdrawal, status: :approved).sum(:amount)
   end
