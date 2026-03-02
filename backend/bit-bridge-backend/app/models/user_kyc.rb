@@ -23,6 +23,14 @@ class UserKyc < ApplicationRecord
     nin_status.to_s == "verified" || nin_verified_at.present?
   end
 
+  # Canonical Tier 3 completion state:
+  # treat verified_at as authoritative so stale status labels do not regress UI.
+  def effective_tier3_status
+    return "verified" if tier3_verified_at.present?
+
+    tier3_status.to_s
+  end
+
   def decrypted_bvn
     bvn_encrypted
   end

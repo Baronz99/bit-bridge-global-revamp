@@ -54,4 +54,8 @@ class UserKycSerializer < ActiveModel::Serializer
   def show_bvn_snapshot?
     scope.respond_to?(:super_admin?) && scope.super_admin?
   end
+
+  def tier3_status
+    object.effective_tier3_status
+  end
 end

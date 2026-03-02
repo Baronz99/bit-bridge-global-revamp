@@ -39,4 +39,18 @@ RSpec.describe Kyc::Tier3StuckSweep do
     expect(summary[:candidates]).to eq(0)
     expect(summary[:updated]).to eq(0)
   end
+
+  it "normalizes stale processing to verified when verified_at exists" do
+    kyc = create_kyc!(status: "processing", updated_at: 3.hours.ago)
+    kyc.update_column(:tier3_verified_at, 1.day.ago)
+
+    summary = described_class.new.call
+
+    expect(summary[:candidates]).to eq(1)
+    expect(summary[:updated]).to eq(1)
+
+    kyc.reload
+    expect(kyc.tier3_status).to eq("verified")
+    expect(kyc.tier3_error).to be_nil
+  end
 end

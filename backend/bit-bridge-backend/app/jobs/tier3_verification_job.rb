@@ -126,7 +126,7 @@ class Tier3VerificationJob < ApplicationJob
           tier3_verified_at: Time.current,
           tier3_error: nil
         )
-        user.update!(kyc_level: "tier_3")
+        user.update!(kyc_level: ::Kyc::LevelCalculator.resolve_level(user))
       end
       record_tier3_event(
         user: user,

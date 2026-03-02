@@ -56,19 +56,26 @@ module Kyc
     end
 
     def mark_timed_out!(kyc)
-      updated = false
+      outcome = :skipped
       kyc.with_lock do
         return false unless kyc.tier3_status.to_s == "processing"
         return false if kyc.updated_at > cutoff_time
+
+        # Preserve verified records that kept a stale processing label.
+        if kyc.tier3_verified_at.present?
+          kyc.update!(tier3_status: "verified", tier3_error: nil)
+          outcome = :normalized_verified
+          return outcome
+        end
 
         kyc.update!(
           tier3_status: "failed",
           tier3_error: "Tier 3 verification timed out. Please retry."
         )
-        updated = true
+        outcome = :timed_out
       end
 
-      if updated
+      if outcome == :timed_out
         KycTier3Event.record!(
           user: kyc.user,
           user_kyc: kyc,
@@ -79,7 +86,7 @@ module Kyc
         )
       end
 
-      updated
+      outcome == :timed_out || outcome == :normalized_verified
     end
   end
 end
