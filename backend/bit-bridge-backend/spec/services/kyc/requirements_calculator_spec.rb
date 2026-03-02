@@ -26,7 +26,6 @@ RSpec.describe Kyc::RequirementsCalculator do
       first_name: "Test",
       last_name: "User",
       phone_number: "08012345678",
-      phone_verified_at: Time.current,
       date_of_birth: Date.new(1990, 1, 1),
       address_line1: "1 Main Street",
       city: "Lagos",
@@ -34,6 +33,7 @@ RSpec.describe Kyc::RequirementsCalculator do
       country: "NG",
       proof_of_address_type: "utility_bill"
     )
+    user.user_profile.update_column(:phone_verified_at, Time.current)
     attach_proof!(user.user_profile)
     user.create_user_kyc!(
       bvn_status: "verified",
@@ -46,12 +46,16 @@ RSpec.describe Kyc::RequirementsCalculator do
   it "marks tier2_ready true when nin is verified and id_document is absent" do
     result = described_class.new(user).call
 
+    expect(result.dig(:checks, :tier1_ready)).to eq(true)
     expect(result.dig(:checks, :bvn_verified)).to eq(true)
     expect(result.dig(:checks, :nin_verified)).to eq(true)
+    expect(result.dig(:checks, :id_type_present)).to eq(true)
     expect(result.dig(:checks, :has_id_document)).to eq(false)
     expect(result.dig(:checks, :has_proof_of_address)).to eq(true)
     expect(result.dig(:checks, :identity_verified)).to eq(true)
     expect(result.dig(:checks, :tier2_ready)).to eq(true)
+    expect(result.dig(:checks, :tier3_ready)).to eq(false)
+    expect(result.dig(:checks, :tier4_ready)).to eq(false)
+    expect(result[:missing]).to eq(["tier3_biometrics"])
   end
 end
-

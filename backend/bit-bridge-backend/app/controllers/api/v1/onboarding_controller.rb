@@ -90,15 +90,19 @@ module Api
       # {
       #   id_type:   "bvn",        # or "nin", "passport", etc.
       #   id_number: "12345678901",
-      #   kyc_level: "tier_1"      # optional, defaults to "tier_1"
       # }
       def submit_kyc
-        current_user.update!(
-          id_type:   params[:id_type],
-          id_number: params[:id_number],
-          kyc_level: params[:kyc_level].presence || 'tier_1',
-          onboarding_stage: 'kyc_submitted'
-        )
+        ActiveRecord::Base.transaction do
+          current_user.update!(
+            id_type:   params[:id_type],
+            id_number: params[:id_number],
+            onboarding_stage: 'kyc_submitted'
+          )
+
+          current_user.update!(
+            kyc_level: ::Kyc::LevelCalculator.resolve_level(current_user)
+          )
+        end
 
         render json: UserSerializer.new(current_user).as_json, status: :ok
       rescue ActiveRecord::RecordInvalid => e

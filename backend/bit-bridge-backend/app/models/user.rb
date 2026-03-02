@@ -137,7 +137,8 @@ class User < ApplicationRecord
     'tier_0' => 0,
     'tier_1' => 1,
     'tier_2' => 2,
-    'tier_3' => 3
+    'tier_3' => 3,
+    'tier_4' => 4
   }.freeze
 
   def kyc_rank

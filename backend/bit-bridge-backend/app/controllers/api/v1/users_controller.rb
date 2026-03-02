@@ -417,12 +417,39 @@ module Api
         user = User.find_by(id: params[:id] || params[:user_id])
         return render json: { message: 'User not found' }, status: :not_found unless user
 
+        reason = params[:reason].to_s.strip
+        if reason.blank?
+          return render json: { message: 'reason is required' }, status: :unprocessable_entity
+        end
+
+        allowed_levels = User::KYC_RANKS.keys
         level = params[:kyc_level]
+        if level.present? && !allowed_levels.include?(level.to_s)
+          return render json: {
+            message: "kyc_level must be one of: #{allowed_levels.join(', ')}"
+          }, status: :unprocessable_entity
+        end
+
+        previous_level = user.kyc_level
         user.kyc_level = level if level.present?
 
         if user.save
+          log_admin_audit(
+            'update_kyc_level',
+            target: user,
+            metadata: {
+              reason: reason,
+              previous_level: previous_level,
+              new_level: user.kyc_level
+            }
+          )
+          Rails.logger.info(
+            "[KYC_LEVEL_ADMIN_UPDATE] admin_id=#{current_user.id} target_user_id=#{user.id} " \
+            "from=#{previous_level.inspect} to=#{user.kyc_level.inspect} reason=#{reason.inspect}"
+          )
           render json: {
             message: 'KYC level updated',
+            reason: reason,
             data: UserSerializer.new(user)
           }, status: :ok
         else

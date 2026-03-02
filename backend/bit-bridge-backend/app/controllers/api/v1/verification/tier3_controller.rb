@@ -78,6 +78,13 @@ module Api
           kyc = current_user.user_kyc
           return render_with_requirements({ error: "KYC record not found" }, :unprocessable_entity) if kyc.nil?
 
+          unless tier2_eligible_for_tier3?
+            return render_with_requirements(
+              { error: "Tier 2 must be complete before Tier 3 can be started." },
+              :unprocessable_entity
+            )
+          end
+
           unless kyc.verified?
             return render_with_requirements({ error: "BVN must be verified before Tier 3" }, :unprocessable_entity)
           end
@@ -168,6 +175,11 @@ module Api
           input = value.to_s.strip
           input = input.split("base64,", 2).last.to_s.strip if input.include?("base64,")
           input.gsub(/\s+/, "")
+        end
+
+        def tier2_eligible_for_tier3?
+          resolved = ::Kyc::LevelCalculator.resolve_level(current_user)
+          %w[tier_2 tier_3 tier_4].include?(resolved)
         end
       end
     end

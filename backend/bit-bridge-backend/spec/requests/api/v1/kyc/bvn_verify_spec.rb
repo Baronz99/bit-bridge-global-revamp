@@ -4,7 +4,7 @@ require 'rails_helper'
 
 RSpec.describe 'BVN verification caching', type: :request do
   include ActiveJob::TestHelper
-  let(:user) { create(:user) }
+  let(:user) { create(:user, :confirmed) }
   let(:headers) { auth_headers(user) }
   let(:bvn) { '12345678901' }
 
@@ -33,8 +33,11 @@ RSpec.describe 'BVN verification caching', type: :request do
     user.create_user_profile!(
       first_name: 'Test',
       last_name: 'User',
+      phone_number: '08012345678',
+      phone_verified_at: Time.current,
       date_of_birth: Date.new(1990, 1, 1)
     )
+    user.user_profile.update_column(:phone_verified_at, Time.current)
     user.create_user_kyc!
     allow(Kyc::PremblyBvnBasicValidation).to receive(:new).and_return(double(call: { ok: true }))
   end
@@ -532,7 +535,8 @@ RSpec.describe 'BVN verification caching', type: :request do
       )
     end
 
-    it 'marks tier2_ready when address and docs are complete' do
+    it 'marks tier2_ready when identity requirements are complete' do
+      user.update!(id_type: 'nin')
       attach_docs!(user.user_profile)
 
       get '/api/v1/kyc/bvn/status', headers: headers
@@ -541,20 +545,21 @@ RSpec.describe 'BVN verification caching', type: :request do
       json = JSON.parse(response.body)
       requirements = json['requirements']
       expect(requirements['checks']['tier2_ready']).to eq(true)
-      expect(requirements['missing']).to eq([])
-      expect(requirements['next_steps']).to eq([])
+      expect(requirements['checks']['tier3_ready']).to eq(false)
+      expect(requirements['missing']).to eq(['tier3_biometrics'])
+      expect(requirements['next_steps']).to eq(['Complete Tier 3 liveness verification.'])
     end
 
-    it 'flags missing documents with upload next step' do
+    it 'flags missing tier2 identity requirements first' do
       get '/api/v1/kyc/bvn/status', headers: headers
 
       expect(response).to have_http_status(:ok)
       json = JSON.parse(response.body)
       requirements = json['requirements']
+      expect(requirements['missing']).to include('id_type')
       expect(requirements['missing']).to include('identity')
-      expect(requirements['missing']).to include('proof_of_address')
+      expect(requirements['next_steps']).to include('Select an ID type.')
       expect(requirements['next_steps']).to include('Upload an ID document or complete NIN verification.')
-      expect(requirements['next_steps']).to include('Upload proof of address.')
     end
   end
 end
