@@ -99,19 +99,23 @@ const kycLevelConfig = {
     description: 'Phone verified + basic profile. Unlocks core wallet usage and onboarding.',
   },
   tier_2: {
-    label: 'Tier 2 - Full access',
+    label: 'Tier 2 - Verified Identity',
     description:
-      'BVN verified + ID upload + address. Unlocks cards, tunnel, transfers and virtual accounts.',
+      'BVN verified + ID type + (verified NIN or uploaded ID document). Unlocks cards, tunnel, transfers and virtual accounts.',
   },
   tier_3: {
-    label: 'Tier 3 - Biometric',
+    label: 'Tier 3 - Biometric Verified',
     description:
       'Face verification (liveness + BVN face match). Unlocks higher limits and stronger protection.',
+  },
+  tier_4: {
+    label: 'Tier 4 - Verified Address',
+    description: 'Tier 3 + complete address + proof of address. Full verification.',
   },
 }
 
 // ---------- tier helpers ----------
-const tierOrder = ['tier_0', 'tier_1', 'tier_2', 'tier_3']
+const tierOrder = ['tier_0', 'tier_1', 'tier_2', 'tier_3', 'tier_4']
 const TIER3_POLL_INTERVAL_MS = 2000
 const TIER3_POLL_TIMEOUT_MS = 30000
 const TIER3_UI_STATUS = {
@@ -125,6 +129,7 @@ const TIER3_UI_STATUS = {
 const normalizeTierKey = (raw) => {
   const k = (raw ?? 'nil').toString().toLowerCase()
   if (k === 'nil' || k === '') return 'tier_0'
+  if (k === 'tier4') return 'tier_4'
   if (!tierOrder.includes(k)) return 'tier_0'
   return k
 }
@@ -153,13 +158,18 @@ const tierCardCopy = {
   },
   tier_2: {
     title: 'Tier 2',
-    body: 'BVN verified + ID upload + address. Unlock all services.',
+    body: 'Verified identity: BVN + ID type + (NIN verified or ID upload).',
     hint: 'Full access',
   },
   tier_3: {
     title: 'Tier 3',
     body: 'Biometric verification (liveness + BVN face match) for higher limits & stronger protection.',
     hint: 'Higher limits',
+  },
+  tier_4: {
+    title: 'Tier 4',
+    body: 'Verified address: complete address and proof of address on file.',
+    hint: 'Full verification',
   },
 }
 
@@ -355,12 +365,24 @@ const KycCenter = () => {
     !!user?.user_profile?.phone_verified_at
 
   const userKyc = user?.user_kyc || {}
+  const userProfile = user?.user_profile || {}
   const bvnStatus = userKyc?.bvn_status || 'unverified'
   const bvnLast4 = userKyc?.bvn_last4 || ''
   const isBvnVerified = bvnStatus === 'verified'
 
-  const hasTier2 = normalizedTierKey === 'tier_2' || normalizedTierKey === 'tier_3'
-  const hasTier3 = normalizedTierKey === 'tier_3'
+  const hasTier2 =
+    normalizedTierKey === 'tier_2' || normalizedTierKey === 'tier_3' || normalizedTierKey === 'tier_4'
+  const hasTier3 = normalizedTierKey === 'tier_3' || normalizedTierKey === 'tier_4'
+  const hasTier4 = normalizedTierKey === 'tier_4'
+  const hasAddressForTier4 = Boolean(
+    userProfile?.address_line1 &&
+      userProfile?.city &&
+      userProfile?.state &&
+      userProfile?.country
+  )
+  const hasProofOfAddressForTier4 = Boolean(
+    userProfile?.proof_of_address_type && userProfile?.proof_of_address_url
+  )
 
   const goProfile = () => navigate('/dashboard/profile-account')
   const goVirtualAccounts = () => navigate('/dashboard/virtual-accounts')
@@ -805,9 +827,9 @@ const KycCenter = () => {
                   3
                 </div>
                 <div>
-                  <p className="font-semibold text-slate-100">Upload ID and proof of address</p>
+                  <p className="font-semibold text-slate-100">Provide identity evidence</p>
                   <p className="text-xs text-slate-400 mt-1">
-                    Add your ID document and proof of address to complete Tier 2.
+                    Add your ID document or complete NIN verification to complete Tier 2.
                   </p>
                   <button
                     type="button"
@@ -851,6 +873,47 @@ const KycCenter = () => {
                 </div>
                 <div className="text-xs text-slate-300 mt-1">
                   Biometric verification completed. You now qualify for higher limits.
+                </div>
+              </div>
+            ) : null}
+
+            {hasTier3 && !hasTier4 ? (
+              <div className="mt-5 rounded-xl border border-slate-800 bg-slate-950/50 p-4">
+                <div className="text-xs uppercase tracking-[0.2em] text-slate-500 mb-2">
+                  Next upgrade
+                </div>
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <div className="font-semibold text-slate-100">Upgrade to Tier 4</div>
+                    <div className="text-xs text-slate-400 mt-1">
+                      Complete address verification by adding your address and proof of address.
+                    </div>
+                    {(!hasAddressForTier4 || !hasProofOfAddressForTier4) && (
+                      <div className="text-xs text-amber-200 mt-2">
+                        Missing: {!hasAddressForTier4 ? 'Address details' : null}
+                        {!hasAddressForTier4 && !hasProofOfAddressForTier4 ? ' + ' : null}
+                        {!hasProofOfAddressForTier4 ? 'Proof of address' : null}
+                      </div>
+                    )}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={goProfile}
+                    className="shrink-0 inline-flex items-center px-3 py-2 rounded-lg bg-alt text-black text-xs font-semibold hover:brightness-110 transition"
+                  >
+                    Open KYC documents
+                  </button>
+                </div>
+              </div>
+            ) : null}
+
+            {hasTier4 ? (
+              <div className="mt-5 rounded-xl border border-emerald-700/40 bg-emerald-900/20 p-4">
+                <div className="flex items-center gap-2 text-emerald-200 font-semibold">
+                  <CheckCircleOutlined /> Tier 4 verified
+                </div>
+                <div className="text-xs text-slate-300 mt-1">
+                  Address and proof of address are verified. Full verification complete.
                 </div>
               </div>
             ) : null}
@@ -980,13 +1043,13 @@ const KycCenter = () => {
                     <>
                       <span className="text-slate-100">Next:</span>{' '}
                       {phoneVerified
-                        ? 'complete your address and upload documents to unlock Tier 2.'
-                        : 'verify your phone and complete your profile/documents to unlock Tier 2.'}
+                        ? 'complete ID type and identity evidence to unlock Tier 2.'
+                        : 'verify your phone and complete your profile/identity checks to unlock Tier 2.'}
                     </>
                   )}
                 </div>
                 {requirements && tier2Ready && (
-                  requirementTier === 'tier_2' || requirementTier === 'tier_3' ? (
+                  requirementTier === 'tier_2' || requirementTier === 'tier_3' || requirementTier === 'tier_4' ? (
                     <div className="mt-2 text-slate-100">Tier 2 unlocked.</div>
                   ) : (
                     <div className="mt-2 text-slate-100">Tier 2 ready.</div>
