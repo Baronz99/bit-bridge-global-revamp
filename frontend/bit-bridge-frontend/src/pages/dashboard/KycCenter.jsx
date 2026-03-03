@@ -499,6 +499,7 @@ const KycCenter = () => {
   }
 
   const effectiveBvnStatus = bvnResponse?.status || bvnStatus
+  const bvnDisplay = bvnResponse?.display || null
   const effectiveLast4 = bvnResponse?.bvn_last4 || bvnLast4
   const isBvnPending = effectiveBvnStatus === 'pending'
   const isVerifyingBvn = bvnSubmitting
@@ -545,6 +546,15 @@ const KycCenter = () => {
       : effectiveBvnStatus === 'locked'
       ? 'text-rose-300'
       : 'text-slate-400'
+  const bvnDisplayClass =
+    bvnDisplay?.severity === 'success'
+      ? 'text-emerald-300'
+      : bvnDisplay?.severity === 'warning'
+      ? 'text-amber-200'
+      : bvnDisplay?.severity === 'error'
+      ? 'text-rose-300'
+      : 'text-slate-300'
+  const bvnDisplayNeedsProfileAction = bvnDisplay?.action === 'update_profile'
 
   React.useEffect(() => {
     if (!bvnRetryUntil) return
@@ -1065,40 +1075,70 @@ const KycCenter = () => {
               </div>
             )}
             {effectiveBvnStatus === 'pending_review' && (
-              <p className="text-amber-200">
-                Submitted for review. You can re-check BVN if you updated your profile.
-              </p>
+              <div className={bvnDisplayClass}>
+                <p className="font-semibold">{bvnDisplay?.title || 'Verification under review'}</p>
+                <p className="mt-1">
+                  {bvnDisplay?.message || 'Submitted for review. You can re-check BVN if you updated your profile.'}
+                </p>
+                {bvnDisplayNeedsProfileAction && (
+                  <button
+                    type="button"
+                    onClick={goProfile}
+                    className="mt-2 underline text-amber-100 hover:text-amber-50"
+                  >
+                    {bvnDisplay?.action_label || 'Update profile'}
+                  </button>
+                )}
+              </div>
             )}
             {effectiveBvnStatus === 'pending' && (
-              <p className="text-amber-200">
-                BVN verification is pending. We will update automatically once the provider is available.
-              </p>
+              <div className={bvnDisplayClass}>
+                <p className="font-semibold">{bvnDisplay?.title || 'Verification in progress'}</p>
+                <p className="mt-1">
+                  {bvnDisplay?.message || 'BVN verification is pending. We will update automatically once the provider is available.'}
+                </p>
+              </div>
             )}
             {effectiveBvnStatus === 'mismatch' && (
-              <p className="text-rose-300">
-                BVN details do not match your profile. Check your name and date of birth, then retry.
+              <div className={bvnDisplayClass}>
+                <p className="font-semibold">{bvnDisplay?.title || 'Details do not match'}</p>
+                <p className="mt-1">
+                  {bvnDisplay?.message || 'BVN details do not match your profile. Check your name and date of birth, then retry.'}
+                </p>
                 <button
                   type="button"
                   onClick={goProfile}
-                  className="ml-2 underline text-rose-200 hover:text-rose-100"
+                  className="mt-2 underline text-rose-200 hover:text-rose-100"
                 >
-                  Update profile
+                  {bvnDisplay?.action_label || 'Update profile'}
                 </button>
-              </p>
+              </div>
             )}
             {effectiveBvnStatus === 'locked' && (
-              <p className="text-rose-300">
-                Verification locked. Try again later or contact support.
-              </p>
+              <div className={bvnDisplayClass}>
+                <p className="font-semibold">{bvnDisplay?.title || 'Verification temporarily locked'}</p>
+                <p className="mt-1">
+                  {bvnDisplay?.message || 'Verification locked. Try again later or contact support.'}
+                </p>
+              </div>
             )}
             {effectiveBvnStatus === 'failed' && (
-              <p className="text-rose-300">
-                {isRetryBackoff
-                  ? `Provider unavailable. Retry in ${retrySecondsRemaining}s.`
-                  : 'Provider unavailable. Please retry in a few minutes.'}
-              </p>
+              <div className={bvnDisplayClass}>
+                <p className="font-semibold">{bvnDisplay?.title || 'Verification failed'}</p>
+                <p className="mt-1">
+                  {bvnDisplay?.message ||
+                    (isRetryBackoff
+                      ? `Provider unavailable. Retry in ${retrySecondsRemaining}s.`
+                      : 'Provider unavailable. Please retry in a few minutes.')}
+                </p>
+              </div>
             )}
-            {effectiveBvnStatus === 'unverified' && <p>Enter your BVN to begin verification.</p>}
+            {effectiveBvnStatus === 'unverified' && (
+              <div className={bvnDisplayClass}>
+                <p className="font-semibold">{bvnDisplay?.title || 'Verification required'}</p>
+                <p className="mt-1">{bvnDisplay?.message || 'Enter your BVN to begin verification.'}</p>
+              </div>
+            )}
             {bvnResponse?.cached === true && bvnResponse?.message && (
               <p className="text-slate-300 mt-2">{bvnResponse.message}</p>
             )}
