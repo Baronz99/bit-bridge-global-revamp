@@ -71,11 +71,12 @@ module Api
 
         def response_payload(user, user_kyc, status:, reason:, message: nil)
           normalized_reason = normalize_reason(status: status, reason: reason)
+          mismatch_fields = nin_mismatch_fields(user_kyc)
           {
             status: status,
             reason_code: normalized_reason,
             reason: normalized_reason,
-            display: customer_display_payload(status: status, reason: normalized_reason),
+            display: customer_display_payload(status: status, reason: normalized_reason, user_kyc: user_kyc),
             message: message,
             tier: user.kyc_level || "tier_0",
             nin_last4: user_kyc.nin_last4,
@@ -84,6 +85,12 @@ module Api
             last_result_status: user_kyc.nin_last_result_status,
             last_result_reason: user_kyc.nin_last_result_reason,
             last_checked_at: user_kyc.nin_last_checked_at,
+            nin_match: {
+              first_name: user_kyc.nin_first_name_match,
+              last_name: user_kyc.nin_last_name_match,
+              date_of_birth: user_kyc.nin_dob_match
+            },
+            mismatch_fields: mismatch_fields,
             requirements: ::Kyc::RequirementsCalculator.new(user).call
           }.compact
         end
@@ -149,7 +156,7 @@ module Api
           user.update!(kyc_level: ::Kyc::LevelCalculator.resolve_level(user))
         end
 
-        def customer_display_payload(status:, reason:)
+        def customer_display_payload(status:, reason:, user_kyc:)
           status_key = status.to_s
           reason_key = reason.to_s
 
@@ -165,13 +172,7 @@ module Api
           when "pending_review"
             pending_review_display(reason_key)
           when "mismatch"
-            {
-              severity: "warning",
-              title: "Details do not match",
-              message: "Your NIN details do not match your profile records. Update your profile and retry.",
-              action: "update_profile",
-              action_label: "Update profile"
-            }
+            mismatch_display(user_kyc)
           when "failed"
             {
               severity: "error",
@@ -189,6 +190,54 @@ module Api
               action_label: "Verify NIN"
             }
           end
+        end
+
+        def mismatch_display(user_kyc)
+          mismatches = nin_mismatch_fields(user_kyc)
+          mismatch_list = human_list(mismatches)
+          swapped_name_hint = swapped_name_candidate?(user_kyc)
+
+          message =
+            if mismatch_list.present?
+              "Your NIN #{mismatch_list} does not match your profile records."
+            else
+              "Your NIN details do not match your profile records."
+            end
+          if swapped_name_hint
+            message += " It looks like first and last names may be swapped."
+          end
+          message += " Update your profile and retry."
+
+          {
+            severity: "warning",
+            title: "Details do not match",
+            message: message,
+            action: "update_profile",
+            action_label: "Update profile"
+          }
+        end
+
+        def nin_mismatch_fields(user_kyc)
+          fields = []
+          fields << "first name" if user_kyc.nin_first_name_match == false
+          fields << "last name" if user_kyc.nin_last_name_match == false
+          fields << "date of birth" if user_kyc.nin_dob_match == false
+          fields
+        end
+
+        def human_list(values)
+          list = Array(values).compact.map(&:to_s).reject(&:empty?)
+          return "" if list.empty?
+          return list.first if list.length == 1
+          return "#{list[0]} and #{list[1]}" if list.length == 2
+
+          "#{list[0..-2].join(', ')}, and #{list[-1]}"
+        end
+
+        def swapped_name_candidate?(user_kyc)
+          user_kyc.nin_first_name_match == false &&
+            user_kyc.nin_last_name_match == false &&
+            user_kyc.nin_dob_match == true
         end
 
         def pending_review_display(reason_key)

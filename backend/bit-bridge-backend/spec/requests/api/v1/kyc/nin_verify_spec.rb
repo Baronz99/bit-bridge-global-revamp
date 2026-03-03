@@ -135,5 +135,30 @@ RSpec.describe "NIN verification", type: :request do
     expect(json["reason_code"]).to eq("mismatch")
     expect(json.dig("display", "title")).to eq("Details do not match")
     expect(json.dig("display", "action")).to eq("update_profile")
+    expect(json.dig("display", "message")).to include("first name, last name, and date of birth")
+    expect(json["mismatch_fields"]).to match_array(["first name", "last name", "date of birth"])
+    expect(json.dig("nin_match", "first_name")).to eq(false)
+    expect(json.dig("nin_match", "last_name")).to eq(false)
+    expect(json.dig("nin_match", "date_of_birth")).to eq(false)
+  end
+
+  it "adds swapped-name hint when only names mismatch" do
+    result = {
+      ok: true,
+      reference: "prembly-nin-ref",
+      first_name: "Other",
+      last_name: "Person",
+      date_of_birth: "01-Jan-1990",
+      watchlisted: false
+    }
+    allow(Kyc::PremblyNinVerification).to receive(:new).with(nin).and_return(double(call: result))
+
+    post "/api/v1/kyc/nin/verify", params: { nin: nin }, headers: headers
+
+    expect(response).to have_http_status(:ok)
+    json = JSON.parse(response.body)
+    expect(json["status"]).to eq("mismatch")
+    expect(json["mismatch_fields"]).to match_array(["first name", "last name"])
+    expect(json.dig("display", "message")).to include("may be swapped")
   end
 end
