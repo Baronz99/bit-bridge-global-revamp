@@ -5,6 +5,8 @@ module Api
     module Kyc
       class NinController < ApplicationController
         before_action :authenticate_user!
+        NIN_REUSE_WINDOW = 6.hours
+        NIN_PENDING_WINDOW = 2.minutes
 
         ALLOWED_REASONS = %w[
           watchlisted
@@ -41,6 +43,30 @@ module Api
               message: "NIN already verified for this account."
             ), status: :ok
           end
+
+          if reuse_recent_non_verified_result?(user: user, user_kyc: user_kyc, nin: nin)
+            refresh_tier!(user)
+            return render json: response_payload(
+              user,
+              user_kyc,
+              status: user_kyc.nin_status,
+              reason: user_kyc.nin_last_result_reason,
+              message: "NIN was recently checked for this profile. Update profile details before retrying."
+            ), status: :ok
+          end
+
+          if inflight_pending_request?(user_kyc: user_kyc, nin: nin)
+            refresh_tier!(user)
+            return render json: response_payload(
+              user,
+              user_kyc,
+              status: "pending",
+              reason: "provider_incomplete",
+              message: "NIN verification is already in progress. Please wait for the current check to complete."
+            ), status: :ok
+          end
+
+          mark_pending_request!(user_kyc, nin)
 
           result = ::Kyc::PremblyNinVerification.new(nin).call
           unless result[:ok]
@@ -142,11 +168,11 @@ module Api
           when "pending_review"
             user_kyc.nin_status = "pending_review"
             user_kyc.nin_verified_at = nil
-            user_kyc.nin_encrypted = nil
+            user_kyc.nin_encrypted = nin
           else
             user_kyc.nin_status = "mismatch"
             user_kyc.nin_verified_at = nil
-            user_kyc.nin_encrypted = nil
+            user_kyc.nin_encrypted = nin
           end
 
           user_kyc.save!
@@ -275,6 +301,51 @@ module Api
           return false unless stored_nin.length == nin.length
 
           ActiveSupport::SecurityUtils.secure_compare(stored_nin, nin)
+        end
+
+        def same_submitted_nin?(user_kyc, nin)
+          stored_nin = user_kyc.nin_encrypted.to_s.gsub(/\s+/, "")
+          return false if stored_nin.blank?
+          return false unless stored_nin.length == nin.length
+
+          ActiveSupport::SecurityUtils.secure_compare(stored_nin, nin)
+        end
+
+        def profile_changed_since_last_nin_check?(user, user_kyc)
+          profile_updated_at = user&.user_profile&.updated_at
+          return false if profile_updated_at.blank? || user_kyc.nin_last_checked_at.blank?
+
+          profile_updated_at > user_kyc.nin_last_checked_at
+        end
+
+        def reuse_recent_non_verified_result?(user:, user_kyc:, nin:)
+          return false unless same_submitted_nin?(user_kyc, nin)
+          return false if user_kyc.nin_status.to_s == "verified"
+          return false if user_kyc.nin_status.to_s == "pending"
+          return false if user_kyc.nin_last_checked_at.blank?
+          return false if user_kyc.nin_last_checked_at < NIN_REUSE_WINDOW.ago
+          return false if profile_changed_since_last_nin_check?(user, user_kyc)
+
+          true
+        end
+
+        def inflight_pending_request?(user_kyc:, nin:)
+          return false unless same_submitted_nin?(user_kyc, nin)
+          return false unless user_kyc.nin_status.to_s == "pending"
+          return false if user_kyc.nin_last_checked_at.blank?
+
+          user_kyc.nin_last_checked_at >= NIN_PENDING_WINDOW.ago
+        end
+
+        def mark_pending_request!(user_kyc, nin)
+          user_kyc.update!(
+            nin_status: "pending",
+            nin_encrypted: nin,
+            nin_last4: nin[-4, 4],
+            nin_last_result_status: "pending",
+            nin_last_result_reason: nil,
+            nin_last_checked_at: Time.current
+          )
         end
       end
     end

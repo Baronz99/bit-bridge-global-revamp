@@ -115,6 +115,77 @@ RSpec.describe "NIN verification", type: :request do
     expect(json.dig("display", "title")).to eq("NIN verified")
   end
 
+  it "reuses recent mismatch result for same NIN without profile changes" do
+    user.user_kyc.update!(
+      nin_status: "mismatch",
+      nin_encrypted: nin,
+      nin_last_result_reason: "mismatch",
+      nin_last_checked_at: Time.current,
+      nin_provider_reference: "existing-mismatch-ref",
+      nin_first_name_match: false,
+      nin_last_name_match: false,
+      nin_dob_match: true
+    )
+
+    expect(Kyc::PremblyNinVerification).not_to receive(:new)
+
+    post "/api/v1/kyc/nin/verify", params: { nin: nin }, headers: headers
+
+    expect(response).to have_http_status(:ok)
+    json = JSON.parse(response.body)
+    expect(json["status"]).to eq("mismatch")
+    expect(json["message"]).to include("recently checked")
+    expect(json["prembly_reference"]).to eq("existing-mismatch-ref")
+    expect(json.dig("display", "action")).to eq("update_profile")
+  end
+
+  it "calls provider again when profile changed after last NIN check" do
+    user.user_kyc.update!(
+      nin_status: "mismatch",
+      nin_encrypted: nin,
+      nin_last_result_reason: "mismatch",
+      nin_last_checked_at: 2.hours.ago
+    )
+    user.user_profile.update!(last_name: "Changed")
+
+    result = {
+      ok: true,
+      reference: "prembly-nin-ref-new",
+      first_name: "Test",
+      last_name: "Changed",
+      date_of_birth: "01-Jan-1990",
+      watchlisted: false
+    }
+    allow(Kyc::PremblyNinVerification).to receive(:new).with(nin).and_return(double(call: result))
+
+    post "/api/v1/kyc/nin/verify", params: { nin: nin }, headers: headers
+
+    expect(response).to have_http_status(:ok)
+    json = JSON.parse(response.body)
+    expect(json["status"]).to eq("verified")
+    expect(json["prembly_reference"]).to eq("prembly-nin-ref-new")
+  end
+
+  it "does not call provider when same NIN verification is already pending" do
+    user.user_kyc.update!(
+      nin_status: "pending",
+      nin_encrypted: nin,
+      nin_last4: nin[-4, 4],
+      nin_last_result_status: "pending",
+      nin_last_checked_at: Time.current
+    )
+
+    expect(Kyc::PremblyNinVerification).not_to receive(:new)
+
+    post "/api/v1/kyc/nin/verify", params: { nin: nin }, headers: headers
+
+    expect(response).to have_http_status(:ok)
+    json = JSON.parse(response.body)
+    expect(json["status"]).to eq("pending")
+    expect(json["reason"]).to eq("provider_incomplete")
+    expect(json["message"]).to include("already in progress")
+  end
+
   it "returns customer-facing display for mismatch" do
     result = {
       ok: true,
