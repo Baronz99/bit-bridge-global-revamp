@@ -4,6 +4,7 @@ import {
   createCard,
   getBeneficiaries,
   getAccounts,
+  getAnchorOnboardingState,
   getBankList,
   getUserAccount,
   getUserCard,
@@ -18,6 +19,7 @@ const initialState = {
   beneficiaries: [],
   message: '',
   card: null,
+  anchorOnboarding: null,
 }
 
 const AccountSlice = createSlice({
@@ -74,6 +76,26 @@ const AccountSlice = createSlice({
         }
       })
       .addCase(getUserAccount.pending, (state) => {
+        return {
+          ...state,
+          loading: true,
+        }
+      })
+      .addCase(getAnchorOnboardingState.fulfilled, (state, action) => {
+        return {
+          ...state,
+          anchorOnboarding: action.payload || null,
+          loading: false,
+        }
+      })
+      .addCase(getAnchorOnboardingState.rejected, (state, action) => {
+        return {
+          ...state,
+          message: action.payload?.message,
+          loading: false,
+        }
+      })
+      .addCase(getAnchorOnboardingState.pending, (state) => {
         return {
           ...state,
           loading: true,

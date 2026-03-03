@@ -1080,6 +1080,19 @@ module Api
       end
 
       def anchor_success_payload(data:, message:, flow:, extra: {})
+        meta = {
+          provider: 'anchor',
+          request_id: request.request_id,
+          flow: flow,
+          docs: anchor_docs_reference
+        }
+
+        # Keep backward compatibility: expose retry hints in both top-level
+        # fields and meta for clients that already parse one shape or the other.
+        %i[retryable provisioning_pending retry_after_seconds].each do |key|
+          meta[key] = extra[key] if extra.key?(key)
+        end
+
         payload = {
           success: true,
           data: data,
@@ -1087,7 +1100,8 @@ module Api
           flow: flow,
           requirements: anchor_requirements(flow[:state]),
           capabilities: anchor_capabilities(flow[:state]),
-          request_id: request.request_id
+          request_id: request.request_id,
+          meta: meta
         }
         payload.merge(extra)
       end
@@ -1111,9 +1125,14 @@ module Api
             provider: 'anchor',
             request_id: request.request_id,
             retryable: retryable,
-            flow: resolved_flow
+            flow: resolved_flow,
+            docs: anchor_docs_reference
           }
         }
+      end
+
+      def anchor_docs_reference
+        'https://docs.getanchor.co/docs/developer-onboarding-to-anchor-api'
       end
 
       def anchor_requirements(flow_state, details: nil)
@@ -1410,7 +1429,7 @@ module Api
         return if current_user&.kyc_at_least?(required_level)
 
         render json: anchor_error_payload(
-          'TIER_INELIGIBLE',
+          'kyc_required',
           'Please complete Tier 2 verification before generating or using an Anchor virtual account.',
           retryable: false,
           flow: {

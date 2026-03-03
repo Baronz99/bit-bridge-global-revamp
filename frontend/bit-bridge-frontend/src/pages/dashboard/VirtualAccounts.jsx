@@ -5,7 +5,7 @@ import { toast } from 'react-toastify'
 import AppModal from '../../components/modal/Modal'
 import AccountCreationWizard from '../../components/accountCreationWizard/AccountCreationWizard'
 import AccountNumbers from '../../components/accountComponents/AccountComponents'
-import { getAccounts, getUserAccount } from '../../redux/actions/account'
+import { getAccounts, getAnchorOnboardingState, getUserAccount } from '../../redux/actions/account'
 import { needsTier2Access, withTier2MissingDetails } from '../../utils/kycGate'
 
 const VirtualAccounts = () => {
@@ -13,7 +13,7 @@ const VirtualAccounts = () => {
   const navigate = useNavigate()
 
   const { user } = useSelector((state) => state.auth)
-  const { accounts } = useSelector((state) => state.account)
+  const { accounts, anchorOnboarding } = useSelector((state) => state.account)
 
   const [isAnchorModal, setIsAnchorModal] = useState(false)
   const [current, setCurrent] = useState(0)
@@ -23,6 +23,7 @@ const VirtualAccounts = () => {
   useEffect(() => {
     dispatch(getUserAccount())
     dispatch(getAccounts())
+    dispatch(getAnchorOnboardingState())
   }, [dispatch])
 
   const handleGenerate = (vendor, data = {}) => {
@@ -53,12 +54,32 @@ const VirtualAccounts = () => {
       return
     }
 
+    const flow = anchorOnboarding?.flow || {}
+    const capabilities = anchorOnboarding?.capabilities || {}
+    const flowState = String(flow?.state || '').trim().toLowerCase()
     const hasAnchorRecord = String(data?.vendor || '').toLowerCase() === 'anchor'
     const anchorStatus = String(data?.status || '').toLowerCase()
     const isAnchorKycVerified = ['verified', 'completed'].includes(anchorStatus)
-    const requiresProvisionOnly = hasAnchorRecord && isAnchorKycVerified && !data?.account_number
-    setFormData(data)
-    setCurrent(data?.account_number ? 3 : requiresProvisionOnly ? 0 : hasAnchorRecord ? 1 : 0)
+    const hasAccountNumber = Boolean(data?.account_number)
+
+    let wizardStep = 0
+    if (hasAccountNumber || flowState === 'provisioned') {
+      wizardStep = 3
+    } else if (flowState === 'blocked_kyc') {
+      wizardStep = 1
+    } else if (flowState === 'customer_created_no_deposit_account') {
+      wizardStep = 0
+    } else {
+      wizardStep = hasAnchorRecord ? (isAnchorKycVerified ? 0 : 1) : 0
+    }
+
+    setFormData({
+      ...data,
+      flow,
+      capabilities,
+      requirements: anchorOnboarding?.requirements || null,
+    })
+    setCurrent(wizardStep)
     setIsAnchorModal(true)
   }
 

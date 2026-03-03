@@ -88,6 +88,19 @@ export const getUserAccount = createAsyncThunk(
   }
 )
 
+export const getAnchorOnboardingState = createAsyncThunk(
+  'account/get-anchor-onboarding-state',
+  async (_, { rejectWithValue }) => {
+    try {
+      const response = await client.get('/accounts/anchor_onboarding_state')
+      return response.data
+    } catch (error) {
+      const message = getErrorMessage(error)
+      return rejectWithValue({ message })
+    }
+  }
+)
+
 export const createDepositAccount = createAsyncThunk(
   'account/create-deposite-account',
   async (_data, { rejectWithValue }) => {

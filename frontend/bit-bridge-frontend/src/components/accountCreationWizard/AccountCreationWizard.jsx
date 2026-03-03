@@ -29,11 +29,15 @@ const AccountCreationWizard = ({
   const [form] = Form.useForm()
   const [accountDetails, setAccountDetails] = useState(null)
   const dispatch = useDispatch()
+  const backendFlowState = String(formData?.flow?.state || '').toLowerCase()
+  const backendCapabilities = formData?.capabilities || {}
   const anchorStatus = String(formData?.status || '').toLowerCase()
   const hasExistingAnchorRecord = String(formData?.vendor || '').toLowerCase() === 'anchor'
   const isAnchorKycVerified = ['verified', 'completed'].includes(anchorStatus)
-  const requiresProvisionOnly =
-    hasExistingAnchorRecord && isAnchorKycVerified && !formData?.account_number
+  const requiresProvisionOnly = (
+    backendFlowState === 'customer_created_no_deposit_account' &&
+    backendCapabilities?.can_provision_account_number !== false
+  ) || (hasExistingAnchorRecord && isAnchorKycVerified && !formData?.account_number)
 
   const prefilledValues = useMemo(() => {
     const profile = user?.user_profile || {}
@@ -96,7 +100,9 @@ const AccountCreationWizard = ({
     }
 
     const hasExistingAnchorRecord =
-      String(formData?.vendor || values?.vendor || '').toLowerCase() === 'anchor'
+      String(formData?.vendor || values?.vendor || '').toLowerCase() === 'anchor' ||
+      backendFlowState === 'blocked_kyc' ||
+      backendFlowState === 'customer_created_no_deposit_account'
 
     if (!hasExistingAnchorRecord) {
       try {
