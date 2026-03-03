@@ -12,6 +12,7 @@ module Api
         IP_DAILY_LIMIT = 10
         NON_TRANSIENT_STATUSES = %w[mismatch locked pending_review].freeze
         PROVIDER_BACKOFF_SECONDS = 120
+        BVN_PENDING_WINDOW = 2.minutes
         BVN_SNAPSHOT_TTL = 60.days
         MISMATCH_CACHE_TTL = 24.hours
         ALLOWED_REASONS = %w[
@@ -88,6 +89,19 @@ module Api
             ), status: :ok
           end
 
+          if inflight_pending_request?(user_kyc, fingerprint, profile_fingerprint)
+            return render json: response_payload(
+              user,
+              user_kyc,
+              status: "pending",
+              reason: "provider_incomplete",
+              cached: false,
+              retryable: false,
+              message: "BVN verification is already in progress. Please wait for the current check to complete.",
+              next_check_seconds: pending_next_check_seconds(user_kyc)
+            ), status: :ok
+          end
+
           if transient_backoff?(user_kyc, fingerprint) && !snapshot_available?(user_kyc, fingerprint)
             wait = backoff_remaining_seconds(user_kyc)
             Rails.logger.info("[BVN] backoff active wait_seconds=#{wait} user_id=#{user.id}")
@@ -130,6 +144,8 @@ module Api
             return render json: response_payload(user, user_kyc, status: "pending_review", reason: "bvn_in_use"),
                           status: :ok
           end
+
+          mark_pending_request!(user_kyc, profile_fingerprint)
 
           basic = ::Kyc::PremblyBvnBasicValidation.new(bvn).call
           unless basic[:ok]
@@ -445,6 +461,25 @@ module Api
 
           remaining = PROVIDER_BACKOFF_SECONDS - (Time.current - last)
           remaining.positive? ? remaining.ceil : 0
+        end
+
+        def inflight_pending_request?(user_kyc, fingerprint, profile_fingerprint)
+          return false unless user_kyc.bvn_status.to_s == "pending"
+          return false unless user_kyc.bvn_fingerprint.present? && user_kyc.bvn_fingerprint == fingerprint
+          return false unless user_kyc.bvn_last_profile_fingerprint.present? && user_kyc.bvn_last_profile_fingerprint == profile_fingerprint
+          return false unless user_kyc.bvn_last_checked_at.present?
+
+          user_kyc.bvn_last_checked_at >= BVN_PENDING_WINDOW.ago
+        end
+
+        def mark_pending_request!(user_kyc, profile_fingerprint)
+          user_kyc.update!(
+            bvn_status: "pending",
+            bvn_last_result_status: "pending",
+            bvn_last_result_reason: nil,
+            bvn_last_checked_at: Time.current,
+            bvn_last_profile_fingerprint: profile_fingerprint
+          )
         end
 
         def register_attempt!(user_kyc, last4, fingerprint)

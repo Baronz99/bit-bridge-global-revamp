@@ -417,6 +417,28 @@ RSpec.describe 'BVN verification caching', type: :request do
     expect(enqueued_jobs.size).to eq(1)
   end
 
+  it 'does not call provider when same BVN verification is already pending' do
+    fingerprint = Kyc::BvnFingerprint.generate(bvn)
+    profile_fp = profile_fingerprint(user.user_profile)
+    user.user_kyc.update!(
+      bvn_status: 'pending',
+      bvn_fingerprint: fingerprint,
+      bvn_last_profile_fingerprint: profile_fp,
+      bvn_last_checked_at: Time.current,
+      bvn_last_result_status: 'pending'
+    )
+
+    expect(Kyc::PremblyBvnVerification).not_to receive(:new)
+
+    post '/api/v1/kyc/bvn/verify', params: { bvn: bvn }, headers: headers
+
+    expect(response).to have_http_status(:ok)
+    json = JSON.parse(response.body)
+    expect(json['status']).to eq('pending')
+    expect(json['reason']).to eq('provider_incomplete')
+    expect(json['retryable']).to eq(false)
+  end
+
   it 'returns 422 when basic validation reports invalid BVN' do
     allow(Kyc::PremblyBvnBasicValidation).to receive(:new).with(bvn)
       .and_return(double(call: { ok: false, invalid: true, status_code: 400 }))
