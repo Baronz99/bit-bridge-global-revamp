@@ -27,7 +27,7 @@ RSpec.describe BuyPowerPaymentService do
 
       body = service.send(:build_vend_body, order, phone: order['phone'])
 
-      expect(body).to include(amount: 100, orderId: 'bbg-123', phone: '08012345678', vertical: 'VTU', disco: 'mtn', meter: '08012345678', vendType: 'PREPAID')
+      expect(body).to include(amount: 100, orderId: 'bbg-123', phone: '08012345678', vertical: 'VTU', disco: 'MTN', meter: '08012345678', vendType: 'PREPAID')
       expect(body.keys).not_to include(:tariffClass)
     end
 
@@ -60,6 +60,41 @@ RSpec.describe BuyPowerPaymentService do
       )
       expect(body[:vendType]).to eq('PREPAID')
     end
+
+    it 'canonicalizes electricity disco to provider code' do
+      order = {
+        'service_type' => 'ELECTRICITY',
+        'amount' => 6802,
+        'id' => 'bbg-789',
+        'phone' => '08012345678',
+        'meter_number' => '88888888880',
+        'meter_type' => 'PREPAID',
+        'biller' => 'abuja-electric',
+        'payment_type' => 'B2B',
+        'name' => 'Test User',
+        'email' => 'test@example.com'
+      }
+
+      body = service.send(:build_vend_body, order, phone: order['phone'])
+      expect(body[:disco]).to eq('ABUJA')
+      expect(body[:vendType]).to eq('PREPAID')
+    end
+
+    it 'rejects electricity payload with unknown disco' do
+      order = {
+        'service_type' => 'ELECTRICITY',
+        'amount' => 6802,
+        'id' => 'bbg-999',
+        'phone' => '08012345678',
+        'meter_number' => '88888888880',
+        'meter_type' => 'PREPAID',
+        'biller' => 'unknown-disco'
+      }
+
+      expect do
+        service.send(:build_vend_body, order, phone: order['phone'])
+      end.to raise_error(/Invalid electricity disco/)
+    end
   end
   describe '#process_payment' do
     before do
@@ -87,6 +122,25 @@ RSpec.describe BuyPowerPaymentService do
 
       expect(result[:status]).to eq('error')
       expect(result[:response]).to include('Invalid vendType provided')
+    end
+
+    it 'fails electricity purchase with unknown disco before provider call' do
+      user = create(:user)
+      service = described_class.new
+
+      expect(service).not_to receive(:verify_meter)
+
+      result = service.process_payment(user, {
+        billersCode: '1234567890',
+        amount: 1000,
+        meter_type: 'PREPAID',
+        service_type: 'ELECTRICITY',
+        biller: 'not-a-real-disco',
+        email: user.email
+      })
+
+      expect(result[:status]).to eq('error')
+      expect(result[:response]).to include('Invalid electricity disco')
     end
 
     it 'defaults vendType to PREPAID for TV purchase without vendType' do

@@ -5,6 +5,52 @@ class BuyPowerPaymentService
   include HTTParty
 
   ELECTRICITY_METER_TYPES = %w[PREPAID POSTPAID].freeze
+  SUPPORTED_ELECTRICITY_DISCOS = %w[ABUJA EKO IKEJA IBADAN ENUGU PH JOS KADUNA KANO BH].freeze
+  ELECTRICITY_DISCO_ALIASES = {
+    'abuja' => 'ABUJA',
+    'aedc' => 'ABUJA',
+    'abujaelectric' => 'ABUJA',
+    'abuja-electric' => 'ABUJA',
+    'eko' => 'EKO',
+    'ekedc' => 'EKO',
+    'ekoelectric' => 'EKO',
+    'eko-electric' => 'EKO',
+    'ikeja' => 'IKEJA',
+    'ikedc' => 'IKEJA',
+    'ikejaelectric' => 'IKEJA',
+    'ikeja-electric' => 'IKEJA',
+    'ibadan' => 'IBADAN',
+    'ibedc' => 'IBADAN',
+    'ibadanelectric' => 'IBADAN',
+    'ibadan-electric' => 'IBADAN',
+    'enugu' => 'ENUGU',
+    'eedc' => 'ENUGU',
+    'enuguelectric' => 'ENUGU',
+    'enugu-electric' => 'ENUGU',
+    'ph' => 'PH',
+    'phed' => 'PH',
+    'portharcourt' => 'PH',
+    'portharcourtelectric' => 'PH',
+    'portharcourt-electric' => 'PH',
+    'jos' => 'JOS',
+    'jed' => 'JOS',
+    'joselectric' => 'JOS',
+    'jos-electric' => 'JOS',
+    'kaduna' => 'KADUNA',
+    'kaedco' => 'KADUNA',
+    'kadunaelectric' => 'KADUNA',
+    'kaduna-electric' => 'KADUNA',
+    'kano' => 'KANO',
+    'kedco' => 'KANO',
+    'kanoelectric' => 'KANO',
+    'kano-electric' => 'KANO',
+    'bh' => 'BH',
+    'benin' => 'BH',
+    'bedc' => 'BH',
+    'beninelectric' => 'BH',
+    'benin-electric' => 'BH'
+  }.freeze
+  PROVIDER_PENDING_CODES = [202, 500, 502, 503].freeze
 
   # Required env vars:
   # - BUYPOWER_TOKEN
@@ -42,6 +88,8 @@ class BuyPowerPaymentService
       return { response: 'Amount is required', status: 'error' } if amount_raw.nil? || amount_raw == ''
       return { response: 'Invalid amount', status: 'error' } unless valid_amount?(amount_raw)
 
+      return { response: invalid_disco_message, status: 'error' } if normalized_biller.blank?
+
       raw_meter_type = payment_processor_params[:meter_type] || payment_processor_params[:vend_type] || payment_processor_params[:vendType]
       meter_type = normalize_electricity_meter_type(raw_meter_type)
       return { response: 'meter_type must be PREPAID or POSTPAID', status: 'error' } if meter_type.blank?
@@ -49,6 +97,8 @@ class BuyPowerPaymentService
       payment_processor_params[:meter_type] = meter_type
       payment_processor_params[:biller] = normalized_biller
       res = verify_meter(payment_processor_params) if payment_processor_params[:skip] != true
+      verified_disco = normalize_electricity_biller(res&.dig('discoCode') || res&.dig('disco'))
+      normalized_biller = verified_disco if verified_disco.present?
     end
 
     resolved_meter_type =
@@ -151,6 +201,7 @@ class BuyPowerPaymentService
 
 
     begin
+      raise invalid_disco_message if biller.blank?
       raise 'meter_type must be PREPAID or POSTPAID' if meter_type.blank?
 
       response = self.class.get(
@@ -479,7 +530,7 @@ class BuyPowerPaymentService
       return { status: 'pending', response: 'Payment pending...' }
     end
 
-    if response.success?
+    if provider_response_success?(response)
       Rails.logger.info(
         "BuyPower vend success #{request_tag} provider_txn_id=#{response&.dig('data','id')} units_present=#{!!response&.dig('data','units')} token_present=#{!!response&.dig('data','token')}"
       )
@@ -551,6 +602,7 @@ class BuyPowerPaymentService
         provider_payload&.dig('result', 'message') ||
         provider_payload&.dig('message') ||
         provider_payload&.dig('error')
+      response_code = provider_response_code(provider_payload)
       if electric_bill_order['service_type'].to_s.strip.upcase == 'TV' &&
          (provider_message.to_s.downcase.include?('invalid account number') ||
           error_message.to_s.downcase.include?('invalid account number'))
@@ -564,10 +616,15 @@ class BuyPowerPaymentService
          (Rails.env.development? || Rails.env.staging?) &&
          Config::Bills.base_url.to_s.include?('idev.')
         sanitized_message = sanitize_provider_message(provider_message.presence || error_message)
-        response_code = provider_payload&.dig('responseCode') || provider_payload&.dig(:responseCode)
         Rails.logger.warn(
           "BuyPower VTU failure request_id=#{request_id || 'unknown'} bill_order_id=#{electric_bill_order.id} vertical=#{body[:vertical]} disco=#{body[:disco]} responseCode=#{response_code} message=#{sanitized_message}"
         )
+      end
+
+      if pending_response_code?(response_code)
+        electric_bill_order.update(status: 'processing', payment_method: payment_method, reason: error_message, provider_response: provider_payload)
+        enqueue_reconciliation(electric_bill_order)
+        return { status: 'pending', response: 'Payment processing...' }
       end
 
       if provider_message.to_s.downcase.include?('daily transaction count limit')
@@ -827,12 +884,24 @@ end
 
   private
   def build_vend_body(electric_bill_order, phone:)
+    service_type = electric_bill_order['service_type'].to_s.strip.upcase
+    disco =
+      if service_type == 'ELECTRICITY'
+        normalize_electricity_biller(electric_bill_order['biller'])
+      else
+        electric_bill_order['biller']
+      end
+
+    if service_type == 'ELECTRICITY' && disco.blank?
+      raise invalid_disco_message
+    end
+
     body = {
       meter: electric_bill_order['meter_number'],
       amount: electric_bill_order['amount'],
       orderId: electric_bill_order['id'],
       phone: phone,
-      disco: electric_bill_order['biller'],
+      disco: disco,
       vertical: electric_bill_order['service_type'],
       paymentType: electric_bill_order['payment_type'],
       name: electric_bill_order['name'],
@@ -840,7 +909,6 @@ end
       tariffClass: electric_bill_order['tariff_class']
     }
 
-    service_type = electric_bill_order['service_type'].to_s.strip.upcase
     if %w[ELECTRICITY TV].include?(service_type)
       raw_vend_type = electric_bill_order['meter_type']
       vend_type = raw_vend_type.to_s.strip.upcase.presence
@@ -919,6 +987,46 @@ end
     response&.dig('data', 'status')&.to_s&.downcase ||
       response&.dig('status')&.to_s&.downcase ||
       response&.dig('responseCode')&.to_s&.downcase
+  end
+
+  def provider_response_code(payload)
+    return nil unless payload.is_a?(Hash)
+
+    raw =
+      payload['responseCode'] ||
+      payload[:responseCode] ||
+      payload.dig('data', 'responseCode') ||
+      payload.dig(:data, :responseCode) ||
+      payload.dig('result', 'responseCode') ||
+      payload.dig(:result, :responseCode) ||
+      payload.dig('result', 'data', 'responseCode') ||
+      payload.dig(:result, :data, :responseCode)
+
+    Integer(raw)
+  rescue ArgumentError, TypeError
+    nil
+  end
+
+  def provider_response_success?(response)
+    return false unless response.respond_to?(:success?)
+    return false unless response.success?
+
+    payload = provider_response_payload(response)
+    return true unless payload.is_a?(Hash)
+
+    status_flag = payload['status']
+    return false if status_flag == false
+    return false if payload['error'] == true
+
+    response_code = provider_response_code(payload)
+    return false if pending_response_code?(response_code)
+    return true if response_code.nil?
+
+    [100, 200].include?(response_code)
+  end
+
+  def pending_response_code?(response_code)
+    PROVIDER_PENDING_CODES.include?(response_code.to_i)
   end
 
   def log_tv_invalid_account(provider_payload:, bill_order:, request_id:)
@@ -1004,10 +1112,18 @@ end
   end
 
   def normalize_electricity_biller(raw_biller)
-    biller = raw_biller.to_s.strip.downcase
-    return 'ph' if biller == 'ph'
+    biller = raw_biller.to_s.strip
+    return nil if biller.blank?
 
-    biller
+    upper = biller.upcase
+    return upper if SUPPORTED_ELECTRICITY_DISCOS.include?(upper)
+
+    normalized_key = biller.downcase.gsub(/[^a-z0-9]/, '')
+    ELECTRICITY_DISCO_ALIASES[normalized_key]
+  end
+
+  def invalid_disco_message
+    "Invalid electricity disco. Supported discos: #{SUPPORTED_ELECTRICITY_DISCOS.join(', ')}"
   end
 
     def handle_wallet_success(order, payment_method, use_commission, units, token, transaction_id, message, provider_payload)
