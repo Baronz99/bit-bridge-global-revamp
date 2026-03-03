@@ -526,6 +526,11 @@ module Api
             order[:currency].presence
           end
         currency ||= 'NGN'
+        provider_payload = bill_order_provider_payload(order)
+        provider_reference = order.provider_reference.presence || order.transaction_id.presence || record&.reference
+        provider_response_code = bill_order_provider_response_code(provider_payload)
+        provider_response_message = bill_order_provider_message(provider_payload)
+        provider_status = bill_order_provider_status(provider_payload) || order.status
 
         legacy = {
           reference: "bill-#{order.id}",
@@ -581,7 +586,12 @@ module Api
             recipient: order.meter_number || order.phone
           }.compact,
           provider: {
-            transaction_reference: record&.reference || order.transaction_id
+            name: 'buypower',
+            transaction_reference: record&.reference || order.transaction_id,
+            reference: provider_reference,
+            status: provider_status,
+            response_code: provider_response_code,
+            response_message: provider_response_message
           }.compact,
           meta: {
             token: order.token,
@@ -596,7 +606,17 @@ module Api
             total_amount: order.total_amount,
             transaction_id: order.transaction_id,
             usd_amount: order.usd_amount,
-            currency: currency
+            currency: currency,
+            bill_order_id: order.id,
+            provider_reference: provider_reference,
+            provider_response_code: provider_response_code,
+            provider_response_message: provider_response_message,
+            provider_status: provider_status,
+            reason: order.reason,
+            failure_reason_code: order.failure_reason_code,
+            failure_reason_text: order.failure_reason_text,
+            reconcile_attempts: order.reconcile_attempts,
+            reconcile_last_attempt_at: order.reconcile_last_attempt_at&.iso8601
           }.compact,
           timeline: build_bill_timeline(order, record),
           fees: bill_fees,
@@ -1733,6 +1753,67 @@ module Api
       def wallet_ledger_snapshot_columns_available?
         WalletLedgerEntry.column_names.include?('before_available_balance') &&
           WalletLedgerEntry.column_names.include?('after_available_balance')
+      end
+
+      def bill_order_provider_payload(order)
+        payload = order.provider_response
+        return payload if payload.is_a?(Hash)
+        return {} if payload.blank?
+
+        JSON.parse(payload.to_s)
+      rescue StandardError
+        {}
+      end
+
+      def bill_order_provider_response_code(payload)
+        return nil unless payload.is_a?(Hash)
+
+        payload['responseCode'] ||
+          payload[:responseCode] ||
+          payload.dig('data', 'responseCode') ||
+          payload.dig(:data, :responseCode) ||
+          payload.dig('result', 'responseCode') ||
+          payload.dig(:result, :responseCode) ||
+          payload.dig('result', 'data', 'responseCode') ||
+          payload.dig(:result, :data, :responseCode)
+      end
+
+      def bill_order_provider_message(payload)
+        return nil unless payload.is_a?(Hash)
+
+        payload['message'].to_s.presence ||
+          payload[:message].to_s.presence ||
+          payload.dig('data', 'message').to_s.presence ||
+          payload.dig(:data, :message).to_s.presence ||
+          payload.dig('data', 'responseMessage').to_s.presence ||
+          payload.dig(:data, :responseMessage).to_s.presence ||
+          payload.dig('result', 'message').to_s.presence ||
+          payload.dig(:result, :message).to_s.presence ||
+          payload.dig('result', 'data', 'message').to_s.presence ||
+          payload.dig(:result, :data, :message).to_s.presence ||
+          payload.dig('result', 'data', 'responseMessage').to_s.presence ||
+          payload.dig(:result, :data, :responseMessage).to_s.presence
+      end
+
+      def bill_order_provider_status(payload)
+        return nil unless payload.is_a?(Hash)
+
+        status_value =
+          payload['status'] ||
+          payload[:status] ||
+          payload.dig('data', 'status') ||
+          payload.dig(:data, :status) ||
+          payload.dig('result', 'status') ||
+          payload.dig(:result, :status)
+
+        case status_value
+        when true
+          'successful'
+        when false
+          'failed'
+        else
+          status_value.to_s.presence
+        end
       end
     end
   end

@@ -182,6 +182,10 @@ const Receipt = () => {
   const timeline = useMemo(() => receipt?.timeline || [], [receipt])
   const fx = useMemo(() => receipt?.fx || null, [receipt])
   const linked = useMemo(() => receipt?.linked || {}, [receipt])
+  const receiptKind = String(receipt?.kind || '').toLowerCase()
+  const serviceType = String(receipt?.meta?.service_type || receipt?.event || '').toUpperCase()
+  const isBillReceipt = receiptKind === 'bill'
+  const isElectricityReceipt = isBillReceipt && serviceType === 'ELECTRICITY'
 
   const copyReference = async () => {
     try {
@@ -323,13 +327,21 @@ const Receipt = () => {
             {isFailed && (
               <div className="space-y-1">
                 <p>
-                  {statusValue === 'failed_refunded'
+                  {isElectricityReceipt
+                    ? 'This electricity payment failed. If debited, reversal is in progress. Contact support with your receipt reference if this persists.'
+                    : isBillReceipt
+                    ? 'This bill payment failed. If debited, reversal is in progress. Contact support with your receipt reference if this persists.'
+                    : statusValue === 'failed_refunded'
                     ? 'This transaction failed but funds were returned to your wallet.'
                     : statusValue === 'failed_reversal_pending' || statusValue === 'failed_unrecovered'
                     ? 'This transaction failed and reversal is in progress. Contact support if this persists.'
                     : 'This transaction failed. You can retry the action or contact support with your receipt reference.'}
                 </p>
                 {provider?.status && <p>Provider status: {provider.status}</p>}
+                {receipt?.meta?.provider_response_code && (
+                  <p>Provider response code: {receipt.meta.provider_response_code}</p>
+                )}
+                {receipt?.meta?.reason && <p>Failure reason: {receipt.meta.reason}</p>}
                 {receipt?.display_message && <p>{receipt.display_message}</p>}
               </div>
             )}
