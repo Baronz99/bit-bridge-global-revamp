@@ -500,6 +500,9 @@ RSpec.describe 'BVN verification caching', type: :request do
     expect(response).to have_http_status(:ok)
     json = JSON.parse(response.body)
     expect(json['reason']).to eq('mismatch')
+    expect(json['reason_code']).to eq('mismatch')
+    expect(json.dig('display', 'title')).to eq('Details do not match')
+    expect(json.dig('display', 'action')).to eq('update_profile')
   end
 
   it 'normalizes pending_review reason fallback' do
@@ -523,6 +526,36 @@ RSpec.describe 'BVN verification caching', type: :request do
     expect(response).to have_http_status(:ok)
     json = JSON.parse(response.body)
     expect(json['reason']).to eq('provider_incomplete')
+    expect(json['reason_code']).to eq('provider_incomplete')
+    expect(json.dig('display', 'title')).to eq('Verification under review')
+    expect(json.dig('display', 'action')).to eq('wait_and_recheck')
+  end
+
+  it 'returns customer-facing display for name mismatch' do
+    result = {
+      ok: true,
+      reference: 'prembly-ref',
+      first_name: 'Other',
+      last_name: 'User',
+      date_of_birth: '01-Jan-1990',
+      watchlisted: false
+    }
+
+    allow_any_instance_of(Api::V1::Kyc::BvnController).to receive(:resolve_match_outcome).and_return(
+      { status: 'pending_review', reason: 'name_mismatch' }
+    )
+    expect(Kyc::PremblyBvnVerification).to receive(:new).with(bvn)
+      .and_return(double(call: result))
+
+    post '/api/v1/kyc/bvn/verify', params: { bvn: bvn }, headers: headers
+
+    expect(response).to have_http_status(:ok)
+    json = JSON.parse(response.body)
+    expect(json['status']).to eq('pending_review')
+    expect(json['reason']).to eq('name_mismatch')
+    expect(json['reason_code']).to eq('name_mismatch')
+    expect(json.dig('display', 'title')).to eq('Name needs review')
+    expect(json.dig('display', 'action')).to eq('update_profile')
   end
 
   describe 'requirements payload' do

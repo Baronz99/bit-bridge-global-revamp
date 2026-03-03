@@ -258,6 +258,12 @@ module Api
           snapshot_present: nil
         )
           normalized_reason = normalize_reason(status: status, reason: reason)
+          customer_display = customer_display_payload(
+            status: status,
+            reason: normalized_reason,
+            next_check_seconds: next_check_seconds,
+            locked_until: user_kyc.bvn_locked_until
+          )
           payload = {
             status: status,
             tier: user.kyc_level || "tier_0",
@@ -273,7 +279,9 @@ module Api
             last_result_status: user_kyc.bvn_last_result_status,
             last_result_reason: user_kyc.bvn_last_result_reason,
             last_checked_at: user_kyc.bvn_last_checked_at,
+            reason_code: normalized_reason,
             reason: normalized_reason,
+            display: customer_display,
             cached: cached,
             retryable: retryable,
             message: message,
@@ -470,6 +478,95 @@ module Api
           return "provider_incomplete" if status_key == "pending_review"
 
           nil
+        end
+
+        def customer_display_payload(status:, reason:, next_check_seconds:, locked_until:)
+          status_key = status.to_s
+          reason_key = reason.to_s
+
+          case status_key
+          when "verified"
+            {
+              severity: "success",
+              title: "BVN verified",
+              message: "Your BVN has been verified successfully.",
+              action: "continue_kyc",
+              action_label: "Continue verification"
+            }
+          when "pending"
+            wait_text = next_check_seconds.to_i.positive? ? " Retry in about #{next_check_seconds.to_i} seconds." : ""
+            {
+              severity: "info",
+              title: "Verification in progress",
+              message: "We are checking your BVN with our provider.#{wait_text}",
+              action: "wait_and_recheck",
+              action_label: "Check status"
+            }
+          when "pending_review"
+            pending_review_display(reason_key)
+          when "mismatch"
+            {
+              severity: "warning",
+              title: "Details do not match",
+              message: "Your BVN details do not match your profile. Update your profile details and retry.",
+              action: "update_profile",
+              action_label: "Update profile"
+            }
+          when "locked"
+            lock_text = locked_until.present? ? " Try again after #{locked_until.in_time_zone.strftime('%b %-d, %Y %l:%M %p %Z')}." : ""
+            {
+              severity: "error",
+              title: "Verification temporarily locked",
+              message: "Too many attempts were made.#{lock_text}",
+              action: "wait_and_retry",
+              action_label: "Retry later"
+            }
+          else
+            {
+              severity: "info",
+              title: "Verification required",
+              message: "Enter your BVN to continue verification.",
+              action: "submit_bvn",
+              action_label: "Verify BVN"
+            }
+          end
+        end
+
+        def pending_review_display(reason_key)
+          case reason_key
+          when "name_mismatch"
+            {
+              severity: "warning",
+              title: "Name needs review",
+              message: "Your first name does not fully match your BVN record. Update your profile to match your bank details, then retry.",
+              action: "update_profile",
+              action_label: "Update profile"
+            }
+          when "watchlisted"
+            {
+              severity: "warning",
+              title: "Manual review required",
+              message: "Your verification requires compliance review. We will notify you once this is completed.",
+              action: "contact_support",
+              action_label: "Contact support"
+            }
+          when "bvn_in_use"
+            {
+              severity: "warning",
+              title: "BVN already linked",
+              message: "This BVN is already linked to another account and has been sent for review.",
+              action: "contact_support",
+              action_label: "Contact support"
+            }
+          else
+            {
+              severity: "info",
+              title: "Verification under review",
+              message: "Your BVN verification is under review. Please check back shortly.",
+              action: "wait_and_recheck",
+              action_label: "Check status"
+            }
+          end
         end
 
         def cached_reason_for(status)
