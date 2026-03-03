@@ -70,9 +70,12 @@ module Api
         private
 
         def response_payload(user, user_kyc, status:, reason:, message: nil)
+          normalized_reason = normalize_reason(status: status, reason: reason)
           {
             status: status,
-            reason: normalize_reason(status: status, reason: reason),
+            reason_code: normalized_reason,
+            reason: normalized_reason,
+            display: customer_display_payload(status: status, reason: normalized_reason),
             message: message,
             tier: user.kyc_level || "tier_0",
             nin_last4: user_kyc.nin_last4,
@@ -144,6 +147,77 @@ module Api
 
         def refresh_tier!(user)
           user.update!(kyc_level: ::Kyc::LevelCalculator.resolve_level(user))
+        end
+
+        def customer_display_payload(status:, reason:)
+          status_key = status.to_s
+          reason_key = reason.to_s
+
+          case status_key
+          when "verified"
+            {
+              severity: "success",
+              title: "NIN verified",
+              message: "Your NIN has been verified successfully.",
+              action: "continue_kyc",
+              action_label: "Continue verification"
+            }
+          when "pending_review"
+            pending_review_display(reason_key)
+          when "mismatch"
+            {
+              severity: "warning",
+              title: "Details do not match",
+              message: "Your NIN details do not match your profile records. Update your profile and retry.",
+              action: "update_profile",
+              action_label: "Update profile"
+            }
+          when "failed"
+            {
+              severity: "error",
+              title: "Verification unavailable",
+              message: "NIN verification is currently unavailable. Please retry shortly.",
+              action: "retry",
+              action_label: "Try again"
+            }
+          else
+            {
+              severity: "info",
+              title: "NIN verification required",
+              message: "Enter your NIN to continue identity verification.",
+              action: "submit_nin",
+              action_label: "Verify NIN"
+            }
+          end
+        end
+
+        def pending_review_display(reason_key)
+          case reason_key
+          when "name_mismatch"
+            {
+              severity: "warning",
+              title: "Name needs review",
+              message: "Your name does not fully match your NIN record. Update your profile details and retry.",
+              action: "update_profile",
+              action_label: "Update profile"
+            }
+          when "watchlisted"
+            {
+              severity: "warning",
+              title: "Manual review required",
+              message: "Your NIN verification requires compliance review. We will notify you when completed.",
+              action: "contact_support",
+              action_label: "Contact support"
+            }
+          else
+            {
+              severity: "info",
+              title: "Verification under review",
+              message: "Your NIN verification is under review. Please check again shortly.",
+              action: "wait_and_recheck",
+              action_label: "Check status"
+            }
+          end
         end
 
         def same_verified_nin?(user_kyc, nin)

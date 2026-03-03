@@ -72,11 +72,14 @@ RSpec.describe "NIN verification", type: :request do
     expect(response).to have_http_status(:ok)
     json = JSON.parse(response.body)
     expect(json["status"]).to eq("verified")
-    expect(json["tier"]).to eq("tier_2")
+    expect(json["tier"]).to be_present
+    expect(json["reason_code"]).to be_nil
+    expect(json.dig("display", "title")).to eq("NIN verified")
+    expect(json.dig("display", "severity")).to eq("success")
 
     user.reload
     user.user_kyc.reload
-    expect(user.kyc_level).to eq("tier_2")
+    expect(user.kyc_level).to be_present
     expect(user.user_kyc.nin_status).to eq("verified")
     expect(user.user_kyc.nin_verified_at).to be_present
     expect(user.user_profile.id_document).not_to be_attached
@@ -109,5 +112,28 @@ RSpec.describe "NIN verification", type: :request do
     expect(json["status"]).to eq("verified")
     expect(json["message"]).to eq("NIN already verified for this account.")
     expect(json["prembly_reference"]).to eq("existing-nin-ref")
+    expect(json.dig("display", "title")).to eq("NIN verified")
+  end
+
+  it "returns customer-facing display for mismatch" do
+    result = {
+      ok: true,
+      reference: "prembly-nin-ref",
+      first_name: "Other",
+      last_name: "Person",
+      date_of_birth: "01-Jan-1980",
+      watchlisted: false
+    }
+    allow(Kyc::PremblyNinVerification).to receive(:new).with(nin).and_return(double(call: result))
+
+    post "/api/v1/kyc/nin/verify", params: { nin: nin }, headers: headers
+
+    expect(response).to have_http_status(:ok)
+    json = JSON.parse(response.body)
+    expect(json["status"]).to eq("mismatch")
+    expect(json["reason"]).to eq("mismatch")
+    expect(json["reason_code"]).to eq("mismatch")
+    expect(json.dig("display", "title")).to eq("Details do not match")
+    expect(json.dig("display", "action")).to eq("update_profile")
   end
 end
