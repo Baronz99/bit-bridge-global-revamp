@@ -31,6 +31,17 @@ module Api
           user = current_user
           user_kyc = user.user_kyc || user.build_user_kyc
 
+          if user_kyc.nin_verified? && same_verified_nin?(user_kyc, nin)
+            refresh_tier!(user)
+            return render json: response_payload(
+              user,
+              user_kyc,
+              status: "verified",
+              reason: nil,
+              message: "NIN already verified for this account."
+            ), status: :ok
+          end
+
           result = ::Kyc::PremblyNinVerification.new(nin).call
           unless result[:ok]
             reason = result[:invalid] ? "nin_invalid" : "provider_unavailable"
@@ -134,8 +145,15 @@ module Api
         def refresh_tier!(user)
           user.update!(kyc_level: ::Kyc::LevelCalculator.resolve_level(user))
         end
+
+        def same_verified_nin?(user_kyc, nin)
+          stored_nin = user_kyc.nin_encrypted.to_s.gsub(/\s+/, "")
+          return false if stored_nin.blank?
+          return false unless stored_nin.length == nin.length
+
+          ActiveSupport::SecurityUtils.secure_compare(stored_nin, nin)
+        end
       end
     end
   end
 end
-

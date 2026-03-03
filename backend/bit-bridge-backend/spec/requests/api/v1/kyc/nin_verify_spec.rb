@@ -3,7 +3,7 @@
 require "rails_helper"
 
 RSpec.describe "NIN verification", type: :request do
-  let(:user) { create(:user) }
+  let(:user) { create(:user, :confirmed) }
   let(:headers) { auth_headers(user) }
   let(:nin) { "12345678901" }
 
@@ -90,5 +90,24 @@ RSpec.describe "NIN verification", type: :request do
     json = JSON.parse(response.body)
     expect(json["reason"]).to eq("nin_invalid")
   end
-end
 
+  it "does not call provider when same NIN is already verified" do
+    user.user_kyc.update!(
+      nin_status: "verified",
+      nin_verified_at: Time.current,
+      nin_encrypted: nin,
+      nin_last4: nin[-4, 4],
+      nin_provider_reference: "existing-nin-ref"
+    )
+
+    expect(Kyc::PremblyNinVerification).not_to receive(:new)
+
+    post "/api/v1/kyc/nin/verify", params: { nin: nin }, headers: headers
+
+    expect(response).to have_http_status(:ok)
+    json = JSON.parse(response.body)
+    expect(json["status"]).to eq("verified")
+    expect(json["message"]).to eq("NIN already verified for this account.")
+    expect(json["prembly_reference"]).to eq("existing-nin-ref")
+  end
+end
