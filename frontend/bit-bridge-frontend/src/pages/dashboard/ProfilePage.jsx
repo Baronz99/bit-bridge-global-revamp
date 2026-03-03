@@ -19,6 +19,7 @@ import FeesLimitsPanel from './profile/FeesLimitsPanel' // ✅ NEW
 
 // helper from onboarding API
 import { updateKycProfile } from '../../api/onboarding'
+import client from '../../api/client'
 
 // ID type options
 const idTypeOptions = [
@@ -397,6 +398,8 @@ const ProfileAccountPage = () => {
       const formData = new FormData()
 
       const isKycSave = active === 'kyc'
+      const submittedNin = String(nin || '').replace(/\D/g, '')
+      const shouldVerifyNin = isKycSave && userInfo.id_type === 'nin' && submittedNin.length === 11
 
       if (isKycSave || userInfo.id_type) {
         formData.append('user[id_type]', userInfo.id_type || '')
@@ -421,6 +424,32 @@ const ProfileAccountPage = () => {
       if (proofOfAddressFile) formData.append('user[proof_of_address]', proofOfAddressFile)
 
       await updateKycProfile(formData, true)
+
+      if (shouldVerifyNin) {
+        try {
+          const ninRes = await client.post('/kyc/nin/verify', { nin: submittedNin })
+          const ninPayload = ninRes?.data || {}
+          const displayTitle = String(ninPayload?.display?.title || '').trim()
+          const displayMessage = String(ninPayload?.display?.message || '').trim()
+          const fallbackMessage =
+            ninPayload?.message ||
+            (ninPayload?.status === 'verified'
+              ? 'NIN verified successfully.'
+              : ninPayload?.status === 'mismatch'
+              ? 'NIN details do not match your profile records.'
+              : 'NIN verification submitted.')
+
+          toast(
+            displayTitle && displayMessage ? `${displayTitle}: ${displayMessage}` : displayMessage || fallbackMessage,
+            { type: ninPayload?.status === 'verified' ? 'success' : 'info' }
+          )
+        } catch (ninErr) {
+          const ninPayload = ninErr?.response?.data || {}
+          const ninMessage =
+            ninPayload?.display?.message || ninPayload?.message || ninPayload?.error || 'NIN verification failed.'
+          toast(ninMessage, { type: 'error' })
+        }
+      }
 
       // ✅ Refresh Redux user and immediately sync local form state from server
       const refreshedAction = await dispatch(userProfile())
