@@ -960,6 +960,12 @@ module Api
             return existing_anchor
           end
 
+          linked_anchor = link_anchor_customer_from_duplicate_error(
+            service_response: service_response,
+            account_info: account_info
+          )
+          return linked_anchor if linked_anchor.present?
+
           render json: anchor_error_payload(
             'ANCHOR_CUSTOMER_EXISTS',
             'Anchor profile already exists. Refresh and continue onboarding.',
@@ -1272,6 +1278,80 @@ module Api
         false
       end
 
+      def link_anchor_customer_from_duplicate_error(service_response:, account_info:)
+        customer_id = extract_anchor_customer_id_from_duplicate_error(service_response)
+        return nil if customer_id.blank?
+
+        existing = current_user.accounts.where(vendor: 'anchor')
+                               .where('account_id = :id OR useable_id = :id', id: customer_id)
+                               .order(updated_at: :desc)
+                               .first
+        if existing.present?
+          existing.update(active: true) unless existing.active?
+          return existing
+        end
+
+        gender = normalize_anchor_gender(account_info[:gender] || current_user&.user_profile&.gender)
+        account_name = [account_info[:first_name], account_info[:last_name]].compact.join(' ').strip.presence
+
+        current_user.accounts.create!(
+          account_type: :individual,
+          status: :verifying,
+          active: true,
+          vendor: 'anchor',
+          account_id: customer_id,
+          useable_id: customer_id,
+          account_name: account_name,
+          bank_name: 'Anchor',
+          bvn: normalize_anchor_bvn(account_info[:bvn]),
+          dob: normalize_anchor_dob(account_info[:dob]),
+          gender: gender
+        )
+      rescue StandardError => e
+        Rails.logger.warn(
+          "[Anchor Onboarding] duplicate_customer_autolink_failed user_id=#{current_user&.id} " \
+          "message=#{e.message}"
+        )
+        nil
+      end
+
+      def extract_anchor_customer_id_from_duplicate_error(service_response)
+        body = service_response[:provider_body]
+        candidates = []
+        collect_anchor_id_candidates!(body, candidates)
+        collect_anchor_id_candidates!(service_response[:message], candidates)
+
+        normalized = candidates.map { |value| value.to_s.strip }.reject(&:blank?).uniq
+        normalized.find { |value| value.match?(/\A[\w-]+-anc_cus\z/i) } ||
+          normalized.find { |value| value.match?(/\Acus_[\w-]+\z/i) } ||
+          normalized.find { |value| value.match?(/\A[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\z/i) }
+      end
+
+      def collect_anchor_id_candidates!(source, candidates)
+        case source
+        when Hash
+          source.each do |key, value|
+            key_text = key.to_s.downcase
+            if value.is_a?(String) && key_text.include?('id')
+              candidates << value
+            end
+            if value.is_a?(String)
+              candidates.concat(value.scan(/[\w-]+-anc_cus/i))
+              candidates.concat(value.scan(/cus_[\w-]+/i))
+            end
+            collect_anchor_id_candidates!(value, candidates)
+          end
+        when Array
+          source.each { |value| collect_anchor_id_candidates!(value, candidates) }
+        when String
+          candidates.concat(source.scan(/[\w-]+-anc_cus/i))
+          candidates.concat(source.scan(/cus_[\w-]+/i))
+          if source =~ /\b(?:customer|customer_id|id)\b[^A-Za-z0-9_-]*([A-Za-z0-9_-]{8,})/i
+            candidates << Regexp.last_match(1)
+          end
+        end
+      end
+
       def map_anchor_account_number_error(message, provider_body = nil)
         text = message.to_s.downcase
         body_text = provider_body.to_s.downcase
@@ -1365,6 +1445,11 @@ module Api
             current_blocker: 'Complete Tier 2 verification',
             next_action_hint: 'complete_kyc'
           )
+        when 'pending_kyc_review'
+          base.merge(
+            current_blocker: 'Anchor KYC is under provider review',
+            next_action_hint: 'refresh_status'
+          )
         when 'blocked_profile_incomplete'
           base.merge(
             current_blocker: 'Complete required profile fields',
@@ -1379,7 +1464,7 @@ module Api
         state = flow_state.to_s
         {
           can_create_anchor_profile: %w[not_started blocked_profile_incomplete blocked_phone_exists temporary_provider_failure].include?(state),
-          can_submit_anchor_kyc: !%w[not_started].include?(state),
+          can_submit_anchor_kyc: !%w[not_started pending_kyc_review].include?(state),
           can_provision_account_number: %w[customer_created_no_deposit_account].include?(state),
           can_fund_wallet: %w[provisioned].include?(state)
         }
@@ -1399,6 +1484,13 @@ module Api
           return {
             state: 'not_started',
             next_action: 'create_anchor_account'
+          }
+        end
+
+        if %w[verifying pending].include?(account.status.to_s)
+          return {
+            state: 'pending_kyc_review',
+            next_action: 'refresh_status'
           }
         end
 
@@ -1496,6 +1588,8 @@ module Api
           { state: 'blocked_kyc', next_action: 'complete_kyc' }
         when 'anchor_kyc_already_verified'
           { state: 'customer_created_no_deposit_account', next_action: 'provision_account_number' }
+        when 'pending_kyc_review'
+          { state: 'pending_kyc_review', next_action: 'refresh_status' }
         when 'anchor_kyc_verification_failed'
           { state: 'blocked_kyc', next_action: 'complete_kyc' }
         when 'anchor_phone_already_exists'
