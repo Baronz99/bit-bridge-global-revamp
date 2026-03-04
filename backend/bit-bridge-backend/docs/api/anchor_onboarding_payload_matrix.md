@@ -101,7 +101,7 @@ Normalized backend error codes:
 Backend endpoint:
 - `POST /api/v1/accounts/verify_kyc`
 
-Client request payload:
+Client request payload (full):
 ```json
 {
   "account": {
@@ -111,6 +111,18 @@ Client request payload:
   }
 }
 ```
+
+Client request payload (minimal, preferred when profile is already complete):
+```json
+{
+  "account": {}
+}
+```
+
+Backend fallback behavior:
+- `bvn`: uses verified BitBridge KYC BVN when not supplied in request.
+- `dob`: falls back to Anchor account value, then profile `date_of_birth`.
+- `gender`: falls back to Anchor account value, then profile `gender`.
 
 Backend -> Anchor provider mapping:
 - Anchor endpoint: `POST /api/v1/customers/{customerId}/verification/individual`
@@ -184,8 +196,9 @@ Client request payload (minimal):
 ```
 
 Optional fields:
-- If provided, backend can use `bvn`, `dob`, `gender`, and profile aliases for
-  missing data fallback.
+- If provided, backend can use `bvn`, `dob`, `gender`, and profile aliases.
+- If omitted, backend derives KYC values from stored user records (verified BVN,
+  profile DOB, profile gender, existing Anchor account values).
 
 Execution order:
 1. Ensure Anchor customer exists.

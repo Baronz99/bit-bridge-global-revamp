@@ -200,5 +200,49 @@ RSpec.describe 'Accounts', type: :request do
       expect(body.dig('details', 'missing_fields')).to include('bvn', 'dob', 'gender')
       expect(body.dig('flow', 'state')).to eq('blocked_kyc')
     end
+
+    it 'reuses verified BVN from user kyc when bvn is not provided by client' do
+      user = build_user(:tier2)
+      UserProfile.create!(
+        user: user,
+        date_of_birth: Date.new(1992, 3, 14),
+        gender: 'male'
+      )
+      UserKyc.create!(
+        user: user,
+        bvn_status: 'verified',
+        bvn_verified_at: Time.current,
+        bvn_encrypted: '12345678901'
+      )
+      account = Account.create!(
+        user: user,
+        vendor: 'anchor',
+        account_type: :individual,
+        account_id: 'anc_customer_2',
+        status: :unverified
+      )
+
+      anchor_service = instance_double(AnchorService)
+      allow(AnchorService).to receive(:new).and_return(anchor_service)
+      allow(anchor_service).to receive(:user_kyc_verification).and_return(
+        status: :ok,
+        response: account,
+        message: 'KYC submitted'
+      )
+
+      post '/api/v1/accounts/verify_kyc',
+           params: { account: {} },
+           headers: auth_headers(user)
+
+      expect(response).to have_http_status(:ok)
+      expect(anchor_service).to have_received(:user_kyc_verification).with(
+        hash_including(
+          bvn: '12345678901',
+          dob: '1992-03-14',
+          gender: 'male'
+        ),
+        account
+      )
+    end
   end
 end

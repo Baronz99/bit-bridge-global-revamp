@@ -56,7 +56,9 @@ module Api
           ), status: :not_found
         end
 
-        kyc_missing_fields = anchor_kyc_missing_fields(account_params, account)
+        request_params = account_params_or_empty
+        kyc_payload = resolved_anchor_kyc_payload(request_params, account)
+        kyc_missing_fields = anchor_kyc_missing_fields(kyc_payload)
         if kyc_missing_fields.any?
           return render json: anchor_error_payload(
             'anchor_kyc_incomplete',
@@ -67,7 +69,7 @@ module Api
         end
 
         service = AnchorService.new
-        service_response = service.user_kyc_verification(account_params, account)
+        service_response = service.user_kyc_verification(kyc_payload, account)
 
         if service_response[:status] == :ok
           account.reload
@@ -1002,7 +1004,8 @@ module Api
         backfill_anchor_completed_status!(account)
         return account if account.status.to_s == 'completed'
 
-        kyc_missing_fields = anchor_kyc_missing_fields(request_params, account)
+        kyc_payload = resolved_anchor_kyc_payload(request_params, account)
+        kyc_missing_fields = anchor_kyc_missing_fields(kyc_payload)
         if kyc_missing_fields.any?
           render json: anchor_error_payload(
             'anchor_kyc_incomplete',
@@ -1014,7 +1017,7 @@ module Api
         end
 
         service = AnchorService.new
-        service_response = service.user_kyc_verification(request_params, account)
+        service_response = service.user_kyc_verification(kyc_payload, account)
 
         if service_response[:status] == :ok
           account.reload
@@ -1102,14 +1105,85 @@ module Api
         required.select { |_key, value| value.blank? }.keys
       end
 
-      def anchor_kyc_missing_fields(params, account)
+      def anchor_kyc_missing_fields(kyc_payload)
         required = {
-          'bvn' => params[:bvn].presence || account&.bvn,
-          'dob' => params[:dob].presence || account&.dob,
-          'gender' => params[:gender].presence || account&.gender
+          'bvn' => kyc_payload[:bvn],
+          'dob' => kyc_payload[:dob],
+          'gender' => kyc_payload[:gender]
         }
 
         required.select { |_key, value| value.blank? }.keys
+      end
+
+      def resolved_anchor_kyc_payload(request_params, account)
+        request_hash =
+          if request_params.respond_to?(:to_h)
+            request_params.to_h.symbolize_keys
+          else
+            {}
+          end
+
+        profile = current_user&.user_profile
+        user_kyc = current_user&.user_kyc
+
+        bvn = normalize_anchor_bvn(
+          request_hash[:bvn].presence ||
+          request_hash[:bvn_number].presence ||
+          verified_anchor_bvn_from_kyc(user_kyc) ||
+          account&.bvn
+        )
+
+        dob = normalize_anchor_dob(
+          request_hash[:dob].presence ||
+          request_hash[:date_of_birth].presence ||
+          request_hash[:birthdate].presence ||
+          account&.dob ||
+          profile&.date_of_birth
+        )
+
+        gender = normalize_anchor_gender(
+          request_hash[:gender].presence ||
+          account&.gender ||
+          profile&.gender
+        )
+
+        {
+          bvn: bvn,
+          dob: dob,
+          gender: gender
+        }
+      end
+
+      def verified_anchor_bvn_from_kyc(user_kyc)
+        return nil unless user_kyc
+        return nil unless user_kyc.bvn_status.to_s == 'verified' || user_kyc.bvn_verified_at.present?
+
+        normalize_anchor_bvn(user_kyc.decrypted_bvn)
+      rescue StandardError
+        nil
+      end
+
+      def normalize_anchor_bvn(value)
+        digits = value.to_s.gsub(/\D/, '')
+        return nil unless digits.length == 11
+
+        digits
+      end
+
+      def normalize_anchor_dob(value)
+        return nil if value.blank?
+        return value.to_date.iso8601 if value.respond_to?(:to_date)
+
+        Date.iso8601(value.to_s).iso8601
+      rescue StandardError
+        nil
+      end
+
+      def normalize_anchor_gender(value)
+        normalized = value.to_s.strip.downcase
+        return normalized if %w[male female].include?(normalized)
+
+        nil
       end
 
       def log_anchor_onboarding_fields(account_info, missing_fields)
