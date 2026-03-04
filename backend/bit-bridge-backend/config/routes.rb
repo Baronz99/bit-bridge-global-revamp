@@ -100,6 +100,12 @@ Rails.application.routes.draw do
         post "app_lock/disable", to: "transaction_pins#disable_app_lock"
       end
 
+      namespace :notifications do
+        resources :devices, only: [:create]
+        delete "devices", to: "devices#destroy"
+        delete "devices/:token", to: "devices#destroy"
+      end
+
       # Cards
       resources :cards do
         collection do

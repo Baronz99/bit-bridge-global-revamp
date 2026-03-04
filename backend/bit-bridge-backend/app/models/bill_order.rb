@@ -72,6 +72,7 @@ class BillOrder < ApplicationRecord
   after_update :save_commission, if: :should_apply_commission?
   after_commit :create_reward_transaction, on: :update
   after_commit :enqueue_receipt_email_if_terminal, on: :update
+  after_commit :enqueue_status_notification, on: :update
 
 
 
@@ -206,6 +207,75 @@ class BillOrder < ApplicationRecord
   def receipt_email_already_sent?
     receipt_meta = safe_provider_payload['receipt_email']
     receipt_meta.is_a?(Hash) && receipt_meta['status'] == 'sent'
+  end
+
+  def enqueue_status_notification
+    return unless saved_change_to_status?
+    return if user.blank?
+    return unless payment_method.to_s == 'wallet'
+
+    previous_state, current_state = previous_changes['status']
+    return if previous_state.to_s == current_state.to_s
+
+    normalized_state =
+      case current_state.to_s
+      when 'completed' then 'completed'
+      when 'failed', 'declined', 'timedout' then 'failed'
+      when 'refunded' then 'refunded'
+      when 'pending', 'processing', 'initialized' then 'processing'
+      else current_state.to_s
+      end
+
+    title =
+      case normalized_state
+      when 'completed' then 'Bill payment successful'
+      when 'failed' then 'Bill payment failed'
+      when 'refunded' then 'Bill payment refunded'
+      else 'Bill payment update'
+      end
+
+    body =
+      case normalized_state
+      when 'completed'
+        'Your bill payment was successful.'
+      when 'failed'
+        'Your bill payment failed. Tap to review details.'
+      when 'refunded'
+        'Your bill payment was refunded to your wallet.'
+      else
+        'Your bill payment is being processed.'
+      end
+
+    receipt_reference = transaction_record&.reference.presence || provider_reference.presence || id.to_s
+    deeplink =
+      if %w[completed failed refunded].include?(normalized_state)
+        "/transaction/receipt?reference=#{receipt_reference}"
+      else
+        "/transaction/confirm?orderId=#{id}"
+      end
+
+    Notifications::EventPublisher.call(
+      user: user,
+      event_type: 'bill.status.changed',
+      resource_type: 'bill_order',
+      resource_id: id,
+      reference: receipt_reference,
+      state: normalized_state,
+      title: title,
+      body: body,
+      deeplink: deeplink,
+      priority: 'high',
+      idempotency_key: "bill:#{id}:#{receipt_reference}:#{previous_state}->#{current_state}:#{updated_at.to_i}",
+      metadata: {
+        status: current_state.to_s,
+        service_type: service_type,
+        amount: amount.to_f,
+        total_amount: total_amount.to_f
+      }
+    )
+  rescue StandardError => e
+    Rails.logger.warn("[BillOrder] notification enqueue failed order_id=#{id} error=#{e.class}: #{e.message}")
+    nil
   end
 
   def net_total

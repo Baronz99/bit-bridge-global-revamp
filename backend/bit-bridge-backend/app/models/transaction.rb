@@ -29,6 +29,7 @@ class Transaction < ApplicationRecord
   around_create :capture_balance_snapshot
   after_commit :finalize_usd_withdrawal_snapshot, on: %i[create update]
   after_commit :enqueue_receipt_email, on: %i[create update]
+  after_commit :enqueue_transfer_status_notification, on: :update
 
   def validate_transaction_on_create
     return if ledger_hold_reserved?
@@ -242,5 +243,74 @@ class Transaction < ApplicationRecord
     meta = metadata.is_a?(Hash) ? metadata : {}
     subtype = meta['subtype'].to_s
     %w[fee provider_fee bitbridge_fee fx_markup].include?(subtype)
+  end
+
+  def enqueue_transfer_status_notification
+    return unless saved_change_to_status?
+    return unless withdrawal?
+
+    meta = metadata.is_a?(Hash) ? metadata : {}
+    return unless meta['provider'].to_s == 'anchor'
+    return unless meta['subtype'].to_s == 'principal'
+
+    previous_state, current_state = previous_changes['status']
+    return if previous_state.to_s == current_state.to_s
+
+    reference = meta['transfer_reference'].presence || transaction_record&.reference.presence || id.to_s
+    lifecycle_state =
+      case current_state.to_s
+      when 'approved' then 'completed'
+      when 'failed', 'declined' then 'failed'
+      when 'pending', 'initialized' then 'pending'
+      else current_state.to_s
+      end
+
+    title =
+      case lifecycle_state
+      when 'completed' then 'Transfer completed'
+      when 'failed' then 'Transfer failed'
+      else 'Transfer update'
+      end
+
+    amount_label = format('%.2f', amount.to_f)
+    body =
+      case lifecycle_state
+      when 'completed'
+        "Your transfer of NGN #{amount_label} completed successfully."
+      when 'failed'
+        "Your transfer of NGN #{amount_label} failed. Tap to review details."
+      else
+        "Your transfer of NGN #{amount_label} is being processed."
+      end
+
+    deeplink =
+      if %w[completed failed].include?(lifecycle_state)
+        "/transaction/receipt?reference=#{reference}"
+      else
+        "/transaction/record/#{reference}"
+      end
+
+    Notifications::EventPublisher.call(
+      user: user,
+      event_type: 'transfer.status.changed',
+      resource_type: 'transaction',
+      resource_id: id,
+      reference: reference,
+      state: lifecycle_state,
+      title: title,
+      body: body,
+      deeplink: deeplink,
+      priority: 'high',
+      idempotency_key: "transfer:#{id}:#{reference}:#{previous_state}->#{current_state}:#{updated_at.to_i}",
+      metadata: {
+        provider: 'anchor',
+        amount: amount.to_f,
+        currency: currency || wallet&.currency || 'NGN',
+        status: current_state.to_s
+      }
+    )
+  rescue StandardError => e
+    Rails.logger.warn("[Transaction] notification enqueue failed tx_id=#{id} error=#{e.class}: #{e.message}")
+    nil
   end
 end

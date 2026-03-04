@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[7.1].define(version: 2026_02_28_204000) do
+ActiveRecord::Schema[7.1].define(version: 2026_03_04_195700) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pgcrypto"
   enable_extension "plpgsql"
@@ -39,6 +39,7 @@ ActiveRecord::Schema[7.1].define(version: 2026_02_28_204000) do
     t.date "dob"
     t.string "useable_id"
     t.index ["account_id"], name: "index_accounts_on_account_id", unique: true
+    t.index ["user_id"], name: "idx_unique_active_anchor_account_per_user", unique: true, where: "(((vendor)::text = 'anchor'::text) AND (active = true))"
     t.index ["user_id"], name: "index_accounts_on_user_id"
   end
 
@@ -582,6 +583,65 @@ ActiveRecord::Schema[7.1].define(version: 2026_02_28_204000) do
     t.datetime "updated_at", null: false
   end
 
+  create_table "notification_deliveries", id: :uuid, default: -> { "gen_random_uuid()" }, force: :cascade do |t|
+    t.uuid "notification_event_id", null: false
+    t.uuid "notification_device_id", null: false
+    t.integer "status", default: 0, null: false
+    t.integer "attempts", default: 0, null: false
+    t.datetime "delivered_at"
+    t.datetime "failed_at"
+    t.string "provider_ticket_id"
+    t.text "error_message"
+    t.jsonb "provider_response", default: {}, null: false
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["notification_device_id"], name: "index_notification_deliveries_on_notification_device_id"
+    t.index ["notification_event_id", "notification_device_id"], name: "idx_notif_deliveries_event_device", unique: true
+    t.index ["notification_event_id"], name: "index_notification_deliveries_on_notification_event_id"
+    t.index ["status"], name: "index_notification_deliveries_on_status"
+  end
+
+  create_table "notification_devices", id: :uuid, default: -> { "gen_random_uuid()" }, force: :cascade do |t|
+    t.uuid "user_id", null: false
+    t.string "provider", default: "expo", null: false
+    t.string "token", null: false
+    t.string "platform"
+    t.string "app_version"
+    t.boolean "active", default: true, null: false
+    t.datetime "last_seen_at"
+    t.jsonb "metadata", default: {}, null: false
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["provider", "token"], name: "index_notification_devices_on_provider_and_token", unique: true
+    t.index ["user_id", "active"], name: "index_notification_devices_on_user_id_and_active"
+    t.index ["user_id"], name: "index_notification_devices_on_user_id"
+  end
+
+  create_table "notification_events", id: :uuid, default: -> { "gen_random_uuid()" }, force: :cascade do |t|
+    t.uuid "user_id", null: false
+    t.string "event_type", null: false
+    t.string "resource_type", null: false
+    t.string "resource_id", null: false
+    t.string "reference"
+    t.string "state", null: false
+    t.string "title", null: false
+    t.text "body", null: false
+    t.string "deeplink"
+    t.string "priority", default: "normal", null: false
+    t.string "idempotency_key", null: false
+    t.datetime "occurred_at", null: false
+    t.integer "status", default: 0, null: false
+    t.integer "attempts", default: 0, null: false
+    t.text "error_message"
+    t.jsonb "metadata", default: {}, null: false
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["idempotency_key"], name: "index_notification_events_on_idempotency_key", unique: true
+    t.index ["status"], name: "index_notification_events_on_status"
+    t.index ["user_id", "created_at"], name: "index_notification_events_on_user_id_and_created_at"
+    t.index ["user_id"], name: "index_notification_events_on_user_id"
+  end
+
   create_table "order_details", id: :uuid, default: -> { "gen_random_uuid()" }, force: :cascade do |t|
     t.decimal "total_amount"
     t.integer "status", default: 0
@@ -1070,6 +1130,10 @@ ActiveRecord::Schema[7.1].define(version: 2026_02_28_204000) do
   add_foreign_key "inbound_bank_transfers", "users", column: "matched_user_id"
   add_foreign_key "kyc_tier3_events", "user_kycs"
   add_foreign_key "kyc_tier3_events", "users"
+  add_foreign_key "notification_deliveries", "notification_devices"
+  add_foreign_key "notification_deliveries", "notification_events"
+  add_foreign_key "notification_devices", "users"
+  add_foreign_key "notification_events", "users"
   add_foreign_key "order_details", "users"
   add_foreign_key "order_items", "order_details"
   add_foreign_key "order_items", "products"
