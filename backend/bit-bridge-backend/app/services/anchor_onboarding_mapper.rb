@@ -142,7 +142,10 @@ class AnchorOnboardingMapper
     return 'FCT' if normalized.casecmp('fct (abuja)').zero? || normalized.casecmp('abuja').zero? || normalized.casecmp('fct').zero?
 
     key = normalized.upcase
-    NIGERIAN_STATE_CANONICAL[key] || normalized
+    canonical = NIGERIAN_STATE_CANONICAL[key]
+    return canonical if canonical.present?
+
+    nil
   end
 
   def normalize_string(value)
