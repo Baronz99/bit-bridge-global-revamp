@@ -213,7 +213,25 @@ module Api
 
             if profile_attrs.present? || id_document_upload.present? || proof_of_address_upload.present?
               profile = current_user.user_profile || current_user.build_user_profile
-              profile.assign_attributes(profile_attrs || {})
+              safe_profile_attrs = (profile_attrs || {}).dup
+              has_dob_key = safe_profile_attrs.key?(:date_of_birth)
+              dob_raw = safe_profile_attrs.delete(:date_of_birth)
+
+              profile.assign_attributes(safe_profile_attrs)
+
+              if has_dob_key
+                if dob_raw.present?
+                  begin
+                    profile.date_of_birth = Date.iso8601(dob_raw.to_s)
+                  rescue ArgumentError
+                    profile.errors.add(:date_of_birth, 'is invalid (use YYYY-MM-DD)')
+                    raise ActiveRecord::RecordInvalid.new(profile)
+                  end
+                else
+                  profile.date_of_birth = nil
+                end
+              end
+
               profile.id_document.attach(id_document_upload) if id_document_upload.present?
               profile.proof_of_address.attach(proof_of_address_upload) if proof_of_address_upload.present?
               profile.save!
