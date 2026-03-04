@@ -321,10 +321,10 @@ Rails.application.routes.draw do
       end
 
       resources :disputes, only: [:create]
-      resources :statistics
 
       # Admin
       namespace :admin do
+        resources :statistics, only: [:index]
         resources :kyc_reviews, only: %i[index update]
         get "pricing-spec", to: "pricing_spec#show"
         get "ops/health",   to: "ops#health"
