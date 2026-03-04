@@ -56,13 +56,9 @@ RSpec.describe Kyc::LevelCalculator do
     expect(described_class.resolve_level(user)).to eq("tier_3")
   end
 
-  it "returns tier_4 when tier3 is complete and address/proof requirements are complete" do
+  it "returns tier_4 when tier3 is complete and proof requirements are complete" do
     profile = user.user_profile
     profile.update!(
-      address_line1: "1 Main Street",
-      city: "Lagos",
-      state: "Lagos",
-      country: "Nigeria",
       proof_of_address_type: "utility_bill"
     )
     attach_proof!(profile)

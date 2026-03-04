@@ -37,7 +37,7 @@ module Kyc
         profile.country.to_s.strip.present?
       has_proof_of_address_type = profile.present? && profile.proof_of_address_type.to_s.strip.present?
       has_proof_of_address = profile.present? && profile.proof_of_address.attached?
-      tier4_ready = tier3_ready && address_complete && has_proof_of_address_type && has_proof_of_address
+      tier4_ready = tier3_ready && has_proof_of_address_type && has_proof_of_address
 
       missing = build_missing(
         tier1_ready: tier1_ready,
@@ -52,7 +52,6 @@ module Kyc
         bvn_verified: bvn_verified,
         id_type_present: id_type_present,
         identity_verified: identity_verified,
-        address_complete: address_complete,
         has_proof_of_address_type: has_proof_of_address_type,
         has_proof_of_address: has_proof_of_address
       )
@@ -102,7 +101,6 @@ module Kyc
       bvn_verified:,
       id_type_present:,
       identity_verified:,
-      address_complete:,
       has_proof_of_address_type:,
       has_proof_of_address:
     )
@@ -130,7 +128,6 @@ module Kyc
       end
 
       unless tier4_ready
-        missing << "address" unless address_complete
         missing << "proof_of_address_type" unless has_proof_of_address_type
         missing << "proof_of_address" unless has_proof_of_address
       end

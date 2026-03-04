@@ -59,15 +59,10 @@ module Kyc
       return false unless profile
       return false unless tier3_complete?(user, profile, kyc)
 
-      has_address =
-        profile.address_line1.present? &&
-        profile.city.present? &&
-        profile.state.present? &&
-        profile.country.present?
       has_proof = profile.proof_of_address_type.present?
       has_proof_doc = profile.respond_to?(:proof_of_address) && profile.proof_of_address.attached?
 
-      has_address && has_proof && has_proof_doc
+      has_proof && has_proof_doc
     end
   end
 end
