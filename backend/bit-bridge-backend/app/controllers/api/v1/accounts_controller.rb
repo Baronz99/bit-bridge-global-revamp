@@ -9,6 +9,7 @@ module Api
       before_action :ensure_anchor_kyc!,
                     only: %i[
                       create
+                      setup_anchor_onboarding
                       get_account_number
                       provision_account_number
                       initiate_fund_transfer
@@ -85,6 +86,26 @@ module Api
             details: { provider_status: service_response[:provider_status] }.compact
           ), status: :unprocessable_entity
         end
+      end
+
+      # One-call orchestration for Anchor onboarding after platform Tier 2:
+      # 1) Ensure Anchor customer exists
+      # 2) Ensure Anchor KYC submitted/completed
+      # 3) Ensure deposit account number provisioned
+      def setup_anchor_onboarding
+        request_params = account_params_or_empty
+        account = canonical_anchor_account_for(current_user)
+
+        unless account
+          account = create_anchor_customer_for_setup(request_params)
+          return if performed?
+        end
+
+        account = ensure_anchor_kyc_for_setup(account, request_params)
+        return if performed?
+
+        # Reuse existing provisioning behavior and response envelope.
+        get_account_number
       end
 
       def get_account_number
@@ -889,6 +910,125 @@ module Api
           :save_beneficiary,
           :transfer_reference
         )
+      end
+
+      # setup_anchor_onboarding accepts partial payloads and can run with no
+      # account body by deriving values from user/profile records.
+      def account_params_or_empty
+        return ActionController::Parameters.new.permit if params[:account].blank?
+
+        account_params
+      rescue ActionController::ParameterMissing
+        ActionController::Parameters.new.permit
+      end
+
+      def create_anchor_customer_for_setup(request_params)
+        service = AnchorService.new
+        account_info = AnchorOnboardingMapper.build_account_info(
+          user: current_user,
+          account_params: request_params
+        )
+
+        missing_fields = anchor_onboarding_missing_fields(account_info)
+        if missing_fields.any?
+          render json: anchor_error_payload(
+            'ANCHOR_ONBOARDING_INCOMPLETE',
+            'Complete your profile to create an Anchor account.',
+            retryable: false,
+            flow: {
+              state: 'blocked_profile_incomplete',
+              next_action: 'complete_profile'
+            },
+            details: { missing_fields: missing_fields }
+          ).merge(missing_fields: missing_fields), status: :unprocessable_entity
+          return nil
+        end
+
+        service_response = service.create_individual_account(account_info)
+        return service_response[:response] if service_response[:status] == :ok
+
+        duplicate_phone_error = duplicate_anchor_phone_error?(service_response[:message])
+        duplicate_customer_error =
+          duplicate_anchor_customer_error?(service_response[:message]) ||
+          duplicate_anchor_customer_error?(safe_provider_body(service_response[:provider_body]))
+
+        if duplicate_customer_error
+          existing_anchor = canonical_anchor_account_for(current_user)
+          if existing_anchor.present?
+            return existing_anchor
+          end
+
+          render json: anchor_error_payload(
+            'ANCHOR_CUSTOMER_EXISTS',
+            'Anchor profile already exists. Refresh and continue onboarding.',
+            retryable: false,
+            flow: {
+              state: 'customer_created_no_deposit_account',
+              next_action: 'provision_account_number'
+            }
+          ), status: :conflict
+          return nil
+        end
+
+        if duplicate_phone_error
+          render json: anchor_error_payload(
+            'ANCHOR_PHONE_EXISTS',
+            'This phone number already exists in Anchor Sandbox.',
+            retryable: false,
+            flow: {
+              state: 'blocked_phone_exists',
+              next_action: 'contact_support_or_retry_detail_fetch'
+            }
+          ), status: :conflict
+          return nil
+        end
+
+        render json: anchor_error_payload(
+          'ANCHOR_ONBOARDING_FAILED',
+          service_response[:message].presence || 'Unable to create Anchor account.',
+          retryable: true,
+          flow: {
+            state: 'temporary_provider_failure',
+            next_action: 'retry_create_anchor_account'
+          }
+        ), status: :unprocessable_entity
+        nil
+      end
+
+      def ensure_anchor_kyc_for_setup(account, request_params)
+        return account if account.blank?
+
+        account.reload
+        backfill_anchor_completed_status!(account)
+        return account if account.status.to_s == 'completed'
+
+        kyc_missing_fields = anchor_kyc_missing_fields(request_params, account)
+        if kyc_missing_fields.any?
+          render json: anchor_error_payload(
+            'anchor_kyc_incomplete',
+            'Complete Anchor KYC fields before verification.',
+            retryable: false,
+            details: { missing_fields: kyc_missing_fields }
+          ), status: :unprocessable_entity
+          return nil
+        end
+
+        service = AnchorService.new
+        service_response = service.user_kyc_verification(request_params, account)
+
+        if service_response[:status] == :ok
+          account.reload
+          return account
+        end
+
+        code, retryable = map_anchor_kyc_error(service_response[:message], service_response[:provider_body])
+        render json: anchor_error_payload(
+          code,
+          service_response[:message],
+          retryable: retryable,
+          details: { provider_status: service_response[:provider_status] }.compact
+        ), status: :unprocessable_entity
+        nil
       end
 
       def upsert_beneficiary_if_requested!(transfer_params)

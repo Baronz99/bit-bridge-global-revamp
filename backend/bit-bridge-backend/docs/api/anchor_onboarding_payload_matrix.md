@@ -169,6 +169,37 @@ Normalized backend error codes:
 - `anchor_account_number_failed`
 - `kyc_required`
 
+## 5b) One-call orchestrator (recommended client entrypoint)
+
+Backend endpoint:
+- `POST /api/v1/accounts/setup_anchor_onboarding`
+
+Client request payload (minimal):
+```json
+{
+  "account": {
+    "vendor": "anchor"
+  }
+}
+```
+
+Optional fields:
+- If provided, backend can use `bvn`, `dob`, `gender`, and profile aliases for
+  missing data fallback.
+
+Execution order:
+1. Ensure Anchor customer exists.
+2. Ensure Anchor KYC is completed/submitted.
+3. Ensure deposit account number is provisioned.
+
+Possible outcomes:
+- `200`: account provisioned
+- `202`: provisioning in progress
+- `422/409/403`: normalized onboarding/kyc/provider or eligibility blocker
+
+Response envelope:
+- Same canonical success/error envelopes described in sections 6 and 7.
+
 ## 6) Canonical response envelope (success)
 
 ```json
