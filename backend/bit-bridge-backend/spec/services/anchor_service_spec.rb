@@ -209,14 +209,26 @@ RSpec.describe AnchorService do
 
   it 'surfaces provider error detail for account resolution failures' do
     response = double('response', success?: false, message: 'Not Found')
-    allow(response).to receive(:dig).with('errors', 0, 'detail').and_return('Endpoint not found')
-    allow(response).to receive(:[]).with('message').and_return(nil)
+    allow(response).to receive(:parsed_response).and_return({ 'errors' => [{ 'detail' => 'Endpoint not found' }] })
+    allow(response).to receive(:body).and_return('{"errors":[{"detail":"Endpoint not found"}]}')
     allow(described_class).to receive(:get).and_return(response)
 
     result = service.verify_account_details('000013', '0210998196')
 
     expect(result[:status]).to eq(:bad_request)
     expect(result[:message]).to eq('Endpoint not found')
+  end
+
+  it 'normalizes HTML gateway failures for account resolution' do
+    response = double('response', success?: false, message: 'Net::HTTPBadGateway')
+    allow(response).to receive(:parsed_response).and_return('<html><title>502 Bad Gateway</title></html>')
+    allow(response).to receive(:body).and_return('<html><title>502 Bad Gateway</title></html>')
+    allow(described_class).to receive(:get).and_return(response)
+
+    result = service.verify_account_details('000013', '0210998196')
+
+    expect(result[:status]).to eq(:bad_request)
+    expect(result[:message]).to eq('Transfer provider is temporarily unavailable. Please retry shortly.')
   end
 
   it 'sends digits-only anchor phone number when creating individual customer' do

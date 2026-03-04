@@ -494,8 +494,9 @@ module Api
         )
 
         response_body = result[:body].is_a?(Hash) ? result[:body].dup : { message: result[:body].to_s }
+        message_text = response_body[:message] || response_body['message']
+
         if result[:status] == :unprocessable_entity && response_body[:error_code].blank? && response_body['error_code'].blank?
-          message_text = response_body[:message] || response_body['message']
           error_code =
             if message_text.to_s.include?('Minimum transfer amount')
               'transfer_amount_below_minimum'
@@ -509,6 +510,15 @@ module Api
           response_body[:error_code] = error_code
           Rails.logger.info(
             "[AnchorTransfer] validation_error request_id=#{request.request_id} user_id=#{current_user.id} code=#{error_code}"
+          )
+        elsif result[:status] != :ok && response_body[:error_code].blank? && response_body['error_code'].blank?
+          normalized = normalize_transfer_provider_error(message_text)
+          response_body[:message] = normalized[:message]
+          response_body['message'] = normalized[:message]
+          response_body[:error_code] ||= normalized[:error_code]
+          response_body['error_code'] ||= normalized[:error_code]
+          Rails.logger.warn(
+            "[AnchorTransfer] provider_error request_id=#{request.request_id} user_id=#{current_user.id} code=#{normalized[:error_code]}"
           )
         end
 
@@ -1692,6 +1702,35 @@ module Api
           "[AnchorTransfer] request_validation_error request_id=#{request.request_id} user_id=#{current_user.id} code=#{code}"
         )
         render json: { message: message, error_code: code }, status: status
+      end
+
+      def normalize_transfer_provider_error(raw_message)
+        text = raw_message.to_s
+        normalized = text.downcase
+
+        if normalized.include?('undefined method') && normalized.include?('dig')
+          return {
+            message: 'Transfer provider is temporarily unavailable. Please retry shortly.',
+            error_code: 'transfer_provider_unavailable'
+          }
+        end
+        if normalized.match?(/502|503|504|bad gateway|service unavailable|gateway timeout|upstream connect error|unavailable/)
+          return {
+            message: 'Transfer provider is temporarily unavailable. Please retry shortly.',
+            error_code: 'transfer_provider_unavailable'
+          }
+        end
+        if normalized.match?(/timeout|timed out|execution expired/)
+          return {
+            message: 'Transfer provider timed out. Please retry shortly.',
+            error_code: 'transfer_provider_timeout'
+          }
+        end
+
+        {
+          message: text.presence || 'Transfer failed. Please retry shortly.',
+          error_code: 'transfer_provider_failed'
+        }
       end
 
       def parse_quote_amount(raw_amount)

@@ -70,7 +70,7 @@ class AnchorService
       else
         provider_status = response.code
         provider_body = response.parsed_response || response.body
-        error_title = response.dig('errors', 0, 'detail') || response.dig('message') || 'bad request'
+        error_title = extract_anchor_error_message(response, fallback: 'bad request')
         raise StandardError.new(error_title.to_s)
       end
     rescue StandardError => e
@@ -102,7 +102,7 @@ class AnchorService
     begin
       response = self.class.post("/api/v1/customers/#{id}/verification/individual", headers: @headers, body: body)
 
-      raise response&.dig('errors', 0, 'detail') || 'bad request' unless response.success?
+      raise extract_anchor_error_message(response, fallback: 'bad request') unless response.success?
 
       message = response&.dig('data', 'attributes', 'message')
       raise 'account  not found' unless account
@@ -240,11 +240,7 @@ class AnchorService
 
 
     unless response.success?
-      message =
-        response.dig('errors', 0, 'detail') ||
-        response['message'] ||
-        response.message ||
-        'bad request'
+      message = extract_anchor_error_message(response, fallback: 'bad request')
       raise message
     end
 
@@ -304,7 +300,7 @@ class AnchorService
       unless response.success?
         provider_status = response.code
         provider_body = response.parsed_response || response.body
-        error_message = response.dig('errors', 0, 'detail') || response['message'] || response.message || 'bad request'
+        error_message = extract_anchor_error_message(response, fallback: 'bad request')
         Rails.logger.warn(
           "Anchor counterparty failed bank_code=#{params_hash[:bank_code]} account=#{params_hash[:account_number]} " \
           "status=#{provider_status} message=#{error_message}"
@@ -542,7 +538,7 @@ class AnchorService
     response = self.class.post('/pay/pay-with-transfer', headers: @headers, body: body)
 
     unless response.success?
-      error_message = response.dig('errors', 0, 'detail') || response['message'] || response.message || 'bad request'
+      error_message = extract_anchor_error_message(response, fallback: 'bad request')
       return {
         status: :bad_request,
         message: error_message.to_s
@@ -633,7 +629,7 @@ class AnchorService
     if response.success?
       { data: response['data'], status: :ok }
     else
-      error_message = response.dig('errors', 0, 'detail') || response.message || 'Bad request'
+      error_message = extract_anchor_error_message(response, fallback: 'Bad request')
       { message: error_message.to_s, status: :bad_request }
     end
   rescue StandardError => e
@@ -832,6 +828,40 @@ class AnchorService
 
   private
 
+  def parsed_response_hash(response)
+    payload = response.respond_to?(:parsed_response) ? response.parsed_response : nil
+    payload.is_a?(Hash) ? payload : {}
+  rescue StandardError
+    {}
+  end
+
+  def extract_anchor_error_message(response, fallback:)
+    payload = parsed_response_hash(response)
+    raw_message =
+      payload.dig('errors', 0, 'detail') ||
+      payload['message'] ||
+      payload['error'] ||
+      (response.respond_to?(:message) ? response.message : nil)
+
+    body_text = response.respond_to?(:body) ? response.body.to_s : ''
+    combined = [raw_message.to_s, body_text].join(' ').downcase
+
+    if combined.include?('undefined method') && combined.include?('dig')
+      return 'Transfer provider is temporarily unavailable. Please retry shortly.'
+    end
+    if combined.match?(/502|503|504|bad gateway|service unavailable|gateway timeout|upstream connect error/)
+      return 'Transfer provider is temporarily unavailable. Please retry shortly.'
+    end
+    if combined.match?(/timeout|timed out|execution expired/)
+      return 'Transfer provider timed out. Please retry shortly.'
+    end
+
+    candidate = raw_message.to_s.strip
+    return candidate if candidate.present?
+
+    fallback.to_s
+  end
+
   def anchor_base_url
     primary = ENV['ANCHOR_BASE_URL'].to_s.strip
     fallback = ENV['DEV_ANCHOR_BASE_URL'].to_s.strip
@@ -919,7 +949,7 @@ class AnchorService
     if response.success?
       { data: response['data'], status: :ok }
     else
-      error_message = response.dig('errors', 0, 'detail') || response.message || 'Bad request'
+      error_message = extract_anchor_error_message(response, fallback: 'Bad request')
       raise StandardError, error_message
     end
   rescue StandardError => e

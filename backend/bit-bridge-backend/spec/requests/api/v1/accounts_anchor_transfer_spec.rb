@@ -383,4 +383,20 @@ RSpec.describe 'Anchor NGN transfers', type: :request do
       post_transfer(10_000, { save_beneficiary: true })
     }.not_to change(Beneficiary, :count)
   end
+
+  it 'normalizes provider parser and gateway errors for customer-facing transfer failures' do
+    anchor_service = instance_double(AnchorService)
+    allow(AnchorService).to receive(:new).and_return(anchor_service)
+    allow(anchor_service).to receive(:initiate_transfer).and_return(
+      status: :bad_request,
+      message: "undefined method 'dig' for #<HTTParty::Response parsed_response=\"<html><title>502 Bad Gateway</title></html>\">"
+    )
+
+    post_transfer(10_000)
+
+    expect(response).to have_http_status(:bad_gateway)
+    body = JSON.parse(response.body)
+    expect(body['message']).to eq('Transfer provider is temporarily unavailable. Please retry shortly.')
+    expect(body['error_code']).to eq('transfer_provider_unavailable')
+  end
 end
