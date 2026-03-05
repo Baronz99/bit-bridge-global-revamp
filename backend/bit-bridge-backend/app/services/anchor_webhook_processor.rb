@@ -8,7 +8,7 @@ class AnchorWebhookProcessor
   end
 
   def initialize(payload:, raw_body:, force:)
-    @payload = payload.is_a?(Hash) ? payload : {}
+    @payload = normalize_payload(payload)
     @raw_body = raw_body.to_s
     @force = force
   end
@@ -42,7 +42,9 @@ class AnchorWebhookProcessor
     transfer_id = payload.dig('relationships', 'transfer', 'data', 'id')
     payment_id = payload.dig('attributes', 'payment', 'paymentId')
     payment_reference = payload.dig('attributes', 'payment', 'paymentReference')
-    account_id = payload.dig('relationships', 'customer', 'data', 'id')
+    account_id =
+      payload.dig('relationships', 'customer', 'data', 'id') ||
+      payload.dig('relationships', 'resource', 'data', 'id')
     event_id = payload['id']
 
     reference = transfer_id || payment_id || payment_reference || account_id || event_id
@@ -108,6 +110,15 @@ class AnchorWebhookProcessor
         'unverified'
       end
     return if next_status.blank?
+
+    if event_type.include?('rejected')
+      rejection_message =
+        payload.dig('attributes', 'failureEventData', 'message') ||
+        payload.dig('attributes', 'verification', 'details', 0, 'comment')
+      Rails.logger.warn(
+        "[AnchorWebhook] kyc_rejected account_id=#{account.id} customer_id=#{account.account_id} message=#{rejection_message}"
+      )
+    end
 
     account.update(status: next_status)
   end
@@ -559,20 +570,37 @@ class AnchorWebhookProcessor
   end
 
   def resolve_anchor_account(payload)
-    customer_id = payload.dig('relationships', 'customer', 'data', 'id').to_s.presence
+    customer_id =
+      payload.dig('relationships', 'customer', 'data', 'id').to_s.presence ||
+      payload.dig('relationships', 'resource', 'data', 'id').to_s.presence
     account_id = payload.dig('relationships', 'account', 'data', 'id').to_s.presence
     account_number_id =
       payload.dig('relationships', 'accountNumber', 'data', 'id').to_s.presence ||
       payload.dig('relationships', 'virtualNuban', 'data', 'id').to_s.presence
     account_number = extract_webhook_account_number(payload)
+    user_id_hint = payload.dig('included', 0, 'attributes', 'metadata', 'my_customerID').to_s.presence
 
     scope = Account.where("vendor = ? OR vendor IS NULL", 'anchor')
     return scope.find_by(account_id: customer_id) if customer_id.present? && scope.find_by(account_id: customer_id).present?
     return scope.find_by(useable_id: account_id) if account_id.present? && scope.find_by(useable_id: account_id).present?
     return scope.find_by(useable_id: account_number_id) if account_number_id.present? && scope.find_by(useable_id: account_number_id).present?
     return scope.find_by(account_number: account_number) if numeric_account_number?(account_number)
+    return scope.find_by(user_id: user_id_hint) if user_id_hint.present?
 
     nil
+  end
+
+  def normalize_payload(payload)
+    hash = payload.is_a?(Hash) ? payload.deep_dup : {}
+    data = hash['data']
+    return hash unless data.is_a?(Hash)
+
+    normalized = data.deep_dup
+    normalized['included'] = hash['included'] if hash['included'].present?
+    normalized['meta'] = hash['meta'] if hash['meta'].present?
+    normalized
+  rescue StandardError
+    payload.is_a?(Hash) ? payload : {}
   end
 
   def extract_webhook_account_number(payload)
