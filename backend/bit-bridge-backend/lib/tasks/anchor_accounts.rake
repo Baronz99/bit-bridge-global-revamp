@@ -136,6 +136,68 @@ namespace :anchor do
     puts "anchor.reconcile_missing_account_numbers: reconciled=#{reconciled} unresolved=#{unresolved} failed=#{failed}"
   end
 
+  desc 'Reconcile stale completed Anchor accounts missing account_number. Usage: rake anchor:reconcile_stale_missing_account_numbers[minutes]'
+  task :reconcile_stale_missing_account_numbers, [:minutes] => :environment do |_task, args|
+    threshold_minutes = args[:minutes].to_i
+    threshold_minutes = ENV.fetch('ANCHOR_PROVISIONING_STUCK_MINUTES', '10').to_i if threshold_minutes <= 0
+    threshold_minutes = 10 if threshold_minutes <= 0
+    cutoff = Time.current - threshold_minutes.minutes
+
+    service = AnchorService.new
+    scope = Account.where(vendor: 'anchor', status: :completed, account_number: [nil, ''])
+                   .where('updated_at <= ?', cutoff)
+
+    puts "anchor.reconcile_stale_missing_account_numbers: threshold_minutes=#{threshold_minutes} candidates=#{scope.count}"
+
+    reconciled = 0
+    unresolved = 0
+    failed = 0
+
+    scope.find_each do |account|
+      begin
+        deposit_ids = []
+        deposit_ids << account.useable_id.to_s if account.useable_id.to_s.end_with?('-anc_acc')
+        deposit_ids.concat(extract_deposit_account_ids_from_events(account))
+        deposit_ids.uniq!
+
+        details = nil
+        selected_deposit_id = nil
+        deposit_ids.each do |deposit_id|
+          candidate = service.send(:fetch_account_number_details_by_account_id, deposit_id)
+          if candidate.present? && candidate[:account_number].to_s.match?(/\A\d{10}\z/)
+            selected_deposit_id = deposit_id
+            details = candidate
+            break
+          end
+        end
+
+        if details.blank?
+          unresolved += 1
+          puts "account_id=#{account.id} user_id=#{account.user_id} unresolved=true candidate_deposit_ids=#{deposit_ids.join(',')}"
+          next
+        end
+
+        updates = {
+          useable_id: selected_deposit_id,
+          account_number: details[:account_number],
+          account_name: details[:account_name].presence || account.account_name,
+          bank_name: details[:bank_name].presence || account.bank_name,
+          bank_code: details[:bank_code].presence || account.bank_code,
+          active: true
+        }.compact
+        account.update!(updates)
+
+        reconciled += 1
+        puts "account_id=#{account.id} user_id=#{account.user_id} reconciled=true useable_id=#{selected_deposit_id} account_number=#{details[:account_number]}"
+      rescue StandardError => e
+        failed += 1
+        warn "account_id=#{account.id} user_id=#{account.user_id} reconcile_failed=#{e.message}"
+      end
+    end
+
+    puts "anchor.reconcile_stale_missing_account_numbers: reconciled=#{reconciled} unresolved=#{unresolved} failed=#{failed}"
+  end
+
   desc 'Report Anchor accounts that are completed but missing account_number'
   task report_missing_account_numbers: :environment do
     scope = Account.where(vendor: 'anchor', status: :completed, account_number: [nil, ''])

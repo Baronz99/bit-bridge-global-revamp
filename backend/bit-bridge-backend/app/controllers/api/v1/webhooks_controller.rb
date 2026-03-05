@@ -307,11 +307,13 @@ module Api
 
         if allow_unsigned_anchor_webhooks?
           Rails.logger.warn('[AnchorWebhook] unsigned webhooks allowed in development')
-        elsif !valid_anchor_signature?(raw_body, signature, secret)
+        else
+          signature_valid, matched_strategy = valid_anchor_signature_with_strategy(raw_body, signature, secret)
+          if !signature_valid
           payload_hash = Digest::SHA256.hexdigest(raw_body)[0, 12]
           sig_hint = signature.to_s[0, 8]
-          hex_digest = OpenSSL::HMAC.hexdigest('sha1', secret, raw_body)
-          raw_digest = OpenSSL::HMAC.digest('sha1', secret, raw_body)
+          hex_digest = OpenSSL::HMAC.hexdigest('sha256', secret, raw_body)
+          raw_digest = OpenSSL::HMAC.digest('sha256', secret, raw_body)
           computed_hex = Base64.strict_encode64(hex_digest)[0, 8]
           computed_raw = Base64.strict_encode64(raw_digest)[0, 8]
           Rails.logger.warn(
@@ -319,6 +321,14 @@ module Api
             "computed_hex_prefix=#{computed_hex} computed_raw_prefix=#{computed_raw}"
           )
           return head :unauthorized
+          end
+
+          if matched_strategy.to_s.start_with?('sha1')
+            Rails.logger.warn(
+              "[AnchorWebhook] legacy signature accepted strategy=#{matched_strategy} " \
+              "mode=#{anchor_signature_mode}"
+            )
+          end
         end
 
         payload = JSON.parse(raw_body) rescue nil
@@ -391,27 +401,17 @@ module Api
         nil
       end
 
-      def valid_anchor_signature?(raw_body, signature, secret)
+      def valid_anchor_signature_with_strategy(raw_body, signature, secret)
         return false if signature.blank? || raw_body.blank?
 
         provided = signature.to_s.strip
-        provided = provided.sub(/\Asha1=/i, '').sub(/\Av1=/i, '')
+        provided = provided.sub(/\Asha1=/i, '').sub(/\Asha256=/i, '').sub(/\Av1=/i, '')
 
-        hex_digest = OpenSSL::HMAC.hexdigest('sha1', secret, raw_body)
-        raw_digest = OpenSSL::HMAC.digest('sha1', secret, raw_body)
-        computed_hex = Base64.strict_encode64(hex_digest)
-        computed_raw = Base64.strict_encode64(raw_digest)
-
-        candidates = [
-          computed_hex,
-          computed_raw,
-          hex_digest,
-          hex_digest.upcase
-        ].uniq
+        candidates = anchor_signature_candidates(raw_body, secret)
 
         provided_no_pad = provided.delete('=')
 
-        candidates.any? do |candidate|
+        matched = candidates.find do |candidate, _strategy|
           if candidate.length == provided.length
             ActiveSupport::SecurityUtils.secure_compare(candidate, provided)
           elsif candidate.delete('=').length == provided_no_pad.length
@@ -420,8 +420,40 @@ module Api
             false
           end
         end
+        return [false, nil] unless matched
+
+        [true, matched.last]
       rescue StandardError
-        false
+        [false, nil]
+      end
+
+      def anchor_signature_candidates(raw_body, secret)
+        sha256_hex = OpenSSL::HMAC.hexdigest('sha256', secret, raw_body)
+        sha256_raw = OpenSSL::HMAC.digest('sha256', secret, raw_body)
+
+        candidates = [
+          [sha256_hex, 'sha256.hex'],
+          [sha256_hex.upcase, 'sha256.hex_upper'],
+          [Base64.strict_encode64(sha256_raw), 'sha256.base64_raw']
+        ]
+
+        return candidates if anchor_signature_mode == 'strict_sha256'
+
+        sha1_hex = OpenSSL::HMAC.hexdigest('sha1', secret, raw_body)
+        sha1_raw = OpenSSL::HMAC.digest('sha1', secret, raw_body)
+        candidates + [
+          [sha1_hex, 'sha1.hex_legacy'],
+          [sha1_hex.upcase, 'sha1.hex_upper_legacy'],
+          [Base64.strict_encode64(sha1_raw), 'sha1.base64_raw_legacy'],
+          [Base64.strict_encode64(sha1_hex), 'sha1.base64_hex_legacy']
+        ]
+      end
+
+      def anchor_signature_mode
+        value = ENV['ANCHOR_WEBHOOK_SIGNATURE_MODE'].to_s.strip.downcase
+        return value if %w[strict_sha256 compat].include?(value)
+
+        'compat'
       end
 
       def allow_unsigned_anchor_webhooks?

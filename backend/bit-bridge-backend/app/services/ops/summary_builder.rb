@@ -18,6 +18,7 @@ module Ops
         generated_at: @now.iso8601,
         window_hours: @window_hours,
         provider_availability: provider_availability_section,
+        anchor_provisioning: anchor_provisioning_section,
         tier3_liveness: tier3_liveness_section,
         unmatched_credits: unmatched_credits_section,
         refund_requests: refund_requests_section,
@@ -51,6 +52,22 @@ module Ops
           outage: states.count('outage'),
           unknown: states.count('unknown')
         }
+      }
+    end
+
+    def anchor_provisioning_section
+      threshold_minutes = ENV.fetch('ANCHOR_PROVISIONING_STUCK_MINUTES', '10').to_i
+      threshold_minutes = 10 if threshold_minutes <= 0
+      cutoff = now - threshold_minutes.minutes
+
+      scope = Account.where(vendor: 'anchor', status: 'completed', account_number: [nil, ''])
+      stale = scope.where('updated_at <= ?', cutoff)
+
+      {
+        threshold_minutes: threshold_minutes,
+        missing_account_number_count: scope.count,
+        stale_missing_account_number_count: stale.count,
+        stale_oldest_updated_at: stale.minimum(:updated_at)&.iso8601
       }
     end
 
