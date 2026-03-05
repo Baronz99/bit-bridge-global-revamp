@@ -687,6 +687,8 @@ module Api
         return if performed?
 
         scope = exclude_settled_anchor_checkout_initializations(base_scope)
+        scope = scope.where(transaction_type: params[:transaction_type]) if params[:transaction_type].present?
+        scope = scope.where(status: params[:status]) if params[:status].present?
         items = scope
                 .includes(:wallet, :transaction_record)
                 .limit(limit)
@@ -700,6 +702,7 @@ module Api
             currency: transaction_currency(transaction),
             created_at: transaction.created_at,
             address: transaction.address,
+            bank: transaction.bank,
             transaction_type: transaction.transaction_type,
             wallet_type: transaction.wallet&.wallet_type
           }

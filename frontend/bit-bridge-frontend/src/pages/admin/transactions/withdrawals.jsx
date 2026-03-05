@@ -33,8 +33,8 @@ const AdminWithdrawalTransactions = () => {
   }
 
   useEffect(() => {
-    dispatch(getTransactions())
-  }, [])
+    dispatch(getTransactions({ params: { summary: true, limit: 200, transaction_type: 'withdrawal' } }))
+  }, [dispatch])
 
   const handleTransactionUpdate = (task) => {
     dispatch(
@@ -45,7 +45,7 @@ const AdminWithdrawalTransactions = () => {
     ).then((result) => {
       if (updateTransaction.fulfilled.match(result)) {
         toast(result?.payload?.message || `transaction ${task}`, { type: 'success' })
-        dispatch(getTransactions())
+        dispatch(getTransactions({ params: { summary: true, limit: 200, transaction_type: 'withdrawal' } }))
       } else {
         toast(result?.payload?.message, { type: 'error' })
       }
