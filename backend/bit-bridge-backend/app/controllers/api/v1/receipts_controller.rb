@@ -1401,10 +1401,17 @@ module Api
       def card_event_fee_array(event:, currency:, metadata:)
         explicit = fee_array(metadata['fee_breakdown'], currency)
 
+        fee_major_hint =
+          decimal_or_nil(metadata['provider_fee_usd']) ||
+          decimal_or_nil(metadata['funding_fee_usd']) ||
+          decimal_or_nil(metadata['withdrawal_fee_usd']) ||
+          decimal_or_nil(metadata['bitbridge_fee_usd'])
+
         fallback = []
         event_fee = normalize_card_event_money(
           event.fee_amount || metadata['fee_amount'] || metadata['fee'],
-          currency: event.fee_currency || metadata['fee_currency'] || currency
+          currency: event.fee_currency || metadata['fee_currency'] || currency,
+          major_hint: fee_major_hint
         )
         event_fee_currency = event.fee_currency || metadata['fee_currency'] || currency
         skip_provider_fee_metadata = false
