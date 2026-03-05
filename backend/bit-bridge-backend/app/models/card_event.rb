@@ -42,12 +42,12 @@ class CardEvent < ApplicationRecord
     def parse_transaction_time(data)
       return nil unless data.is_a?(Hash)
 
-      if data['transaction_date'].present?
-        Time.zone.parse(data['transaction_date']) rescue nil
-      elsif data['transaction_timestamp'].present?
-        Time.at(data['transaction_timestamp'].to_i)
+      if data['transaction_timestamp'].present?
+        parse_transaction_timestamp(data['transaction_timestamp'])
+      elsif data['transaction_date'].present?
+        parse_provider_datetime(data['transaction_date'])
       elsif data['created_at'].present?
-        Time.zone.parse(data['created_at'].to_s) rescue nil
+        parse_provider_datetime(data['created_at'].to_s)
       end
     end
 
@@ -300,6 +300,39 @@ class CardEvent < ApplicationRecord
       return value unless value.is_a?(BigDecimal)
 
       value.to_s('F')
+    end
+
+    def parse_transaction_timestamp(value)
+      raw = value.to_s.strip
+      return nil if raw.blank?
+
+      seconds = BigDecimal(raw)
+      # Bridge payloads sometimes send epoch milliseconds.
+      seconds /= 1000 if seconds > 9_999_999_999
+      Time.zone.at(seconds.to_f)
+    rescue StandardError
+      nil
+    end
+
+    def parse_provider_datetime(value)
+      raw = value.to_s.strip
+      return nil if raw.blank?
+
+      # If the payload already includes timezone info, trust it directly.
+      if raw.match?(/(?:Z|[+-]\d{2}:?\d{2})\z/)
+        return Time.zone.parse(raw)
+      end
+
+      provider_tz_name = ENV.fetch('BRIDGECARD_TRANSACTION_TIMEZONE', 'Africa/Lagos')
+      provider_tz = ActiveSupport::TimeZone[provider_tz_name]
+      return Time.zone.parse(raw) unless provider_tz
+
+      parsed_in_provider_tz = provider_tz.parse(raw)
+      return nil unless parsed_in_provider_tz
+
+      parsed_in_provider_tz.in_time_zone(Time.zone)
+    rescue StandardError
+      nil
     end
   end
 end

@@ -428,7 +428,7 @@ module Api
         metadata = txn.metadata.is_a?(Hash) ? txn.metadata : {}
         currency = card_event.currency || txn.currency || txn.wallet&.currency || 'USD'
         reference = card_event.provider_transaction_reference || original_reference || "wallet-tx-#{txn.id}"
-        amount = card_event.amount || txn.amount
+        amount = normalize_card_event_amount(card_event) || txn.amount
 
         legacy = receipt_from_transaction(txn, original_reference: original_reference)
 
@@ -468,13 +468,16 @@ module Api
         event_time = event.transaction_at || event.created_at
         currency = event.currency || 'USD'
         reference = event.provider_transaction_reference || original_reference || event.id
+        normalized_amount = normalize_card_event_amount(event) || event.amount
+        merchant_name = card_event_merchant_name(event, metadata)
+        merchant_country = card_event_merchant_country(metadata)
 
         legacy = {
           reference: event.provider_transaction_reference || event.id,
           type: 'card',
           source: event.event || event.event_name,
           status: event.status,
-          amount: event.amount,
+          amount: normalized_amount,
           currency: currency,
           description: metadata['description'] || event.event.to_s.tr('._', ' ').strip,
           created_at: event_time,
@@ -496,15 +499,15 @@ module Api
           kind: 'card',
           event: event.event || event.event_name || 'card_event',
           status: event.status || 'pending',
-          amount: event.amount,
+          amount: normalized_amount,
           currency: currency,
           occurred_at: event_time,
           title: metadata['description'] || event.event.to_s.tr('._', ' ').strip,
-          subtitle: metadata['merchant'] || metadata['description'],
+          subtitle: merchant_name || metadata['description'],
           parties: {
             card_id: event.card_id,
-            merchant: metadata['merchant'],
-            merchant_country: metadata['merchant_country']
+            merchant: merchant_name,
+            merchant_country: merchant_country
           }.compact,
           provider: {
             reference: event.provider_transaction_reference || event.transaction_reference,
@@ -512,7 +515,7 @@ module Api
           }.compact,
           timeline: build_card_timeline(event),
           meta: metadata.compact,
-          fees: fee_array(metadata['fee_breakdown'], currency),
+          fees: card_event_fee_array(event: event, currency: currency, metadata: metadata),
           legacy: legacy
         )
       end
@@ -1392,6 +1395,86 @@ module Api
         else
           []
         end
+      end
+
+      def card_event_fee_array(event:, currency:, metadata:)
+        explicit = fee_array(metadata['fee_breakdown'], currency)
+
+        fallback = []
+        event_fee = normalize_card_event_money(
+          event.fee_amount || metadata['fee_amount'] || metadata['fee'],
+          currency: event.fee_currency || metadata['fee_currency'] || currency
+        )
+        event_fee_currency = event.fee_currency || metadata['fee_currency'] || currency
+        if event_fee.to_d.positive?
+          fallback << { label: 'provider fee', amount: event_fee, currency: event_fee_currency }
+        end
+
+        if currency.to_s.upcase == 'USD'
+          fallback += [
+            ['provider fee', metadata['provider_fee_usd']],
+            ['bitbridge fee', metadata['bitbridge_fee_usd']],
+            ['fx markup', metadata['fx_markup_usd']],
+            ['funding fee', metadata['funding_fee_usd']],
+            ['withdrawal fee', metadata['withdrawal_fee_usd']]
+          ].filter_map do |label, amount|
+            parsed = decimal_or_nil(amount)
+            next nil unless parsed.to_d.positive?
+
+            { label: label, amount: parsed, currency: 'USD' }
+          end
+        end
+
+        merge_fee_arrays(explicit, fallback)
+      end
+
+      def card_event_merchant_name(event, metadata)
+        merchant_meta = metadata['merchant']
+        return merchant_meta['name'] if merchant_meta.is_a?(Hash) && merchant_meta['name'].present?
+
+        event.merchant_name.presence || metadata['merchant_name'].presence
+      end
+
+      def card_event_merchant_country(metadata)
+        merchant_meta = metadata['merchant']
+        return merchant_meta['country'] if merchant_meta.is_a?(Hash) && merchant_meta['country'].present?
+
+        metadata['merchant_country']
+      end
+
+      def normalize_card_event_amount(event)
+        return nil if event.blank?
+
+        normalize_card_event_money(
+          event.amount,
+          currency: event.currency,
+          major_hint: card_event_major_hint(event)
+        )
+      end
+
+      def card_event_major_hint(event)
+        metadata = event.metadata.is_a?(Hash) ? event.metadata : {}
+        decimal_or_nil(metadata['total_debit_usd']) ||
+          decimal_or_nil(metadata['principal_usd']) ||
+          decimal_or_nil(metadata['total_credit_usd']) ||
+          decimal_or_nil(metadata['gross_amount_usd'])
+      end
+
+      def normalize_card_event_money(raw_amount, currency:, major_hint: nil)
+        amount = decimal_or_nil(raw_amount)
+        return nil unless amount
+        return amount.to_f unless currency.to_s.upcase == 'USD'
+
+        if major_hint.present?
+          return amount.to_f if (amount - major_hint).abs <= 0.01
+          scaled = (amount / 100).round(6)
+          return scaled.to_f if (scaled - major_hint).abs <= 0.01
+        end
+
+        # Provider card amounts are frequently integer cents for USD events.
+        return (amount / 100).to_f if amount.frac.zero?
+
+        amount.to_f
       end
 
       def normalize_fee_label(label)

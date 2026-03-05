@@ -101,4 +101,28 @@ RSpec.describe CardEvent, type: :model do
     expect(merchant['group']).to eq('Other Outgoing Transactions')
     expect(merchant['recurring']).to eq(true)
   end
+
+  it 'parses transaction_timestamp in milliseconds' do
+    data = {
+      'transaction_timestamp' => '1741178400000'
+    }
+
+    parsed = described_class.parse_transaction_time(data)
+
+    expect(parsed).to eq(Time.zone.at(1_741_178_400))
+  end
+
+  it 'parses timezone-less provider datetime using configured provider timezone' do
+    original_tz = ENV['BRIDGECARD_TRANSACTION_TIMEZONE']
+    ENV['BRIDGECARD_TRANSACTION_TIMEZONE'] = 'Africa/Lagos'
+
+    parsed = nil
+    Time.use_zone('UTC') do
+      parsed = described_class.parse_transaction_time('transaction_date' => '2026-03-05 10:00:00')
+    end
+
+    expect(parsed&.utc&.iso8601).to eq('2026-03-05T09:00:00Z')
+  ensure
+    ENV['BRIDGECARD_TRANSACTION_TIMEZONE'] = original_tz
+  end
 end

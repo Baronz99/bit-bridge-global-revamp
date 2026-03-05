@@ -664,6 +664,7 @@ module Api
 
         currency = event.currency.to_s.upcase
         return amount.to_f unless currency == 'USD'
+        return amount.to_f unless amount.frac.zero?
 
         (amount / 100).to_f
       end

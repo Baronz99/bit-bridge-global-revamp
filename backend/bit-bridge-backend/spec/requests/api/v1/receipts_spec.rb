@@ -30,13 +30,16 @@ RSpec.describe 'Api::V1::ReceiptsController', type: :request do
     Card.create!(user: user, card_id: card_id)
   end
 
-  def build_card_event(user, card, provider_ref: 'provider-ref', amount: 50, currency: 'USD')
+  def build_card_event(user, card, provider_ref: 'provider-ref', amount: 50, currency: 'USD', fee_amount: nil, fee_currency: nil, metadata: nil)
     CardEvent.create!(
       user: user,
       card_id: card.card_id,
       provider_transaction_reference: provider_ref,
       amount: amount,
       currency: currency,
+      fee_amount: fee_amount,
+      fee_currency: fee_currency,
+      metadata: metadata,
       event: 'card_event',
       status: 'successful'
     )
@@ -173,6 +176,35 @@ RSpec.describe 'Api::V1::ReceiptsController', type: :request do
       expect(response).to have_http_status(:ok)
       body = JSON.parse(response.body)
       expect(body['data']['kind']).to eq('card')
+    end
+
+    it 'normalizes USD card event cents and includes fallback provider fee on receipt' do
+      skip('Factories not available in this environment') unless user
+      card = build_card(user, card_id: 'card-evt-2')
+      evt = build_card_event(
+        user,
+        card,
+        provider_ref: 'prov-evt-2',
+        amount: 600,
+        currency: 'USD',
+        fee_amount: 25,
+        fee_currency: 'USD',
+        metadata: {
+          merchant: { name: 'Amazon', country: 'US' }
+        }
+      )
+
+      get "/api/v1/receipts/card-evt-#{evt.id}", headers: auth_headers(user)
+
+      expect(response).to have_http_status(:ok)
+      body = JSON.parse(response.body)
+      expect(body.dig('data', 'amount')).to eq(6.0)
+      expect(body.dig('data', 'subtitle')).to eq('Amazon')
+      expect(body.dig('data', 'parties', 'merchant')).to eq('Amazon')
+      expect(body.dig('data', 'parties', 'merchant_country')).to eq('US')
+      expect(body.dig('data', 'fees')).to include(
+        a_hash_including('label' => 'provider fee', 'amount' => 0.25, 'currency' => 'USD')
+      )
     end
 
     it 'returns bill order receipt dto' do
