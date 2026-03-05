@@ -428,7 +428,13 @@ module Api
         metadata = txn.metadata.is_a?(Hash) ? txn.metadata : {}
         currency = card_event.currency || txn.currency || txn.wallet&.currency || 'USD'
         reference = card_event.provider_transaction_reference || original_reference || "wallet-tx-#{txn.id}"
-        amount = normalize_card_event_amount(card_event) || txn.amount
+        principal_amount = normalize_card_event_amount(card_event) || txn.amount
+        funding_breakdown = metadata['fee_breakdown'].is_a?(Hash) ? metadata['fee_breakdown'] : {}
+        breakdown_principal = decimal_or_nil(funding_breakdown['principal_usd'])
+        value_amount = breakdown_principal || decimal_or_nil(principal_amount)
+        total_debit = decimal_or_nil(funding_breakdown['total_debit_usd']) || value_amount
+        fee_rows = card_funding_fee_array(metadata: metadata, currency: currency)
+        amount = total_debit&.to_f || principal_amount
 
         legacy = receipt_from_transaction(txn, original_reference: original_reference)
 
@@ -458,8 +464,11 @@ module Api
             bridge_card_id: txn.bridge_card_id
           }.compact,
           timeline: build_wallet_timeline(txn, txn.transaction_record, nil),
-          fees: fee_array(metadata['fee_breakdown'], currency),
-          legacy: legacy
+          fees: fee_rows,
+          legacy: legacy,
+          value_amount: value_amount&.to_f,
+          wallet_amount_charged: total_debit&.to_f,
+          total_display: total_debit&.to_f
         )
       end
 
@@ -469,6 +478,31 @@ module Api
         currency = event.currency || 'USD'
         reference = event.provider_transaction_reference || original_reference || event.id
         normalized_amount = normalize_card_event_amount(event) || event.amount
+        fee_rows = card_event_fee_array(event: event, currency: currency, metadata: metadata)
+        fee_total = Array(fee_rows).sum { |row| decimal_or_zero(row[:amount] || row['amount']) }
+        event_type = event.card_transaction_type.to_s.upcase
+        value_amount = decimal_or_nil(metadata['principal_usd']) || decimal_or_nil(normalized_amount)
+        total_display = nil
+        wallet_amount_charged = nil
+        display_amount = decimal_or_nil(normalized_amount)
+
+        if event_type == 'DEBIT'
+          total_display = decimal_or_nil(metadata['total_debit_usd']) || (value_amount && (value_amount + fee_total))
+          display_amount = total_display || display_amount
+          wallet_amount_charged = total_display
+        elsif event_type == 'CREDIT'
+          total_credit = decimal_or_nil(metadata['total_credit_usd'])
+          total_debit = decimal_or_nil(metadata['total_debit_usd'])
+          total_display = total_debit || total_credit
+          display_amount = total_display || display_amount
+          wallet_amount_charged = total_display
+        elsif event_type == 'UNLOAD'
+          total_credit = decimal_or_nil(metadata['total_credit_usd'])
+          total_display = total_credit || display_amount
+          display_amount = total_display || display_amount
+          wallet_amount_charged = total_display
+        end
+
         merchant_name = card_event_merchant_name(event, metadata)
         merchant_country = card_event_merchant_country(metadata)
         enrichment_payload = card_event_enrichment_payload(event: event, metadata: metadata)
@@ -478,7 +512,7 @@ module Api
           type: 'card',
           source: event.event || event.event_name,
           status: event.status,
-          amount: normalized_amount,
+          amount: display_amount&.to_f || normalized_amount,
           currency: currency,
           description: metadata['description'] || event.event.to_s.tr('._', ' ').strip,
           created_at: event_time,
@@ -500,7 +534,7 @@ module Api
           kind: 'card',
           event: event.event || event.event_name || 'card_event',
           status: event.status || 'pending',
-          amount: normalized_amount,
+          amount: display_amount&.to_f || normalized_amount,
           currency: currency,
           occurred_at: event_time,
           title: metadata['description'] || event.event.to_s.tr('._', ' ').strip,
@@ -516,8 +550,11 @@ module Api
           }.compact,
           timeline: build_card_timeline(event),
           meta: metadata.merge(enrichment_payload).compact,
-          fees: card_event_fee_array(event: event, currency: currency, metadata: metadata),
-          legacy: legacy
+          fees: fee_rows,
+          legacy: legacy,
+          value_amount: value_amount&.to_f,
+          wallet_amount_charged: wallet_amount_charged&.to_f,
+          total_display: total_display&.to_f
         )
       end
 
@@ -1438,6 +1475,34 @@ module Api
         end
 
         merge_fee_arrays(explicit, fallback)
+      end
+
+      def card_funding_fee_array(metadata:, currency:)
+        breakdown = metadata['fee_breakdown'].is_a?(Hash) ? metadata['fee_breakdown'] : {}
+        rows = []
+
+        funding_fee = decimal_or_nil(breakdown['funding_fee_usd'])
+        if funding_fee.to_d.positive?
+          rows << { label: 'funding fee', amount: funding_fee, currency: 'USD' }
+        end
+
+        withdrawal_fee = decimal_or_nil(breakdown['withdrawal_fee_usd'])
+        if withdrawal_fee.to_d.positive?
+          rows << { label: 'withdrawal fee', amount: withdrawal_fee, currency: 'USD' }
+        end
+
+        if rows.blank?
+          rows = breakdown.filter_map do |label, raw_amount|
+            next nil unless label.to_s.downcase.include?('fee')
+
+            parsed = decimal_or_nil(raw_amount)
+            next nil unless parsed.to_d.positive?
+
+            { label: label.to_s.tr('_', ' '), amount: parsed, currency: currency }
+          end
+        end
+
+        merge_fee_arrays([], rows)
       end
 
       def card_event_merchant_name(event, metadata)

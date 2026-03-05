@@ -98,6 +98,38 @@ RSpec.describe 'Api::V1::ReceiptsController', type: :request do
       expect(body['data']['parties']['card_id']).to eq(card.card_id)
     end
 
+    it 'uses funding fee breakdown correctly for virtual card funding totals' do
+      skip('Factories not available in this environment') unless user
+      card = build_card(user, card_id: 'card-fund-2')
+      evt = build_card_event(user, card, provider_ref: 'match-456', amount: 500, currency: 'USD')
+      wallet = build_wallet(user)
+      wallet_tx = build_transaction(
+        wallet,
+        amount: 5,
+        metadata: {
+          subtype: 'virtual_card_funding',
+          provider_transaction_reference: 'match-456',
+          bridge_card_id: card.card_id,
+          fee_breakdown: {
+            principal_usd: 5.0,
+            funding_fee_usd: 1.0,
+            total_debit_usd: 6.0
+          }
+        }
+      )
+
+      get "/api/v1/receipts/wallet-tx-#{wallet_tx.id}", headers: auth_headers(user)
+
+      expect(response).to have_http_status(:ok)
+      body = JSON.parse(response.body)
+      expect(body.dig('data', 'event')).to eq('virtual_card_funding')
+      expect(body.dig('data', 'amount')).to eq(6.0)
+      expect(body.dig('data', 'value_amount')).to eq(5.0)
+      expect(body.dig('data', 'fees')).to include(
+        a_hash_including('label' => 'funding fee', 'amount' => 1.0, 'currency' => 'USD')
+      )
+    end
+
     it 'returns wallet receipt dto' do
       skip('Factories not available in this environment') unless user
       wallet = build_wallet(user)
@@ -206,6 +238,8 @@ RSpec.describe 'Api::V1::ReceiptsController', type: :request do
       expect(body.dig('data', 'fees')).to include(
         a_hash_including('label' => 'provider fee', 'amount' => 0.25, 'currency' => 'USD')
       )
+      expect(body.dig('data', 'amount')).to eq(6.0)
+      expect(body.dig('data', 'value_amount')).to eq(6.0)
     end
 
     it 'does not double count provider fee when both fee_amount and metadata provider fee are present' do
