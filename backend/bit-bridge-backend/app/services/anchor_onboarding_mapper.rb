@@ -95,7 +95,7 @@ class AnchorOnboardingMapper
     end
 
     mapped[:user_id] = @user&.id
-    mapped[:vendor] = @account_params['vendor'] || @profile_params['vendor'] || @user_params['vendor']
+    mapped[:vendor] = @account_params['vendor'] || @profile_params['vendor'] || @user_params['vendor'] || 'anchor'
     mapped[:phone_number] = normalize_phone(mapped[:phone_number])
     mapped[:address] = @profile&.address_line1 if mapped[:address].blank? && @profile&.address_line1.present?
     mapped[:state] = normalize_state(mapped[:state])

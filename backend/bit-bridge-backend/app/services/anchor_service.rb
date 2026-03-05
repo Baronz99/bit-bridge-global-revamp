@@ -891,7 +891,9 @@ class AnchorService
   end
 
   def store_account_details(account_id, user_data)
-    existing_anchor = Account.where(user_id: user_data[:user_id], vendor: user_data[:vendor])
+    resolved_vendor = user_data[:vendor].presence || 'anchor'
+    existing_anchor = Account.where(user_id: user_data[:user_id])
+                            .where("vendor = ? OR vendor IS NULL", resolved_vendor)
                             .order(
                               Arel.sql("CASE WHEN account_number IS NOT NULL AND account_number <> '' THEN 0 WHEN useable_id IS NOT NULL AND useable_id <> '' THEN 1 ELSE 2 END ASC"),
                               status: :desc,
@@ -907,7 +909,7 @@ class AnchorService
       state: user_data[:state],
       dob: user_data[:dob],
       address: user_data[:address],
-      vendor: user_data[:vendor]
+      vendor: resolved_vendor
     }
 
     if existing_anchor.present?
