@@ -149,16 +149,20 @@ module Api
         end
 
         signature = request.headers['monnify-signature'] || request.headers['Monnify-Signature'] || request.headers['MONNIFY-SIGNATURE']
-        secret = monnify_webhook_secret
+        secrets = monnify_signature_secrets
 
-        if secret.blank?
-          Rails.logger.error('[MonnifyWebhook] missing webhook signing secret')
-          webhook_event&.mark_failed!(error_message: 'missing_webhook_secret')
+        if secrets.empty?
+          Rails.logger.error('[MonnifyWebhook] missing monnify secret key')
+          webhook_event&.mark_failed!(error_message: 'missing_monnify_secret_key')
           return head :service_unavailable
         end
 
-        unless valid_monnify_signature?(raw_body: raw_body, signature: signature, secret: secret)
-          Rails.logger.warn('[MonnifyWebhook] invalid signature')
+        unless valid_monnify_signature?(raw_body: raw_body, signature: signature, secrets: secrets)
+          provided_prefix = signature.to_s.strip.downcase[0, 12]
+          computed_prefix = OpenSSL::HMAC.hexdigest('sha512', secrets.first, raw_body).downcase[0, 12] rescue nil
+          Rails.logger.warn(
+            "[MonnifyWebhook] invalid signature provided_prefix=#{provided_prefix} computed_prefix=#{computed_prefix}"
+          )
           webhook_event&.update_columns(signature_valid: false, updated_at: Time.current)
           webhook_event&.mark_rejected!(reason: 'invalid_signature')
           return head :unauthorized
@@ -620,23 +624,31 @@ module Api
         )
       end
 
-      def valid_monnify_signature?(raw_body:, signature:, secret:)
+      def valid_monnify_signature?(raw_body:, signature:, secrets:)
         return false if raw_body.blank? || signature.blank?
+        return false if secrets.blank?
 
         provided = signature.to_s.strip
-        computed = OpenSSL::HMAC.hexdigest('sha512', secret, raw_body)
-        return false unless provided.length == computed.length
+        secrets.any? do |secret|
+          computed = OpenSSL::HMAC.hexdigest('sha512', secret, raw_body)
+          next false unless provided.length == computed.length
 
-        ActiveSupport::SecurityUtils.secure_compare(provided.downcase, computed.downcase)
+          ActiveSupport::SecurityUtils.secure_compare(provided.downcase, computed.downcase)
+        end
       rescue StandardError
         false
       end
 
-      def monnify_webhook_secret
-        ENV['MONNIFY_WEBHOOK_SECRET'].to_s.strip.presence ||
+      # Monnify signs webhooks with the Monnify secret key.
+      # Optionally accept previous key during rotations.
+      def monnify_signature_secrets
+        [
+          ENV['MONNIFY_SECRET_KEY'].to_s.strip.presence,
+          ENV['MONNIFY_SECRET_KEY_PREVIOUS'].to_s.strip.presence,
           Rails.configuration.x.monnify_secret_key.to_s.strip.presence
+        ].compact.uniq
       rescue StandardError
-        nil
+        []
       end
 
       def persist_unmatched_credit!(reference:, transaction_reference:, reason:, event_data:, raw_payload:)
