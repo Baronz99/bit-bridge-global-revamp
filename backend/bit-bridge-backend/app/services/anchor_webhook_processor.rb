@@ -113,6 +113,7 @@ class AnchorWebhookProcessor
   end
 
   def handle_deposit_account_created(payload:)
+    service = AnchorService.new
     account = resolve_anchor_account(payload)
     return if account.blank?
 
@@ -126,9 +127,15 @@ class AnchorWebhookProcessor
       updates[:useable_id] = account_number_id
     end
     updates[:status] = 'completed' if updates[:account_number].present? && account.status != 'completed'
-    return if updates.empty?
+    account.update(updates) if updates.any?
 
-    account.update(updates)
+    # Some Anchor account-number events only include IDs in relationships.
+    # Pull canonical account details from provider to obtain the actual number.
+    if account.account_number.blank? && account.useable_id.present?
+      service.send(:sync_anchor_deposit_account!, account)
+      account.reload
+      account.update(status: 'completed') if account.account_number.present? && account.status != 'completed'
+    end
   end
 
   def handle_deposit_account_lifecycle(payload:, service:)
