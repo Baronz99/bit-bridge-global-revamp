@@ -16,7 +16,7 @@ const AdminHome = () => {
   const { stats } = useSelector((state) => state.stat)
 
   useEffect(() => {
-    dispatch(getTransactions())
+    dispatch(getTransactions({ params: { summary: true, limit: 30 } }))
     dispatch(getStatistics())
   }, [dispatch])
 

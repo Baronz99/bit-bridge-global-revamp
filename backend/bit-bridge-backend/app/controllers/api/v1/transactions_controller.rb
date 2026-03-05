@@ -14,6 +14,11 @@ module Api
           else
             current_user.transactions.with_attached_proof.order(created_at: :desc)
           end
+
+        if current_user&.admin_access? && truthy_param?(params[:summary])
+          return render_summary_transactions(scope)
+        end
+
         @transactions = exclude_settled_anchor_checkout_initializations(scope)
         render json: {
           data: ActiveModelSerializers::SerializableResource.new(@transactions)
@@ -674,6 +679,65 @@ module Api
         return nil if raw.blank?
         Time.iso8601(raw.to_s)
       rescue ArgumentError
+        nil
+      end
+
+      def render_summary_transactions(base_scope)
+        limit = parse_limit(params[:limit], default: 50, max: 200)
+        return if performed?
+
+        scope = exclude_settled_anchor_checkout_initializations(base_scope)
+        items = scope
+                .includes(:wallet, :transaction_record)
+                .limit(limit)
+
+        data = items.map do |transaction|
+          {
+            id: transaction.id,
+            reference: transaction.transaction_record&.reference || transaction.transfer_id,
+            status: transaction.status,
+            amount: transaction.amount,
+            currency: transaction_currency(transaction),
+            created_at: transaction.created_at,
+            address: transaction.address,
+            transaction_type: transaction.transaction_type,
+            wallet_type: transaction.wallet&.wallet_type
+          }
+        end
+
+        render json: { data: data }, status: :ok
+      end
+
+      def parse_limit(raw, default:, max:)
+        return default if raw.blank?
+
+        limit = Integer(raw)
+        if limit <= 0
+          render json: { message: 'limit must be greater than 0' }, status: :unprocessable_entity
+          return nil
+        end
+
+        [limit, max].min
+      rescue ArgumentError, TypeError
+        render json: { message: 'limit must be an integer' }, status: :unprocessable_entity
+        nil
+      end
+
+      def truthy_param?(value)
+        ActiveModel::Type::Boolean.new.cast(value)
+      end
+
+      def transaction_currency(transaction)
+        direct_currency =
+          if transaction.respond_to?(:has_attribute?) && transaction.has_attribute?(:currency)
+            transaction[:currency]
+          end
+
+        return direct_currency if direct_currency.present?
+        return transaction.wallet.currency if transaction.wallet&.currency.present?
+        return 'USD' if transaction.wallet&.usd?
+        return 'NGN' if transaction.wallet&.ngn?
+
         nil
       end
 

@@ -58,6 +58,10 @@ module Api
 
 
       def index
+        if current_user&.admin_access? && truthy_param?(params[:summary])
+          return render_summary_users
+        end
+
         @users = User.all
         render json: {
           data: ActiveModelSerializers::SerializableResource.new(@users, each_serializer: UserSerializer)
@@ -652,6 +656,164 @@ module Api
         return if current_user&.super_admin?
 
         render json: { message: 'Not authorized' }, status: :forbidden
+      end
+
+      def render_summary_users
+        limit = parse_limit(params[:limit], default: 500, max: 1000)
+        return if performed?
+
+        users = User
+                .left_joins(:user_profile)
+                .left_joins(:wallet)
+                .select(
+                  'users.id',
+                  'users.email',
+                  'users.role',
+                  'users.active',
+                  'users.created_at',
+                  'user_profiles.first_name AS profile_first_name',
+                  'user_profiles.last_name AS profile_last_name',
+                  'user_profiles.phone_number AS profile_phone_number',
+                  'wallets.id AS ngn_wallet_id',
+                  'wallets.wallet_type AS ngn_wallet_type',
+                  'wallets.balance_cents AS ngn_wallet_balance_cents'
+                )
+                .order('users.created_at DESC')
+                .limit(limit)
+
+        wallet_ids = users.filter_map { |user| user.attributes['ngn_wallet_id'] }
+        computed_balances = compute_ngn_available_balances(wallet_ids)
+
+        data = users.map do |user|
+          wallet_id = user.attributes['ngn_wallet_id']
+          wallet_balance =
+            if wallet_id.present? && computed_balances.key?(wallet_id)
+              computed_balances[wallet_id]
+            else
+              cents_to_amount(user.attributes['ngn_wallet_balance_cents'])
+            end
+
+          {
+            id: user.id,
+            email: user.email,
+            role: user.role,
+            active: user.active,
+            created_at: user.created_at,
+            user_profile: {
+              first_name: user.attributes['profile_first_name'],
+              last_name: user.attributes['profile_last_name'],
+              phone_number: user.attributes['profile_phone_number']
+            }.compact,
+            wallets: user.attributes['ngn_wallet_id'].present? ? [
+              {
+                id: user.attributes['ngn_wallet_id'],
+                wallet_type: wallet_type_label(user.attributes['ngn_wallet_type']),
+                wallet_balance: wallet_balance
+              }
+            ] : []
+          }
+        end
+
+        render json: { data: data }, status: :ok
+      end
+
+      def parse_limit(raw, default:, max:)
+        return default if raw.blank?
+
+        limit = Integer(raw)
+        if limit <= 0
+          render json: { message: 'limit must be greater than 0' }, status: :unprocessable_entity
+          return nil
+        end
+
+        [limit, max].min
+      rescue ArgumentError, TypeError
+        render json: { message: 'limit must be an integer' }, status: :unprocessable_entity
+        nil
+      end
+
+      def truthy_param?(value)
+        ActiveModel::Type::Boolean.new.cast(value)
+      end
+
+      def wallet_type_label(value)
+        if value.is_a?(Integer)
+          Wallet.wallet_types.key(value) || value
+        else
+          value
+        end
+      end
+
+      def cents_to_amount(value)
+        return nil if value.nil?
+
+        value.to_d / 100
+      end
+
+      def compute_ngn_available_balances(wallet_ids)
+        return {} if wallet_ids.blank?
+
+        deposits = Transaction
+                   .unscope(:order)
+                   .where(wallet_id: wallet_ids, transaction_type: :deposit, status: :approved)
+                   .group(:wallet_id)
+                   .sum(:amount)
+
+        withdrawals = Transaction
+                      .unscope(:order)
+                      .where(wallet_id: wallet_ids, transaction_type: :withdrawal, status: %i[pending approved])
+                      .where("COALESCE(metadata ->> 'ledger_hold_reserved', 'false') != 'true'")
+                      .group(:wallet_id)
+                      .sum(:amount)
+
+        refunds = WalletLedgerEntry
+                  .where(wallet_id: wallet_ids, entry_type: :refund)
+                  .group(:wallet_id)
+                  .sum(:amount)
+
+        debits = WalletLedgerEntry
+                 .where(wallet_id: wallet_ids, entry_type: :debit)
+                 .group(:wallet_id)
+                 .sum(:amount)
+
+        bill_sums = WalletLedgerEntry
+                    .where(wallet_id: wallet_ids, entry_type: %i[hold release debit])
+                    .where.not(bill_order_id: nil)
+                    .group(:wallet_id, :bill_order_id, :entry_type)
+                    .sum(:amount)
+
+        outstanding_by_wallet = Hash.new { |hash, key| hash[key] = {} }
+        bill_sums.each do |(wallet_id, bill_order_id, entry_type), amount|
+          outstanding_by_wallet[wallet_id][bill_order_id] ||= { hold: 0.to_d, release: 0.to_d, debit: 0.to_d }
+          normalized_type =
+            if entry_type.is_a?(Integer)
+              WalletLedgerEntry.entry_types.key(entry_type)
+            else
+              entry_type.to_s
+            end
+          next unless %w[hold release debit].include?(normalized_type)
+
+          outstanding_by_wallet[wallet_id][bill_order_id][normalized_type.to_sym] = amount.to_d
+        end
+
+        outstanding_per_wallet = {}
+        outstanding_by_wallet.each do |wallet_id, bills|
+          total = bills.values.sum do |totals|
+            delta = totals[:hold] - totals[:release] - totals[:debit]
+            delta.positive? ? delta : 0.to_d
+          end
+          outstanding_per_wallet[wallet_id] = total
+        end
+
+        wallet_ids.each_with_object({}) do |wallet_id, acc|
+          raw =
+            deposits[wallet_id].to_d +
+            refunds[wallet_id].to_d -
+            withdrawals[wallet_id].to_d -
+            debits[wallet_id].to_d
+          available = raw - outstanding_per_wallet[wallet_id].to_d
+          acc[wallet_id] = available.negative? ? 0.to_d : available
+        end
       end
 
       def log_admin_audit(action, target: nil, metadata: {})

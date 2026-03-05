@@ -134,9 +134,11 @@ export const updateTransaction = createAsyncThunk(
 
 export const getTransactions = createAsyncThunk(
   'transaction/get-transactions',
-  async (_, { rejectWithValue }) => {
+  async (options = {}, { rejectWithValue }) => {
     try {
-      const response = await client.get('/transactions')
+      const response = await client.get('/transactions', {
+        params: options?.params || {},
+      })
       return response.data
     } catch (error) {
       return rejectWithValue({ message: getErrorMessage(error) })
