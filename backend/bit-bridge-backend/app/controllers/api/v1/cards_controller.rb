@@ -349,7 +349,13 @@ module Api
           .where(card_id: card.card_id)
           .order(transaction_at: :desc)
 
-        txn_payload = txns.map do |txn|
+        funding_event_refs = successful_funding_event_references(events)
+
+        txn_payload = txns.filter_map do |txn|
+          if funding_wallet_transaction?(txn) && funding_event_refs.key?(funding_reference_from_wallet_txn(txn))
+            next nil
+          end
+
           metadata = txn.metadata.is_a?(Hash) ? txn.metadata : {}
           {
             id: "txn-#{txn.id}",
@@ -434,11 +440,19 @@ module Api
           .order(created_at: :desc)
 
         card_events = CardEvent.where(card_id: card.card_id)
+        funding_event_refs = successful_funding_event_references(card_events)
 
-        last_funding_txn =
+        successful_funding_txns =
           txns
           .where(address: 'Virtual Card Funding (USD)')
           .where(status: Transaction.statuses[:approved])
+          .to_a
+          .reject { |txn| funding_event_refs.key?(funding_reference_from_wallet_txn(txn)) }
+
+        last_funding_txn =
+          successful_funding_txns
+          .sort_by(&:created_at)
+          .reverse
           .first
 
         last_credit_event =
@@ -457,10 +471,7 @@ module Api
           end
 
         total_funded_txn =
-          txns
-          .where(address: 'Virtual Card Funding (USD)')
-          .where(status: Transaction.statuses[:approved])
-          .sum(:amount)
+          successful_funding_txns.sum { |txn| txn.amount.to_d }
 
         total_funded_events =
           card_events
@@ -667,6 +678,38 @@ module Api
         return amount.to_f unless amount.frac.zero?
 
         (amount / 100).to_f
+      end
+
+      def successful_funding_event_references(events_relation)
+        events = events_relation.respond_to?(:to_a) ? events_relation.to_a : Array(events_relation)
+        events.each_with_object({}) do |event, acc|
+          next unless event.card_transaction_type.to_s.casecmp('credit').zero?
+          next unless event.status.to_s.casecmp('successful').zero?
+
+          ref = funding_reference_from_card_event(event)
+          acc[ref] = true if ref.present?
+        end
+      end
+
+      def funding_reference_from_card_event(event)
+        event.provider_transaction_reference.presence ||
+          event.transaction_reference.presence
+      end
+
+      def funding_reference_from_wallet_txn(txn)
+        metadata = txn.metadata.is_a?(Hash) ? txn.metadata : {}
+        metadata['provider_transaction_reference'].presence ||
+          metadata['transaction_reference'].presence ||
+          txn.unique_transaction_id.presence
+      end
+
+      def funding_wallet_transaction?(txn)
+        metadata = txn.metadata.is_a?(Hash) ? txn.metadata : {}
+        subtype = metadata['subtype'].to_s.downcase
+
+        txn.address.to_s.casecmp('Virtual Card Funding (USD)').zero? ||
+          subtype.include?('virtual_card_funding') ||
+          subtype.include?('card_fund')
       end
 
       def latest_cardholder_profile_for(user)

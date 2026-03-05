@@ -81,4 +81,48 @@ RSpec.describe 'Cards history FX', type: :request do
     expect(event.dig('merchant', 'name')).to eq('Facebook')
     expect(event.dig('merchant', 'category')).to eq('Advertisement')
   end
+
+  it 'dedupes wallet funding row when matching card credit event exists' do
+    provider_ref = 'card-fund-dedupe-1'
+
+    wallet = Wallet.find_or_create_by!(user: user, wallet_type: :usd) do |w|
+      w.currency = 'USD'
+      w.balance_cents = 10_000
+    end
+
+    Transaction.create!(
+      wallet: wallet,
+      bridge_card_id: card.card_id,
+      amount: 6.0,
+      transaction_type: :withdrawal,
+      status: :approved,
+      address: 'Virtual Card Funding (USD)',
+      unique_transaction_id: provider_ref
+    )
+
+    CardEvent.create!(
+      user: user,
+      card_id: card.card_id,
+      event: 'card_credit_event.successful',
+      event_name: 'card_credit_event',
+      card_transaction_type: 'CREDIT',
+      status: 'successful',
+      amount: 600,
+      currency: 'USD',
+      provider_transaction_reference: provider_ref,
+      transaction_reference: provider_ref
+    )
+
+    get "/api/v1/cards/#{card.id}/history", headers: headers
+
+    expect(response).to have_http_status(:ok)
+    body = JSON.parse(response.body)
+    funding_rows = body.select do |row|
+      row['source'] == 'wallet' && row['address'] == 'Virtual Card Funding (USD)'
+    end
+    credit_rows = body.select { |row| row['source'] == 'bridge' && row['id'].to_s.start_with?('evt-') }
+
+    expect(funding_rows).to be_empty
+    expect(credit_rows.size).to eq(1)
+  end
 end
