@@ -1407,8 +1407,10 @@ module Api
           currency: event.fee_currency || metadata['fee_currency'] || currency
         )
         event_fee_currency = event.fee_currency || metadata['fee_currency'] || currency
+        skip_provider_fee_metadata = false
         if event_fee.to_d.positive?
           fallback << { label: 'provider fee', amount: event_fee, currency: event_fee_currency }
+          skip_provider_fee_metadata = true
         end
 
         if currency.to_s.upcase == 'USD'
@@ -1419,6 +1421,8 @@ module Api
             ['funding fee', metadata['funding_fee_usd']],
             ['withdrawal fee', metadata['withdrawal_fee_usd']]
           ].filter_map do |label, amount|
+            next nil if label == 'provider fee' && skip_provider_fee_metadata
+
             parsed = decimal_or_nil(amount)
             next nil unless parsed.to_d.positive?
 

@@ -50,6 +50,11 @@ module Cards
           metadata['provider_fee_rule'] = quote[:provider_fee_rule]
           metadata['bitbridge_fee_rule'] = quote[:bitbridge_fee_rule]
           metadata['pricing_mode'] = quote[:pricing_mode]
+
+          if @card_event.fee_amount.to_d <= 0 && quote[:provider_fee_usd].to_d.positive?
+            @card_event.fee_amount = quote[:provider_fee_usd].to_d
+          end
+          @card_event.fee_currency = 'USD' if @card_event.fee_currency.blank? && @card_event.fee_amount.to_d.positive?
         end
 
         @card_event.update!(metadata: metadata)

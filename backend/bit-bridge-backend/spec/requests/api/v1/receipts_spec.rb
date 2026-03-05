@@ -208,6 +208,30 @@ RSpec.describe 'Api::V1::ReceiptsController', type: :request do
       )
     end
 
+    it 'does not double count provider fee when both fee_amount and metadata provider fee are present' do
+      skip('Factories not available in this environment') unless user
+      card = build_card(user, card_id: 'card-evt-2b')
+      evt = build_card_event(
+        user,
+        card,
+        provider_ref: 'prov-evt-2b',
+        amount: 600,
+        currency: 'USD',
+        fee_amount: 100,
+        fee_currency: 'USD',
+        metadata: {
+          provider_fee_usd: 1.0
+        }
+      )
+
+      get "/api/v1/receipts/card-evt-#{evt.id}", headers: auth_headers(user)
+
+      expect(response).to have_http_status(:ok)
+      body = JSON.parse(response.body)
+      provider_fees = Array(body.dig('data', 'fees')).select { |fee| fee['label'] == 'provider fee' }
+      expect(provider_fees.sum { |fee| fee['amount'].to_d }).to eq(1.0.to_d)
+    end
+
     it 'returns bill order receipt dto' do
       skip('Factories not available in this environment') unless user
       order = build_bill_order(user)

@@ -81,6 +81,12 @@ class CardEvent < ApplicationRecord
         settled_currency: data.is_a?(Hash) ? (data['currency'] || data['transaction_currency']) : nil,
         settled_amount: data.is_a?(Hash) ? data['amount'] : nil
       )
+      resolved_currency = data.is_a?(Hash) ? (data['currency'] || data['transaction_currency']) : nil
+      resolved_fee = extract_fee_fields(
+        data: data,
+        event_name: normalized_event,
+        currency: resolved_currency
+      )
 
       record.assign_attributes(
         event: event_name.presence || record.event || 'unknown',
@@ -99,8 +105,8 @@ class CardEvent < ApplicationRecord
         merchant_name: data.is_a?(Hash) ? data['merchant_name'] : nil,
         description: data.is_a?(Hash) ? (data['description'] || data['message'] || data['narration']) : nil,
         decline_reason: data.is_a?(Hash) ? (data['decline_reason'] || data['reason']) : nil,
-        fee_amount: data.is_a?(Hash) ? (data['fee'] || data['fee_amount']) : nil,
-        fee_currency: data.is_a?(Hash) ? (data['fee_currency'] || data['currency']) : nil,
+        fee_amount: resolved_fee[:fee_amount],
+        fee_currency: resolved_fee[:fee_currency],
         transaction_at: transaction_at,
         livemode: data.is_a?(Hash) ? data['livemode'] : nil,
         raw_payload: raw_payload,
@@ -300,6 +306,74 @@ class CardEvent < ApplicationRecord
       return value unless value.is_a?(BigDecimal)
 
       value.to_s('F')
+    end
+
+    def extract_fee_fields(data:, event_name:, currency:)
+      return { fee_amount: nil, fee_currency: nil } unless data.is_a?(Hash)
+
+      normalized_currency = normalize_currency(data['fee_currency'] || currency)
+      explicit_fee_raw = data['fee_amount']
+      explicit_fee_raw = data['fee'] if explicit_fee_raw.nil?
+      explicit_fee_raw = data['provider_fee'] if explicit_fee_raw.nil?
+      explicit_fee_raw = data['partner_interchange_fee'] if explicit_fee_raw.nil?
+
+      explicit_fee = parse_money_amount(explicit_fee_raw, normalized_currency)
+      if explicit_fee&.positive?
+        return {
+          fee_amount: explicit_fee,
+          fee_currency: normalized_currency || infer_fee_currency(event_name: event_name, data: data)
+        }
+      end
+
+      fallback = fallback_fee_amount(data: data, event_name: event_name)
+      return { fee_amount: nil, fee_currency: nil } unless fallback&.positive?
+
+      {
+        fee_amount: fallback,
+        fee_currency: 'USD'
+      }
+    end
+
+    def fallback_fee_amount(data:, event_name:)
+      breakdown = data['fee_breakdown'].is_a?(Hash) ? data['fee_breakdown'] : {}
+      normalized_event = event_name.to_s
+
+      funding_fee = parse_usd_amount(data['funding_fee_usd'] || breakdown['funding_fee_usd'])
+      return funding_fee if normalized_event == 'card_credit_event' && funding_fee&.positive?
+
+      withdrawal_fee = parse_usd_amount(data['withdrawal_fee_usd'] || breakdown['withdrawal_fee_usd'])
+      return withdrawal_fee if normalized_event == 'card_unload_event' && withdrawal_fee&.positive?
+
+      provider_fee = parse_usd_amount(data['provider_fee_usd'] || breakdown['provider_fee_usd'])
+      return provider_fee if provider_fee&.positive?
+
+      partner_fee = parse_usd_amount(data['partner_interchange_fee'])
+      return partner_fee if partner_fee&.positive?
+
+      nil
+    end
+
+    def infer_fee_currency(event_name:, data:)
+      return 'USD' if event_name.to_s.start_with?('card_')
+
+      normalize_currency(data['currency'] || data['transaction_currency'])
+    end
+
+    def parse_usd_amount(value)
+      parse_money_amount(value, 'USD')
+    end
+
+    def parse_money_amount(value, currency)
+      return nil if value.nil?
+
+      raw = value.to_s.strip
+      decimal = BigDecimal(raw) rescue nil
+      return nil if decimal.nil? || decimal <= 0
+
+      normalized_currency = normalize_currency(currency)
+      return decimal / 100 if normalized_currency == 'USD' && raw.match?(/\A-?\d+\z/)
+
+      decimal
     end
 
     def parse_transaction_timestamp(value)

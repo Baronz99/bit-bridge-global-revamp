@@ -125,4 +125,50 @@ RSpec.describe CardEvent, type: :model do
   ensure
     ENV['BRIDGECARD_TRANSACTION_TIMEZONE'] = original_tz
   end
+
+  it 'stores observed provider fee into fee_amount for debit events' do
+    data = {
+      'bridgecard_transaction_reference' => 'ref_fee_observed',
+      'card_transaction_type' => 'DEBIT',
+      'status' => 'successful',
+      'amount' => '662',
+      'currency' => 'USD',
+      'partner_interchange_fee' => '100'
+    }
+
+    event = described_class.upsert_bridgecard_event!(
+      event_name: 'card_debit_event.successful',
+      data: data,
+      raw_payload: data,
+      card: card,
+      user_id: user.id
+    )
+
+    expect(event.fee_amount.to_d).to eq(1.0.to_d)
+    expect(event.fee_currency).to eq('USD')
+  end
+
+  it 'stores funding fee into fee_amount for credit events when present' do
+    data = {
+      'bridgecard_transaction_reference' => 'ref_fee_funding',
+      'card_transaction_type' => 'CREDIT',
+      'status' => 'successful',
+      'amount' => '500',
+      'currency' => 'USD',
+      'fee_breakdown' => {
+        'funding_fee_usd' => 1.0
+      }
+    }
+
+    event = described_class.upsert_bridgecard_event!(
+      event_name: 'card_credit_event.successful',
+      data: data,
+      raw_payload: data,
+      card: card,
+      user_id: user.id
+    )
+
+    expect(event.fee_amount.to_d).to eq(1.0.to_d)
+    expect(event.fee_currency).to eq('USD')
+  end
 end
