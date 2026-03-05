@@ -21,7 +21,11 @@ class AnchorWebhookProcessor
     record.payload = @payload
     record.received_at ||= Time.current
     record.status ||= 'received'
-    record.save! if record.changed?
+    begin
+      record.save! if record.changed?
+    rescue ActiveRecord::RecordNotUnique
+      record = AnchorWebhookEvent.find_by!(event_type: event_type, reference: reference)
+    end
 
     return if record.processed_at.present? && record.status == 'processed' && !@force
 
@@ -73,6 +77,11 @@ class AnchorWebhookProcessor
     when 'payin.received'
       process_payin_received!(payload: payload, service: service)
     else
+      if deposit_account_lifecycle_event?(normalized_event)
+        handle_deposit_account_lifecycle(payload: payload, service: service)
+        return
+      end
+
       if deposit_account_created_event?(normalized_event)
         handle_deposit_account_created(payload: payload)
         return
@@ -120,6 +129,24 @@ class AnchorWebhookProcessor
     return if updates.empty?
 
     account.update(updates)
+  end
+
+  def handle_deposit_account_lifecycle(payload:, service:)
+    account = resolve_anchor_account(payload)
+    return if account.blank?
+
+    deposit_account_id = extract_webhook_deposit_account_id(payload)
+    updates = {}
+    updates[:useable_id] = deposit_account_id if deposit_account_id.present? && account.useable_id.to_s != deposit_account_id.to_s
+    account.update(updates) if updates.any?
+
+    # Anchor account provisioning is asynchronous; poll canonical details to
+    # close eventual-consistency gaps between lifecycle and account-number events.
+    return if account.account_number.present? || account.useable_id.blank?
+
+    service.send(:sync_anchor_deposit_account!, account)
+  rescue StandardError
+    nil
   end
 
   def process_nip_inbound_settled!(payload:, service:)
@@ -532,7 +559,7 @@ class AnchorWebhookProcessor
       payload.dig('relationships', 'virtualNuban', 'data', 'id').to_s.presence
     account_number = extract_webhook_account_number(payload)
 
-    scope = Account.where(vendor: 'anchor')
+    scope = Account.where("vendor = ? OR vendor IS NULL", 'anchor')
     return scope.find_by(account_id: customer_id) if customer_id.present? && scope.find_by(account_id: customer_id).present?
     return scope.find_by(useable_id: account_id) if account_id.present? && scope.find_by(useable_id: account_id).present?
     return scope.find_by(useable_id: account_number_id) if account_number_id.present? && scope.find_by(useable_id: account_number_id).present?
@@ -576,5 +603,9 @@ class AnchorWebhookProcessor
       event.include?('created') || event.include?('linked') || event.include?('assigned')
 
     has_account_number_hint && has_created_or_linked_hint
+  end
+
+  def deposit_account_lifecycle_event?(normalized_event)
+    %w[account.initiated account.opened].include?(normalized_event.to_s)
   end
 end
