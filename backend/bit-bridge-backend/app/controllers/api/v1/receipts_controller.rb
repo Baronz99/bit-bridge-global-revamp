@@ -471,6 +471,7 @@ module Api
         normalized_amount = normalize_card_event_amount(event) || event.amount
         merchant_name = card_event_merchant_name(event, metadata)
         merchant_country = card_event_merchant_country(metadata)
+        enrichment_payload = card_event_enrichment_payload(event: event, metadata: metadata)
 
         legacy = {
           reference: event.provider_transaction_reference || event.id,
@@ -514,7 +515,7 @@ module Api
             card_id: event.card_id
           }.compact,
           timeline: build_card_timeline(event),
-          meta: metadata.compact,
+          meta: metadata.merge(enrichment_payload).compact,
           fees: card_event_fee_array(event: event, currency: currency, metadata: metadata),
           legacy: legacy
         )
@@ -1440,6 +1441,43 @@ module Api
         return merchant_meta['country'] if merchant_meta.is_a?(Hash) && merchant_meta['country'].present?
 
         metadata['merchant_country']
+      end
+
+      def card_event_enrichment_payload(event:, metadata:)
+        merchant_meta = metadata['merchant'].is_a?(Hash) ? metadata['merchant'] : {}
+        merchant_payload = {
+          name: card_event_merchant_name(event, metadata),
+          country: card_event_merchant_country(metadata),
+          logo: merchant_meta['logo'],
+          website: merchant_meta['website'],
+          category: merchant_meta['category'],
+          group: merchant_meta['group'],
+          city: merchant_meta['city'],
+          code: merchant_meta['code'],
+          recurring: merchant_meta['recurring']
+        }.compact
+
+        fx_payload = {
+          merchant_amount: event.merchant_amount&.to_f,
+          merchant_currency: event.merchant_currency,
+          billing_amount: event.billing_amount&.to_f,
+          billing_currency: event.billing_currency,
+          fx_implied_rate: event.fx_implied_rate&.to_f,
+          fx_reference_rate: event.fx_reference_rate&.to_f,
+          fx_margin_usd: event.fx_margin_usd&.to_f
+        }.compact
+
+        {
+          card_event_enrichment: {
+            merchant: merchant_payload.presence,
+            transaction: {
+              merchant_category_code: event.merchant_category_code,
+              card_transaction_type: event.card_transaction_type,
+              decline_reason: event.decline_reason
+            }.compact,
+            fx: fx_payload.presence
+          }.compact
+        }
       end
 
       def normalize_card_event_amount(event)

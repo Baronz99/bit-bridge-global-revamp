@@ -202,6 +202,7 @@ RSpec.describe 'Api::V1::ReceiptsController', type: :request do
       expect(body.dig('data', 'subtitle')).to eq('Amazon')
       expect(body.dig('data', 'parties', 'merchant')).to eq('Amazon')
       expect(body.dig('data', 'parties', 'merchant_country')).to eq('US')
+      expect(body.dig('data', 'meta', 'card_event_enrichment', 'merchant', 'name')).to eq('Amazon')
       expect(body.dig('data', 'fees')).to include(
         a_hash_including('label' => 'provider fee', 'amount' => 0.25, 'currency' => 'USD')
       )
