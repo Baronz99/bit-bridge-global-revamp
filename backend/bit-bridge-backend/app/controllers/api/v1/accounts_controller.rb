@@ -517,6 +517,12 @@ module Api
           response_body['message'] = normalized[:message]
           response_body[:error_code] ||= normalized[:error_code]
           response_body['error_code'] ||= normalized[:error_code]
+          response_body[:retryable] = normalized[:retryable]
+          response_body['retryable'] = normalized[:retryable]
+          response_body[:auto_retry] = normalized[:auto_retry]
+          response_body['auto_retry'] = normalized[:auto_retry]
+          response_body[:recovery_action] = normalized[:recovery_action]
+          response_body['recovery_action'] = normalized[:recovery_action]
           Rails.logger.warn(
             "[AnchorTransfer] provider_error request_id=#{request.request_id} user_id=#{current_user.id} code=#{normalized[:error_code]}"
           )
@@ -1708,28 +1714,58 @@ module Api
         text = raw_message.to_s
         normalized = text.downcase
 
+        if normalized.include?('invalid_account')
+          return {
+            message: 'Recipient account details are invalid. Use another bank account or correct the details before retrying manually.',
+            error_code: 'transfer_invalid_account',
+            retryable: false,
+            auto_retry: false,
+            recovery_action: 'use_alternative_bank_or_manual_retry'
+          }
+        end
+        if normalized.include?('beneficiary_bank_not_available')
+          return {
+            message: 'Recipient bank is currently unavailable. Use another bank account or retry manually later.',
+            error_code: 'transfer_beneficiary_bank_unavailable',
+            retryable: false,
+            auto_retry: false,
+            recovery_action: 'use_alternative_bank_or_manual_retry'
+          }
+        end
         if normalized.include?('undefined method') && normalized.include?('dig')
           return {
-            message: 'Transfer provider is temporarily unavailable. Please retry shortly.',
-            error_code: 'transfer_provider_unavailable'
+            message: 'Transfer provider is temporarily unavailable. Use another bank account or retry manually later.',
+            error_code: 'transfer_provider_unavailable',
+            retryable: false,
+            auto_retry: false,
+            recovery_action: 'use_alternative_bank_or_manual_retry'
           }
         end
         if normalized.match?(/502|503|504|bad gateway|service unavailable|gateway timeout|upstream connect error|unavailable/)
           return {
-            message: 'Transfer provider is temporarily unavailable. Please retry shortly.',
-            error_code: 'transfer_provider_unavailable'
+            message: 'Transfer provider is temporarily unavailable. Use another bank account or retry manually later.',
+            error_code: 'transfer_provider_unavailable',
+            retryable: false,
+            auto_retry: false,
+            recovery_action: 'use_alternative_bank_or_manual_retry'
           }
         end
         if normalized.match?(/timeout|timed out|execution expired/)
           return {
-            message: 'Transfer provider timed out. Please retry shortly.',
-            error_code: 'transfer_provider_timeout'
+            message: 'Transfer provider timed out. Use another bank account or retry manually later.',
+            error_code: 'transfer_provider_timeout',
+            retryable: false,
+            auto_retry: false,
+            recovery_action: 'use_alternative_bank_or_manual_retry'
           }
         end
 
         {
-          message: text.presence || 'Transfer failed. Please retry shortly.',
-          error_code: 'transfer_provider_failed'
+          message: text.presence || 'Transfer failed. Use another bank account or retry manually.',
+          error_code: 'transfer_provider_failed',
+          retryable: false,
+          auto_retry: false,
+          recovery_action: 'use_alternative_bank_or_manual_retry'
         }
       end
 

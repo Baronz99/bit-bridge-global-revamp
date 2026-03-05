@@ -847,13 +847,13 @@ class AnchorService
     combined = [raw_message.to_s, body_text].join(' ').downcase
 
     if combined.include?('undefined method') && combined.include?('dig')
-      return 'Transfer provider is temporarily unavailable. Please retry shortly.'
+      return 'Transfer provider is temporarily unavailable. Use another bank account or retry manually later.'
     end
     if combined.match?(/502|503|504|bad gateway|service unavailable|gateway timeout|upstream connect error/)
-      return 'Transfer provider is temporarily unavailable. Please retry shortly.'
+      return 'Transfer provider is temporarily unavailable. Use another bank account or retry manually later.'
     end
     if combined.match?(/timeout|timed out|execution expired/)
-      return 'Transfer provider timed out. Please retry shortly.'
+      return 'Transfer provider timed out. Use another bank account or retry manually later.'
     end
 
     candidate = raw_message.to_s.strip

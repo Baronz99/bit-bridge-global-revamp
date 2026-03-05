@@ -260,6 +260,7 @@ module Transfers
             refund_entry: find_ledger_entry(transfer_reference, :refund)
           ),
           provider: 'anchor',
+          auto_retry: false,
           balance_snapshot: {
             reserve: ledger_snapshot_hash(find_ledger_entry(transfer_reference, :hold)),
             settle: ledger_snapshot_hash(find_ledger_entry(transfer_reference, :debit)),
@@ -433,9 +434,12 @@ module Transfers
       {
         status: :bad_gateway,
         body: {
-          message: error_message.presence || 'Transfer failed',
+          message: error_message.presence || 'Transfer failed. Use another bank account or retry manually.',
           transfer_reference: transfer_reference,
           status: 'failed',
+          retryable: false,
+          auto_retry: false,
+          recovery_action: 'use_alternative_bank_or_manual_retry',
           lifecycle_state: lifecycle_state,
           provider: 'anchor',
           reversal: {
