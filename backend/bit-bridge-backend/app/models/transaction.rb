@@ -30,6 +30,7 @@ class Transaction < ApplicationRecord
   after_commit :finalize_usd_withdrawal_snapshot, on: %i[create update]
   after_commit :enqueue_receipt_email, on: %i[create update]
   after_commit :enqueue_transfer_status_notification, on: :update
+  after_commit :enqueue_incoming_transfer_notification, on: %i[create update]
 
   def validate_transaction_on_create
     return if ledger_hold_reserved?
@@ -312,5 +313,65 @@ class Transaction < ApplicationRecord
   rescue StandardError => e
     Rails.logger.warn("[Transaction] notification enqueue failed tx_id=#{id} error=#{e.class}: #{e.message}")
     nil
+  end
+
+  def enqueue_incoming_transfer_notification
+    return unless approved_transition?
+    return unless deposit?
+    return unless incoming_transfer_notification_eligible?
+
+    meta = metadata.is_a?(Hash) ? metadata : {}
+    provider = incoming_transfer_provider(meta)
+    reference =
+      transaction_record&.reference.presence ||
+      meta['anchor_payment_id'].presence ||
+      meta['anchor_payment_reference'].presence ||
+      id.to_s
+
+    currency_code = currency || wallet&.currency || 'NGN'
+    amount_label = format('%.2f', amount.to_f)
+
+    Notifications::EventPublisher.call(
+      user: user,
+      event_type: 'transfer.incoming.posted',
+      resource_type: 'transaction',
+      resource_id: id,
+      reference: reference,
+      state: 'completed',
+      title: 'Incoming transfer received',
+      body: "You received #{currency_code} #{amount_label} in your wallet.",
+      deeplink: "/transaction/receipt?reference=#{reference}",
+      priority: 'high',
+      idempotency_key: "incoming-transfer:#{id}:#{reference}:approved",
+      metadata: {
+        provider: provider,
+        amount: amount.to_f,
+        currency: currency_code,
+        status: status.to_s
+      }
+    )
+  rescue StandardError => e
+    Rails.logger.warn("[Transaction] incoming notification enqueue failed tx_id=#{id} error=#{e.class}: #{e.message}")
+    nil
+  end
+
+  def incoming_transfer_notification_eligible?
+    meta = metadata.is_a?(Hash) ? metadata : {}
+    provider = incoming_transfer_provider(meta)
+    return false if provider.blank?
+
+    %w[anchor monnify].include?(provider)
+  end
+
+  def incoming_transfer_provider(meta)
+    return meta['provider'].to_s.downcase if meta['provider'].present?
+    return 'anchor' if meta['anchor_payment_id'].present? || meta['anchor_payment_reference'].present?
+    return 'monnify' if meta['monnify_amount_raw'].present?
+
+    event_type = transaction_record&.event_type.to_s.downcase
+    return 'anchor' if event_type.include?('anchor')
+    return 'monnify' if event_type.include?('monnify')
+
+    ''
   end
 end

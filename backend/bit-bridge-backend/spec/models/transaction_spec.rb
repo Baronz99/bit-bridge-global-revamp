@@ -226,4 +226,79 @@ RSpec.describe Transaction, type: :model do
       end
     end
   end
+
+  describe 'incoming transfer notifications' do
+    it 'publishes push event for approved anchor deposit' do
+      user = create(:user, email: "txn-inbound-anchor-#{SecureRandom.hex(4)}@example.com")
+      wallet = user.ngn_wallet
+
+      expect(Notifications::EventPublisher).to receive(:call).with(
+        hash_including(
+          user: user,
+          event_type: 'transfer.incoming.posted',
+          resource_type: 'transaction',
+          state: 'completed',
+          title: 'Incoming transfer received',
+          metadata: hash_including(
+            provider: 'anchor',
+            status: 'approved'
+          )
+        )
+      )
+
+      described_class.create!(
+        wallet: wallet,
+        amount: 1_500,
+        transaction_type: :deposit,
+        status: :approved,
+        coin_type: :bank,
+        address: 'Anchor inbound',
+        metadata: {
+          'provider' => 'anchor',
+          'anchor_payment_id' => SecureRandom.uuid
+        }
+      )
+    end
+
+    it 'does not publish push event for generic internal deposits without inbound provider context' do
+      user = create(:user, email: "txn-inbound-generic-#{SecureRandom.hex(4)}@example.com")
+      wallet = user.ngn_wallet
+
+      expect(Notifications::EventPublisher).not_to receive(:call).with(hash_including(event_type: 'transfer.incoming.posted'))
+
+      described_class.create!(
+        wallet: wallet,
+        amount: 2_000,
+        transaction_type: :deposit,
+        status: :approved,
+        coin_type: :bank,
+        address: 'Internal wallet funding',
+        metadata: {}
+      )
+    end
+
+    it 'publishes when deposit transitions from pending to approved with monnify context' do
+      user = create(:user, email: "txn-inbound-monnify-#{SecureRandom.hex(4)}@example.com")
+      wallet = user.ngn_wallet
+      tx = described_class.create!(
+        wallet: wallet,
+        amount: 3_200,
+        transaction_type: :deposit,
+        status: :pending,
+        coin_type: :bank,
+        address: 'Monnify inbound',
+        metadata: { 'monnify_amount_raw' => '3200', 'currency' => 'NGN' }
+      )
+
+      expect(Notifications::EventPublisher).to receive(:call).with(
+        hash_including(
+          user: user,
+          event_type: 'transfer.incoming.posted',
+          metadata: hash_including(provider: 'monnify', status: 'approved')
+        )
+      )
+
+      tx.update!(status: :approved)
+    end
+  end
 end
