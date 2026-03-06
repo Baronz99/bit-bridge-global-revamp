@@ -14,7 +14,7 @@ class BuyPowerReconcileJob < ApplicationJob
               order.provider_reference.blank? &&
               order.status.to_s == 'initialized'
 
-    return unless order.payment_method == 'wallet'
+    return unless buypower_order?(order)
 
     service = BuyPowerPaymentService.new
 
@@ -310,6 +310,27 @@ class BuyPowerReconcileJob < ApplicationJob
     end
   rescue StandardError => e
     Rails.logger.error("[BuyPowerReconcileJob] ensure_transaction_record failed order=#{order.id} #{e.class}: #{e.message}")
+  end
+
+  def buypower_order?(order)
+    return false unless order.payment_method.to_s == 'wallet'
+    return false if anchor_transfer_shadow_order?(order)
+
+    true
+  end
+
+  def anchor_transfer_shadow_order?(order)
+    payload = provider_payload_from(order.provider_response)
+    source =
+      if payload.is_a?(Hash)
+        payload['source'].presence || payload[:source].presence
+      end
+
+    return true if source.to_s == 'anchor_transfer'
+    return true if order.description.to_s.strip.casecmp('Anchor NGN transfer hold').zero?
+
+    order.service_type.to_s.strip.upcase == 'OTHER' &&
+      order.biller.to_s.strip.casecmp('anchor').zero?
   end
 
   def next_reconcile_wait(order)

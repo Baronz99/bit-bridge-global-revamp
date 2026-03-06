@@ -340,4 +340,40 @@ RSpec.describe BuyPowerReconcileJob, type: :job do
     expect(WalletLedgerEntry.where(bill_order: bill_order).debit.count).to eq(0)
     expect(WalletLedgerEntry.where(bill_order: bill_order).refund.count).to eq(0)
   end
+
+  it 'skips anchor transfer shadow orders' do
+    allow(Config::Bills).to receive(:validate!).and_return(true)
+    allow(Config::Bills).to receive(:base_url).and_return('http://example.test')
+    allow(Config::Bills).to receive(:token).and_return('token')
+
+    service = BuyPowerPaymentService.new
+    allow(BuyPowerPaymentService).to receive(:new).and_return(service)
+    expect(service).not_to receive(:re_query)
+
+    user = create(:user)
+    bill_order = BillOrder.create!(
+      user: user,
+      meter_number: SecureRandom.uuid,
+      meter_type: 'PREPAID',
+      address: 'Anchor transfer hold',
+      name: 'Anchor transfer',
+      tariff_class: 'A',
+      service_type: 'OTHER',
+      email: user.email,
+      amount: 1035,
+      total_amount: 1035,
+      phone: '0000000000',
+      biller: 'Anchor',
+      description: 'Anchor NGN transfer hold',
+      payment_type: 'online',
+      payment_method: 'wallet',
+      status: 'processing',
+      provider_response: { 'source' => 'anchor_transfer' }
+    )
+
+    expect { described_class.perform_now(bill_order.id) }
+      .not_to have_enqueued_job(described_class)
+
+    expect(bill_order.reload.status).to eq('processing')
+  end
 end
