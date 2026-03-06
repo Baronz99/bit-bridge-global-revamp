@@ -90,6 +90,53 @@ RSpec.describe 'Cards setup card flow', type: :request do
       expect(body.dig('data', 'pricing', 'required_total_usd')).to be > 0
       expect(body.dig('data', 'shortfall_usd')).to be > 0
     end
+
+    it 'allows setup when wallet covers only creation fee and requested funding is zero' do
+      Card.create!(
+        user: user,
+        cardholder_id: 'cardholder-5',
+        status: 'pending',
+        meta_data: { 'cardholder_kyc_status' => 'verified' }
+      )
+      Wallet.create!(user: user, wallet_type: :usd, currency: 'USD', balance_cents: 400)
+
+      service_double = instance_double(BridgeCardService)
+      allow(BridgeCardService).to receive(:new).and_return(service_double)
+      allow(service_double).to receive(:create_card).and_return({
+        status: :ok,
+        message: 'Card created.',
+        data: nil
+      })
+
+      request_headers = headers.merge('X-Idempotency-Key' => SecureRandom.uuid)
+      post '/api/v1/cards/setup_card', params: { card: { card_pin: '1234', card_limit: '5000', requested_funding_usd: 0 } }, headers: request_headers
+
+      expect(response).to have_http_status(:ok)
+      body = JSON.parse(response.body)
+      expect(body['state']).not_to eq('insufficient_balance')
+      expect(body.dig('data', 'pricing', 'required_total_usd')).to eq(4.0)
+      expect(body.dig('data', 'pricing', 'min_funding_usd')).to eq(3.0)
+      expect(body.dig('data', 'pricing', 'requested_funding_usd')).to eq(0.0)
+    end
+
+    it 'returns insufficient balance when wallet cannot cover creation fee alone' do
+      Card.create!(
+        user: user,
+        cardholder_id: 'cardholder-6',
+        status: 'pending',
+        meta_data: { 'cardholder_kyc_status' => 'verified' }
+      )
+      Wallet.create!(user: user, wallet_type: :usd, currency: 'USD', balance_cents: 399)
+
+      request_headers = headers.merge('X-Idempotency-Key' => SecureRandom.uuid)
+      post '/api/v1/cards/setup_card', params: { card: { card_pin: '1234', card_limit: '5000', requested_funding_usd: 0 } }, headers: request_headers
+
+      expect(response).to have_http_status(:ok)
+      body = JSON.parse(response.body)
+      expect(body['state']).to eq('insufficient_balance')
+      expect(body.dig('data', 'pricing', 'required_total_usd')).to eq(4.0)
+      expect(body.dig('data', 'shortfall_usd')).to eq(0.01)
+    end
   end
 
   describe 'GET /api/v1/cards/setup_status' do

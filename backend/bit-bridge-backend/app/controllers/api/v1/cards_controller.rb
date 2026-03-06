@@ -849,17 +849,17 @@ module Api
           BridgeCardService::CARD_MIN_FUNDING_USD_BY_LIMIT.fetch(normalized_limit, BridgeCardService::CARD_ACTIVATION_MIN_USD) * 100
         requested_funding = BigDecimal(processed[:requested_funding_usd].presence || processed[:amount].presence || '0') rescue 0.to_d
         requested_funding_cents = (requested_funding * 100).to_i
-        effective_funding_cents = [requested_funding_cents, min_funding_cents].max
+        due_now_funding_cents = [requested_funding_cents, 0].max
 
         fee_cents = FxSetting.current.card_creation_fee_usd_cents.to_i
         fee_cents = (BridgeCardService::CARD_CREATION_FEE_USD * 100).to_i if fee_cents <= 0
-        required_total = fee_cents + effective_funding_cents
+        required_total = fee_cents + due_now_funding_cents
 
         {
           card_limit: normalized_limit.to_s,
           creation_fee_usd: (fee_cents / 100.0),
           min_funding_usd: (min_funding_cents / 100.0),
-          requested_funding_usd: (effective_funding_cents / 100.0),
+          requested_funding_usd: (due_now_funding_cents / 100.0),
           required_total_usd: (required_total / 100.0),
           required_total_usd_cents: required_total
         }
