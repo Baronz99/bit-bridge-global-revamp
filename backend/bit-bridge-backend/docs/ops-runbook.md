@@ -32,6 +32,23 @@ heroku run "bin/rails ops:integrity_summary" -a bitbridgeglobal
 heroku run "bin/rails service_availability:refresh" -a bitbridgeglobal
 ```
 
+## Production Deploy Standard
+
+Use one deployment path for backend production:
+
+```bash
+git push heroku production:main
+heroku releases -a bitbridgeglobal -n 3
+```
+
+Preferred scripted flow:
+
+```bash
+powershell -ExecutionPolicy Bypass -File .\script\deploy_backend_prod.ps1
+```
+
+Do not use `git subtree push` for backend production deploys.
+
 ## Red Flag Playbooks
 
 ### 1) Unmatched Credits Pending > 0 for 30m
