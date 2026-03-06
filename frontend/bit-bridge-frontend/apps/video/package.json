@@ -1,0 +1,26 @@
+{
+  "name": "bitbridge-video",
+  "private": true,
+  "version": "1.0.0",
+  "scripts": {
+    "studio": "remotion studio src/index.ts",
+    "render": "remotion render src/index.ts BitBridgeAdVertical out/bitbridge-ad-vertical.mp4 --codec=h264",
+    "render:transfer": "remotion render src/index.ts BitBridgeTransferAdVertical out/bitbridge-transfer-ad-vertical.mp4 --codec=h264",
+    "render:logo": "remotion render src/index.ts BitBridgeLogoRevealVertical out/bitbridge-logo-reveal-vertical.mp4 --codec=h264",
+    "video:studio": "npm run studio",
+    "video:render": "npm run render",
+    "video:render:transfer": "npm run render:transfer",
+    "video:render:logo": "npm run render:logo"
+  },
+  "dependencies": {
+    "@remotion/media-utils": "^4.0.306",
+    "bit-bridge-frontend": "file:../..",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "remotion": "^4.0.306"
+  },
+  "devDependencies": {
+    "@remotion/cli": "^4.0.429",
+    "typescript": "^5.9.2"
+  }
+}

@@ -29,3 +29,5 @@ apps/**/out/
 apps/**/dist/
 apps/**/.cache/
 apps/**/.remotion/
+apps/**/public/Remotion-ads-files/
+apps/**/public/*.wav
