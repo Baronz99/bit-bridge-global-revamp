@@ -7,6 +7,8 @@ module Api
 
       before_action :ensure_bridge_cards_enabled!,
                     only: %i[
+                      setup_card
+                      setup_status
                       register_cardholder
                       create_card
                       get_all_states
@@ -26,6 +28,8 @@ module Api
                     only: %i[
                       index
                       user_card
+                      setup_card
+                      setup_status
                       register_cardholder
                       create_card
                       fund_wallet
@@ -76,6 +80,94 @@ module Api
           .order(created_at: :asc)
           .last
         render json: { data: card, status: :ok }
+      end
+
+      # POST /api/v1/cards/setup_card
+      # One-button orchestration:
+      # 1) ensure cardholder profile is submitted
+      # 2) wait for verification webhook if pending
+      # 3) create+fund card once verified (fee + min funding)
+      def setup_card
+        idempotency_key = request.headers['X-Idempotency-Key'].to_s.strip
+        if idempotency_key.blank?
+          return render_setup_error(
+            code: 'CARD_SETUP_VALIDATION_FAILED',
+            message: 'X-Idempotency-Key header is required.',
+            state: 'failed',
+            next_action: 'retry_setup',
+            retryable: false,
+            status: :unprocessable_entity
+          )
+        end
+
+        payload_hash = Digest::SHA256.hexdigest(request.raw_post.to_s)
+        cached = read_setup_idempotency(idempotency_key)
+        if cached.present?
+          if cached[:payload_hash].present? && cached[:payload_hash] != payload_hash
+            return render_setup_error(
+              code: 'CARD_SETUP_IDEMPOTENCY_CONFLICT',
+              message: 'Idempotency key reuse with different payload is not allowed.',
+              state: 'failed',
+              next_action: 'retry_setup',
+              retryable: false,
+              status: :conflict
+            )
+          end
+
+          return render json: cached[:body], status: cached[:status]
+        end
+
+        response = current_user.with_lock { process_setup_card_request }
+        write_setup_idempotency(idempotency_key, payload_hash: payload_hash, body: response[:body], status: response[:status])
+        render json: response[:body], status: response[:status]
+      end
+
+      # GET /api/v1/cards/setup_status
+      def setup_status
+        card = latest_cardholder_profile_for(current_user)
+        pricing = setup_pricing_payload
+
+        if card.blank?
+          return render_setup_success(
+            message: 'Card setup has not started.',
+            state: 'not_started',
+            next_action: 'start_setup',
+            data: {
+              card_id: nil,
+              provider_card_id: nil,
+              cardholder_id: nil,
+              pricing: pricing
+            }
+          )
+        end
+
+        meta = card.meta_data.is_a?(Hash) ? card.meta_data : {}
+        kyc_status = meta['cardholder_kyc_status'].to_s.downcase
+        state, next_action =
+          if card.card_id.present?
+            ['active', 'none']
+          elsif %w[pending_verification manual_review].include?(kyc_status)
+            ['cardholder_pending', 'wait_webhook']
+          elsif kyc_status == 'failed'
+            ['cardholder_failed', 'fix_profile']
+          elsif kyc_status == 'verified'
+            ['ready_for_funding', 'create_and_fund']
+          else
+            ['not_started', 'start_setup']
+          end
+
+        render_setup_success(
+          message: 'Card setup status fetched.',
+          state: state,
+          next_action: next_action,
+          data: {
+            card_id: card.id,
+            provider_card_id: card.card_id,
+            cardholder_id: card.cardholder_id,
+            pricing: pricing,
+            cardholder_status: kyc_status.presence || 'idle'
+          }
+        )
       end
 
       # POST /api/v1/cards/register_cardholder
@@ -566,6 +658,327 @@ module Api
 
       private
 
+      def process_setup_card_request
+        processed = normalized_card_params
+        card_pin = processed[:card_pin].to_s.strip
+        unless card_pin.match?(/\A\d{4}\z/)
+          return setup_error_response(
+            code: 'CARD_SETUP_VALIDATION_FAILED',
+            message: 'Card PIN must be exactly 4 digits.',
+            state: 'failed',
+            next_action: 'retry_setup',
+            retryable: false,
+            status: :unprocessable_entity
+          )
+        end
+
+        pricing = setup_pricing_payload
+        current_card = latest_cardholder_profile_for(current_user)
+
+        if current_card&.card_id.present? && !current_card.provider_missing?
+          return setup_success_response(
+            message: 'Card already exists for this user.',
+            state: 'active',
+            next_action: 'none',
+            data: {
+              card_id: current_card.id,
+              provider_card_id: current_card.card_id,
+              cardholder_id: current_card.cardholder_id,
+              pricing: pricing
+            }
+          )
+        end
+
+        service = BridgeCardService.new
+        cardholder = ensure_setup_cardholder!(service: service, processed: processed, current_card: current_card)
+        return cardholder if cardholder.is_a?(Hash) && cardholder[:body].present?
+
+        current_card = cardholder
+        return pending_cardholder_setup_response(current_card, pricing) unless cardholder_verified?(current_card)
+
+        balance_check = validate_setup_balance(pricing)
+        return balance_check if balance_check.present?
+
+        create_payload = processed.merge(
+          wallet_type: 'usd',
+          currency: 'USD',
+          card_currency: 'USD',
+          pin: card_pin,
+          amount: pricing[:requested_funding_usd]
+        )
+        create_response = service.create_card(create_payload, current_card)
+        if create_response[:status] != :ok
+          return setup_error_response(
+            code: 'CARD_SETUP_PROVIDER_REJECTED',
+            message: create_response[:message].presence || 'Unable to create card.',
+            state: 'failed',
+            next_action: 'retry_setup',
+            retryable: true,
+            status: :unprocessable_entity
+          )
+        end
+
+        card = create_response[:data]
+        created = card.present? && card.card_id.present?
+        state = created ? 'provider_pending' : 'ready_for_funding'
+        next_action = created ? 'wait_webhook' : 'fund_card'
+
+        setup_success_response(
+          message: create_response[:message].presence || 'Card setup submitted.',
+          state: state,
+          next_action: next_action,
+          data: {
+            card_id: card&.id || current_card.id,
+            provider_card_id: card&.card_id,
+            cardholder_id: card&.cardholder_id || current_card.cardholder_id,
+            pricing: pricing
+          }
+        )
+      end
+
+      def ensure_setup_cardholder!(service:, processed:, current_card:)
+        status = cardholder_state_for(current_card)
+        return current_card if status == 'verified'
+        if %w[pending_verification manual_review].include?(status)
+          return current_card
+        end
+
+        profile_hash = current_user.user_profile&.attributes&.symbolize_keys || {}
+        request_payload =
+          current_user.attributes.symbolize_keys
+                      .merge(profile_hash)
+                      .merge(processed)
+        request_payload[:email] ||= request_payload[:email_address].presence || current_user.email
+        request_payload[:phone] ||= request_payload[:phone_number].presence
+        request_payload[:user_id] ||= current_user.id
+        request_payload[:request_id] ||= request.request_id
+        request_payload[:phone_number] = normalize_to_e164(request_payload[:phone_number] || request_payload[:phone])
+        request_payload[:phone] = request_payload[:phone_number]
+
+        mode = processed[:registration_mode].to_s.casecmp('sync').zero? ? :sync : :async
+        registration = service.register_cardholder(request_payload, mode: mode)
+        if registration[:status] != :ok
+          return setup_error_response(
+            code: 'CARD_SETUP_PROVIDER_REJECTED',
+            message: registration[:message].presence || 'Unable to submit cardholder profile.',
+            state: 'cardholder_failed',
+            next_action: 'fix_profile',
+            retryable: false,
+            status: :unprocessable_entity
+          )
+        end
+
+        registration[:data] || latest_cardholder_profile_for(current_user)
+      end
+
+      def cardholder_verified?(card)
+        cardholder_state_for(card) == 'verified'
+      end
+
+      def cardholder_state_for(card)
+        return '' if card.blank?
+
+        meta = card.meta_data.is_a?(Hash) ? card.meta_data : {}
+        meta['cardholder_kyc_status'].to_s.downcase
+      end
+
+      def pending_cardholder_setup_response(card, pricing)
+        status = cardholder_state_for(card)
+        message =
+          if status == 'failed'
+            'Cardholder verification failed. Update profile details and retry.'
+          else
+            'Cardholder profile submitted. Waiting for provider verification.'
+          end
+        state = status == 'failed' ? 'cardholder_failed' : 'cardholder_pending'
+        next_action = status == 'failed' ? 'fix_profile' : 'wait_webhook'
+        setup_success_response(
+          message: message,
+          state: state,
+          next_action: next_action,
+          data: {
+            card_id: card&.id,
+            provider_card_id: card&.card_id,
+            cardholder_id: card&.cardholder_id,
+            pricing: pricing,
+            cardholder_status: status.presence || 'pending_verification'
+          }
+        )
+      end
+
+      def validate_setup_balance(pricing)
+        wallet = current_user.usd_wallet
+        if wallet.blank?
+          return setup_error_response(
+            code: 'CARD_SETUP_VALIDATION_FAILED',
+            message: 'USD wallet not found. Activate tunnel first.',
+            state: 'failed',
+            next_action: 'complete_kyc',
+            retryable: false,
+            status: :unprocessable_entity
+          )
+        end
+
+        balance_cents = wallet.balance_cents.to_i
+        required_cents = pricing[:required_total_usd_cents].to_i
+        return nil if balance_cents >= required_cents
+
+        shortfall = [(required_cents - balance_cents) / 100.0, 0].max
+        setup_success_response(
+          message: 'Insufficient Tunnel balance for card setup.',
+          state: 'insufficient_balance',
+          next_action: 'top_up_wallet',
+          data: {
+            pricing: pricing,
+            wallet_balance_usd: (balance_cents / 100.0),
+            shortfall_usd: shortfall
+          }
+        )
+      end
+
+      def setup_pricing_payload
+        processed =
+          begin
+            normalized_card_params
+          rescue ActionController::ParameterMissing
+            {}
+          end
+        raw_limit = processed[:card_limit].presence || BridgeCardService::DEFAULT_CARD_LIMIT
+        normalized_limit = normalize_card_limit_for_setup(raw_limit)
+        min_funding_cents =
+          BridgeCardService::CARD_MIN_FUNDING_USD_BY_LIMIT.fetch(normalized_limit, BridgeCardService::CARD_ACTIVATION_MIN_USD) * 100
+        requested_funding = BigDecimal(processed[:requested_funding_usd].presence || processed[:amount].presence || '0') rescue 0.to_d
+        requested_funding_cents = (requested_funding * 100).to_i
+        effective_funding_cents = [requested_funding_cents, min_funding_cents].max
+
+        fee_cents = FxSetting.current.card_creation_fee_usd_cents.to_i
+        fee_cents = (BridgeCardService::CARD_CREATION_FEE_USD * 100).to_i if fee_cents <= 0
+        required_total = fee_cents + effective_funding_cents
+
+        {
+          card_limit: normalized_limit.to_s,
+          creation_fee_usd: (fee_cents / 100.0),
+          min_funding_usd: (min_funding_cents / 100.0),
+          requested_funding_usd: (effective_funding_cents / 100.0),
+          required_total_usd: (required_total / 100.0),
+          required_total_usd_cents: required_total
+        }
+      end
+
+      def normalize_card_limit_for_setup(value)
+        digits = value.to_s.gsub(/[^0-9]/, '')
+        return 1_000_000 if digits == '10000'
+        return 1_000_000 if digits == '1000000'
+
+        500_000
+      end
+
+      def read_setup_idempotency(idempotency_key)
+        raw = Rails.cache.read(setup_idempotency_cache_key(idempotency_key))
+        return nil unless raw.is_a?(Hash)
+
+        body = raw[:body].is_a?(Hash) ? raw[:body] : raw['body']
+        status = raw[:status].presence || raw['status']
+        payload_hash = raw[:payload_hash].presence || raw['payload_hash']
+        return nil if body.blank? || status.blank?
+
+        { payload_hash: payload_hash, body: body, status: status }
+      rescue StandardError
+        nil
+      end
+
+      def write_setup_idempotency(idempotency_key, payload_hash:, body:, status:)
+        Rails.cache.write(
+          setup_idempotency_cache_key(idempotency_key),
+          { payload_hash: payload_hash, body: body, status: status },
+          expires_in: 24.hours
+        )
+      rescue StandardError
+        nil
+      end
+
+      def setup_idempotency_cache_key(idempotency_key)
+        "card_setup:idempotency:user:#{current_user.id}:#{idempotency_key}"
+      end
+
+      def normalize_to_e164(phone)
+        raw = phone.to_s.strip
+        digits = phone.to_s.gsub(/\D/, '')
+        return raw if digits.blank?
+
+        if digits.start_with?('234') && digits.length == 13
+          "+#{digits}"
+        elsif digits.start_with?('0') && digits.length == 11
+          "+234#{digits[1..]}"
+        elsif digits.length == 10
+          "+234#{digits}"
+        elsif raw.start_with?('+')
+          raw
+        else
+          "+#{digits}"
+        end
+      end
+
+      def render_setup_success(message:, state:, next_action:, data:)
+        payload = {
+          success: true,
+          message: message,
+          state: state,
+          next_action: next_action,
+          retryable: false,
+          retry_after_seconds: 0,
+          request_id: request.request_id,
+          data: data
+        }
+        render json: payload, status: :ok
+      end
+
+      def render_setup_error(code:, message:, state:, next_action:, retryable:, status:)
+        payload = {
+          success: false,
+          error: code,
+          error_code: code,
+          message: message,
+          state: state,
+          next_action: next_action,
+          retryable: retryable,
+          request_id: request.request_id
+        }
+        render json: payload, status: status
+      end
+
+      def setup_success_response(message:, state:, next_action:, data:)
+        {
+          body: {
+            success: true,
+            message: message,
+            state: state,
+            next_action: next_action,
+            retryable: false,
+            retry_after_seconds: 0,
+            request_id: request.request_id,
+            data: data
+          },
+          status: :ok
+        }
+      end
+
+      def setup_error_response(code:, message:, state:, next_action:, retryable:, status:)
+        {
+          body: {
+            success: false,
+            error: code,
+            error_code: code,
+            message: message,
+            state: state,
+            next_action: next_action,
+            retryable: retryable,
+            request_id: request.request_id
+          },
+          status: status
+        }
+      end
+
       def ensure_bridge_cards_enabled!
         return if FeatureFlags.bridge_cards?
 
@@ -593,6 +1006,7 @@ module Api
         params.require(:card).permit(
           :cardholder_id, :card_id, :transaction_reference, :card_type, :card_brand,
           :card_currency, :card_limit, :funding_amount, :amount, :currency,
+          :requested_funding_usd,
           :transaction_pin, :pin, :card_pin,
           :status, :postal_code, :user_id, :address, :city, :state, :postal,
           :house_no, :bvn, :account_source,
