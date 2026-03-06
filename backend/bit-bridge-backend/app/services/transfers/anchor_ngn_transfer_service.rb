@@ -79,6 +79,7 @@ module Transfers
 
       anchor_response = AnchorService.new.initiate_transfer(anchor_request_payload(transfer_reference))
 
+      result =
       if anchor_response[:status] == :ok
         finalize_success!(
           principal_tx,
@@ -98,6 +99,16 @@ module Transfers
           hold_entry: hold_entry
         )
       end
+
+      # Queue reconciliation for asynchronous provider outcomes.
+      if result.dig(:body, :status).to_s == 'pending'
+        AnchorTransferReconcileJob.enqueue_debounced!(
+          delay: 2.minutes,
+          reason: 'transfer_initiated_pending'
+        )
+      end
+
+      result
     rescue ActiveRecord::RecordInvalid => e
       release_hold!(transfer_reference, total_debit, transfer_order)
       { status: :unprocessable_entity, body: { message: e.record.errors.full_messages.to_sentence } }

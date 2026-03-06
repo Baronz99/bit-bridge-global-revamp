@@ -4,6 +4,10 @@ require 'rails_helper'
 
 RSpec.describe AnchorWebhookProcessor do
   describe '.call' do
+    before do
+      allow(AnchorTransferReconcileJob).to receive(:enqueue_debounced!).and_return(true)
+    end
+
     around do |example|
       original_scale = ENV['ANCHOR_AMOUNT_SCALE']
       ENV['ANCHOR_AMOUNT_SCALE'] = '100'

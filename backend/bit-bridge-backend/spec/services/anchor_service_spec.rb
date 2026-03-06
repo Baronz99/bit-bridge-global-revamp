@@ -228,7 +228,7 @@ RSpec.describe AnchorService do
     result = service.verify_account_details('000013', '0210998196')
 
     expect(result[:status]).to eq(:bad_request)
-    expect(result[:message]).to eq('Transfer provider is temporarily unavailable. Please retry shortly.')
+    expect(result[:message]).to eq('Transfer provider is temporarily unavailable. Use another bank account or retry manually later.')
   end
 
   it 'sends digits-only anchor phone number when creating individual customer' do
@@ -256,5 +256,62 @@ RSpec.describe AnchorService do
 
     expect(result[:status]).to eq(:ok)
     expect(posted_body.dig('data', 'attributes', 'phoneNumber')).to eq('2348102312186')
+  end
+
+  it 'sends idempotency header when creating counterparty' do
+    response = double('response', success?: true)
+    allow(response).to receive(:dig).with('data', 'id').and_return('cp_123')
+    allow(response).to receive(:[]).with('data').and_return({ 'id' => 'cp_123' })
+
+    captured_headers = nil
+    allow(described_class).to receive(:post) do |_path, headers:, body:|
+      captured_headers = headers
+      expect(JSON.parse(body).dig('data', 'attributes', 'accountNumber')).to eq('0123456789')
+      response
+    end
+
+    result = service.create_counter_party(
+      bank_code: '000013',
+      account_number: '0123456789',
+      account_name: 'Jane Doe'
+    )
+
+    expect(result[:status]).to eq(:ok)
+    expect(captured_headers['x-anchor-idempotent-key']).to start_with('counterparty:')
+  end
+
+  it 'sends idempotency header when initiating transfer' do
+    response_payload = {
+      data: {
+        'id' => 'tr_123',
+        'attributes' => { 'status' => 'pending', 'amount' => 1250, 'reason' => 'Payout' }
+      }
+    }
+    allow(service).to receive(:fetch).and_return(response_payload)
+
+    transfer_params = {
+      inter_bank: true,
+      account_name: 'Jane Doe',
+      account_number: '0123456789',
+      source_name: 'BitBridge',
+      source_id: 'acc_123-anc_acc',
+      amount: 12.5,
+      description: 'Payout',
+      bank_code: '000013',
+      bank: 'GTBANK PLC',
+      counter_party_id: 'cp_123',
+      reference: 'ABC-123'
+    }
+
+    result = service.initiate_transfer(transfer_params)
+
+    expect(result[:status]).to eq(:ok)
+    expect(service).to have_received(:fetch).with(
+      'post',
+      'transfers',
+      nil,
+      anything,
+      headers: hash_including('x-anchor-idempotent-key' => a_string_starting_with('transfer:'))
+    )
   end
 end

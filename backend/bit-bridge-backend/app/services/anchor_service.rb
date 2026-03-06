@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require 'digest'
+
 class AnchorService
   include HTTParty
 
@@ -294,9 +296,16 @@ class AnchorService
     # Let Anchor resolve canonical account name from bank rails when verifyName is enabled.
     body[:data][:attributes][:accountName] = account_name if account_name.present?
     body_json = body.to_json
+    request_headers = with_anchor_idempotency(
+      headers: @headers,
+      key: build_anchor_idempotency_key(
+        prefix: 'counterparty',
+        raw: "#{params_hash[:bank_code]}:#{params_hash[:account_number]}"
+      )
+    )
 
     begin
-      response = self.class.post('/api/v1/counterparties', headers: @headers, body: body_json)
+      response = self.class.post('/api/v1/counterparties', headers: request_headers, body: body_json)
       unless response.success?
         provider_status = response.code
         provider_body = response.parsed_response || response.body
@@ -423,6 +432,10 @@ class AnchorService
     initials = recipient_name.to_s.strip.split(' ').map { |name| name[0] }.join.downcase
     raw_reference = transfer_params[:reference].presence || "fbg#{Time.now.to_i}#{initials}"
     reference = normalize_transfer_reference(raw_reference)
+    request_headers = with_anchor_idempotency(
+      headers: @headers,
+      key: build_anchor_idempotency_key(prefix: 'transfer', raw: reference)
+    )
     counter_party_id = transfer_params[:counter_party_id]
     counter_party_id_type = 'CounterParty'
     bank_code = transfer_params[:bank_code]
@@ -478,7 +491,7 @@ class AnchorService
 
     begin
       # Remove trailing space in URL and make POST request
-      response = fetch('post', 'transfers', nil, body)
+      response = fetch('post', 'transfers', nil, body, headers: request_headers)
 
       # Use dig to safely access nested JSON keys
       transfer_id = response.dig(:data, 'id')
@@ -937,13 +950,14 @@ class AnchorService
     new_account
   end
 
-  def fetch(method, api, params = '', body = nil)
+  def fetch(method, api, params = '', body = nil, headers: nil)
+    request_headers = headers || @headers
     response =
       case method.downcase
       when 'get'
-        self.class.get("/api/v1/#{api}#{params}", headers: @headers, body: body)
+        self.class.get("/api/v1/#{api}#{params}", headers: request_headers, body: body)
       when 'post'
-        self.class.post("/api/v1/#{api}#{params}", headers: @headers, body: body)
+        self.class.post("/api/v1/#{api}#{params}", headers: request_headers, body: body)
       else
         raise StandardError, 'Unsupported HTTP method'
       end
@@ -1090,6 +1104,20 @@ class AnchorService
   rescue ArgumentError, TypeError
     0
   end
+
+  def with_anchor_idempotency(headers:, key:)
+    return headers if key.to_s.strip.empty?
+
+    headers.merge('x-anchor-idempotent-key' => key.to_s)
+  end
+  private :with_anchor_idempotency
+
+  def build_anchor_idempotency_key(prefix:, raw:)
+    value = raw.to_s.strip.downcase
+    value = Digest::SHA256.hexdigest(value) if value.length > 80
+    "#{prefix}:#{value}"[0, 100]
+  end
+  private :build_anchor_idempotency_key
 
   def resolve_deposit_account_id_by_account_number(account_number)
     number = account_number.to_s.strip

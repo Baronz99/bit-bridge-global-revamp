@@ -315,13 +315,13 @@ module Api
         transfer_id = params[:transfer_id]
         return render json: { message: 'transfer_id is required' }, status: :unprocessable_entity if transfer_id.blank?
 
-        service = AccountService.new
+        service = AnchorService.new
         service_response = service.verify_transfer_request(transfer_id)
 
         if service_response[:status] == :ok
           render json: {
-            data:     service_response[:response],
-            messsage: 'Bank fetched'
+            data:     service_response[:data],
+            messsage: 'Transfer verification fetched'
           }, status: :ok
         else
           render json: { message: service_response[:message] }, status: :unprocessable_entity

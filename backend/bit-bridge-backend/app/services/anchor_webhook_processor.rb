@@ -68,8 +68,10 @@ class AnchorWebhookProcessor
       process_nip_inbound_settled!(payload: payload, service: service)
     when 'nip.transfer.successful'
       service.confirm_transfer_withdrawal(payload)
+      AnchorTransferReconcileJob.enqueue_debounced!(delay: 30.seconds, reason: 'webhook_transfer_success')
     when 'nip.transfer.failed', 'nip.transfer.reversed', 'nip.transfer.rejected'
       service.fail_transfer_withdrawal(payload)
+      AnchorTransferReconcileJob.enqueue_debounced!(delay: 30.seconds, reason: 'webhook_transfer_failure')
     when 'payment.settled'
       if pooled_funding_payload?(payload)
         process_payin_received!(payload: payload, service: service)
@@ -92,6 +94,7 @@ class AnchorWebhookProcessor
       if event_type.to_s.include?('transfer') &&
          event_type.to_s.match?(/failed|reversed|rejected/)
         service.fail_transfer_withdrawal(payload)
+        AnchorTransferReconcileJob.enqueue_debounced!(delay: 30.seconds, reason: 'webhook_transfer_fallback_failure')
       end
       # No-op for unhandled event types
     end

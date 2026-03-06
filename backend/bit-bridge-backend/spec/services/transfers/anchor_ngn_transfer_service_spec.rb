@@ -24,6 +24,8 @@ RSpec.describe Transfers::AnchorNgnTransferService do
   end
 
   before do
+    allow(AnchorTransferReconcileJob).to receive(:enqueue_debounced!).and_return(true)
+
     wallet.transactions.create!(
       transaction_type: 'deposit',
       status: 'approved',
@@ -135,6 +137,7 @@ RSpec.describe Transfers::AnchorNgnTransferService do
     expect(principal.transfer_id).to eq('tr_123')
     expect(principal.unique_transaction_id).to include(':principal')
     expect(fee.unique_transaction_id).to include(':fee')
+    expect(AnchorTransferReconcileJob).to have_received(:enqueue_debounced!)
 
     order = BillOrder.find_by(meter_number: transfer_reference)
     expect(order).to be_present
