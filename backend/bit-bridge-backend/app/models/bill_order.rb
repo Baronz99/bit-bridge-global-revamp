@@ -209,10 +209,22 @@ class BillOrder < ApplicationRecord
     receipt_meta.is_a?(Hash) && receipt_meta['status'] == 'sent'
   end
 
+  def metadata_source
+    safe_provider_payload['source'].to_s
+  end
+
+  def anchor_transfer_shadow_order?
+    source = metadata_source
+    return true if source == 'anchor_transfer'
+
+    service_type.to_s == 'OTHER' && biller.to_s.casecmp('anchor').zero?
+  end
+
   def enqueue_status_notification
     return unless saved_change_to_status?
     return if user.blank?
     return unless payment_method.to_s == 'wallet'
+    return if anchor_transfer_shadow_order?
 
     previous_state, current_state = previous_changes['status']
     return if previous_state.to_s == current_state.to_s
@@ -268,6 +280,7 @@ class BillOrder < ApplicationRecord
       idempotency_key: "bill:#{id}:#{receipt_reference}:#{previous_state}->#{current_state}:#{updated_at.to_i}",
       metadata: {
         status: current_state.to_s,
+        source: metadata_source,
         service_type: service_type,
         amount: amount.to_f,
         total_amount: total_amount.to_f
