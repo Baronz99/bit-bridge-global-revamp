@@ -10,7 +10,11 @@
     "lint": "eslint .",
     "lint:receipt": "eslint src/pages/dashboard/Receipt.jsx src/api/receipts.js",
     "preview": "vite preview",
-    "circular": "npx madge src --circular --extensions js,jsx"
+    "circular": "npx madge src --circular --extensions js,jsx",
+    "video:studio": "npm --prefix apps/video run studio",
+    "video:render": "npm --prefix apps/video run render",
+    "video:render:transfer": "npm --prefix apps/video run render:transfer",
+    "video:render:logo": "npm --prefix apps/video run render:logo"
   },
   "dependencies": {
     "@ant-design/icons": "^5.5.2",
