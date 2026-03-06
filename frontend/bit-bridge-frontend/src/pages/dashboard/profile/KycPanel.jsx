@@ -90,7 +90,6 @@ export default function KycPanel({
   setProofOfAddressFile,
 
   idTypeOptions,
-  kycLevel,
   stateOptions,
   countryOptions,
   proofOfAddressOptions,
@@ -109,7 +108,7 @@ export default function KycPanel({
       <div>
         <h2 className="text-xl font-semibold text-white">KYC & Documents</h2>
         <p className="text-sm text-gray-400 mt-1">
-          Provide identity and address details for Tier 2 verification.
+          Complete identity checks for Tier 2. Address proof supports Tier 4 after Tier 3.
         </p>
       </div>
 
@@ -187,10 +186,10 @@ export default function KycPanel({
         )}
       </div>
 
-      {/* Address */}
+      {/* Address + Tier 4 proof */}
       <div className="rounded-2xl border border-gray-800 bg-gray-950/40 p-4 space-y-4">
         <div className="flex items-center justify-between">
-          <h3 className="text-sm font-semibold text-gray-200">Address</h3>
+          <h3 className="text-sm font-semibold text-gray-200">Address details</h3>
           <span className="text-xs text-gray-500">Keep this accurate</span>
         </div>
 
@@ -321,6 +320,9 @@ export default function KycPanel({
           </div>
 
           <div className="md:col-span-2">
+            <p className="text-xs text-gray-500 mb-2">
+              Tier 4 requires proof of address after Tier 3 is verified.
+            </p>
             <div className="md:w-2/3 space-y-3">
               <FilePicker
                 label="Upload proof of address"

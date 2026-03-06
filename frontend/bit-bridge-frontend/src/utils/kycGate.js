@@ -27,11 +27,13 @@ const TIER_RANKS = {
   tier_1: 1,
   tier_2: 2,
   tier_3: 3,
+  tier_4: 4,
 }
 
 export const normalizeKycLevel = (raw) => {
   const value = (raw ?? '').toString().toLowerCase()
   if (!value || value === 'nil') return 'tier_0'
+  if (value.includes('tier_4') || value.includes('tier4')) return 'tier_4'
   if (value.includes('tier_3')) return 'tier_3'
   if (value.includes('tier_2')) return 'tier_2'
   if (value.includes('tier_1')) return 'tier_1'
@@ -68,26 +70,11 @@ export const getTier2MissingDetails = (user) => {
     missing.push('ID type')
   }
 
-  const hasAddress =
-    profile?.address_line1 &&
-    profile?.city &&
-    profile?.state &&
-    profile?.country
+  const hasIdentityEvidence =
+    !!profile?.id_document_url || kyc?.nin_status === 'verified' || !!kyc?.nin_verified_at
 
-  if (!hasAddress) {
-    missing.push('Address')
-  }
-
-  if (!profile?.proof_of_address_type) {
-    missing.push('Proof of address type')
-  }
-
-  if (!profile?.id_document_url) {
+  if (!hasIdentityEvidence) {
     missing.push('ID document')
-  }
-
-  if (!profile?.proof_of_address_url) {
-    missing.push('Proof of address')
   }
 
   return missing

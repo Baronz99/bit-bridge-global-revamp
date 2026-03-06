@@ -15,7 +15,7 @@ import {
 } from '@ant-design/icons'
 import { NavLink, useNavigate } from 'react-router-dom'
 import client from '../../api/client'
-import { userProfile } from '../../redux/actions/auth'
+import { userProfile as fetchUserProfile } from '../../redux/actions/auth'
 
 // Primary use-case → copy
 const useCaseConfig = {
@@ -110,7 +110,7 @@ const kycLevelConfig = {
   },
   tier_4: {
     label: 'Tier 4 - Verified Address',
-    description: 'Tier 3 + complete address + proof of address. Full verification.',
+    description: 'Tier 3 + proof of address. Full verification.',
   },
 }
 
@@ -168,7 +168,7 @@ const tierCardCopy = {
   },
   tier_4: {
     title: 'Tier 4',
-    body: 'Verified address: complete address and proof of address on file.',
+    body: 'Verified address: proof of address on file.',
     hint: 'Full verification',
   },
 }
@@ -374,12 +374,6 @@ const KycCenter = () => {
     normalizedTierKey === 'tier_2' || normalizedTierKey === 'tier_3' || normalizedTierKey === 'tier_4'
   const hasTier3 = normalizedTierKey === 'tier_3' || normalizedTierKey === 'tier_4'
   const hasTier4 = normalizedTierKey === 'tier_4'
-  const hasAddressForTier4 = Boolean(
-    userProfile?.address_line1 &&
-      userProfile?.city &&
-      userProfile?.state &&
-      userProfile?.country
-  )
   const hasProofOfAddressForTier4 = Boolean(
     userProfile?.proof_of_address_type && userProfile?.proof_of_address_url
   )
@@ -481,7 +475,7 @@ const KycCenter = () => {
       if (payload?.status === 'verified' || payload?.status === 'pending_review' || payload?.status === 'pending') {
         setBvnInput('')
       }
-      await dispatch(userProfile())
+      await dispatch(fetchUserProfile())
     } catch (error) {
       const payload = error?.response?.data || null
       const message =
@@ -670,7 +664,7 @@ const KycCenter = () => {
       setTier3UiStatus(TIER3_UI_STATUS.processing)
       startTier3Polling()
 
-      await dispatch(userProfile())
+      await dispatch(fetchUserProfile())
       await fetchTier3Status()
     } catch (error) {
       const status = error?.response?.status
@@ -896,13 +890,11 @@ const KycCenter = () => {
                   <div>
                     <div className="font-semibold text-slate-100">Upgrade to Tier 4</div>
                     <div className="text-xs text-slate-400 mt-1">
-                      Complete address verification by adding your address and proof of address.
+                      Complete address verification by uploading proof of address.
                     </div>
-                    {(!hasAddressForTier4 || !hasProofOfAddressForTier4) && (
+                    {!hasProofOfAddressForTier4 && (
                       <div className="text-xs text-amber-200 mt-2">
-                        Missing: {!hasAddressForTier4 ? 'Address details' : null}
-                        {!hasAddressForTier4 && !hasProofOfAddressForTier4 ? ' + ' : null}
-                        {!hasProofOfAddressForTier4 ? 'Proof of address' : null}
+                        Missing: Proof of address
                       </div>
                     )}
                   </div>
@@ -923,7 +915,7 @@ const KycCenter = () => {
                   <CheckCircleOutlined /> Tier 4 verified
                 </div>
                 <div className="text-xs text-slate-300 mt-1">
-                  Address and proof of address are verified. Full verification complete.
+                  Proof of address is verified. Full verification complete.
                 </div>
               </div>
             ) : null}
