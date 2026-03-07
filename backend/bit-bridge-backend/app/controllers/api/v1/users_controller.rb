@@ -513,8 +513,76 @@ module Api
           commission: wallet.commission,
           total_bills: wallet.respond_to?(:total_bills) ? wallet.total_bills : nil,
           withdrawn: wallet.respond_to?(:withdrawn) ? wallet.withdrawn : nil,
-          total_deposit: wallet.respond_to?(:total_deposit) ? wallet.total_deposit : nil
+          total_deposit: wallet.respond_to?(:total_deposit) ? wallet.total_deposit : nil,
+          wallet_stats: serialize_wallet_stats(wallet)
         }.compact
+      end
+
+      # Explicit stats for mobile home/dashboard chips.
+      # These are category-safe and derived from real persisted records.
+      def serialize_wallet_stats(wallet)
+        approved_withdrawals =
+          wallet.transactions
+                .where(transaction_type: :withdrawal, status: :approved)
+
+        transfer_withdrawals =
+          approved_withdrawals
+            .where("COALESCE(metadata ->> 'provider', '') = ?", 'anchor')
+            .where("COALESCE(metadata ->> 'transfer_reference', '') <> ''")
+
+        transfer_principal =
+          transfer_withdrawals
+            .where("COALESCE(metadata ->> 'subtype', '') = ?", 'principal')
+            .sum(:amount)
+
+        transfer_fees =
+          transfer_withdrawals
+            .where("COALESCE(metadata ->> 'subtype', '') = ?", 'fee')
+            .sum(:amount)
+
+        transfer_total = transfer_principal.to_d + transfer_fees.to_d
+
+        card_spend_total =
+          approved_withdrawals
+            .where(
+              "bridge_card_id IS NOT NULL OR " \
+              "COALESCE(metadata ->> 'subtype', '') LIKE 'card_%' OR " \
+              "COALESCE(metadata ->> 'subtype', '') IN ('provider_fee', 'bitbridge_fee', 'fx_markup')"
+            )
+            .sum(:amount)
+
+        circle_funding_total =
+          approved_withdrawals
+            .where("COALESCE(metadata ->> 'group_reference', '') <> ''")
+            .sum(:amount)
+
+        bills_total =
+          wallet.bill_orders
+                .where(status: :completed, payment_method: :wallet)
+                .where.not("COALESCE(provider_response ->> 'source', '') = ?", 'anchor_transfer')
+                .where.not(
+                  "LOWER(COALESCE(service_type, '')) = ? AND LOWER(COALESCE(biller, '')) = ?",
+                  'other',
+                  'anchor'
+                )
+                .sum(:total_amount)
+
+        total_withdrawals_approved = approved_withdrawals.sum(:amount)
+        categorized_outflow = transfer_total.to_d + card_spend_total.to_d + circle_funding_total.to_d
+        other_withdrawals = total_withdrawals_approved.to_d - categorized_outflow
+        other_withdrawals = 0.to_d if other_withdrawals.negative?
+
+        {
+          schema_version: 1,
+          bills_wallet_total: bills_total.to_f,
+          bank_transfers_total: transfer_total.to_f,
+          bank_transfer_principal_total: transfer_principal.to_f,
+          bank_transfer_fee_total: transfer_fees.to_f,
+          card_spend_total: card_spend_total.to_f,
+          circle_funding_total: circle_funding_total.to_f,
+          other_withdrawals_total: other_withdrawals.to_f,
+          total_withdrawals_approved: total_withdrawals_approved.to_f
+        }
       end
 
       def serialize_compact_account(account)
