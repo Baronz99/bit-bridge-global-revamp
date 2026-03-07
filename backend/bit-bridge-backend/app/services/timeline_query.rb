@@ -335,7 +335,17 @@ class TimelineQuery
 
     if circle.present?
       membership = circle_membership_for(circle_id: circle.id, user_id: user.id)
-      username = membership&.username
+      # Guard against partially rolled-out schemas where username may not exist yet.
+      username =
+        begin
+          if membership&.respond_to?(:username)
+            membership.username
+          elsif membership&.respond_to?(:[])
+            membership[:username]
+          end
+        rescue StandardError
+          nil
+        end
       email = mask_email(email)
       name = username.presence || name
       name = email if name.blank?
