@@ -11,14 +11,15 @@ module Api
 
       # GET /api/v1/circles/:id/audit
       def show
-        txs = @circle.circle_transactions
-                     .includes(:user, :circle_activity)
-                     .order(occurred_at: :desc)
-                     .limit(500)
+        tx_scope = @circle.circle_transactions
+        txs = tx_scope
+                .includes(:user, :circle_activity)
+                .order(occurred_at: :desc)
+                .limit(500)
         allow_full = can_view_full_pii?
 
-        total_in_cents  = txs.select(&:direction_credit?).sum(&:amount_cents)
-        total_out_cents = txs.select(&:direction_debit?).sum(&:amount_cents)
+        total_in_cents  = tx_scope.where(direction: CircleTransaction.directions[:credit]).sum(:amount_cents)
+        total_out_cents = tx_scope.where(direction: CircleTransaction.directions[:debit]).sum(:amount_cents)
 
         render json: {
           circle: {
@@ -30,7 +31,7 @@ module Api
           totals: {
             total_in_cents: total_in_cents,
             total_out_cents: total_out_cents,
-            tx_count: txs.size
+            tx_count: tx_scope.count
           },
           transactions: txs.map { |tx|
             email = tx.user&.email

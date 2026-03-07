@@ -4,6 +4,7 @@ module Api
   module V1
     class DisputesController < ApplicationController
       before_action :authenticate_user!
+      before_action :ensure_tier2!, message: 'Complete Tier 2 verification to use shared groups.'
 
       # POST /api/v1/disputes
       def create

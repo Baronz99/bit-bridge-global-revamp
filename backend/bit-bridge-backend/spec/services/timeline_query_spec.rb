@@ -222,5 +222,52 @@ RSpec.describe TimelineQuery do
       expect(item[:label]).to eq('Wallet deposit from Ada Sender')
       expect(item[:label]).not_to include('0123456789')
     end
+
+    it 'masks circle actor email for non-admin members in circle timeline mode' do
+      owner = User.create!(
+        email: "timeline-owner-#{SecureRandom.hex(4)}@example.com",
+        password: 'password123',
+        password_confirmation: 'password123'
+      )
+      circle = Circle.create!(name: 'Alpha', owner: owner)
+      CircleMembership.create!(circle: circle, user: owner, role: :admin)
+      CircleMembership.create!(circle: circle, user: user, role: :member)
+
+      tx = CircleTransaction.create!(
+        circle: circle,
+        user: owner,
+        amount_cents: 1500,
+        direction: :credit,
+        kind: 'fund',
+        description: 'Contribution'
+      )
+
+      result = described_class.new(user: user, circle_id: circle.id, limit: 10).call
+      item = result[:items].find { |entry| entry[:id] == "circle-tx-#{tx.id}" }
+
+      expect(item).to be_present
+      expect(item.dig(:actor, :email)).to include('***@')
+      expect(item.dig(:actor, :email)).not_to eq(owner.email)
+    end
+
+    it 'shows full circle actor email for owner/admin in circle timeline mode' do
+      circle = Circle.create!(name: 'Alpha', owner: user)
+      CircleMembership.create!(circle: circle, user: user, role: :admin)
+
+      tx = CircleTransaction.create!(
+        circle: circle,
+        user: user,
+        amount_cents: 1500,
+        direction: :credit,
+        kind: 'fund',
+        description: 'Contribution'
+      )
+
+      result = described_class.new(user: user, circle_id: circle.id, limit: 10).call
+      item = result[:items].find { |entry| entry[:id] == "circle-tx-#{tx.id}" }
+
+      expect(item).to be_present
+      expect(item.dig(:actor, :email)).to eq(user.email)
+    end
   end
 end

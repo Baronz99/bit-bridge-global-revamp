@@ -4,6 +4,7 @@ module Api
   module V1
     class CircleTransactionReactionsController < ApplicationController
       before_action :authenticate_user!
+      before_action :ensure_tier2!, message: 'Complete Tier 2 verification to use shared groups.'
       before_action :set_tx!
 
       # POST /api/v1/circle_transactions/:id/react

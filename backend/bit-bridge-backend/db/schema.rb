@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[7.1].define(version: 2026_03_04_195700) do
+ActiveRecord::Schema[7.1].define(version: 2026_03_07_113000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pgcrypto"
   enable_extension "plpgsql"
@@ -332,7 +332,7 @@ ActiveRecord::Schema[7.1].define(version: 2026_03_04_195700) do
     t.uuid "wallet_transaction_id"
     t.index ["circle_activity_id"], name: "index_circle_transactions_on_circle_activity_id"
     t.index ["circle_id", "circle_activity_id"], name: "index_circle_transactions_on_circle_id_and_circle_activity_id"
-    t.index ["circle_id", "idempotency_key"], name: "index_circle_transactions_on_circle_id_and_idempotency_key", unique: true, where: "(idempotency_key IS NOT NULL)"
+    t.index ["circle_id", "event_type", "idempotency_key"], name: "idx_circle_tx_circle_event_idempotency", unique: true, where: "(idempotency_key IS NOT NULL)"
     t.index ["circle_id", "occurred_at"], name: "index_circle_transactions_on_circle_id_and_occurred_at"
     t.index ["circle_id"], name: "index_circle_transactions_on_circle_id"
     t.index ["user_id"], name: "index_circle_transactions_on_user_id"

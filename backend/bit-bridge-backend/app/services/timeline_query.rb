@@ -105,7 +105,7 @@ class TimelineQuery
       amount_cents: tx.amount_cents,
       status: nil,
       occurred_at: tx.occurred_at,
-      actor: actor_json(tx.user),
+      actor: actor_json(tx.user, circle: tx.circle),
       meta: {
         circle_id: tx.circle_id,
         circle_name: tx.circle&.name,
@@ -325,14 +325,56 @@ class TimelineQuery
   # Helpers
   # -------------------------
 
-  def actor_json(user)
+  def actor_json(user, circle: nil)
     return nil unless user
 
     profile = user.user_profile
     name = [profile&.first_name, profile&.last_name].compact.join(' ').strip
-    name = user.email if name.blank?
+    email = user.email
 
-    { id: user.id, name: name, email: user.email }
+    if mask_circle_actor_email?(circle: circle)
+      email = mask_email(email)
+      name = email if name.blank?
+    else
+      name = email if name.blank?
+    end
+
+    { id: user.id, name: name, email: email }
+  end
+
+  def mask_circle_actor_email?(circle:)
+    return false unless circle
+    !can_view_full_circle_pii?(circle)
+  end
+
+  def can_view_full_circle_pii?(circle)
+    @circle_pii_cache ||= {}
+    return @circle_pii_cache[circle.id] if @circle_pii_cache.key?(circle.id)
+
+    allowed =
+      if circle.owner_id == @user.id
+        true
+      else
+        CircleMembership.where(
+          circle_id: circle.id,
+          user_id: @user.id,
+          role: CircleMembership.roles[:admin]
+        ).exists?
+      end
+
+    @circle_pii_cache[circle.id] = allowed
+  end
+
+  def mask_email(email)
+    return '' if email.blank?
+    local, domain = email.split('@', 2)
+    return email if domain.blank?
+
+    local_mask = local.length <= 1 ? '*' : "#{local[0]}***"
+    domain_name, tld = domain.split('.', 2)
+    domain_mask = domain_name.present? ? "#{domain_name[0]}***" : '***'
+    tld_part = tld.present? ? ".#{tld}" : ''
+    "#{local_mask}@#{domain_mask}#{tld_part}"
   end
 
   def timeline_label(description, fallback)

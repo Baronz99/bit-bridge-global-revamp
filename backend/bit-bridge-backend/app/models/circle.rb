@@ -1,6 +1,8 @@
 # frozen_string_literal: true
 
 class Circle < ApplicationRecord
+  class InsufficientBalanceError < StandardError; end
+
   belongs_to :owner, class_name: 'User'
 
   has_many :circle_memberships, dependent: :destroy
@@ -53,7 +55,7 @@ class Circle < ApplicationRecord
           update!(balance_cents: balance_cents + amount_cents)
         else
           new_balance = balance_cents - amount_cents
-          raise ActiveRecord::Rollback, 'Insufficient circle balance' if new_balance.negative?
+          raise InsufficientBalanceError, 'Insufficient circle balance' if new_balance.negative?
           update!(balance_cents: new_balance)
         end
 

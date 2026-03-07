@@ -110,6 +110,7 @@ module Api
         circle_activity_id = params[:circle_activity_id].presence
         idempotency_key    = extract_idempotency_key
         request_id         = request.request_id
+        event_type         = 'circle.fund'
 
         if amount_cents <= 0
           return render json: { errors: ['Amount must be greater than zero'] }, status: :unprocessable_entity
@@ -119,10 +120,6 @@ module Api
         return render(json: { errors: ['You do not have a wallet yet.'] }, status: :unprocessable_entity) unless wallet
 
         amount_naira = amount_cents.to_d / 100
-        wallet_balance_cents = (wallet.balance.to_d * 100).floor
-        if wallet_balance_cents < amount_cents
-          return render json: { errors: ['Insufficient wallet balance.'] }, status: :unprocessable_entity
-        end
 
         activity = nil
         if circle_activity_id
@@ -134,70 +131,77 @@ module Api
 
         ActiveRecord::Base.transaction do
           @circle.lock!
-          if idempotency_key.present?
-            existing = @circle.circle_transactions.find_by(idempotency_key: idempotency_key)
-            if existing.present?
-              replayed = true
-              raise ActiveRecord::Rollback
+          wallet.with_lock do
+            wallet_balance_cents = (wallet.reload.balance.to_d * 100).floor
+            if wallet_balance_cents < amount_cents
+              raise Circle::InsufficientBalanceError, 'Insufficient wallet balance.'
             end
-          end
 
-          circle_balance_before = @circle.balance_cents.to_i
-          wallet_balance_before = wallet.balance.to_d
+            if idempotency_key.present?
+              existing = @circle.circle_transactions.find_by(idempotency_key: idempotency_key, event_type: event_type)
+              if existing.present?
+                replayed = true
+                raise ActiveRecord::Rollback
+              end
+            end
 
-          group_reference = idempotency_key.presence || SecureRandom.uuid
+            circle_balance_before = @circle.balance_cents.to_i
+            wallet_balance_before = wallet.balance.to_d
 
-          wallet_tx = wallet.transactions.create!(
-            transaction_type: :withdrawal,
-            status: :approved,
-            coin_type: :bank,
-            amount: amount_naira,
-            address: "circle:#{@circle.id}",
-            metadata: {
-              circle_id: @circle.id,
+            group_reference = idempotency_key.presence || SecureRandom.uuid
+
+            wallet_tx = wallet.transactions.create!(
+              transaction_type: :withdrawal,
+              status: :approved,
+              coin_type: :bank,
+              amount: amount_naira,
+              address: "circle:#{@circle.id}",
+              metadata: {
+                circle_id: @circle.id,
+                idempotency_key: idempotency_key,
+                kind: 'circle_fund',
+                group_reference: group_reference
+              }.compact
+            )
+
+            circle_tx = @circle.apply_transaction!(
+              amount_cents: amount_cents,
+              direction: 'credit',
+              user: current_user,
+              kind: 'fund',
+              description: note.presence || 'Funding from main wallet',
+              circle_activity: activity,
+              reference: idempotency_key,
               idempotency_key: idempotency_key,
-              kind: 'circle_fund',
-              group_reference: group_reference
-            }.compact
-          )
-
-          circle_tx = @circle.apply_transaction!(
-            amount_cents: amount_cents,
-            direction: 'credit',
-            user: current_user,
-            kind: 'fund',
-            description: note.presence || 'Funding from main wallet',
-            circle_activity: activity,
-            reference: idempotency_key,
-            idempotency_key: idempotency_key,
-            request_id: request_id,
-            event_type: 'circle.fund',
-            wallet_transaction_id: wallet_tx.id,
-            metadata: {
-              wallet_balance_before: wallet_balance_before.to_s,
-              circle_balance_before: circle_balance_before,
-              user_id: current_user.id,
-              group_reference: group_reference
-            }.compact
-          )
-
-          wallet_balance_after = wallet.reload.balance.to_d
-          circle_balance_after = @circle.reload.balance_cents.to_i
-
-          circle_tx.update!(
-            metadata: circle_tx.metadata.merge(
-              wallet_id: wallet.id,
-              wallet_balance_after: wallet_balance_after.to_s,
-              circle_balance_after: circle_balance_after
+              request_id: request_id,
+              event_type: event_type,
+              wallet_transaction_id: wallet_tx.id,
+              metadata: {
+                wallet_balance_before: wallet_balance_before.to_s,
+                circle_balance_before: circle_balance_before,
+                user_id: current_user.id,
+                group_reference: group_reference
+              }.compact
             )
-          )
 
-          wallet_tx&.update!(
-            metadata: wallet_tx.metadata.merge(
-              circle_transaction_id: circle_tx.id,
-              circle_balance_after: circle_balance_after
+            wallet_balance_after = wallet.reload.balance.to_d
+            circle_balance_after = @circle.reload.balance_cents.to_i
+
+            circle_tx.update!(
+              metadata: circle_tx.metadata.merge(
+                wallet_id: wallet.id,
+                wallet_balance_after: wallet_balance_after.to_s,
+                circle_balance_after: circle_balance_after
+              )
             )
-          )
+
+            wallet_tx&.update!(
+              metadata: wallet_tx.metadata.merge(
+                circle_transaction_id: circle_tx.id,
+                circle_balance_after: circle_balance_after
+              )
+            )
+          end
         end
 
         if replayed
@@ -207,10 +211,12 @@ module Api
         render json: { balance_cents: @circle.reload.balance_cents }, status: :ok
       rescue ActiveRecord::RecordNotUnique
         if idempotency_key.present?
-          existing = @circle.circle_transactions.find_by(idempotency_key: idempotency_key)
+          existing = @circle.circle_transactions.find_by(idempotency_key: idempotency_key, event_type: event_type)
           return render json: { balance_cents: @circle.reload.balance_cents, replayed: true }, status: :ok if existing.present?
         end
         raise
+      rescue Circle::InsufficientBalanceError => e
+        render json: { errors: [e.message] }, status: :unprocessable_entity
       rescue ActiveRecord::RecordInvalid => e
         Rails.logger.error("[Circles#fund] validation failed: #{e.record.class} - #{e.record.errors.full_messages.join(', ')}")
         render json: { errors: e.record.errors.full_messages }, status: :unprocessable_entity
@@ -225,6 +231,7 @@ module Api
         note         = params[:note].to_s
         idempotency_key = extract_idempotency_key
         request_id      = request.request_id
+        event_type      = 'circle.withdraw'
 
         if amount_cents <= 0
           return render json: { errors: ['Amount must be greater than zero'] }, status: :unprocessable_entity
@@ -244,7 +251,7 @@ module Api
         ActiveRecord::Base.transaction do
           @circle.lock!
           if idempotency_key.present?
-            existing = @circle.circle_transactions.find_by(idempotency_key: idempotency_key)
+            existing = @circle.circle_transactions.find_by(idempotency_key: idempotency_key, event_type: event_type)
             if existing.present?
               replayed = true
               raise ActiveRecord::Rollback
@@ -276,7 +283,7 @@ module Api
             reference: idempotency_key,
             idempotency_key: idempotency_key,
             request_id: request_id,
-            event_type: 'circle.withdraw',
+            event_type: event_type,
             wallet_transaction_id: wallet_tx.id,
             metadata: {
               wallet_balance_before: wallet_balance_before.to_s,
@@ -311,10 +318,12 @@ module Api
         render json: { balance_cents: @circle.reload.balance_cents }, status: :ok
       rescue ActiveRecord::RecordNotUnique
         if idempotency_key.present?
-          existing = @circle.circle_transactions.find_by(idempotency_key: idempotency_key)
+          existing = @circle.circle_transactions.find_by(idempotency_key: idempotency_key, event_type: event_type)
           return render json: { balance_cents: @circle.reload.balance_cents, replayed: true }, status: :ok if existing.present?
         end
         raise
+      rescue Circle::InsufficientBalanceError => e
+        render json: { errors: [e.message] }, status: :unprocessable_entity
       rescue ActiveRecord::RecordInvalid => e
         Rails.logger.error("[Circles#withdraw] validation failed: #{e.record.class} - #{e.record.errors.full_messages.join(', ')}")
         render json: { errors: e.record.errors.full_messages }, status: :unprocessable_entity
