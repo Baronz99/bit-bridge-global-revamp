@@ -55,6 +55,9 @@ RSpec.describe 'Circle Timeline', type: :request do
       )
 
       expect(item.fetch('meta').fetch('circle_id')).to eq(circle.id)
+      expect(item.fetch('actor').fetch('username')).to be_present
+      expect(item.fetch('actor').fetch('email')).to include('***@')
+      expect(item.fetch('actor').fetch('email')).not_to eq(user.email)
     end
 
     it 'paginates with cursor and returns next_cursor' do

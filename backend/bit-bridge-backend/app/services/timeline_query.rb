@@ -331,38 +331,28 @@ class TimelineQuery
     profile = user.user_profile
     name = [profile&.first_name, profile&.last_name].compact.join(' ').strip
     email = user.email
+    username = nil
 
-    if mask_circle_actor_email?(circle: circle)
+    if circle.present?
+      membership = circle_membership_for(circle_id: circle.id, user_id: user.id)
+      username = membership&.username
       email = mask_email(email)
+      name = username.presence || name
       name = email if name.blank?
     else
       name = email if name.blank?
     end
 
-    { id: user.id, name: name, email: email }
+    { id: user.id, username: username, name: name, email: email }
   end
 
-  def mask_circle_actor_email?(circle:)
-    return false unless circle
-    !can_view_full_circle_pii?(circle)
-  end
+  def circle_membership_for(circle_id:, user_id:)
+    @circle_membership_cache ||= {}
+    key = "#{circle_id}:#{user_id}"
+    return @circle_membership_cache[key] if @circle_membership_cache.key?(key)
 
-  def can_view_full_circle_pii?(circle)
-    @circle_pii_cache ||= {}
-    return @circle_pii_cache[circle.id] if @circle_pii_cache.key?(circle.id)
-
-    allowed =
-      if circle.owner_id == @user.id
-        true
-      else
-        CircleMembership.where(
-          circle_id: circle.id,
-          user_id: @user.id,
-          role: CircleMembership.roles[:admin]
-        ).exists?
-      end
-
-    @circle_pii_cache[circle.id] = allowed
+    @circle_membership_cache[key] =
+      CircleMembership.find_by(circle_id: circle_id, user_id: user_id)
   end
 
   def mask_email(email)
@@ -516,7 +506,7 @@ class TimelineQuery
       amount_cents: amount_cents,
       status: status,
       occurred_at: occurred_at,
-      actor: wallet_leg[:actor] || circle_leg[:actor],
+      actor: circle_leg[:actor] || wallet_leg[:actor],
       meta: merged_meta.compact
     }]
   end

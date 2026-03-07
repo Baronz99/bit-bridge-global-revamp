@@ -30,7 +30,7 @@ RSpec.describe 'Circle audit PII', type: :request do
     expect(response.body).not_to include(owner.email)
   end
 
-  it 'shows full email in circle export csv for owner/admin' do
+  it 'masks email in circle export csv for owner/admin too' do
     circle = create_circle
     circle.circle_transactions.create!(
       user: owner,
@@ -43,7 +43,8 @@ RSpec.describe 'Circle audit PII', type: :request do
     get "/api/v1/circles/#{circle.id}/export_csv", headers: auth_headers(owner)
 
     expect(response).to have_http_status(:ok)
-    expect(response.body).to include(owner.email)
+    expect(response.body).to include('***@')
+    expect(response.body).not_to include(owner.email)
   end
 
   it 'masks email in circle audit json for members' do

@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[7.1].define(version: 2026_03_07_113000) do
+ActiveRecord::Schema[7.1].define(version: 2026_03_07_124500) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pgcrypto"
   enable_extension "plpgsql"
@@ -297,6 +297,8 @@ ActiveRecord::Schema[7.1].define(version: 2026_03_07_113000) do
     t.integer "role", default: 0, null: false
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
+    t.string "username"
+    t.index "circle_id, lower((username)::text)", name: "idx_circle_memberships_circle_username_unique", unique: true, where: "(username IS NOT NULL)"
     t.index ["circle_id", "user_id"], name: "index_circle_memberships_on_circle_id_and_user_id", unique: true
     t.index ["circle_id"], name: "index_circle_memberships_on_circle_id"
     t.index ["user_id"], name: "index_circle_memberships_on_user_id"

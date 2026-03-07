@@ -16,7 +16,7 @@ module Api
                 .includes(:user, :circle_activity)
                 .order(occurred_at: :desc)
                 .limit(500)
-        allow_full = can_view_full_pii?
+        membership_by_user_id = @circle.circle_memberships.where(user_id: txs.map(&:user_id).uniq).index_by(&:user_id)
 
         total_in_cents  = tx_scope.where(direction: CircleTransaction.directions[:credit]).sum(:amount_cents)
         total_out_cents = tx_scope.where(direction: CircleTransaction.directions[:debit]).sum(:amount_cents)
@@ -34,11 +34,12 @@ module Api
             tx_count: tx_scope.count
           },
           transactions: txs.map { |tx|
-            email = tx.user&.email
-            email = mask_email(email) unless allow_full
+            email = mask_email(tx.user&.email)
+            username = membership_by_user_id[tx.user_id]&.username
             {
               id: tx.id,
               occurred_at: tx.occurred_at,
+              username: username,
               user_email: email,
               direction: tx.direction,
               amount_cents: tx.amount_cents,
@@ -58,18 +59,19 @@ module Api
                      .includes(:user, :circle_activity)
                      .order(occurred_at: :desc)
                      .limit(2000)
-        allow_full = can_view_full_pii?
+        membership_by_user_id = @circle.circle_memberships.where(user_id: txs.map(&:user_id).uniq).index_by(&:user_id)
 
         csv_str = CSV.generate(headers: true) do |csv|
           csv << %w[
-            occurred_at user_email direction amount_cents kind description reference activity_id activity_name
+            occurred_at username user_email direction amount_cents kind description reference activity_id activity_name
           ]
 
           txs.each do |tx|
-            email = tx.user&.email
-            email = mask_email(email) unless allow_full
+            email = mask_email(tx.user&.email)
+            username = membership_by_user_id[tx.user_id]&.username
             csv << [
               tx.occurred_at,
+              username,
               email,
               tx.direction,
               tx.amount_cents,
@@ -93,11 +95,6 @@ module Api
         @circle = current_user.circles.find(params[:id])
       rescue ActiveRecord::RecordNotFound
         render json: { error: 'Circle not found' }, status: :not_found
-      end
-
-      def can_view_full_pii?
-        membership = @circle.circle_memberships.find_by(user_id: current_user.id)
-        (@circle.owner_id == current_user.id) || (membership && membership.admin?)
       end
 
       def mask_email(email)

@@ -317,7 +317,11 @@ Rails.application.routes.draw do
 
         resources :memberships,
                   controller: "circle_memberships",
-                  only: [:create]
+                  only: [:create] do
+          collection do
+            patch :me, to: "circle_memberships#update_me"
+          end
+        end
       end
 
       # ✅ Reactions for circle transactions

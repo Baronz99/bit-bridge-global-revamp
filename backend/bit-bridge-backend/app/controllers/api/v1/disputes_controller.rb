@@ -24,14 +24,37 @@ module Api
           note: params[:note]
         )
 
-        render json: dispute.as_json(
-          only: %i[id status reason note created_at],
-          include: { raised_by: { only: %i[id email] } }
-        ), status: :created
+        membership = circle.circle_memberships.find_by(user_id: current_user.id)
+        render json: {
+          id: dispute.id,
+          status: dispute.status,
+          reason: dispute.reason,
+          note: dispute.note,
+          created_at: dispute.created_at,
+          raised_by: {
+            id: current_user.id,
+            username: membership&.username,
+            display_name: membership&.username.presence || mask_email(current_user.email),
+            email: mask_email(current_user.email)
+          }
+        }, status: :created
       rescue ActiveRecord::RecordNotFound
         render json: { error: 'Transaction not found' }, status: :not_found
       rescue ActiveRecord::RecordInvalid => e
         render json: { errors: e.record.errors.full_messages }, status: :unprocessable_entity
+      end
+
+      private
+
+      def mask_email(email)
+        return '' if email.blank?
+        local, domain = email.split('@', 2)
+        return email if domain.blank?
+        local_mask = local.length <= 1 ? '*' : "#{local[0]}***"
+        domain_name, tld = domain.split('.', 2)
+        domain_mask = domain_name.present? ? "#{domain_name[0]}***" : '***'
+        tld_part = tld.present? ? ".#{tld}" : ''
+        "#{local_mask}@#{domain_mask}#{tld_part}"
       end
     end
   end

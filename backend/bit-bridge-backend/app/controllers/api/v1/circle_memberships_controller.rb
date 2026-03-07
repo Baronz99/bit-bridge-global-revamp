@@ -19,7 +19,7 @@ module Api
       # }
       #
       def create
-        membership_params = params.require(:membership).permit(:email, :role)
+        membership_params = params.require(:membership).permit(:email, :role, :username)
 
         raw_email = membership_params[:email].to_s.strip
         if raw_email.blank?
@@ -60,12 +60,13 @@ module Api
         end
 
         membership = @circle.circle_memberships.new(user: user, role: requested_role)
+        membership.username = membership_params[:username]
 
         if membership.save
-          render json: member_payload(membership, true).merge(
+          render json: member_payload(membership).merge(
             invited_by: {
               id: current_user.id,
-              email: current_user.email
+              email: mask_email(current_user.email)
             }
           ), status: :created
         else
@@ -77,6 +78,26 @@ module Api
                status: :unprocessable_entity
       end
 
+      # PATCH /api/v1/circles/:circle_id/memberships/me
+      # {
+      #   membership: {
+      #     username: "my_circle_name"
+      #   }
+      # }
+      def update_me
+        attrs = params.require(:membership).permit(:username)
+        membership = @circle.circle_memberships.find_by!(user_id: current_user.id)
+
+        membership.assign_attributes(attrs)
+        if membership.save
+          render json: member_payload(membership), status: :ok
+        else
+          render json: { errors: membership.errors.full_messages }, status: :unprocessable_entity
+        end
+      rescue ActiveRecord::RecordNotFound
+        render json: { errors: ['Membership not found.'] }, status: :not_found
+      end
+
       private
 
       def set_circle
@@ -86,31 +107,15 @@ module Api
         render json: { errors: ['Circle not found.'] }, status: :not_found
       end
 
-      def member_payload(membership, allow_full)
+      def member_payload(membership)
         user = membership.user
         profile = user.user_profile
         first_name = profile&.first_name
         last_name = profile&.last_name
         phone = profile&.phone_number
         email = user.email
-
-        if allow_full
-          display_name = [first_name, last_name].compact.join(' ')
-          display_name = email if display_name.blank?
-          return {
-            id: membership.id,
-            role: membership.role,
-            masked: false,
-            user: {
-              id: user.id,
-              email: email,
-              phone_number: phone,
-              first_name: first_name,
-              last_name: last_name,
-              display_name: display_name
-            }
-          }
-        end
+        username = membership.username
+        display_name = username.presence || mask_name(first_name, last_name, email)
 
         {
           id: membership.id,
@@ -120,7 +125,8 @@ module Api
             id: user.id,
             email: mask_email(email),
             phone_number: mask_phone(phone),
-            display_name: mask_name(first_name, last_name, email)
+            username: username,
+            display_name: display_name
           }
         }
       end

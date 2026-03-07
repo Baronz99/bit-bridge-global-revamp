@@ -11,8 +11,9 @@ module Api
       # GET /api/v1/circles/:circle_id/activities
       def index
         activities = @circle.circle_activities.recent_first
+        memberships = @circle.circle_memberships.includes(user: :user_profile).index_by(&:user_id)
 
-        render json: activities.map { |a| activity_json(a) }
+        render json: activities.map { |a| activity_json(a, memberships) }
       end
 
       # GET /api/v1/circles/:circle_id/activities/:id
@@ -24,10 +25,11 @@ module Api
                       .includes(:user)
                       .order(occurred_at: :desc)
                       .limit(50)
+        memberships = @circle.circle_memberships.includes(user: :user_profile).index_by(&:user_id)
 
         render json: {
-          activity: activity_json(activity),
-          transactions: txs.map { |tx| tx_json(tx) }
+          activity: activity_json(activity, memberships),
+          transactions: txs.map { |tx| tx_json(tx, memberships) }
         }
       end
 
@@ -38,7 +40,8 @@ module Api
         activity.status ||= :active
 
         if activity.save
-          render json: { activity: activity_json(activity) }, status: :created
+          memberships = @circle.circle_memberships.includes(user: :user_profile).index_by(&:user_id)
+          render json: { activity: activity_json(activity, memberships) }, status: :created
         else
           render json: { errors: activity.errors.full_messages }, status: :unprocessable_entity
         end
@@ -69,19 +72,55 @@ module Api
         params.require(:activity).permit(:name, :target_amount_cents, :deadline_at, :contribution_frequency)
       end
 
-      def activity_json(activity)
-        activity.as_json(
+      def activity_json(activity, memberships)
+        json = activity.as_json(
           only: %i[id name target_amount_cents deadline_at contribution_frequency status created_at],
-          methods: %i[raised_amount_cents],
-          include: { created_by: { only: %i[id email] } }
+          methods: %i[raised_amount_cents]
         )
+        json.merge(created_by: circle_user_payload(activity.created_by, memberships[activity.created_by_id]))
       end
 
-      def tx_json(tx)
+      def tx_json(tx, memberships)
         tx.as_json(
-          only: %i[id amount_cents direction kind description reference occurred_at circle_activity_id],
-          include: { user: { only: %i[id email] } }
-        )
+          only: %i[id amount_cents direction kind description reference occurred_at circle_activity_id]
+        ).merge(user: circle_user_payload(tx.user, memberships[tx.user_id]))
+      end
+
+      def circle_user_payload(user, membership = nil)
+        return nil unless user
+
+        profile = user.user_profile
+        first_name = profile&.first_name
+        last_name = profile&.last_name
+        email = user.email
+        username = membership&.username
+
+        {
+          id: user.id,
+          username: username,
+          display_name: username.presence || mask_name(first_name, last_name, email),
+          email: mask_email(email)
+        }
+      end
+
+      def mask_email(email)
+        return '' if email.blank?
+        local, domain = email.split('@', 2)
+        return email if domain.blank?
+        local_mask = local.length <= 1 ? '*' : "#{local[0]}***"
+        domain_name, tld = domain.split('.', 2)
+        domain_mask = domain_name.present? ? "#{domain_name[0]}***" : '***'
+        tld_part = tld.present? ? ".#{tld}" : ''
+        "#{local_mask}@#{domain_mask}#{tld_part}"
+      end
+
+      def mask_name(first_name, last_name, email)
+        if first_name.present? || last_name.present?
+          fi = first_name.to_s.strip[0] || ''
+          li = last_name.to_s.strip[0] || ''
+          return [fi, li].reject(&:blank?).map { |c| "#{c}." }.join(' ').strip
+        end
+        mask_email(email)
       end
     end
   end

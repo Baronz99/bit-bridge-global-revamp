@@ -246,11 +246,12 @@ RSpec.describe TimelineQuery do
       item = result[:items].find { |entry| entry[:id] == "circle-tx-#{tx.id}" }
 
       expect(item).to be_present
+      expect(item.dig(:actor, :username)).to be_present
       expect(item.dig(:actor, :email)).to include('***@')
       expect(item.dig(:actor, :email)).not_to eq(owner.email)
     end
 
-    it 'shows full circle actor email for owner/admin in circle timeline mode' do
+    it 'still masks email but shows username for owner/admin in circle timeline mode' do
       circle = Circle.create!(name: 'Alpha', owner: user)
       CircleMembership.create!(circle: circle, user: user, role: :admin)
 
@@ -267,7 +268,9 @@ RSpec.describe TimelineQuery do
       item = result[:items].find { |entry| entry[:id] == "circle-tx-#{tx.id}" }
 
       expect(item).to be_present
-      expect(item.dig(:actor, :email)).to eq(user.email)
+      expect(item.dig(:actor, :username)).to be_present
+      expect(item.dig(:actor, :email)).to include('***@')
+      expect(item.dig(:actor, :email)).not_to eq(user.email)
     end
   end
 end

@@ -21,12 +21,13 @@ module Api
 
         render json: circles.as_json(
           only: %i[id name purpose description created_at balance_cents currency],
-          include: { owner: { only: %i[id email] } }
+          include: { owner: { only: %i[id] } }
         )
       end
 
       def show
-        memberships = @circle.circle_memberships.includes(:user)
+        memberships = @circle.circle_memberships.includes(user: :user_profile)
+        membership_by_user_id = memberships.index_by(&:user_id)
 
         recent_txs = @circle.circle_transactions
                             .includes(:user, :reactions, :circle_activity, :wallet_transaction, dispute: :raised_by)
@@ -35,7 +36,7 @@ module Api
 
         circle_json = @circle.as_json(
           only: %i[id name purpose description created_at balance_cents currency],
-          include: { owner: { only: %i[id email] } }
+          include: { owner: { only: %i[id] } }
         )
 
         membership_for_current = memberships.find { |m| m.user_id == current_user.id }
@@ -52,27 +53,28 @@ module Api
         can_withdraw =
           (@circle.owner_id == current_user.id) ||
           (membership_for_current && membership_for_current.admin?)
-        can_view_full_members =
-          (@circle.owner_id == current_user.id) ||
-          (membership_for_current && membership_for_current.admin?)
 
         recent_transactions_json = recent_txs.map do |tx|
           reactions_grouped = tx.reactions.group(:emoji).count
           my_reactions = tx.reactions.where(user_id: current_user.id).pluck(:emoji)
 
-          tx.as_json(
+          tx_json = tx.as_json(
             only: %i[id amount_cents direction kind description reference occurred_at circle_activity_id wallet_transaction_id],
-            include: {
-              user: { only: %i[id email] },
-              circle_activity: { only: %i[id name status target_amount_cents deadline_at] }
-            }
-          ).merge(
+            include: { circle_activity: { only: %i[id name status target_amount_cents deadline_at] } }
+          )
+
+          tx_json.merge(
+            user: circle_user_payload(tx.user, membership_by_user_id[tx.user_id]),
             wallet_transaction_reference: tx.wallet_transaction&.transaction_record&.reference ||
               tx.wallet_transaction&.transfer_id,
-            dispute: tx.dispute&.as_json(
-              only: %i[id status reason note created_at],
-              include: { raised_by: { only: %i[id email] } }
-            ),
+            dispute: tx.dispute.present? ? {
+              id: tx.dispute.id,
+              status: tx.dispute.status,
+              reason: tx.dispute.reason,
+              note: tx.dispute.note,
+              created_at: tx.dispute.created_at,
+              raised_by: circle_user_payload(tx.dispute.raised_by, membership_by_user_id[tx.dispute.raised_by_id])
+            } : nil,
             reactions: {
               counts: reactions_grouped,
               mine: my_reactions
@@ -83,7 +85,7 @@ module Api
         render json: circle_json.merge(
           current_user_role: current_role,
           can_withdraw: can_withdraw,
-          members: memberships.map { |m| member_payload(m, can_view_full_members) },
+          members: memberships.map { |m| member_payload(m) },
           recent_transactions: recent_transactions_json
         )
       end
@@ -96,7 +98,7 @@ module Api
 
           render json: circle.as_json(
             only: %i[id name purpose description created_at balance_cents currency],
-            include: { owner: { only: %i[id email] } }
+            include: { owner: { only: %i[id] } }
           ), status: :created
         else
           render json: { errors: circle.errors.full_messages }, status: :unprocessable_entity
@@ -351,19 +353,19 @@ module Api
 
       def export_csv
         txs = @circle.circle_transactions.includes(:user, :circle_activity).order(occurred_at: :desc)
-        allow_full = can_view_full_pii?
-
         csv = CSV.generate(headers: true) do |out|
-          out << %w[id occurred_at user_email direction kind amount description activity_id activity_name]
+          out << %w[id occurred_at username user_email direction kind amount description activity_id activity_name]
 
           txs.each do |tx|
             amount_naira = tx.amount_cents.to_i / 100.0
-            email = tx.user&.email
-            email = mask_email(email) unless allow_full
+            membership = @circle.circle_memberships.find_by(user_id: tx.user_id)
+            username = membership&.username
+            email = mask_email(tx.user&.email)
 
             out << [
               tx.id,
               tx.occurred_at,
+              username,
               email,
               tx.direction,
               tx.kind,
@@ -421,40 +423,19 @@ module Api
           params.dig(:circle, :idempotency_key).presence
       end
 
-      def can_view_full_pii?
-        membership = @circle.circle_memberships.find_by(user_id: current_user.id)
-        (@circle.owner_id == current_user.id) || (membership && membership.admin?)
-      end
-
       def circle_params
         params.require(:circle).permit(:name, :purpose, :description)
       end
 
-      def member_payload(membership, allow_full)
+      def member_payload(membership)
         user = membership.user
         profile = user.user_profile
         first_name = profile&.first_name
         last_name = profile&.last_name
         phone = profile&.phone_number
         email = user.email
-
-        if allow_full
-          display_name = [first_name, last_name].compact.join(' ')
-          display_name = email if display_name.blank?
-          return {
-            id: membership.id,
-            role: membership.role,
-            masked: false,
-            user: {
-              id: user.id,
-              email: email,
-              phone_number: phone,
-              first_name: first_name,
-              last_name: last_name,
-              display_name: display_name
-            }
-          }
-        end
+        username = membership.username
+        display_name = username.presence || mask_name(first_name, last_name, email)
 
         {
           id: membership.id,
@@ -464,8 +445,27 @@ module Api
             id: user.id,
             email: mask_email(email),
             phone_number: mask_phone(phone),
-            display_name: mask_name(first_name, last_name, email)
+            username: username,
+            display_name: display_name
           }
+        }
+      end
+
+      def circle_user_payload(user, membership = nil)
+        return nil unless user
+
+        profile = user.user_profile
+        first_name = profile&.first_name
+        last_name = profile&.last_name
+        email = user.email
+        username = membership&.username
+        display_name = username.presence || mask_name(first_name, last_name, email)
+
+        {
+          id: user.id,
+          username: username,
+          display_name: display_name,
+          email: mask_email(email)
         }
       end
 
