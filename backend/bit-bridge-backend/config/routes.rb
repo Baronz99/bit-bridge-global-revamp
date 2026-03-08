@@ -109,6 +109,7 @@ Rails.application.routes.draw do
       # Cards
       resources :cards do
         collection do
+          post :setup_cardholder
           post :setup_card
           get  :setup_status
           post :fund_wallet

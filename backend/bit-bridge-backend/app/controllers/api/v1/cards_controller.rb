@@ -7,6 +7,7 @@ module Api
 
       before_action :ensure_bridge_cards_enabled!,
                     only: %i[
+                      setup_cardholder
                       setup_card
                       setup_status
                       register_cardholder
@@ -28,6 +29,7 @@ module Api
                     only: %i[
                       index
                       user_card
+                      setup_cardholder
                       setup_card
                       setup_status
                       register_cardholder
@@ -87,6 +89,46 @@ module Api
       # 1) ensure cardholder profile is submitted
       # 2) wait for verification webhook if pending
       # 3) create+fund card once verified (fee + min funding)
+      def setup_cardholder
+        idempotency_key = request.headers['X-Idempotency-Key'].to_s.strip
+        if idempotency_key.blank?
+          return render_setup_error(
+            code: 'CARDHOLDER_SETUP_VALIDATION_FAILED',
+            message: 'X-Idempotency-Key header is required.',
+            state: 'failed',
+            next_action: 'retry_setup_cardholder',
+            retryable: false,
+            status: :unprocessable_entity
+          )
+        end
+
+        payload_hash = Digest::SHA256.hexdigest(request.raw_post.to_s)
+        cached = read_cardholder_setup_idempotency(idempotency_key)
+        if cached.present?
+          if cached[:payload_hash].present? && cached[:payload_hash] != payload_hash
+            return render_setup_error(
+              code: 'CARDHOLDER_SETUP_IDEMPOTENCY_CONFLICT',
+              message: 'Idempotency key reuse with different payload is not allowed.',
+              state: 'failed',
+              next_action: 'retry_setup_cardholder',
+              retryable: false,
+              status: :conflict
+            )
+          end
+
+          return render json: cached[:body], status: cached[:status]
+        end
+
+        response = current_user.with_lock { process_setup_cardholder_request }
+        write_cardholder_setup_idempotency(
+          idempotency_key,
+          payload_hash: payload_hash,
+          body: response[:body],
+          status: response[:status]
+        )
+        render json: response[:body], status: response[:status]
+      end
+
       def setup_card
         idempotency_key = request.headers['X-Idempotency-Key'].to_s.strip
         if idempotency_key.blank?
@@ -658,6 +700,86 @@ module Api
 
       private
 
+      def process_setup_cardholder_request
+        processed =
+          begin
+            normalized_card_params
+          rescue ActionController::ParameterMissing
+            {}
+          end
+
+        current_card = latest_cardholder_profile_for(current_user)
+        status = cardholder_state_for(current_card)
+        if status == 'verified'
+          return setup_success_response(
+            message: 'Cardholder is already verified.',
+            state: 'cardholder_verified',
+            next_action: 'create_card',
+            data: cardholder_setup_payload(current_card)
+          )
+        end
+        if %w[pending_verification manual_review].include?(status)
+          return setup_success_response(
+            message: 'Cardholder profile submitted. Waiting for provider verification.',
+            state: 'cardholder_pending',
+            next_action: 'wait_webhook',
+            data: cardholder_setup_payload(current_card)
+          )
+        end
+
+        payload, missing_fields = build_cardholder_request_payload(processed)
+        if missing_fields.present?
+          state, next_action =
+            if missing_fields == ['selfie_image']
+              ['needs_selfie_upload', 'upload_selfie']
+            else
+              ['cardholder_profile_incomplete', 'complete_profile']
+            end
+
+          return setup_success_response(
+            message: missing_fields == ['selfie_image'] ?
+              'Selfie is required to verify cardholder profile.' :
+              'Complete required profile fields to verify cardholder profile.',
+            state: state,
+            next_action: next_action,
+            data: cardholder_setup_payload(current_card).merge(missing_fields: missing_fields)
+          )
+        end
+
+        mode = registration_mode_from(processed)
+        service = BridgeCardService.new
+        registration = service.register_cardholder(payload, mode: mode)
+
+        if registration[:status] != :ok
+          return setup_error_response(
+            code: 'CARDHOLDER_SETUP_PROVIDER_REJECTED',
+            message: registration[:message].presence || 'Unable to submit cardholder profile.',
+            state: 'cardholder_failed',
+            next_action: 'fix_profile',
+            retryable: false,
+            status: :unprocessable_entity
+          )
+        end
+
+        card = registration[:data] || latest_cardholder_profile_for(current_user)
+        card_status = cardholder_state_for(card)
+        if card_status == 'verified'
+          setup_success_response(
+            message: 'Cardholder verified successfully.',
+            state: 'cardholder_verified',
+            next_action: 'create_card',
+            data: cardholder_setup_payload(card)
+          )
+        else
+          setup_success_response(
+            message: 'Cardholder profile submitted. Waiting for provider verification.',
+            state: 'cardholder_pending',
+            next_action: 'wait_webhook',
+            data: cardholder_setup_payload(card)
+          )
+        end
+      end
+
       def process_setup_card_request
         processed = normalized_card_params
         card_pin = processed[:card_pin].to_s.strip
@@ -743,19 +865,19 @@ module Api
           return current_card
         end
 
-        profile_hash = current_user.user_profile&.attributes&.symbolize_keys || {}
-        request_payload =
-          current_user.attributes.symbolize_keys
-                      .merge(profile_hash)
-                      .merge(processed)
-        request_payload[:email] ||= request_payload[:email_address].presence || current_user.email
-        request_payload[:phone] ||= request_payload[:phone_number].presence
-        request_payload[:user_id] ||= current_user.id
-        request_payload[:request_id] ||= request.request_id
-        request_payload[:phone_number] = normalize_to_e164(request_payload[:phone_number] || request_payload[:phone])
-        request_payload[:phone] = request_payload[:phone_number]
+        request_payload, missing_fields = build_cardholder_request_payload(processed)
+        if missing_fields.present?
+          return setup_error_response(
+            code: 'CARD_SETUP_VALIDATION_FAILED',
+            message: "Missing required cardholder fields: #{missing_fields.join(', ')}",
+            state: 'cardholder_failed',
+            next_action: 'fix_profile',
+            retryable: false,
+            status: :unprocessable_entity
+          )
+        end
 
-        mode = processed[:registration_mode].to_s.casecmp('sync').zero? ? :sync : :async
+        mode = registration_mode_from(processed)
         registration = service.register_cardholder(request_payload, mode: mode)
         if registration[:status] != :ok
           return setup_error_response(
@@ -769,6 +891,63 @@ module Api
         end
 
         registration[:data] || latest_cardholder_profile_for(current_user)
+      end
+
+      def build_cardholder_request_payload(processed)
+        profile_hash = current_user.user_profile&.attributes&.symbolize_keys || {}
+        base =
+          current_user.attributes.symbolize_keys
+                      .merge(profile_hash)
+                      .merge(processed.to_h.symbolize_keys)
+
+        base[:email] ||= base[:email_address].presence || current_user.email
+        base[:phone] ||= base[:phone_number].presence
+        base[:user_id] ||= current_user.id
+        base[:request_id] ||= request.request_id
+        base[:phone_number] = normalize_to_e164(base[:phone_number] || base[:phone])
+        base[:phone] = base[:phone_number]
+
+        missing = []
+        %i[first_name last_name email phone_number city state].each do |field|
+          missing << field.to_s if base[field].to_s.strip.blank?
+        end
+
+        address_value = [base[:address], base[:address_line1], base[:deliveryAddress]].map { |v| v.to_s.strip }.find(&:present?)
+        missing << 'address' if address_value.blank?
+
+        bvn_verified = current_user.user_kyc&.verified?
+        bvn_value = base[:bvn].to_s.strip
+        if bvn_value.blank? && bvn_verified
+          bvn_value = current_user.user_kyc&.decrypted_bvn.to_s.strip
+          base[:bvn] = bvn_value if bvn_value.present?
+        end
+        missing << 'bvn' if bvn_value.blank?
+
+        selfie = base[:selfie_image].to_s.strip
+        missing << 'selfie_image' if selfie.blank?
+
+        [base, missing.uniq]
+      end
+
+      def cardholder_setup_payload(card)
+        meta = card&.meta_data.is_a?(Hash) ? card.meta_data : {}
+        {
+          card_id: card&.id,
+          provider_card_id: card&.card_id,
+          cardholder_id: card&.cardholder_id,
+          cardholder_status: cardholder_state_for(card).presence || 'idle',
+          cardholder_status_updated_at: meta['cardholder_status_updated_at']
+        }
+      end
+
+      def registration_mode_from(processed)
+        source =
+          if processed.respond_to?(:to_h)
+            processed.to_h.symbolize_keys
+          else
+            {}
+          end
+        source[:registration_mode].to_s.casecmp('sync').zero? ? :sync : :async
       end
 
       def cardholder_verified?(card)
@@ -899,6 +1078,34 @@ module Api
 
       def setup_idempotency_cache_key(idempotency_key)
         "card_setup:idempotency:user:#{current_user.id}:#{idempotency_key}"
+      end
+
+      def read_cardholder_setup_idempotency(idempotency_key)
+        raw = Rails.cache.read(cardholder_setup_idempotency_cache_key(idempotency_key))
+        return nil unless raw.is_a?(Hash)
+
+        body = raw[:body].is_a?(Hash) ? raw[:body] : raw['body']
+        status = raw[:status].presence || raw['status']
+        payload_hash = raw[:payload_hash].presence || raw['payload_hash']
+        return nil if body.blank? || status.blank?
+
+        { payload_hash: payload_hash, body: body, status: status }
+      rescue StandardError
+        nil
+      end
+
+      def write_cardholder_setup_idempotency(idempotency_key, payload_hash:, body:, status:)
+        Rails.cache.write(
+          cardholder_setup_idempotency_cache_key(idempotency_key),
+          { payload_hash: payload_hash, body: body, status: status },
+          expires_in: 24.hours
+        )
+      rescue StandardError
+        nil
+      end
+
+      def cardholder_setup_idempotency_cache_key(idempotency_key)
+        "cardholder_setup:idempotency:user:#{current_user.id}:#{idempotency_key}"
       end
 
       def normalize_to_e164(phone)
