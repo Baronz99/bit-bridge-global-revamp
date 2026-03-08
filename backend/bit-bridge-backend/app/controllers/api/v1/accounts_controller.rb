@@ -149,8 +149,9 @@ module Api
         account.with_lock do
           account.reload
 
-          # If we already have a created deposit account id, avoid creating another one.
-          if account.useable_id.present? && account.account_number.blank?
+          # If we already have a created deposit-account id, avoid creating another one.
+          # Customer ids (e.g. ...-anc_ind_cst) are not deposit-account ids.
+          if account.useable_id.to_s.end_with?('-anc_acc') && account.account_number.blank?
             begin
               service.send(:sync_anchor_deposit_account!, account)
               account.reload

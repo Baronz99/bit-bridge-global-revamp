@@ -926,12 +926,9 @@ class AnchorService
     }
 
     if existing_anchor.present?
-      # Keep existing provisioned customer linkage stable; only backfill ids when incomplete.
+      # Keep customer id on account_id; useable_id is reserved for deposit-account ids (...-anc_acc).
       if existing_anchor.account_number.blank? || existing_anchor.account_id.blank?
         attributes[:account_id] = account_id
-      end
-      if existing_anchor.account_number.blank? || existing_anchor.useable_id.blank?
-        attributes[:useable_id] = account_id
       end
       existing_anchor.update!(attributes.compact)
       return existing_anchor
@@ -940,7 +937,6 @@ class AnchorService
     new_account = Account.create(
       user_id: user_data[:user_id],
       account_id: account_id,
-      useable_id: account_id,
       active: true,
       **attributes
     )
@@ -1000,6 +996,7 @@ class AnchorService
 
   def sync_anchor_deposit_account!(account_record)
     return account_record if account_record.blank? || account_record.useable_id.blank?
+    return account_record unless account_record.useable_id.to_s.end_with?('-anc_acc')
 
     details = fetch_account_number_details_by_account_id(account_record.useable_id)
     return account_record if details.blank?
