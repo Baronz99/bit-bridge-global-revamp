@@ -281,18 +281,18 @@ Rails.application.routes.draw do
 
       resources :users do
         collection do
-          get   :user_profile
-          patch :user_update
-          patch :update_password
-          patch :user_password_update
-          post  :password_reset
-          get   :password_reset
+          get   :user_profile, to: "core/users#user_profile"
+          patch :user_update, to: "core/users#user_update"
+          patch :update_password, to: "core/user_security#update_password"
+          patch :user_password_update, to: "core/user_security#user_password_update"
+          post  :password_reset, to: "core/user_security#password_reset"
+          get   :password_reset, to: "core/user_security#password_reset"
           patch :activate_user
           get   :resend_confirmation_token
-          patch :onboarding_stage
-          patch :basic_profile
-          patch :use_case
-          patch :update_kyc_level
+          patch :onboarding_stage, to: "core/onboarding_progress#onboarding_stage"
+          patch :basic_profile, to: "core/users#basic_profile"
+          patch :use_case, to: "core/onboarding_progress#use_case"
+          patch :update_kyc_level, to: "core/kyc_profile#update_kyc_level"
         end
 
         member do
