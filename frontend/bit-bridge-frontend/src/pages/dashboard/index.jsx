@@ -27,6 +27,7 @@ import OnboardingBanner from '../../components/onboarding/OnboardingBanner'
 
 import CableTvComponent from './components/cable-tv-compoent'
 import { FaRegEye, FaRegEyeSlash } from 'react-icons/fa'
+import { PiArrowsLeftRightBold, PiCirclesThreeBold, PiGlobeHemisphereWestBold } from 'react-icons/pi'
 import ShadowValue from '../../components/ShadowValue'
 import { needsTier2Access, withTier2MissingDetails } from '../../utils/kycGate'
 
@@ -206,6 +207,36 @@ const handleGenerate = (vendor) => {
   )
   const featuredService = dashboardServices.find((item) => item.featured)
 
+  const bridgeActions = [
+    { label: 'Send', to: '/dashboard/wallet' },
+    { label: 'Receive', to: '/dashboard/virtual-accounts' },
+    { label: 'Bills', to: '/dashboard/utilities' },
+    { label: 'Circles', to: '/dashboard/shared-groups' },
+  ]
+
+  const tunnelActions = [
+    { label: 'Convert', to: '/dashboard/tunnel/fx' },
+    { label: 'Cards', to: '/dashboard/tunnel/cards' },
+    { label: 'Accounts', to: '/dashboard/tunnel/virtual-accounts' },
+    { label: 'Fund Card', to: '/dashboard/tunnel/cards' },
+  ]
+
+  const systemStatuses = [
+    { key: 'Transfers', state: 'Ready' },
+    { key: 'Cards', state: tunnelWallet ? 'Ready' : 'Setup' },
+    { key: 'FX', state: tunnelWallet ? 'Available' : 'Activate' },
+    { key: 'Utilities', state: 'Live' },
+  ]
+
+  const featuredServiceTitle =
+    featuredService?.key === 'shared-groups' ? 'Circles' : featuredService?.label
+  const featuredServiceDescription =
+    featuredService?.key === 'shared-groups'
+      ? 'Coordinate family, team, and trip money with shared visibility, cleaner contribution trails, and a more reliable command view.'
+      : featuredService?.description
+  const featuredServiceCta =
+    featuredService?.key === 'shared-groups' ? 'Open circles' : featuredService?.card?.cta
+
   return (
     <>
       <div className="homeDashboard min-h-screen bg-slate-950 text-slate-100 p-4 md:p-6">
@@ -231,116 +262,161 @@ const handleGenerate = (vendor) => {
           </div>
         )}
 
-        {/* Top: welcome + balance chip + quick actions */}
-        <div className="mb-6 flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-          <div>
-            <p className="text-[11px] uppercase tracking-[0.2em] text-slate-500 mb-1">
-              Dashboard
-            </p>
-            <h2 className="text-2xl md:text-3xl font-semibold">
-              Hi, {firstName} 👋
-            </h2>
-            <p className="mt-1 text-sm text-slate-400 max-w-xl">
-              Welcome back to BitBridge. Top up, pay bills, and manage your
-              virtual accounts in one place.
-            </p>
-          </div>
-
-          <div className="flex flex-col items-start md:items-end gap-3">
-            <div className="inline-flex items-center gap-3 rounded-full bg-slate-900/80 border border-slate-700 px-4 py-2">
-              <div className="flex flex-col">
-                <span className="text-[10px] uppercase tracking-[0.2em] text-slate-500">
-                  Wallet balance
-                </span>
-                {loading ? (
-                  <div className="pt-1">
-                    <Loading />
-                  </div>
-                ) : (
-                  <span className="text-lg md:text-xl font-semibold">
-                    <ShadowValue>{formatBalance(balance)}</ShadowValue>
-                  </span>
-                )}
-              </div>
-
+        {/* Top: Bridge/Tunnel command board */}
+        <section className="mb-6">
+          <div className="rounded-[28px] border border-slate-800 bg-[linear-gradient(135deg,rgba(2,6,23,0.96),rgba(15,23,42,0.94))] p-5 md:p-7 shadow-[0_24px_60px_rgba(2,6,23,0.45)]">
+            <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4 mb-5">
               <div>
-                <select
-                  value={balanceMode}
-                  onChange={(e) => setBalanceMode(e.target.value)}
-                  className="bg-slate-950/70 border border-slate-700 text-slate-200 text-[11px] rounded-full px-3 py-1 focus:outline-none focus:border-alt"
-                >
-                  <option value="bridge">Bridge (NGN)</option>
-                  <option value="tunnel" disabled={!tunnelWallet}>
-                    Tunnel (USD)
-                  </option>
-                </select>
+                <p className="text-[11px] uppercase tracking-[0.24em] text-slate-500 mb-1">
+                  Rail command center
+                </p>
+                <h2 className="text-2xl md:text-3xl font-semibold">Hi, {firstName}</h2>
+                <p className="mt-2 text-sm text-slate-400 max-w-2xl">
+                  Operate Bridge for local NGN coordination, Tunnel for global USD movement,
+                  and move between both rails without leaving your command view.
+                </p>
               </div>
-            </div>
 
-            <div className="inline-flex items-center gap-2 text-xs text-slate-300">
-              <TrophyOutlined className="text-yellow-500" />
-              <div className="flex flex-col">
-                <span>
-                  Bonus balance (spendable):{' '}
-                  <span className="font-semibold text-emerald-400">
-                    <ShadowValue>
-                      {nairaFormat(bridgeWallet?.commission ?? 0, 'ngn')}
-                    </ShadowValue>
+              <div className="flex flex-wrap items-center gap-2 text-xs text-slate-300">
+                <div className="inline-flex items-center gap-2 rounded-full border border-slate-700 bg-slate-950/60 px-3 py-1.5">
+                  <TrophyOutlined className="text-yellow-500" />
+                  <span>
+                    Bonus:{' '}
+                    <span className="font-semibold text-emerald-400">
+                      <ShadowValue>{nairaFormat(bridgeWallet?.commission ?? 0, 'ngn')}</ShadowValue>
+                    </span>
                   </span>
-                </span>
-                <span className="text-[10px] text-slate-500">Cashback from airtime/data</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => dispatch(toggleShadowMode())}
+                  className="inline-flex items-center gap-1 rounded-full border border-slate-700 bg-slate-950/60 px-3 py-1.5 text-[11px] text-slate-200 hover:border-alt/70 transition-colors"
+                >
+                  {shadowMode ? <EyeOutlined className="text-alt" /> : <EyeInvisibleOutlined className="text-alt" />}
+                  <span>{shadowMode ? 'Show balances' : 'Hide balances'}</span>
+                </button>
               </div>
             </div>
 
-            {/* 🔒 Hide mode toggle */}
-            <div className="inline-flex items-center gap-2 text-xs text-slate-300">
-              <button
-                type="button"
-                onClick={() => dispatch(toggleShadowMode())}
-                className="inline-flex items-center gap-1 px-3 py-1.5 rounded-full bg-slate-900 border border-slate-700 text-[11px] text-slate-200 hover:border-alt/70 transition-colors"
-              >
-                {shadowMode ? (
-                  <EyeOutlined className="text-alt" />
-                ) : (
-                  <EyeInvisibleOutlined className="text-alt" />
-                )}
-                <span>{shadowMode ? 'Show balances' : 'Hide balances'}</span>
-              </button>
+            <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] gap-4 items-stretch">
+              <div className="rounded-[24px] border border-emerald-900/60 bg-emerald-950/40 p-5 md:p-6">
+                <div className="flex items-start justify-between gap-4 mb-5">
+                  <div>
+                    <div className="inline-flex h-11 w-11 items-center justify-center rounded-2xl bg-emerald-500/12 text-emerald-300">
+                      <PiCirclesThreeBold className="text-xl" />
+                    </div>
+                    <p className="mt-4 text-[11px] uppercase tracking-[0.24em] text-emerald-300/80">Bridge</p>
+                    <h3 className="mt-2 text-xl font-semibold text-white">Local NGN coordination</h3>
+                    <p className="mt-2 text-sm text-slate-300 max-w-md">
+                      Hold, send, receive, and coordinate everyday money flows across your wallet, bills, and circles.
+                    </p>
+                  </div>
+                  <div>
+                    <select
+                      value={balanceMode}
+                      onChange={(e) => setBalanceMode(e.target.value)}
+                      className="bg-slate-950/70 border border-slate-700 text-slate-200 text-[11px] rounded-full px-3 py-1 focus:outline-none focus:border-alt"
+                    >
+                      <option value="bridge">Bridge (NGN)</option>
+                      <option value="tunnel" disabled={!tunnelWallet}>Tunnel (USD)</option>
+                    </select>
+                  </div>
+                </div>
+                <div className="mb-5">
+                  <div className="text-[11px] uppercase tracking-[0.24em] text-slate-500 mb-2">NGN balance</div>
+                  {loading ? (
+                    <Loading />
+                  ) : (
+                    <div className="text-3xl md:text-4xl font-semibold text-white">
+                      <ShadowValue>{nairaFormat(bridgeWallet?.balance ?? 0, 'ngn')}</ShadowValue>
+                    </div>
+                  )}
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  {bridgeActions.map((action) => (
+                    <button
+                      key={action.label}
+                      type="button"
+                      onClick={() => navigate(action.to)}
+                      className="rounded-2xl border border-emerald-900/60 bg-slate-950/35 px-4 py-3 text-left text-sm font-medium text-slate-100 hover:border-emerald-400/60 hover:bg-slate-950/60 transition"
+                    >
+                      {action.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="flex items-center justify-center">
+                <button
+                  type="button"
+                  onClick={() => navigate('/dashboard/tunnel/fx')}
+                  className="group inline-flex flex-col items-center gap-2 rounded-full border border-slate-700 bg-slate-950/70 px-4 py-4 text-center hover:border-alt/70 transition"
+                >
+                  <span className="inline-flex h-11 w-11 items-center justify-center rounded-full bg-alt/15 text-alt">
+                    <PiArrowsLeftRightBold className="text-xl" />
+                  </span>
+                  <span className="text-[11px] uppercase tracking-[0.2em] text-slate-500">Convert between rails</span>
+                  <span className="text-xs text-slate-300 group-hover:text-white">Bridge to Tunnel</span>
+                </button>
+              </div>
+
+              <div className="rounded-[24px] border border-sky-900/60 bg-sky-950/35 p-5 md:p-6">
+                <div className="flex items-start justify-between gap-4 mb-5">
+                  <div>
+                    <div className="inline-flex h-11 w-11 items-center justify-center rounded-2xl bg-sky-500/12 text-sky-300">
+                      <PiGlobeHemisphereWestBold className="text-xl" />
+                    </div>
+                    <p className="mt-4 text-[11px] uppercase tracking-[0.24em] text-sky-300/80">Tunnel</p>
+                    <h3 className="mt-2 text-xl font-semibold text-white">Global USD movement</h3>
+                    <p className="mt-2 text-sm text-slate-300 max-w-md">
+                      Convert, fund cards, and manage your global USD rail for international spending and movement.
+                    </p>
+                  </div>
+                </div>
+                <div className="mb-5">
+                  <div className="text-[11px] uppercase tracking-[0.24em] text-slate-500 mb-2">USD balance</div>
+                  {loading ? (
+                    <Loading />
+                  ) : (
+                    <div className="text-3xl md:text-4xl font-semibold text-white">
+                      <ShadowValue>
+                        {new Intl.NumberFormat('en-US', {
+                          style: 'currency',
+                          currency: 'USD',
+                          minimumFractionDigits: 2,
+                        }).format(tunnelWallet?.balance ?? 0)}
+                      </ShadowValue>
+                    </div>
+                  )}
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  {tunnelActions.map((action) => (
+                    <button
+                      key={action.label}
+                      type="button"
+                      onClick={() => navigate(action.to)}
+                      className="rounded-2xl border border-sky-900/60 bg-slate-950/35 px-4 py-3 text-left text-sm font-medium text-slate-100 hover:border-sky-400/60 hover:bg-slate-950/60 transition"
+                    >
+                      {action.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
             </div>
 
-           {/* Quick actions */}
-<div className="flex flex-wrap gap-2 mt-1">
-  <button
-    type="button"
-    onClick={() => navigate('/dashboard/wallet')}
-    className="px-3 py-1.5 text-xs rounded-full bg-alt/90 text-black font-medium hover:bg-alt transition-colors"
-  >
-    Bridge wallet (NGN)
-  </button>
-
-  <button
-    type="button"
-    onClick={() => navigate('/dashboard/wallet?mode=tunnel')}
-    className="px-3 py-1.5 text-xs rounded-full bg-orange-500 text-black font-medium hover:bg-orange-400 transition-colors"
-    title="Tunnel wallet (USD preview)"
-  >
-    Tunnel wallet (USD)
-  </button>
-
-  {quickServices.map((item) => (
-    <button
-      key={item.key}
-      type="button"
-      onClick={() => handleServiceAction(item.quickAction || item.action)}
-      className="px-3 py-1.5 text-xs rounded-full bg-slate-900 border border-slate-700 text-slate-200 hover:border-alt/70 transition-colors"
-    >
-      {item.quickLabel}
-    </button>
-  ))}
-</div>
-
+            <div className="mt-4 grid grid-cols-2 md:grid-cols-4 gap-3">
+              {systemStatuses.map((item) => (
+                <div
+                  key={item.key}
+                  className="rounded-2xl border border-slate-800 bg-slate-950/45 px-4 py-3"
+                >
+                  <div className="text-[10px] uppercase tracking-[0.22em] text-slate-500">{item.key}</div>
+                  <div className="mt-2 text-sm font-medium text-slate-100">{item.state}</div>
+                </div>
+              ))}
+            </div>
           </div>
-        </div>
+        </section>
 
         {/* Second: service launcher cards */}
         <section className="mb-6">
@@ -412,12 +488,12 @@ const handleGenerate = (vendor) => {
                     </span>
                   )}
                 </div>
-                <h3 className="font-semibold text-lg mt-5">{featuredService.label}</h3>
+                <h3 className="font-semibold text-lg mt-5">{featuredServiceTitle}</h3>
                 <p className="text-sm text-slate-400 mt-2 max-w-sm">
-                  {featuredService.description}
+                  {featuredServiceDescription}
                 </p>
                 <div className="mt-6 text-xs text-slate-300">
-                  {featuredService.card?.cta} ?
+                  {featuredServiceCta} ?
                 </div>
               </button>
             ) : null}
@@ -673,5 +749,4 @@ const handleGenerate = (vendor) => {
 }
 
 export default HomeDashboard
-
 
