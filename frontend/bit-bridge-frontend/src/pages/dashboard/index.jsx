@@ -201,17 +201,22 @@ const handleGenerate = (vendor) => {
     }
   }
 
-  const quickServices = dashboardServices.filter((item) => item.quickLabel)
-  const primaryServiceCards = dashboardServices.filter(
-    (item) => item.card && !item.featured
-  )
   const featuredService = dashboardServices.find((item) => item.featured)
 
+  const actionShortcuts = [
+    { label: 'Send money', to: '/dashboard/bridge/wallet' },
+    { label: 'Pay bill', to: '/dashboard/bridge/utilities' },
+    { label: 'Top up phone', to: '/dashboard/bridge/utilities' },
+    { label: 'Convert currency', to: '/dashboard/tunnel/fx' },
+    { label: 'Fund card', to: '/dashboard/tunnel/cards' },
+    { label: 'Open circles', to: '/dashboard/bridge/circles' },
+  ]
+
   const bridgeActions = [
-    { label: 'Send', to: '/dashboard/wallet' },
-    { label: 'Receive', to: '/dashboard/virtual-accounts' },
-    { label: 'Bills', to: '/dashboard/utilities' },
-    { label: 'Circles', to: '/dashboard/shared-groups' },
+    { label: 'Send', to: '/dashboard/bridge/wallet' },
+    { label: 'Receive', to: '/dashboard/bridge/wallet' },
+    { label: 'Bills', to: '/dashboard/bridge/utilities' },
+    { label: 'Circles', to: '/dashboard/bridge/circles' },
   ]
 
   const tunnelActions = [
@@ -310,6 +315,13 @@ const handleGenerate = (vendor) => {
                     <p className="mt-2 text-sm text-slate-300 max-w-md">
                       Hold, send, receive, and coordinate everyday money flows across your wallet, bills, and circles.
                     </p>
+                    <div className="mt-4 inline-flex flex-wrap items-center gap-2 rounded-full border border-emerald-900/70 bg-slate-950/40 px-3 py-1.5 text-[10px] uppercase tracking-[0.18em] text-emerald-200/80">
+                      <span>Primary rail</span>
+                      <span className="text-emerald-500/60">•</span>
+                      <span>NGN ledger</span>
+                      <span className="text-emerald-500/60">•</span>
+                      <span>Local settlement</span>
+                    </div>
                   </div>
                   <div>
                     <select
@@ -327,22 +339,31 @@ const handleGenerate = (vendor) => {
                   {loading ? (
                     <Loading />
                   ) : (
-                    <div className="text-3xl md:text-4xl font-semibold text-white">
+                    <div className="text-4xl md:text-5xl font-semibold tracking-[-0.03em] text-white">
                       <ShadowValue>{nairaFormat(bridgeWallet?.balance ?? 0, 'ngn')}</ShadowValue>
                     </div>
                   )}
                 </div>
-                <div className="grid grid-cols-2 gap-3">
-                  {bridgeActions.map((action) => (
-                    <button
-                      key={action.label}
-                      type="button"
-                      onClick={() => navigate(action.to)}
-                      className="rounded-2xl border border-emerald-900/60 bg-slate-950/35 px-4 py-3 text-left text-sm font-medium text-slate-100 hover:border-emerald-400/60 hover:bg-slate-950/60 transition"
-                    >
-                      {action.label}
-                    </button>
-                  ))}
+                <div className="flex flex-col gap-3">
+                  <button
+                    type="button"
+                    onClick={() => navigate('/dashboard/bridge/wallet')}
+                    className="rounded-2xl bg-emerald-400 px-4 py-3 text-left text-sm font-semibold text-black hover:bg-emerald-300 transition"
+                  >
+                    Send money
+                  </button>
+                  <div className="grid grid-cols-3 gap-3">
+                    {bridgeActions.filter((action) => action.label !== 'Send').map((action) => (
+                      <button
+                        key={action.label}
+                        type="button"
+                        onClick={() => navigate(action.to)}
+                        className="rounded-2xl border border-emerald-900/60 bg-slate-950/35 px-4 py-3 text-left text-sm font-medium text-slate-100 hover:border-emerald-400/60 hover:bg-slate-950/60 transition"
+                      >
+                        {action.label}
+                      </button>
+                    ))}
+                  </div>
                 </div>
               </div>
 
@@ -350,13 +371,21 @@ const handleGenerate = (vendor) => {
                 <button
                   type="button"
                   onClick={() => navigate('/dashboard/tunnel/fx')}
-                  className="group inline-flex flex-col items-center gap-2 rounded-full border border-slate-700 bg-slate-950/70 px-4 py-4 text-center hover:border-alt/70 transition"
+                  className="group inline-flex flex-col items-center gap-3 rounded-[24px] border border-slate-700 bg-slate-950/70 px-4 py-5 text-center hover:border-alt/70 transition"
                 >
                   <span className="inline-flex h-11 w-11 items-center justify-center rounded-full bg-alt/15 text-alt">
                     <PiArrowsLeftRightBold className="text-xl" />
                   </span>
                   <span className="text-[11px] uppercase tracking-[0.2em] text-slate-500">Convert between rails</span>
-                  <span className="text-xs text-slate-300 group-hover:text-white">Bridge to Tunnel</span>
+                  <span className="inline-flex items-center gap-2 rounded-full border border-slate-700 px-3 py-1 text-[10px] uppercase tracking-[0.18em] text-slate-300">
+                    <span>Bridge NGN</span>
+                    <span className="text-alt">-&gt;</span>
+                    <span>Tunnel USD</span>
+                  </span>
+                  <span className="max-w-[9rem] text-xs text-slate-300 group-hover:text-white">
+                    Move local value into your global dollar rail when you are ready to operate cross-border.
+                  </span>
+                  <span className="text-sm font-semibold text-alt">Convert now</span>
                 </button>
               </div>
 
@@ -418,54 +447,38 @@ const handleGenerate = (vendor) => {
           </div>
         </section>
 
-        {/* Second: service launcher cards */}
+        {/* Second: command shortcuts + circles */}
         <section className="mb-6">
-          <div className="mb-3 flex items-center justify-between">
-            <div>
-              <p className="text-[11px] uppercase tracking-[0.2em] text-slate-500">
-                Quick services
-              </p>
-              <h3 className="text-lg md:text-xl font-semibold">Pay & top up faster</h3>
-            </div>
-            <button
-              type="button"
-              onClick={() => navigate('/utility-services')}
-              className="text-xs text-slate-300 hover:text-white transition"
-            >
-              Browse all
-            </button>
-          </div>
+          <div className="grid grid-cols-1 md:grid-cols-[minmax(0,1.35fr)_minmax(0,1fr)] gap-4">
+            <div className="rounded-3xl border border-slate-800 bg-slate-900/80 p-5 shadow-[0_16px_40px_rgba(15,23,42,0.28)]">
+              <div className="mb-4 flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-[11px] uppercase tracking-[0.2em] text-slate-500">
+                    Action shortcuts
+                  </p>
+                  <h3 className="text-lg md:text-xl font-semibold">Operate the rails faster</h3>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => navigate('/dashboard/activity/transactions')}
+                  className="text-xs text-slate-300 hover:text-white transition"
+                >
+                  Open ledger
+                </button>
+              </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)] gap-4">
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              {primaryServiceCards.map((item) => {
-                const Icon = item.card?.icon
-                return (
+              <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
+                {actionShortcuts.map((item) => (
                   <button
-                    key={item.key}
+                    key={item.label}
                     type="button"
-                    onClick={() => handleServiceAction(item.cardAction || item.action)}
-                    className="group text-left relative overflow-hidden rounded-2xl border border-slate-800 bg-slate-900/80 p-5 shadow-[0_12px_30px_rgba(15,23,42,0.25)] hover:border-alt/70 hover:bg-slate-900 transition"
+                    onClick={() => navigate(item.to)}
+                    className="rounded-2xl border border-slate-800 bg-slate-950/45 px-4 py-4 text-left text-sm font-medium text-slate-100 hover:border-alt/60 hover:bg-slate-950/65 transition"
                   >
-                    <div
-                      className={`absolute -right-10 -top-10 h-24 w-24 rounded-full ${item.card?.glowClass} blur-2xl`}
-                    />
-                    <div
-                      className={`inline-flex h-11 w-11 items-center justify-center rounded-2xl ${item.card?.iconClass}`}
-                    >
-                      {Icon ? <Icon /> : null}
-                      {!Icon && item.card?.iconText ? (
-                        <span className="text-xs font-bold">{item.card.iconText}</span>
-                      ) : null}
-                    </div>
-                    <h3 className="font-semibold text-base mt-4">{item.label}</h3>
-                    <p className="text-xs text-slate-400 mt-1">{item.description}</p>
-                    <div className="mt-4 text-[11px] text-slate-400">
-                      {item.card?.cta} ?
-                    </div>
+                    {item.label}
                   </button>
-                )
-              })}
+                ))}
+              </div>
             </div>
 
             {featuredService ? (
@@ -488,8 +501,11 @@ const handleGenerate = (vendor) => {
                     </span>
                   )}
                 </div>
-                <h3 className="font-semibold text-lg mt-5">{featuredServiceTitle}</h3>
-                <p className="text-sm text-slate-400 mt-2 max-w-sm">
+                <div className="mt-5 inline-flex rounded-full border border-slate-700 bg-slate-950/50 px-3 py-1 text-[10px] uppercase tracking-[0.2em] text-slate-400">
+                  Shared financial coordination
+                </div>
+                <h3 className="font-semibold text-xl mt-4">{featuredServiceTitle}</h3>
+                <p className="text-sm text-slate-400 mt-3 max-w-md">
                   {featuredServiceDescription}
                 </p>
                 <div className="mt-6 text-xs text-slate-300">
@@ -502,7 +518,7 @@ const handleGenerate = (vendor) => {
         {/* Third: recent activity + accounts snapshot */}
         <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 mb-6">
           {/* Recent transactions / purchases */}
-          <div className="bg-slate-900 rounded-2xl border border-slate-800 p-5 lg:p-6 min-h-[220px]">
+          <div className="bg-slate-900/85 rounded-3xl border border-slate-800 p-5 lg:p-6 min-h-[220px] shadow-[0_16px_40px_rgba(15,23,42,0.2)]">
             <div className="flex items-center justify-between mb-3">
               <h5 className="text-lg font-semibold">Recent activity</h5>
             </div>
@@ -540,7 +556,7 @@ const handleGenerate = (vendor) => {
           {/* Accounts snapshot (Anchor / Moniepoint) */}
           <div
             id="accounts"
-            className="accounts-panel bg-slate-900 rounded-2xl border border-slate-800 p-5 lg:p-6"
+            className="accounts-panel bg-slate-900/85 rounded-3xl border border-slate-800 p-5 lg:p-6 shadow-[0_16px_40px_rgba(15,23,42,0.2)]"
           >
             <div className="flex items-center justify-between mb-3">
               <div>
@@ -749,4 +765,5 @@ const handleGenerate = (vendor) => {
 }
 
 export default HomeDashboard
+
 
