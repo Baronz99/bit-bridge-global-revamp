@@ -290,6 +290,18 @@ function App() {
             <Route path="rewards" element={<Rewards />} />
             <Route path="receipt/:reference" element={<Receipt />} />
 
+            <Route path="bridge/wallet" element={<Navigate to="/dashboard/wallet" replace />} />
+            <Route path="bridge/utilities" element={<Navigate to="/dashboard/utilities" replace />} />
+            <Route path="bridge/circles" element={<Navigate to="/dashboard/shared-groups" replace />} />
+            <Route path="bridge/rewards" element={<Navigate to="/dashboard/rewards" replace />} />
+            <Route path="tunnel/cards" element={<Navigate to="/dashboard/virtual-cards" replace />} />
+            <Route path="tunnel/virtual-accounts" element={<Navigate to="/dashboard/virtual-accounts" replace />} />
+            <Route path="tunnel/wallet" element={<Navigate to="/dashboard/wallet" replace />} />
+            <Route path="tunnel/fx" element={<Navigate to="/dashboard/transactions/trades" replace />} />
+            <Route path="activity/transactions" element={<Navigate to="/dashboard/transactions" replace />} />
+            <Route path="activity/receipts/:reference" element={<Receipt />} />
+            <Route path="core/kyc" element={<Navigate to="/dashboard/kyc" replace />} />
+            <Route path="core/profile" element={<Navigate to="/dashboard/profile-account" replace />} />
             <Route path="kyc" element={<KycCenter />} />
 
             <Route path="home" element={<HomeDashboard />}>
@@ -389,3 +401,4 @@ function App() {
 }
 
 export default App
+
