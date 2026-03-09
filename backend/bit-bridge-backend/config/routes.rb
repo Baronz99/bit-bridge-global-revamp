@@ -335,6 +335,193 @@ Rails.application.routes.draw do
 
       resources :disputes, only: [:create]
 
+      # Bridge/Tunnel/Core alias groups
+      scope :bridge, as: :bridge do
+        get "timeline",     to: "timeline#index", as: :timeline
+        get "timeline/:id", to: "timeline#show",  as: :timeline_item
+
+        scope :utilities, as: :utilities do
+          post "verify/meter",      to: "payment_processors#verify_meter",      as: :verify_meter
+          post "verify/tv",         to: "payment_processors#verify_tv_account", as: :verify_tv_account
+          post "process_payment",   to: "payment_processors#process_payment",   as: :process_payment
+          get  "balance",           to: "payment_processors#get_balance",       as: :balance
+          get  "catalog",           to: "payment_processors#get_price_list",    as: :catalog
+          get  "orders/history",    to: "bill_orders#user",                     as: :orders_history
+          get  "orders/recent",     to: "bill_orders#user_recent",              as: :orders_recent
+          post "intents",           to: "bill_payment_intents#create",          as: :intents
+          get  "intents/:id",       to: "bill_payment_intents#show",            as: :intent
+          post "intents/:id/execute", to: "bill_payment_intents#execute",       as: :execute_intent
+        end
+
+        resources :circles, only: %i[index show create], controller: "circles", as: :circles do
+          member do
+            post :fund,        to: "circles#fund"
+            post :withdraw,    to: "circles#withdraw"
+            get  :timeline,    to: "circles/timeline#index"
+            get  :audit,       to: "circle_audits#show", constraints: ->(req) { req.format == :json }
+            get  :audit,       to: "circle_audits#csv",  constraints: ->(req) { req.format == :csv }
+            get  :audit_summary, to: "circles#audit_summary"
+            get  :export_csv,  to: "circles#export_csv"
+          end
+
+          resources :activities,
+                    controller: "circle_activities",
+                    only: %i[index show create],
+                    as: :activities
+
+          resources :memberships,
+                    controller: "circle_memberships",
+                    only: [:create],
+                    as: :memberships do
+            collection do
+              patch :me, to: "circle_memberships#update_me"
+            end
+          end
+        end
+
+        resources :circle_transactions, only: [], controller: "circle_transactions", as: :circle_transactions do
+          member do
+            post   :react,   to: "circle_transaction_reactions#react"
+            delete :unreact, to: "circle_transaction_reactions#unreact"
+          end
+        end
+
+        resources :rewards, only: [:index], controller: "rewards", as: :rewards
+        resources :disputes, only: [:create], controller: "disputes", as: :disputes
+      end
+
+      scope :tunnel, as: :tunnel do
+        scope :funding, as: :funding do
+          get  "pooled_account", to: "funding#anchor_pooled_account", as: :pooled_account
+          post "intents",        to: "funding#create",                as: :intents
+          get  "intents/:id",    to: "funding#show",                  as: :intent
+        end
+
+        post "cardholders/setup",          to: "cards#setup_cardholder",    as: :setup_cardholder
+        get  "cardholders/setup_status",   to: "cards#setup_status",        as: :cardholder_setup_status
+        post "cardholders/register",       to: "cards#register_cardholder", as: :register_cardholder
+
+        get   "cards",                    to: "cards#index",          as: :cards
+        get   "cards/current",            to: "cards#user_card",      as: :current_card
+        post  "cards/setup",              to: "cards#setup_card",     as: :setup_card
+        post  "cards",                    to: "cards#create_card",    as: :create_card
+        post  "cards/fund_wallet",        to: "cards#fund_wallet",    as: :fund_wallet
+        post  "cards/unload_wallet",      to: "cards#unload_wallet",  as: :unload_wallet
+        get   "cards/:id",                to: "cards#show",           as: :card
+        get   "cards/:id/details",        to: "cards#details",        as: :card_details
+        get   "cards/:id/balance",        to: "cards#balance",        as: :card_balance
+        get   "cards/:id/funding_status", to: "cards#funding_status", as: :card_funding_status
+        get   "cards/:id/history",        to: "cards#history",        as: :card_history
+        get   "cards/:id/insights",       to: "cards#insights",       as: :card_insights
+        patch "cards/:id/freeze",         to: "cards#freeze",         as: :freeze_card
+        patch "cards/:id/unfreeze",       to: "cards#unfreeze",       as: :unfreeze_card
+
+        scope :pci, as: :pci do
+          post "cards/:id/reveal", to: "pci/cards_reveal#create", as: :card_reveal
+        end
+
+        scope :onboarding, as: :onboarding do
+          post "rail_customer/verify_kyc", to: "accounts#verify_kyc",              as: :verify_kyc
+          post "rail_customer/setup",      to: "accounts#setup_anchor_onboarding",  as: :setup
+          get  "rail_customer/state",      to: "accounts#anchor_onboarding_state",  as: :state
+        end
+
+        scope :virtual_accounts, as: :virtual_accounts do
+          get  "account_number", to: "accounts#get_account_number",      as: :account_number
+          post "provision",      to: "accounts#provision_account_number", as: :provision
+        end
+
+        scope :transfers, as: :transfers do
+          get  "banks",            to: "accounts#get_banks",             as: :banks
+          get  "beneficiaries",    to: "accounts#beneficiaries",         as: :beneficiaries
+          post "resolve_account",  to: "accounts#resolve",               as: :resolve_account
+          get  "verify",           to: "accounts#verify_transfer",       as: :verify
+          post "",                 to: "accounts#initiate_fund_transfer", as: :create
+          post "counter_parties",  to: "accounts#create_counter_party",  as: :counter_parties
+          get  "quote",            to: "accounts#transfer_quote",        as: :quote
+          get  ":id/verify",       to: "accounts#verify_transfer",       as: :member_verify
+        end
+
+        scope :wallet, as: :wallet do
+          post "activate", to: "wallets#activate_tunnel", as: :activate
+        end
+
+        scope :fx, as: :fx do
+          post "quote/ngn-usd",   to: "wallets#quote_ngn_to_usd",   as: :quote_ngn_usd
+          post "convert/ngn-usd", to: "wallets#convert_ngn_to_usd", as: :convert_ngn_usd
+          post "quote/usd-ngn",   to: "wallets#quote_usd_to_ngn",   as: :quote_usd_ngn
+          post "convert/usd-ngn", to: "wallets#convert_usd_to_ngn", as: :convert_usd_ngn
+        end
+
+        scope :payments, as: :payments do
+          scope :paystack, as: :paystack do
+            post "initialize", to: "paystack_transactions#initialize_payment", as: :initialize
+            get  "verify",     to: "paystack_transactions#verify_payment",     as: :verify
+            get  "",           to: "paystack_transactions#list_payments",      as: :list
+            get  ":id",        to: "paystack_transactions#fetch_payment",      as: :fetch
+          end
+        end
+      end
+
+      scope :core, as: :core do
+        scope :auth, as: :auth do
+          post   "login",           to: "sessions#create",         as: :login
+          post   "refresh",         to: "users/sessions#refresh", as: :refresh
+          delete "logout",          to: "users/sessions#destroy", as: :logout
+          post   "verify_password", to: "auth#verify_password",   as: :verify_password
+        end
+
+        scope :onboarding, as: :onboarding do
+          patch "profile",  to: "onboarding#update_profile", as: :profile
+          patch "use_case", to: "onboarding#update_use_case", as: :use_case
+          post  "kyc",      to: "onboarding#submit_kyc",     as: :kyc
+        end
+
+        scope :phone_verification, as: :phone_verification do
+          post "request", to: "phone_verifications#request_code", as: :request
+          post "verify",  to: "phone_verifications#verify_code",  as: :verify
+          get  "status",  to: "phone_verifications#status",       as: :status
+        end
+
+        namespace :kyc, as: :kyc do
+          post "bvn/verify",    to: "bvn#verify",           as: :bvn_verify
+          get  "bvn/status",    to: "bvn#status",           as: :bvn_status
+          post "nin/verify",    to: "nin#verify",           as: :nin_verify
+          get  "nin/status",    to: "nin#status",           as: :nin_status
+          post "tier3/start",   to: "verification/tier3#start",    as: :tier3_start
+          post "tier3/liveness", to: "verification/tier3#liveness", as: :tier3_liveness
+          get  "tier3/status",  to: "verification/tier3#status",   as: :tier3_status
+        end
+
+        resource :transaction_pin, only: [], controller: "transaction_pins", as: :transaction_pin do
+          get   :status
+          post  :set
+          post  :verify
+          patch :change
+        end
+        post "transaction_pin/reset/request",   to: "transaction_pins#reset_request",   as: :transaction_pin_reset_request
+        post "transaction_pin/reset/confirm",   to: "transaction_pins#reset_confirm",   as: :transaction_pin_reset_confirm
+        post "transaction_pin/app_lock/enable", to: "transaction_pins#enable_app_lock", as: :transaction_pin_app_lock_enable
+        post "transaction_pin/app_lock/disable", to: "transaction_pins#disable_app_lock", as: :transaction_pin_app_lock_disable
+
+        scope :notifications, as: :notifications do
+          post   "devices",        to: "notifications/devices#create",  as: :devices
+          delete "devices",        to: "notifications/devices#destroy", as: :destroy_devices
+          delete "devices/:token", to: "notifications/devices#destroy", as: :destroy_device
+        end
+
+        get "service_availability", to: "service_availability#index", as: :service_availability
+        get "receipts/:id",         to: "receipts#show",              as: :receipt
+
+        scope :webhooks, as: :webhooks do
+          post "monnify",   to: "webhooks#monnify",       as: :monnify
+          post "anchor",    to: "webhooks#anchor",        as: :anchor
+          post "bridgecard", to: "webhooks#bridgecard",   as: :bridgecard
+          post "buypower",  to: "webhooks/buypower#create", as: :buypower
+          post "termii/dlr", to: "termii_webhooks#dlr",   as: :termii_dlr
+        end
+      end
+
       # Admin
       namespace :admin do
         resources :statistics, only: [:index]
