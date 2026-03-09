@@ -226,15 +226,15 @@ Rails.application.routes.draw do
 
       resources :fees, only: [:index]
 
-      resources :wallets do
+      resources :wallets, controller: "bridge/wallets" do
         collection do
-          get :user
-          post "tunnel/activate",     to: "wallets#activate_tunnel"
-          post "tunnel/convert",      to: "wallets#convert_ngn_to_usd"
-          post "tunnel/quote",        to: "wallets#quote_ngn_to_usd"
-          post "tunnel/convert-back", to: "wallets#convert_usd_to_ngn"
-          post "tunnel/quote-back",   to: "wallets#quote_usd_to_ngn"
-          post "send_money",          to: "wallets#send_money"
+          get :user, to: "bridge/wallets#user"
+          post "tunnel/activate",     to: "tunnel/wallet#activate_tunnel"
+          post "tunnel/convert",      to: "tunnel/fx_conversions#convert_ngn_to_usd"
+          post "tunnel/quote",        to: "tunnel/fx_quotes#quote_ngn_to_usd"
+          post "tunnel/convert-back", to: "tunnel/fx_conversions#convert_usd_to_ngn"
+          post "tunnel/quote-back",   to: "tunnel/fx_quotes#quote_usd_to_ngn"
+          post "send_money",          to: "bridge/wallet_transfers#send_money"
         end
       end
 
@@ -443,14 +443,14 @@ Rails.application.routes.draw do
         end
 
         scope :wallet, as: :wallet do
-          post "activate", to: "wallets#activate_tunnel", as: :activate
+          post "activate", to: "tunnel/wallet#activate_tunnel", as: :activate
         end
 
         scope :fx, as: :fx do
-          post "quote/ngn-usd",   to: "wallets#quote_ngn_to_usd",   as: :quote_ngn_usd
-          post "convert/ngn-usd", to: "wallets#convert_ngn_to_usd", as: :convert_ngn_usd
-          post "quote/usd-ngn",   to: "wallets#quote_usd_to_ngn",   as: :quote_usd_ngn
-          post "convert/usd-ngn", to: "wallets#convert_usd_to_ngn", as: :convert_usd_ngn
+          post "quote/ngn-usd",   to: "tunnel/fx_quotes#quote_ngn_to_usd",      as: :quote_ngn_usd
+          post "convert/ngn-usd", to: "tunnel/fx_conversions#convert_ngn_to_usd", as: :convert_ngn_usd
+          post "quote/usd-ngn",   to: "tunnel/fx_quotes#quote_usd_to_ngn",      as: :quote_usd_ngn
+          post "convert/usd-ngn", to: "tunnel/fx_conversions#convert_usd_to_ngn", as: :convert_usd_ngn
         end
 
         scope :payments, as: :payments do
