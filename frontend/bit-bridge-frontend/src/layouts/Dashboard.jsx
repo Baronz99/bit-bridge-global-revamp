@@ -7,7 +7,7 @@ import {
   UserOutlined,
   WalletOutlined,
   CreditCardOutlined,
-  IdcardOutlined, // ✅ NEW
+  IdcardOutlined,
 } from '@ant-design/icons'
 import PropTypes from 'prop-types'
 import { Navigate, NavLink, Outlet, useLocation } from 'react-router-dom'
@@ -21,8 +21,6 @@ import { getWallet } from '../redux/actions/wallet'
 import DrawerModal from '../components/drawer/Drawer'
 import { SET_LOADING } from '../redux/app'
 import LoaderPage from '../components/loader/LoaderPage'
-
-// ✅ Use the same logo icon as the public header
 import logoIcon from '../assets/logos/bitbridge-logo-clear.png'
 import '../styles/userTheme.css'
 
@@ -50,14 +48,12 @@ const DashboardLayout = () => {
     return () => {
       document.removeEventListener('mousedown', closeNav)
     }
-     
   }, [])
 
   useEffect(() => {
     dispatch(getWallet())
   }, [dispatch])
 
-  // Block dashboard while auth is still loading AND no user yet
   if (loading && !user) {
     return <LoaderPage />
   }
@@ -70,13 +66,59 @@ const DashboardLayout = () => {
     'flex flex-col justify-center items-center gap-1 text-[11px] md:text-xs transition-colors'
   const active = `${baseNavItem} text-alt`
   const normal = `${baseNavItem} text-gray-300 hover:text-alt`
+  const sectionTitleClass = 'text-[10px] uppercase tracking-[0.22em] text-slate-500 text-center mb-2'
+  const desktopSectionClass = 'px-3 lg:px-4 border-r border-slate-800/70 last:border-r-0'
+  const mobileSectionTitleClass = 'text-[10px] uppercase tracking-[0.22em] text-slate-500'
+
+  const navSections = [
+    {
+      title: 'Bridge',
+      items: [
+        { to: '/dashboard/bridge/wallet', label: 'Wallet', icon: WalletOutlined },
+        { to: '/dashboard/bridge/utilities', label: 'Utilities', icon: LuUtilityPole },
+        { to: '/dashboard/bridge/circles', label: 'Circles', icon: UserOutlined },
+        { to: '/dashboard/bridge/rewards', label: 'Rewards', icon: LuUtilityPole },
+      ],
+    },
+    {
+      title: 'Tunnel',
+      items: [
+        { to: '/dashboard/tunnel/cards', label: 'Cards', icon: CreditCardOutlined },
+        { to: '/dashboard/tunnel/virtual-accounts', label: 'Accounts', icon: WalletOutlined },
+        { to: '/dashboard/tunnel/wallet', label: 'Wallet', icon: WalletOutlined },
+        { to: '/dashboard/tunnel/fx', label: 'FX', icon: SignalCellularAltIcon },
+      ],
+    },
+    {
+      title: 'Activity',
+      items: [
+        {
+          to: '/dashboard/activity/transactions',
+          label: 'Transactions',
+          icon: SignalCellularAltIcon,
+        },
+      ],
+    },
+    {
+      title: 'Core',
+      items: [
+        { to: '/dashboard/core/kyc', label: 'Verification', icon: IdcardOutlined },
+        { to: '/dashboard/core/profile', label: 'Profile', icon: UserOutlined },
+      ],
+    },
+  ]
+
+  const renderNavItem = ({ to, label, icon: Icon }, extraClass = '') => (
+    <NavLink to={to} className={({ isActive }) => `${isActive ? active : normal} ${extraClass}`.trim()}>
+      <Icon className="text-xl" />
+      <span>{label}</span>
+    </NavLink>
+  )
 
   return (
     <div className="bb-user-theme relative h-screen" data-theme={themeMode || 'dark'}>
       <div className="bb-dashboard-shell max-w-[1500px] m-auto flex flex-col overflow-hidden h-screen">
-        {/* TOP BAR */}
         <header className="bb-topbar flex justify-between items-center gap-4 rounded-2xl bg-gradient-to-r from-black via-slate-950 to-black border border-slate-800/70 md:py-5 py-3 px-5 md:px-7 mt-3 mb-3 shadow-sm">
-          {/* Mobile menu button */}
           <button
             ref={menuRef}
             type="button"
@@ -86,19 +128,16 @@ const DashboardLayout = () => {
             <MenuUnfoldOutlined className="text-lg" />
           </button>
 
-          {/* Brand lockup – match homepage style */}
           <NavLink
             to="/dashboard/home"
             className="flex-1 flex items-center gap-3 text-white"
           >
-            {/* Icon-only logo */}
             <img
               src={logoIcon}
               alt="BitBridge Global logo"
               className="h-9 w-9 md:h-10 md:w-10 object-contain"
             />
 
-            {/* Wordmark – hidden on very small screens to keep it clean */}
             <div className="leading-tight hidden sm:block">
               <div className="text-slate-100 font-semibold tracking-[0.16em] text-[11px] md:text-xs uppercase">
                 BIT BRIDGE
@@ -109,77 +148,32 @@ const DashboardLayout = () => {
             </div>
           </NavLink>
 
-          {/* Desktop nav */}
-          <div className="md:flex w-full max-w-3xl items-center justify-between hidden text-gray-200">
+          <div className="md:flex w-full max-w-5xl items-start justify-between hidden text-gray-200 gap-4">
             <nav className="flex-1 flex justify-center">
-              <ul className="flex gap-7 lg:gap-9">
-                <li>
-                  <NavLink
-                    to="/dashboard/home"
-                    className={({ isActive }) => (isActive ? active : normal)}
-                  >
-                    <HomeOutlined className="text-xl" />
-                    <span>Home</span>
-                  </NavLink>
-                </li>
-                <li>
-                  <NavLink
-                    to="/dashboard/wallet"
-                    className={({ isActive }) => (isActive ? active : normal)}
-                  >
-                    <WalletOutlined className="text-xl" />
-                    <span>Wallet</span>
-                  </NavLink>
-                </li>
-                <li>
-                  <NavLink
-                    to="/dashboard/rewards"
-                    className={({ isActive }) => (isActive ? active : normal)}
-                  >
-                    <LuUtilityPole className="text-xl" />
-                    <span>Rewards</span>
-                  </NavLink>
-                </li>
-                <li>
-                  <NavLink
-                    to="/dashboard/virtual-cards"
-                    className={({ isActive }) => (isActive ? active : normal)}
-                  >
-                    <CreditCardOutlined className="text-xl" />
-                    <span>Cards</span>
-                  </NavLink>
-                </li>
-                {/* ✅ NEW: Verification (KYC) tab */}
-                <li>
-                  <NavLink
-                    to="/dashboard/kyc"
-                    className={({ isActive }) => (isActive ? active : normal)}
-                  >
-                    <IdcardOutlined className="text-xl" />
-                    <span>Verification</span>
-                  </NavLink>
-                </li>
-                <li>
-                  <NavLink
-                    to="/dashboard/transactions/orders"
-                    className={({ isActive }) => (isActive ? active : normal)}
-                  >
-                    <SignalCellularAltIcon className="text-2xl" />
-                    <span>Transaction</span>
-                  </NavLink>
-                </li>
-              </ul>
+              <div className="flex items-start rounded-2xl border border-slate-800/70 bg-black/30 px-3 py-3">
+                <div className={desktopSectionClass}>
+                  <div className={sectionTitleClass}>Home</div>
+                  {renderNavItem({ to: '/dashboard/home', label: 'Home', icon: HomeOutlined })}
+                </div>
+                {navSections.map((section) => (
+                  <div key={section.title} className={desktopSectionClass}>
+                    <div className={sectionTitleClass}>{section.title}</div>
+                    <div className="flex gap-4 lg:gap-5">
+                      {section.items.map((item) => (
+                        <div key={item.to}>{renderNavItem(item)}</div>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
             </nav>
 
-            {/* User profile dropdown */}
             <DropDown />
           </div>
 
-          {/* Right spacer on mobile */}
           <div className="flex gap-4 md:hidden" />
         </header>
 
-        {/* CONTENT + MOBILE DRAWER */}
         <div className="bb-dashboard-frame flex overflow-hidden mt-0 h-full flex-1 w-full md:px-6">
           <div className="relative">
             <DrawerModal
@@ -189,72 +183,25 @@ const DashboardLayout = () => {
               }}
             >
               <aside ref={sideNavRef} className="flex flex-col gap-7 text-white">
-                <ul className="flex flex-col gap-7">
-                  <li onClick={() => setOpen(false)}>
-                    <NavLink
-                      to="/dashboard/home"
-                      className={({ isActive }) => (isActive ? active : normal)}
-                    >
-                      <HomeOutlined className="text-xl" />
-                      <span>Home</span>
-                    </NavLink>
-                  </li>
-                  <li onClick={() => setOpen(false)}>
-                    <NavLink
-                      to="/dashboard/wallet"
-                      className={({ isActive }) => (isActive ? active : normal)}
-                    >
-                      <WalletOutlined className="text-xl" />
-                      <span>Wallet</span>
-                    </NavLink>
-                  </li>
-                  <li onClick={() => setOpen(false)}>
-                    <NavLink
-                    to="/dashboard/rewards"
-                    className={({ isActive }) => (isActive ? active : normal)}
-                  >
-                    <LuUtilityPole className="text-xl" />
-                    <span>Rewards</span>
-                  </NavLink>
-                </li>
-                  <li onClick={() => setOpen(false)}>
-                    <NavLink
-                      to="/dashboard/virtual-cards"
-                      className={({ isActive }) => (isActive ? active : normal)}
-                    >
-                      <CreditCardOutlined className="text-xl" />
-                      <span>Cards</span>
-                    </NavLink>
-                  </li>
-                  {/* ✅ NEW: Verification (KYC) in mobile drawer */}
-                  <li onClick={() => setOpen(false)}>
-                    <NavLink
-                      to="/dashboard/kyc"
-                      className={({ isActive }) => (isActive ? active : normal)}
-                    >
-                      <IdcardOutlined className="text-xl" />
-                      <span>Verification</span>
-                    </NavLink>
-                  </li>
-                  <li onClick={() => setOpen(false)}>
-                    <NavLink
-                      to="/dashboard/profile-account"
-                      className={({ isActive }) => (isActive ? active : normal)}
-                    >
-                      <UserOutlined className="text-xl" />
-                      <span>Profile</span>
-                    </NavLink>
-                  </li>
-                  <li onClick={() => setOpen(false)}>
-                    <NavLink
-                      to="/dashboard/transactions/orders"
-                      className={({ isActive }) => (isActive ? active : normal)}
-                    >
-                      <SignalCellularAltIcon className="text-2xl" />
-                      <span>Transaction</span>
-                    </NavLink>
-                  </li>
-                  <li>
+                <div className="flex flex-col gap-7">
+                  <div onClick={() => setOpen(false)}>
+                    {renderNavItem({ to: '/dashboard/home', label: 'Home', icon: HomeOutlined }, 'items-start')}
+                  </div>
+
+                  {navSections.map((section) => (
+                    <div key={section.title} className="flex flex-col gap-4">
+                      <div className={mobileSectionTitleClass}>{section.title}</div>
+                      <ul className="flex flex-col gap-4">
+                        {section.items.map((item) => (
+                          <li key={item.to} onClick={() => setOpen(false)}>
+                            {renderNavItem(item, 'items-start')}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  ))}
+
+                  <div>
                     <button
                       type="button"
                       onClick={() =>
@@ -271,18 +218,17 @@ const DashboardLayout = () => {
                       }
                       className="w-full text-left"
                     >
-                      <span className={normal}>
+                      <span className={`${normal} items-start`}>
                         <LoginOutlined className="text-xl" />
                         <span>Log Out</span>
                       </span>
                     </button>
-                  </li>
-                </ul>
+                  </div>
+                </div>
               </aside>
             </DrawerModal>
           </div>
 
-          {/* Page body */}
           <div
             className="bb-dashboard-body dashboard-body md:mt-6 mt-3 w-full flex-1 overflow-y-auto pb-6"
             style={{
