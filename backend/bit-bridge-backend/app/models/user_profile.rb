@@ -1,11 +1,14 @@
 # frozen_string_literal: true
 
 class UserProfile < ApplicationRecord
+  ALLOWED_KYC_ATTACHMENT_CONTENT_TYPES = %w[image/jpeg image/png application/pdf].freeze
+
   belongs_to :user
 
   validates :phone_e164, uniqueness: { case_sensitive: false }, allow_blank: true
   validates :gender, inclusion: { in: %w[male female], allow_nil: true, allow_blank: true }
   validate :phone_number_must_be_normalizable
+  validate :kyc_attachments_must_use_supported_formats
 
   has_one_attached :id_document
   has_one_attached :proof_of_address
@@ -32,6 +35,18 @@ class UserProfile < ApplicationRecord
     return if phone_e164.present?
 
     errors.add(:phone_number, 'is invalid')
+  end
+
+  def kyc_attachments_must_use_supported_formats
+    %i[id_document proof_of_address].each do |attachment_name|
+      attachment = public_send(attachment_name)
+      next unless attachment.attached?
+
+      content_type = attachment.blob&.content_type.to_s
+      next if ALLOWED_KYC_ATTACHMENT_CONTENT_TYPES.include?(content_type)
+
+      errors.add(attachment_name, 'must be a JPG, PNG, or PDF file')
+    end
   end
 
   def sync_phone_verification_state_if_phone_changed

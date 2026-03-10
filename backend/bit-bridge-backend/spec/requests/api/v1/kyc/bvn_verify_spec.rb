@@ -43,22 +43,24 @@ RSpec.describe 'BVN verification caching', type: :request do
   end
 
   def attach_docs!(profile)
-    id_file = Tempfile.new(['id_doc', '.txt'])
-    id_file.write('id-doc')
+    id_file = Tempfile.new(['id_doc', '.png'])
+    id_file.binmode
+    id_file.write("\x89PNG\r\n\x1A\n")
     id_file.rewind
     profile.id_document.attach(
       io: id_file,
-      filename: 'id_doc.txt',
-      content_type: 'text/plain'
+      filename: 'id_doc.png',
+      content_type: 'image/png'
     )
 
-    poa_file = Tempfile.new(['proof', '.txt'])
-    poa_file.write('proof')
+    poa_file = Tempfile.new(['proof', '.png'])
+    poa_file.binmode
+    poa_file.write("\x89PNG\r\n\x1A\n")
     poa_file.rewind
     profile.proof_of_address.attach(
       io: poa_file,
-      filename: 'proof.txt',
-      content_type: 'text/plain'
+      filename: 'proof.png',
+      content_type: 'image/png'
     )
   ensure
     if id_file

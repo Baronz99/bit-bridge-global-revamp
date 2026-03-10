@@ -20,13 +20,14 @@ RSpec.describe "NIN verification", type: :request do
   end
 
   def attach_proof!(profile)
-    poa_file = Tempfile.new(["proof", ".txt"])
-    poa_file.write("proof")
+    poa_file = Tempfile.new(["proof", ".png"])
+    poa_file.binmode
+    poa_file.write("\x89PNG\r\n\x1A\n")
     poa_file.rewind
     profile.proof_of_address.attach(
       io: poa_file,
-      filename: "proof.txt",
-      content_type: "text/plain"
+      filename: "proof.png",
+      content_type: "image/png"
     )
   ensure
     if poa_file
