@@ -99,11 +99,15 @@ module Api
       # ========= CONFIRMATION / ACTIVATION =========
 
       def resend_confirmation_token
-        user = User.find_by(email: params[:email].downcase.strip) if params[:email].present?
+        email = params[:email].to_s.downcase.strip
+        user =
+          if email.present?
+            User.find_by("LOWER(email) = :email OR LOWER(COALESCE(unconfirmed_email, '')) = :email", email: email)
+          end
 
         return render json: { message: 'User not found' }, status: :not_found unless user
 
-        if user.confirmed?
+        if user.confirmed? && !(user.respond_to?(:pending_reconfirmation?) && user.pending_reconfirmation?)
           return render json: { message: 'User already confirmed' }.as_json, status: :unprocessable_entity
         end
 
@@ -409,6 +413,162 @@ module Api
         render json: { message: e.message }, status: :unprocessable_entity
       end
 
+      # ========= EMAIL CHANGE (AUTHENTICATED + PHONE OTP) =========
+
+      def request_email_change
+        unless FeatureFlags.termii?
+          return render json: { message: 'Phone verification is temporarily unavailable.' },
+                        status: :service_unavailable
+        end
+
+        profile = current_user.user_profile
+        if profile.nil? || profile.phone_verified_at.blank? || profile.phone_e164.blank?
+          return render json: {
+            message: 'A verified phone number is required before you can change your email.'
+          }, status: :unprocessable_entity
+        end
+
+        validate_email_change_request!(
+          new_email: params[:new_email],
+          current_password: params[:current_password]
+        )
+        return if performed?
+
+        phone_e164 = profile.phone_e164
+
+        unless PhoneVerificationCode.allowed_to_send?(user_id: current_user.id, phone_e164: phone_e164)
+          return render json: {
+            message: 'Too many verification requests. Please try again later.'
+          }, status: :too_many_requests
+        end
+
+        latest = PhoneVerificationCode.where(user: current_user, phone_e164: phone_variants(phone_e164)).recent.first
+        if latest.present? && !latest.can_resend?
+          wait = latest.resend_cooldown_seconds - (Time.current - latest.last_sent_at).to_i
+          wait = [wait, 1].max
+
+          return render json: {
+            message: 'Please wait a moment before requesting another code.',
+            resend_available_in_seconds: wait
+          }, status: :too_many_requests
+        end
+
+        code = SecureRandom.random_number(1000000).to_s.rjust(6, '0')
+        digest = BCrypt::Password.create(code)
+        expires_at = Time.current + PhoneVerificationCode::TTL
+        next_send_count = latest&.send_count.to_i + 1
+
+        pvc = PhoneVerificationCode.create!(
+          user: current_user,
+          phone_e164: phone_e164,
+          otp_digest: digest,
+          expires_at: expires_at,
+          status: 'pending',
+          last_sent_at: Time.current,
+          send_count: next_send_count,
+          attempts: 0,
+          ip_address: request.remote_ip,
+          user_agent: request.user_agent,
+          provider: 'termii'
+        )
+
+        result = TermiiClient.new.send_otp_sms!(to_e164: phone_e164, code: code)
+        pvc.update!(
+          provider_message_id: result[:message_id],
+          provider_status: result[:provider_status],
+          last_status_at: Time.current
+        )
+
+        unless result[:ok] || result[:message_id].present?
+          pvc.update!(status: 'failed')
+          return render json: {
+            message: 'Phone verification is temporarily unavailable. Please try again.',
+            reason: 'sms_provider_unavailable'
+          }, status: :service_unavailable
+        end
+
+        render json: {
+          message: 'Verification code sent to your verified phone number.',
+          phone_e164: phone_e164,
+          resend_available_in_seconds: pvc.resend_cooldown_seconds,
+          expires_in_seconds: PhoneVerificationCode::TTL.to_i
+        }, status: :ok
+      end
+
+      def confirm_email_change
+        profile = current_user.user_profile
+        if profile.nil? || profile.phone_verified_at.blank? || profile.phone_e164.blank?
+          return render json: {
+            message: 'A verified phone number is required before you can change your email.'
+          }, status: :unprocessable_entity
+        end
+
+        validate_email_change_request!(
+          new_email: params[:new_email],
+          current_password: params[:current_password]
+        )
+        return if performed?
+
+        code = params[:phone_otp_code].to_s.strip
+        if code.blank?
+          return render json: { message: 'Phone verification code is required.' },
+                        status: :unprocessable_entity
+        end
+
+        pvc = latest_pending_phone_code_for(profile.phone_e164)
+        if pvc.nil?
+          return render json: {
+            message: 'No active phone verification request found. Request a new code and try again.'
+          }, status: :not_found
+        end
+
+        if pvc.status == 'blocked'
+          return render json: {
+            message: 'Too many attempts. Request a new verification code.'
+          }, status: :too_many_requests
+        end
+
+        if pvc.expired?
+          pvc.update!(status: 'expired')
+          return render json: {
+            message: 'Verification code expired. Request a new code and try again.'
+          }, status: :unprocessable_entity
+        end
+
+        pvc.update!(attempts: pvc.attempts.to_i + 1)
+        if pvc.attempts >= PhoneVerificationCode::MAX_ATTEMPTS
+          pvc.lock!
+          return render json: {
+            message: 'Too many attempts. Request a new verification code.'
+          }, status: :too_many_requests
+        end
+
+        ok = BCrypt::Password.new(pvc.otp_digest) == code
+        unless ok
+          return render json: { message: 'Invalid verification code.' }, status: :unprocessable_entity
+        end
+
+        current_user.email = normalize_email(params[:new_email])
+
+        if current_user.save
+          pvc.update!(status: 'verified')
+          PhoneVerificationCode
+            .where(user: current_user, phone_e164: phone_variants(profile.phone_e164), status: 'pending')
+            .where.not(id: pvc.id)
+            .update_all(status: 'expired')
+
+          render json: {
+            message: 'Email change initiated. Confirm the link sent to your new email address.',
+            data: {
+              email: current_user.email,
+              unconfirmed_email: current_user.unconfirmed_email
+            }
+          }, status: :ok
+        else
+          render json: { message: current_user.errors.full_messages.to_sentence },
+                 status: :unprocessable_entity
+        end
+      end
       # ========= CHANGE PASSWORD WHILE LOGGED IN =========
 
       def user_password_update
@@ -975,6 +1135,52 @@ module Api
         ::Kyc::BvnSnapshotRecheck.call(user)
       end
 
+      def normalize_email(value)
+        value.to_s.strip.downcase
+      end
+
+      def validate_email_change_request!(new_email:, current_password:)
+        normalized_email = normalize_email(new_email)
+        if normalized_email.blank?
+          render json: { message: 'New email is required.' }, status: :unprocessable_entity
+          return
+        end
+
+        unless normalized_email.match?(Devise.email_regexp)
+          render json: { message: 'Enter a valid email address.' }, status: :unprocessable_entity
+          return
+        end
+
+        if normalized_email == current_user.email.to_s.downcase
+          render json: { message: 'Enter a different email address.' }, status: :unprocessable_entity
+          return
+        end
+
+        taken = User.where.not(id: current_user.id)
+                    .where("LOWER(email) = :email OR LOWER(COALESCE(unconfirmed_email, '')) = :email",
+                           email: normalized_email)
+                    .exists?
+        if taken
+          render json: { message: 'Email address is already in use.' }, status: :unprocessable_entity
+          return
+        end
+
+        password = current_password.to_s
+        unless password.present? && current_user.valid_password?(password)
+          render json: { message: 'Current password is incorrect.' }, status: :forbidden
+        end
+      end
+
+      def latest_pending_phone_code_for(phone_e164)
+        PhoneVerificationCode
+          .where(user: current_user, phone_e164: phone_variants(phone_e164), status: 'pending')
+          .order(created_at: :desc)
+          .first
+      end
+
+      def phone_variants(e164_digits)
+        ["#{e164_digits}", "+#{e164_digits}"]
+      end
       def user_params
         params.require(:user).permit(
           :email,
@@ -1079,3 +1285,4 @@ module Api
     end
   end
 end
+

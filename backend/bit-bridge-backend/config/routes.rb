@@ -283,6 +283,8 @@ Rails.application.routes.draw do
         collection do
           get   :user_profile
           patch :user_update
+          post  :request_email_change
+          post  :confirm_email_change
           patch :update_password
           patch :user_password_update
           post  :password_reset

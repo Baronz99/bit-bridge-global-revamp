@@ -6,6 +6,9 @@ export default function SecurityPanel({
   userPassword,
   setUserPassword,
   onPasswordUpdate,
+  currentEmail = '',
+  pendingEmail = '',
+  onOpenEmailChange,
 
   // ✅ these props come from ProfilePage
   phoneVerified = false,
@@ -20,6 +23,43 @@ export default function SecurityPanel({
       <div>
         <h2 className="text-xl font-semibold text-white">Security</h2>
         <p className="text-sm text-gray-400 mt-1">Manage your password and transaction PIN.</p>
+      </div>
+
+      <div className="rounded-2xl border border-white/10 bg-white/5 backdrop-blur p-4 space-y-4">
+        <div>
+          <h3 className="text-base font-semibold text-white">Email address</h3>
+          <p className="text-sm text-slate-300/80 mt-1">
+            Change your login email with your current password and an OTP sent to your verified phone.
+          </p>
+        </div>
+
+        <div className="rounded-xl border border-white/10 bg-white/5 p-3">
+          <div className="text-xs uppercase tracking-[0.18em] text-slate-500">Current email</div>
+          <div className="mt-2 text-sm font-semibold text-white">{currentEmail || 'Email not available'}</div>
+          {pendingEmail ? (
+            <div className="mt-2 text-xs text-amber-300">
+              Pending confirmation: {pendingEmail}
+            </div>
+          ) : null}
+        </div>
+
+        <div className="flex flex-col sm:flex-row gap-3">
+          <button
+            type="button"
+            onClick={onOpenEmailChange}
+            className={[
+              'inline-flex items-center justify-center px-4 py-2 rounded-xl',
+              'bg-amber-600/90 text-white font-semibold hover:bg-amber-600 transition',
+              'shadow-[0_10px_30px_-12px_rgba(245,158,11,0.45)]',
+            ].join(' ')}
+          >
+            {pendingEmail ? 'Resend email change OTP' : 'Change email'}
+          </button>
+
+          <div className="text-xs text-slate-300/70 sm:self-center">
+            Login stays on your current email until the new address is confirmed.
+          </div>
+        </div>
       </div>
 
       {/* Transaction PIN */}
