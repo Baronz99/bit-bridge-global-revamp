@@ -7,6 +7,19 @@ import { createCard, getUserCard, registerCardHolder } from '../../redux/actions
 import { getWallet } from '../../redux/actions/wallet'
 import ShadowValue from '../../components/ShadowValue'
 import client from '../../api/client'
+import {
+  freezeCard,
+  getCardBalance,
+  getCardDetails,
+  getCardFeeConfig,
+  getCardFundingStatus,
+  getCardHistory,
+  getCardInsights,
+  getCards,
+  getCardStates,
+  getUserCardSnapshot,
+  unfreezeCard,
+} from '../../api/cards'
 import { toast } from 'react-toastify'
 import { resolveReceiptReference } from '../../utils/receiptReference'
 import { needsTier2Access, withTier2MissingDetails } from '../../utils/kycGate'
@@ -223,7 +236,7 @@ export default function VirtualCardApplication() {
 
     const loadFees = async () => {
       try {
-        const res = await client.get('/fees')
+        const res = await getCardFeeConfig()
         const feeValue = res?.data?.data?.cards?.creation_fee_usd
         if (!active) return
         if (feeValue !== undefined && feeValue !== null && !Number.isNaN(Number(feeValue))) {
@@ -248,8 +261,8 @@ export default function VirtualCardApplication() {
       setCardHistoryLoading(true)
       try {
         const [historyRes, insightsRes] = await Promise.all([
-          client.get(`/cards/${card.id}/history`),
-          client.get(`/cards/${card.id}/insights`),
+          getCardHistory(card.id),
+          getCardInsights(card.id),
         ])
         if (!active) return
         setCardHistory(Array.isArray(historyRes?.data) ? historyRes.data : [])
@@ -330,8 +343,8 @@ export default function VirtualCardApplication() {
     const loadCardInfo = async () => {
       try {
         const [detailsRes, balanceRes] = await Promise.all([
-          client.get(`/cards/${card?.id}/details`),
-          client.get(`/cards/${card?.id}/balance`),
+          getCardDetails(card?.id),
+          getCardBalance(card?.id),
         ])
 
         if (!isMounted) return
@@ -373,7 +386,7 @@ export default function VirtualCardApplication() {
 
     const loadReusableCardholder = async () => {
       try {
-        const response = await client.get('/cards')
+        const response = await getCards()
         const payload = response?.data
         const cardsList = Array.isArray(payload) ? payload : Array.isArray(payload?.data) ? payload.data : []
         const candidate = cardsList
@@ -418,7 +431,7 @@ export default function VirtualCardApplication() {
 
     const loadStates = async () => {
       try {
-        const response = await client.get('/cards/get_all_states', { params: { country: 'NG' } })
+        const response = await getCardStates('NG')
         const normalized = normalizeStates(response.data.data)
 
         if (isMounted && normalized.length) {
@@ -519,7 +532,7 @@ const setCardPin = (nextPin) => {
     const maxAttempts = 6
     for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
       try {
-        const response = await client.get('/cards/user_card')
+        const response = await getUserCardSnapshot()
         const payload = response?.data?.data ?? response?.data
         if (payload?.card_id) {
           await dispatch(getUserCard())
@@ -801,9 +814,7 @@ const setCardPin = (nextPin) => {
 
       for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
         try {
-          const response = await client.get(`/cards/${cardId}/funding_status`, {
-            params: { reference },
-          })
+          const response = await getCardFundingStatus(cardId, reference)
           const payload = response?.data?.data || {}
           const state = normalizeFundingState(payload?.state || payload?.status || payload?.provider_state)
 
@@ -1639,11 +1650,11 @@ const setCardPin = (nextPin) => {
                       setFreezeError(null)
                       try {
                         if (isCardActive) {
-                          await client.patch(`/cards/${card?.id}/freeze`)
+                          await freezeCard(card?.id)
                         } else {
-                          await client.patch(`/cards/${card?.id}/unfreeze`)
+                          await unfreezeCard(card?.id)
                         }
-                        const detailsRes = await client.get(`/cards/${card?.id}/details`)
+                        const detailsRes = await getCardDetails(card?.id)
                         setCardDetails(detailsRes?.data?.data || null)
                       } catch (error) {
                         if (isProviderMissingCardError(error)) {
@@ -2805,4 +2816,10 @@ const setCardPin = (nextPin) => {
     </>
   )
 }
+
+
+
+
+
+
 

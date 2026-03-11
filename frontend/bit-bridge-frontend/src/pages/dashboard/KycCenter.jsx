@@ -14,7 +14,7 @@ import {
   LockOutlined,
 } from '@ant-design/icons'
 import { NavLink, useNavigate } from 'react-router-dom'
-import client from '../../api/client'
+import { getBvnStatus, getTier3Status, postTier3Start, verifyBvn } from '../../api/kyc'
 import { userProfile as fetchUserProfile } from '../../redux/actions/auth'
 
 // Primary use-case → copy
@@ -294,37 +294,6 @@ InlineModal.propTypes = {
   onClose: PropTypes.func.isRequired,
 }
 
-// ---- helper: Tier 3 endpoint fallback (only fallback on 404) ----
-async function postTier3Start(payload) {
-  const candidates = [
-    '/verification/tier3/start',       // correct if baseURL is .../api/v1
-    '/api/v1/verification/tier3/start' // safety if baseURL is misconfigured
-  ]
-
-  let lastErr = null
-  for (const url of candidates) {
-    try {
-      const res = await client.post(url, payload)
-      return res
-    } catch (e) {
-      lastErr = e
-      const status = e?.response?.status
-      if (status && status !== 404) throw e
-    }
-  }
-
-  const base = client?.defaults?.baseURL
-  const msg =
-    `Tier 3 endpoint not found (404).\n\n` +
-    `Tried: ${candidates.join(', ')}\n` +
-    (base ? `Axios baseURL: ${base}\n\n` : '\n') +
-    `Fix: confirm backend route exists: POST /api/v1/verification/tier3/start`
-  const err = new Error(msg)
-  err._isTier3NotFound = true
-  err._lastErr = lastErr
-  throw err
-}
-
 const KycCenter = () => {
   const dispatch = useDispatch()
   const { user } = useSelector((state) => state.auth) || {}
@@ -410,7 +379,7 @@ const KycCenter = () => {
 
   const fetchTier3Status = React.useCallback(async () => {
     try {
-      const res = await client.get('/verification/tier3/status')
+      const res = await getTier3Status()
       const data = res?.data || null
       setTier3StatusSnapshot(data)
       const nextStatus = resolveTier3UiStatus(data, tier3SubmittedAt)
@@ -466,7 +435,7 @@ const KycCenter = () => {
     setBvnRetryUntil(null)
 
     try {
-      const res = await client.post('/kyc/bvn/verify', { bvn: normalized })
+      const res = await verifyBvn(normalized)
       const payload = res?.data || null
       setBvnResponse(payload)
       if (payload?.retry_after_seconds) {
@@ -494,6 +463,19 @@ const KycCenter = () => {
 
   const effectiveBvnStatus = bvnResponse?.status || bvnStatus
   const bvnDisplay = bvnResponse?.display || null
+  const mismatchFields = Array.isArray(bvnResponse?.mismatch_fields) ? bvnResponse.mismatch_fields : []
+  const mismatchFieldLabels = mismatchFields.map((field) => {
+    switch (field) {
+      case 'first_name':
+        return 'First name'
+      case 'last_name':
+        return 'Last name'
+      case 'date_of_birth':
+        return 'Date of birth'
+      default:
+        return field
+    }
+  })
   const effectiveLast4 = bvnResponse?.bvn_last4 || bvnLast4
   const isBvnPending = effectiveBvnStatus === 'pending'
   const isVerifyingBvn = bvnSubmitting
@@ -559,7 +541,7 @@ const KycCenter = () => {
 
   const pollBvnStatus = React.useCallback(async () => {
     try {
-      const res = await client.get('/kyc/bvn/status')
+      const res = await getBvnStatus()
       const payload = res?.data || null
       if (payload) {
         setBvnResponse(payload)
@@ -585,7 +567,7 @@ const KycCenter = () => {
   React.useEffect(() => {
     const fetchInitialStatus = async () => {
       try {
-        const res = await client.get('/kyc/bvn/status')
+        const res = await getBvnStatus()
         const payload = res?.data || null
         if (payload) {
           setBvnResponse(payload)
@@ -713,6 +695,32 @@ const KycCenter = () => {
         </div>
       </div>
 
+      <section className="mb-6 rounded-2xl border border-slate-800 bg-slate-900/80 p-5 md:p-6">
+        <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+          <div>
+            <div className="text-[11px] uppercase tracking-[0.2em] text-slate-500">Verification journey</div>
+            <h2 className="mt-2 text-lg md:text-xl font-semibold text-slate-100">Phone first, BVN next</h2>
+            <p className="mt-2 max-w-2xl text-sm text-slate-400">
+              Complete phone verification first, verify your BVN second, then continue to document and biometric steps only if your account needs higher tiers.
+            </p>
+          </div>
+          <div className="inline-flex flex-wrap items-center gap-2">
+            <span className={`inline-flex items-center gap-2 rounded-full border px-3 py-1 text-[11px] uppercase tracking-[0.18em] ${phoneVerified ? 'border-emerald-900/60 bg-emerald-950/30 text-emerald-300' : 'border-amber-900/60 bg-amber-950/25 text-amber-300'}`}>
+              {phoneVerified ? <CheckCircleOutlined /> : <LockOutlined />}
+              <span>Phone {phoneVerified ? 'verified' : 'pending'}</span>
+            </span>
+            <span className={`inline-flex items-center gap-2 rounded-full border px-3 py-1 text-[11px] uppercase tracking-[0.18em] ${isBvnVerified ? 'border-emerald-900/60 bg-emerald-950/30 text-emerald-300' : 'border-amber-900/60 bg-amber-950/25 text-amber-300'}`}>
+              {isBvnVerified ? <CheckCircleOutlined /> : <LockOutlined />}
+              <span>BVN {isBvnVerified ? 'verified' : 'pending'}</span>
+            </span>
+            <span className="inline-flex items-center gap-2 rounded-full border border-slate-700 bg-slate-950/45 px-3 py-1 text-[11px] uppercase tracking-[0.18em] text-slate-300">
+              <SafetyCertificateOutlined />
+              <span>{kycInfo.label}</span>
+            </span>
+          </div>
+        </div>
+      </section>
+
       {/* Main 2-column layout */}
       <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)] gap-6">
         {/* LEFT: Overview card */}
@@ -765,7 +773,7 @@ const KycCenter = () => {
           <div>
             <h3 className="text-sm font-semibold mb-1 flex items-center gap-2">
               <CreditCardOutlined className="text-alt" />
-              Next steps to unlock everything
+              Verification steps to unlock everything
             </h3>
             <p className="text-xs text-slate-400 mb-4">
               You only need <span className="font-semibold text-slate-200">three</span> quick
@@ -1293,3 +1301,5 @@ const KycCenter = () => {
 }
 
 export default KycCenter
+
+

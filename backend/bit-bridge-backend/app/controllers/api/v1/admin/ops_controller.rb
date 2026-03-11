@@ -12,7 +12,22 @@ module Api
             message: 'ok',
             data: {
               anchor: anchor_health,
+              kyc_reuse: kyc_reuse_health,
               app_time: Time.current.iso8601
+            }
+          }, status: :ok
+        end
+
+        def user_kyc_reuse
+          user = User.includes(:user_kyc, :accounts).find(params[:user_id])
+          user_kyc = user.user_kyc
+
+          render json: {
+            message: 'ok',
+            data: {
+              user_id: user.id,
+              email: user.email,
+              kyc_reuse: build_kyc_reuse_entry(user, user_kyc)
             }
           }, status: :ok
         end
@@ -75,6 +90,60 @@ module Api
             stale_missing_account_number_count: stale.count,
             stale_oldest_updated_at: stale.minimum(:updated_at)&.iso8601,
             stale_sample: sample
+          }
+        end
+
+        def kyc_reuse_health
+          scope = UserKyc.includes(:user).select(&:verified?)
+          stale = scope.reject(&:bvn_identity_confirmed?)
+          sample = stale.first(20).map { |user_kyc| build_kyc_reuse_entry(user_kyc.user, user_kyc) }
+
+          {
+            verified_bvn_total: scope.size,
+            reusable_bvn_total: scope.count(&:bvn_identity_confirmed?),
+            verified_missing_reusable_bvn_count: stale.size,
+            stale_verified_bvn_sample: sample
+          }
+        end
+
+        def recommended_kyc_reuse_action(anchor_provisioned:, cardholder_exists:, active_card_exists:)
+          return 'secure_reconciliation_for_anchor_and_cards' if anchor_provisioned && (cardholder_exists || active_card_exists)
+          return 'secure_reconciliation_for_cards' if cardholder_exists || active_card_exists
+          return 'monitor_anchor_safe_cards_risky' if anchor_provisioned
+
+          'secure_bvn_reentry_before_anchor_or_cards'
+        end
+
+        def build_kyc_reuse_entry(user, user_kyc)
+          return nil unless user
+
+          anchor_accounts = user.accounts.where(vendor: 'anchor')
+          cards = Card.where(user_id: user.id)
+          anchor_provisioned = anchor_accounts.where.not(account_number: [nil, '']).exists?
+          cardholder_exists = cards.where.not(cardholder_id: [nil, '']).exists?
+          active_card_exists = cards.where.not(status: [nil, '', 'failed', 'terminated', 'cancelled']).exists?
+          verified = user_kyc&.verified? || false
+          reusable = user_kyc&.bvn_identity_confirmed? || false
+
+          {
+            user_id: user.id,
+            email: user.email,
+            kyc_level: user.kyc_level,
+            onboarding_stage: user.onboarding_stage,
+            bvn_verified: verified,
+            reusable_bvn_available: reusable,
+            needs_review: verified && !reusable,
+            has_anchor_account: anchor_accounts.exists?,
+            anchor_account_provisioned: anchor_provisioned,
+            has_cardholder_profile: cardholder_exists,
+            has_cards: active_card_exists,
+            recommended_action: recommended_kyc_reuse_action(
+              anchor_provisioned: anchor_provisioned,
+              cardholder_exists: cardholder_exists,
+              active_card_exists: active_card_exists
+            ),
+            bvn_verified_at: user_kyc&.bvn_verified_at&.iso8601,
+            updated_at: user_kyc&.updated_at&.iso8601
           }
         end
       end

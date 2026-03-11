@@ -237,6 +237,7 @@ module Api
         processed[:phone] ||= processed[:phone_number].presence
         processed[:user_id] ||= current_user.id
         processed[:request_id] ||= request.request_id
+        populate_reusable_bvn!(processed)
 
         registration_mode =
           if card_params[:registration_mode].to_s.casecmp('sync').zero?
@@ -915,12 +916,8 @@ module Api
         address_value = [base[:address], base[:address_line1], base[:deliveryAddress]].map { |v| v.to_s.strip }.find(&:present?)
         missing << 'address' if address_value.blank?
 
-        bvn_verified = current_user.user_kyc&.verified?
+        populate_reusable_bvn!(base)
         bvn_value = base[:bvn].to_s.strip
-        if bvn_value.blank? && bvn_verified
-          bvn_value = current_user.user_kyc&.decrypted_bvn.to_s.strip
-          base[:bvn] = bvn_value if bvn_value.present?
-        end
         missing << 'bvn' if bvn_value.blank?
 
         selfie = base[:selfie_image].to_s.strip
@@ -983,6 +980,20 @@ module Api
             cardholder_status: status.presence || 'pending_verification'
           }
         )
+      end
+
+      def populate_reusable_bvn!(payload)
+        return payload unless payload.is_a?(Hash)
+
+        bvn_value = payload[:bvn].to_s.strip
+        return payload if bvn_value.present?
+
+        user_kyc = current_user.user_kyc
+        return payload unless user_kyc&.verified_and_reusable_bvn?
+
+        reusable_bvn = user_kyc.decrypted_bvn.to_s.strip
+        payload[:bvn] = reusable_bvn if reusable_bvn.present?
+        payload
       end
 
       def validate_setup_balance(pricing)

@@ -42,11 +42,11 @@ module Api
       #   }
       # }
       def user
-        bridge = current_user.ngn_wallet
-        bridge = current_user.wallets.for_api.find(bridge.id) if bridge
+        bridge = current_user.wallets.find_by(wallet_type: :ngn)
+        bridge ||= current_user.ngn_wallet
 
         # do not auto-create USD unless already present (optional)
-        tunnel = current_user.wallets.for_api.find_by(wallet_type: :usd)
+        tunnel = current_user.wallets.find_by(wallet_type: :usd)
 
         wallets = [bridge, tunnel].compact
 

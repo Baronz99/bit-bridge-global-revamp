@@ -58,7 +58,7 @@ const ConfirmOrder = () => {
     <section className="py-10 px-4 sm:px-10 ">
       <div className="flex m-auto max-w-7xl gap-5 flex-col md:flex-row">
         <div className="flex-1 p-5 rounded-lg py-10  bg-white">
-          <p className="text-base font-medium text-gray-600">Refresh browser to view Gift code</p>
+          <p className="text-base font-medium text-gray-600">Refresh browser to view your access code</p>
 
           <div>
             {/* <p className="uppercase text-xl md:text-3xl">
@@ -144,7 +144,7 @@ const ConfirmOrder = () => {
                       </button>
                     </div>
                     <div>
-                      <small>GIft Card Code</small>
+                      <small>Access Code</small>
 
                       <p className="bg-gray-300 text-center py-1">
                         {item?.card_token?.reveal ? item?.card_token?.token : '************'}

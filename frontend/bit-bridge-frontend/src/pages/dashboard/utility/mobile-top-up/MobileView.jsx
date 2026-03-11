@@ -1,18 +1,35 @@
-import { Outlet, useNavigate, useParams } from 'react-router-dom'
-import { useDispatch, useSelector } from 'react-redux'
-import { useEffect } from 'react'
-import { getProvisions } from '../../../../redux/actions/provision'
+import { Outlet, useParams } from 'react-router-dom'
+import { useEffect, useState } from 'react'
 import { splitString } from '../../../../utils'
-import nairaFormat from '../../../../utils/nairaFormat'
+import { getSectionCatalog } from '../../../../api/catalog'
+import { groupBridgeUtilityCatalog } from '../../../../utils/bridgeUtilityCatalog'
 
 const MobileView = () => {
-  const navigate = useNavigate()
-  const dispatch = useDispatch()
+  const [mobileProviders, setMobileProviders] = useState([])
 
-  const { mobileProviders } = useSelector((state) => state.provision)
   useEffect(() => {
-    dispatch(getProvisions())
+    let active = true
+
+    const loadCatalog = async () => {
+      try {
+        const response = await getSectionCatalog('bridge')
+        if (!active) return
+        const items = Array.isArray(response?.data?.data) ? response.data.data : []
+        const grouped = groupBridgeUtilityCatalog(items)
+        setMobileProviders(grouped.mobileProviders)
+      } catch {
+        if (!active) return
+        setMobileProviders([])
+      }
+    }
+
+    loadCatalog()
+
+    return () => {
+      active = false
+    }
   }, [])
+
   const { id } = useParams()
 
   const selectedProvider = mobileProviders?.find((item) => item.id == id)

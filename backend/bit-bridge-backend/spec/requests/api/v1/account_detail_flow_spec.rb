@@ -105,5 +105,35 @@ RSpec.describe 'Anchor account detail flow', type: :request do
       expect(body.dig('flow', 'state')).to eq('provisioned')
       expect(account.reload.status).to eq('completed')
     end
+
+    it 'syncs a provisioned deposit account and resolves to provisioned state' do
+      user = build_user(:tier2)
+      account = Account.create!(
+        user: user,
+        vendor: 'anchor',
+        account_type: :individual,
+        useable_id: '17732497058119-anc_acc',
+        status: :verified
+      )
+
+      allow_any_instance_of(AnchorService).to receive(:sync_anchor_deposit_account!).and_wrap_original do |_m, record|
+        record.update!(
+          account_number: '1234567890',
+          account_name: 'Amaechi Tochi',
+          bank_name: '9 Payment Service Bank'
+        )
+        record
+      end
+
+      get '/api/v1/accounts/anchor_onboarding_state', headers: auth_headers(user)
+
+      expect(response).to have_http_status(:ok)
+      body = JSON.parse(response.body)
+      expect(body.dig('data', 'kyc_status')).to eq('completed')
+      expect(body['has_deposit_account']).to eq(true)
+      expect(body.dig('flow', 'state')).to eq('provisioned')
+      expect(account.reload.status).to eq('completed')
+      expect(account.account_number).to eq('1234567890')
+    end
   end
 end

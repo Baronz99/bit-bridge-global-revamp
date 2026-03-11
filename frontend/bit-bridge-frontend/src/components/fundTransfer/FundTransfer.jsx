@@ -31,7 +31,9 @@ const pickErrorMessage = (err) => {
   )
 }
 
-export default function MoneyTransferFlow({ setIsfundTransferOpen }) {
+const normalizeTransferMode = (mode) => (mode === 'bitbridge' ? 'bitbridge' : 'bank')
+
+export default function MoneyTransferFlow({ setIsfundTransferOpen, embedded = true, initialMode = 'bank', onClose = null }) {
   const [loading, setLoading] = useState(false)
   const dispatch = useDispatch()
   const navigate = useNavigate()
@@ -41,7 +43,7 @@ export default function MoneyTransferFlow({ setIsfundTransferOpen }) {
   )
 
   const [step, setStep] = useState(1)
-  const [transferMode, setTransferMode] = useState('bank')
+  const [transferMode, setTransferMode] = useState(() => normalizeTransferMode(initialMode))
 
   const [formData, setFormData] = useState({
     phone_number: '',
@@ -73,6 +75,10 @@ export default function MoneyTransferFlow({ setIsfundTransferOpen }) {
     return String(formData.account_number || '').trim().length === 10 && !!formData.bank_code
   }, [formData.account_number, formData.bank_code])
   const isInternal = transferMode === 'bitbridge'
+  const closeFlow = () => {
+    if (typeof setIsfundTransferOpen === 'function') setIsfundTransferOpen(false)
+    if (typeof onClose === 'function') onClose()
+  }
   const accountResolved = accountLookupStatus === 'success'
   const amountValue = Number(formData.amount || 0)
   const hasValidAmount = Number.isFinite(amountValue) && amountValue > 0
@@ -106,9 +112,36 @@ export default function MoneyTransferFlow({ setIsfundTransferOpen }) {
       autoClose: 4000,
       pauseOnHover: true,
     })
-    setIsfundTransferOpen(false)
+    closeFlow()
     navigate('/dashboard/kyc')
-  }, [navigate, setIsfundTransferOpen, user])
+  }, [navigate, user])
+
+  useEffect(() => {
+    const nextMode = normalizeTransferMode(initialMode)
+    setTransferMode(nextMode)
+    setStep(1)
+    setFormData({
+      phone_number: '',
+      account_number: '',
+      bank_code: '',
+      bank: '',
+      account_name: '',
+      counter_party_id: '',
+      amount: '',
+      inter_bank: false,
+      description: '',
+      transaction_pin: '',
+    })
+    setAccountLookupStatus('idle')
+    setAccountLookupError('')
+    setSaveBeneficiary(false)
+    setBeneficiarySearch('')
+    setShowBeneficiaryPicker(false)
+    setSelectedBeneficiaryId('')
+    setTransferReference('')
+    setQuoteData(null)
+    lastLookupKeyRef.current = ''
+  }, [initialMode])
 
   useEffect(() => {
     if (needsTier2Access(user)) return
@@ -355,7 +388,7 @@ export default function MoneyTransferFlow({ setIsfundTransferOpen }) {
       dispatch(getWallet())
 
       setStep(1)
-      setIsfundTransferOpen(false)
+      closeFlow()
 
       setFormData({
         phone_number: '',
@@ -382,8 +415,24 @@ export default function MoneyTransferFlow({ setIsfundTransferOpen }) {
   }
 
   return (
-    <div className="flex flex-col items-center justify-center bg-gray-950 text-gray-100 p-6">
-      <div className="w-full max-w-md bg-gray-900 rounded-2xl shadow-xl border border-gray-800 p-6 space-y-6">
+    <div className={`flex flex-col items-center justify-center text-gray-100 ${embedded ? "bg-gray-950 p-6" : ""}`}>
+      <div className={`w-full space-y-6 ${embedded ? "max-w-md bg-gray-900 rounded-2xl shadow-xl border border-gray-800 p-6" : "max-w-3xl rounded-3xl border border-slate-800 bg-slate-900/85 p-6 md:p-8 shadow-[0_16px_40px_rgba(15,23,42,0.22)]"}`}>
+        {!embedded && (
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              <p className="text-[11px] uppercase tracking-[0.22em] text-slate-500">Bridge transfer</p>
+              <p className="mt-2 text-sm text-slate-400">Move money either to another BitBridge user or to a bank account using your NGN wallet.</p>
+            </div>
+            <button
+              type="button"
+              onClick={closeFlow}
+              className="rounded-full border border-slate-700 px-3 py-1.5 text-xs font-semibold text-slate-200 hover:border-slate-500 transition"
+            >
+              Close
+            </button>
+          </div>
+        )}
+
         <h2 className="text-2xl font-semibold text-center text-gray-100">
           {isInternal
             ? step === 1

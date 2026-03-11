@@ -2,14 +2,14 @@ import NavButton from '../button/NavButton'
 import PropTypes from 'prop-types'
 
 const UtilityCard = ({ onClick, btnText, provider, title }) => {
-  const giftcardImage = provider.split(' ')[0].toLowerCase() || provider.split('-')[0].toLowerCase()
+  const providerImage = provider.split(' ')[0].toLowerCase() || provider.split('-')[0].toLowerCase()
 
   return (
     <div className="border max-w-lg border-gray-100/20 rounded p-1 md:p-4">
       <img
         onClick={onClick}
-        src={`/images/providers/${giftcardImage}.png`}
-        alt="gift card one"
+        src={`/images/providers/${providerImage}.png`}
+        alt={`${title || provider} provider`}
         className="borde md:h-60 h-32 w-full bg-gray-200/20 hover:bg-transparent rounded-lg cursor-pointer"
       />
 

@@ -1,6 +1,7 @@
-import { Form, Input, InputNumber } from 'antd'
+import { Form } from 'antd'
 import './styles.scss'
 import PropTypes from 'prop-types'
+
 const FormInput = ({
   placeholder,
   onChange,
@@ -13,19 +14,25 @@ const FormInput = ({
   required = false,
   label,
 }) => {
+  const sharedProps = {
+    disabled,
+    name,
+    value,
+    onChange,
+    placeholder,
+    className: 'app-form-control',
+  }
+
   return (
     <>
       <Form.Item
         className={`formInput ${className}`}
         name={name}
-        // normalize={(value) => typeof value === "string" ? value?.trim() : value}
-
         rules={[
           {
             required: required,
             message: `Please input ${label}!`,
           },
-
           ...(billerType === 'phone_no'
             ? [
                 {
@@ -34,54 +41,18 @@ const FormInput = ({
                 },
               ]
             : []),
-
-          // ...(billerType === "phone_no" ? [
-          //     {
-          //       validator: (_,value) => {
-          //         if(!value) return Promise.resolve()
-          //           const valueStr = value.toString()
-          //         if(valueStr.length !==11) {
-          //           return Promise.reject("please enter your 11-digit number")
-          //       }
-          //       return Promise.resolve();
-          //     }
-          //   }
-          //   ] : []
-          // )
         ]}
         label={label}
         type={type}
       >
-        {type == 'text' ? (
-          <Input
-            disabled={disabled}
-            name={name}
-            style={{ width: '100%' }}
-            value={value}
-            onChange={onChange}
-            className={`w-full bg-red-800 p-2.5 `}
-            placeholder={placeholder}
-          />
-        ) : type === 'password' ? (
-          <Input.Password placeholder={placeholder} className="" />
+        {type === 'password' ? (
+          <input {...sharedProps} type="password" autoComplete="current-password" />
         ) : type === 'hidden' ? (
-          <Input
-            disabled={disabled}
-            type="hidden"
-            name={name}
-            style={{ width: '100%' }}
-            value={value}
-            onChange={onChange}
-            className={`w-full bg-red-800 p-2.5 hidden `}
-            placeholder={placeholder}
-          />
+          <input {...sharedProps} type="hidden" className="hidden" />
+        ) : type === 'number' ? (
+          <input {...sharedProps} type="number" inputMode="decimal" />
         ) : (
-          <InputNumber
-            value={value}
-            placeholder={placeholder}
-            onChange={onChange}
-            className={` w-full font-medium`}
-          />
+          <input {...sharedProps} type="text" />
         )}
       </Form.Item>
     </>
@@ -93,10 +64,10 @@ FormInput.propTypes = {
   onChange: PropTypes.func,
   name: PropTypes.string,
   className: PropTypes.string,
-  value: PropTypes.string,
+  value: PropTypes.oneOfType([PropTypes.string, PropTypes.number]),
   type: PropTypes.string,
   disabled: PropTypes.bool,
-  required: PropTypes.string,
+  required: PropTypes.oneOfType([PropTypes.bool, PropTypes.string]),
   label: PropTypes.string,
   billerType: PropTypes.string,
 }

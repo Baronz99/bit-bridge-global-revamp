@@ -1,27 +1,51 @@
 import { UserAddOutlined } from '@ant-design/icons'
-import { useEffect } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useDispatch, useSelector } from 'react-redux'
 import { NavLink } from 'react-router-dom'
+import { PiHandDepositBold, PiHandWithdrawFill } from 'react-icons/pi'
 import { getTransactions } from '../../redux/actions/transaction'
+import { getStatistics } from '../../redux/actions/statistics'
+import { getServiceCatalog } from '../../api/catalog'
+import { mapCatalogToAdminActions } from '../../utils/catalogServices'
+import dateFormater from '../../utils/dateFormat'
 import nairaFormat from '../../utils/nairaFormat'
 import statusStyle from '../../utils/statusStyle'
-import dateFormater from '../../utils/dateFormat'
-import { PiHandDepositBold, PiHandWithdrawFill } from 'react-icons/pi'
-import { getStatistics } from '../../redux/actions/statistics'
-import { dashboardServices } from '../../data/dashboardServices'
 
 const AdminHome = () => {
   const dispatch = useDispatch()
   const { transactions } = useSelector((state) => state.transaction)
   const { stats } = useSelector((state) => state.stat)
+  const [catalogItems, setCatalogItems] = useState([])
 
   useEffect(() => {
     dispatch(getTransactions({ params: { summary: true, limit: 30 } }))
     dispatch(getStatistics())
   }, [dispatch])
 
-  const adminServiceActions = dashboardServices.filter(
-    (item) => item.adminAction
+  useEffect(() => {
+    let active = true
+
+    const loadCatalog = async () => {
+      try {
+        const response = await getServiceCatalog()
+        if (!active) return
+        setCatalogItems(Array.isArray(response?.data?.data) ? response.data.data : [])
+      } catch {
+        if (!active) return
+        setCatalogItems([])
+      }
+    }
+
+    loadCatalog()
+
+    return () => {
+      active = false
+    }
+  }, [])
+
+  const adminServiceActions = useMemo(
+    () => mapCatalogToAdminActions(catalogItems),
+    [catalogItems]
   )
 
   const formatAdminAmount = (amount, currency, walletType) => {
@@ -42,7 +66,6 @@ const AdminHome = () => {
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 p-6 overflow-y-auto">
-      {/* Header */}
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-6">
         <div>
           <h1 className="text-2xl md:text-3xl font-semibold">
@@ -65,7 +88,6 @@ const AdminHome = () => {
         </div>
       </div>
 
-      {/* KPI cards */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-8">
         <div className="rounded-2xl bg-slate-900 border border-slate-800 p-4 flex flex-col items-center justify-center shadow-sm">
           <UserAddOutlined className="text-3xl text-sky-400 mb-2" />
@@ -98,9 +120,7 @@ const AdminHome = () => {
         </div>
       </div>
 
-      {/* Main content: recent transactions + quick actions */}
       <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,2.5fr)_minmax(0,1fr)] gap-6">
-        {/* Recent Transactions */}
         <div className="rounded-2xl bg-slate-900 border border-slate-800 p-5 shadow-sm">
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-lg font-semibold">Recent Transactions</h2>
@@ -177,10 +197,12 @@ const AdminHome = () => {
           </div>
         </div>
 
-        {/* Quick admin actions */}
         <div className="space-y-4">
           <div className="rounded-2xl bg-slate-900 border border-slate-800 p-5 shadow-sm">
-            <h2 className="text-lg font-semibold mb-3">Quick Actions</h2>
+            <h2 className="text-lg font-semibold mb-1">Quick Actions</h2>
+            <p className="text-xs text-slate-400 mb-3">
+              Product actions are now driven from the backend service catalog.
+            </p>
             <div className="flex flex-col space-y-3 text-sm">
               {adminServiceActions.map((item) => (
                 <NavLink
@@ -203,10 +225,15 @@ const AdminHome = () => {
               >
                 Query Transaction
               </NavLink>
+              <NavLink
+                to="/admin/kyc-reuse-review"
+                className="w-full text-center py-2.5 rounded-lg bg-amber-600 hover:bg-amber-500 text-slate-950 transition-colors"
+              >
+                Reusable BVN Review
+              </NavLink>
             </div>
           </div>
 
-          {/* Placeholder for future widgets (e.g., system health, flags, etc.) */}
           <div className="rounded-2xl bg-slate-900 border border-slate-800 p-5 shadow-sm">
             <h2 className="text-lg font-semibold mb-3">System Notes</h2>
             <p className="text-sm text-slate-400">

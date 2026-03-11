@@ -1,19 +1,52 @@
-.ant-steps {
-  .ant-steps-item-icon {
-    .ant-steps-icon {
-      color: yellow !important;
-    }
-  }
+.wizard-steps {
+  display: grid;
+  gap: 0.75rem;
+}
 
-  .ant-steps-item-content {
-    .ant-steps-item-title {
-      color: white !important;
-    }
+.wizard-steps__item {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  border: 1px solid rgba(51, 65, 85, 0.9);
+  border-radius: 1rem;
+  padding: 0.75rem 1rem;
+  background: rgba(15, 23, 42, 0.55);
+}
+
+.wizard-steps__index {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  border-radius: 9999px;
+  border: 1px solid rgba(71, 85, 105, 0.9);
+  color: white;
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+
+.wizard-steps__title {
+  color: white;
+  font-weight: 600;
+  font-size: 0.95rem;
+}
+
+.wizard-steps__item--current {
+  border-color: rgba(16, 185, 129, 0.5);
+  background: rgba(6, 78, 59, 0.2);
+
+  .wizard-steps__index {
+    border-color: rgba(16, 185, 129, 0.65);
+    background: rgba(16, 185, 129, 0.15);
+    color: #6ee7b7;
   }
 }
 
-:where(.css-dev-only-do-not-override-1x0dypw).ant-steps
-  .ant-steps-item-finish
-  .ant-steps-item-icon {
-  background: gray;
+.wizard-steps__item--done {
+  border-color: rgba(71, 85, 105, 0.7);
+
+  .wizard-steps__index {
+    background: rgba(100, 116, 139, 0.25);
+  }
 }

@@ -80,7 +80,7 @@ const ProductView = () => {
 
       <section className="px-4 bg-gray-200 py-10"></section>
       <section className="px-4 py-20">
-        <h2 className="text-3xl font-semibold">How gift card work</h2>
+        <h2 className="text-3xl font-semibold">How this product works</h2>
         <div></div>
       </section>
     </div>

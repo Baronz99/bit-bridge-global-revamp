@@ -1,23 +1,40 @@
-import { Outlet, useNavigate, useParams } from 'react-router-dom'
-import powerDistributions from '../../../../data/powerDistributions.json'
-import { useDispatch, useSelector } from 'react-redux'
-import { useEffect } from 'react'
-import { getProvisions } from '../../../../redux/actions/provision'
+import { Outlet, useParams } from 'react-router-dom'
+import { useEffect, useState } from 'react'
 import { splitString } from '../../../../utils'
+import { getSectionCatalog } from '../../../../api/catalog'
+import { groupBridgeUtilityCatalog } from '../../../../utils/bridgeUtilityCatalog'
 
 const CableView = () => {
-  const navigate = useNavigate()
-  const dispatch = useDispatch()
+  const [utilities, setUtilities] = useState([])
 
-  const { utilities } = useSelector((state) => state.provision)
   useEffect(() => {
-    dispatch(getProvisions())
-  }, [])
-  const { id } = useParams()
+    let active = true
 
+    const loadCatalog = async () => {
+      try {
+        const response = await getSectionCatalog('bridge')
+        if (!active) return
+        const items = Array.isArray(response?.data?.data) ? response.data.data : []
+        const grouped = groupBridgeUtilityCatalog(items)
+        setUtilities(grouped.utilities.filter((item) => item.service_type === 'TV'))
+      } catch {
+        if (!active) return
+        setUtilities([])
+      }
+    }
+
+    loadCatalog()
+
+    return () => {
+      active = false
+    }
+  }, [])
+
+  const { id } = useParams()
   const selectedProvider = utilities?.find((item) => item.id == id)
   const imagePic = splitString(selectedProvider?.product?.provider)
   const service = 'cable'
+
   return (
     <section className="px-4  py-10">
       <div className="max-w-7xl text-white m-auto py-10 px-0  md:px-10">

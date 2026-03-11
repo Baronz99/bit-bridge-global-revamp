@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Form, Steps, Progress, DatePicker } from 'antd'
+import { Form } from 'antd'
 import { motion, AnimatePresence } from 'framer-motion'
 import './style.scss'
 import { useDispatch } from 'react-redux'
@@ -15,8 +15,6 @@ import AppButton from '../button/Button'
 import FormSelect from '../formSelect/FormSelect'
 import dayjs from 'dayjs'
 import { SET_LOADING } from '../../redux/app'
-
-const { Step } = Steps
 
 const AccountCreationWizard = ({
   formData,
@@ -34,13 +32,20 @@ const AccountCreationWizard = ({
   const anchorStatus = String(formData?.status || '').toLowerCase()
   const hasExistingAnchorRecord = String(formData?.vendor || '').toLowerCase() === 'anchor'
   const isAnchorKycVerified = ['verified', 'completed'].includes(anchorStatus)
+  const profile = user?.user_profile || {}
+  const userKyc = user?.user_kyc || {}
+  const platformBvnVerified =
+    String(userKyc?.bvn_status || '').toLowerCase() === 'verified' || Boolean(userKyc?.bvn_verified_at)
   const requiresProvisionOnly = (
     backendFlowState === 'customer_created_no_deposit_account' &&
     backendCapabilities?.can_provision_account_number !== false
   ) || (hasExistingAnchorRecord && isAnchorKycVerified && !formData?.account_number)
+  const missingFields = Array.isArray(formData?.details?.missing_fields) ? formData.details.missing_fields : []
+  const genderLocked = Boolean(formData?.gender || profile?.gender)
+  const dobLocked = Boolean(formData?.dob || profile?.date_of_birth)
+  const bvnLocked = platformBvnVerified && !formData?.bvn
 
   const prefilledValues = useMemo(() => {
-    const profile = user?.user_profile || {}
     return {
       first_name: formData?.first_name || profile?.first_name || '',
       last_name: formData?.last_name || profile?.last_name || '',
@@ -53,15 +58,14 @@ const AccountCreationWizard = ({
       gender: formData?.gender || profile?.gender || undefined,
       dob: formData?.dob
         ? dayjs.isDayjs(formData.dob)
-          ? formData.dob
-          : dayjs(formData.dob)
+          ? formData.dob.format('YYYY-MM-DD')
+          : dayjs(formData.dob).format('YYYY-MM-DD')
         : profile?.date_of_birth
-        ? dayjs(profile.date_of_birth)
-        : null,
-      // Explicit policy: do not prefill BVN from backend/profile.
+        ? dayjs(profile.date_of_birth).format('YYYY-MM-DD')
+        : '',
       bvn: formData?.bvn || '',
     }
-  }, [formData, user])
+  }, [formData, profile, user])
 
   useEffect(() => {
     form.setFieldsValue(prefilledValues)
@@ -83,7 +87,7 @@ const AccountCreationWizard = ({
   }
 
   const runCreateFlow = async (values) => {
-    const normalizedDob = dayjs.isDayjs(values?.dob) ? values.dob.format('YYYY-MM-DD') : values?.dob
+    const normalizedDob = values?.dob || undefined
     const payload = {
       vendor: 'anchor',
       first_name: values?.first_name,
@@ -200,68 +204,76 @@ const AccountCreationWizard = ({
     {
       title: 'Confirm Details',
       content: (
-        <Form
-          layout="vertical"
-          form={form}
-          onValuesChange={(_, allValues) => setFormData((prev) => ({ ...prev, ...allValues }))}
-        >
-          <FormInput label="First Name" name="first_name" required placeholder="First name" />
-
-          <FormInput label="Last Name" name="last_name" required placeholder="Last name" />
-
-          <FormInput label="Email" name="email" required placeholder="Enter email" />
-
-          <FormInput
-            label="Phone Number"
-            name="phone_number"
-            required
-            placeholder="Enter phone number"
-          />
-
-          <FormInput label="Address" name="address" required placeholder="Street address" />
-
-          <FormInput label="City" name="city" required placeholder="Enter city" />
-
-          <FormInput label="State" name="state" required placeholder="Enter state" />
-
-          <FormInput label="Postal Code" name="postal_code" required placeholder="Enter postal code" />
-        </Form>
+        <div className="space-y-4">
+          {backendFlowState === 'blocked_profile_incomplete' ? (
+            <div className="rounded-xl border border-amber-800/60 bg-amber-950/30 px-4 py-3 text-sm text-amber-100">
+              Complete the missing profile fields required for Anchor onboarding.
+              {missingFields.length ? ` Missing: ${missingFields.join(', ')}.` : ''}
+            </div>
+          ) : null}
+          <Form
+            layout="vertical"
+            form={form}
+            onValuesChange={(_, allValues) => setFormData((prev) => ({ ...prev, ...allValues }))}
+          >
+            <FormInput label="First Name" name="first_name" required placeholder="First name" />
+            <FormInput label="Last Name" name="last_name" required placeholder="Last name" />
+            <FormInput label="Email" name="email" required placeholder="Enter email" />
+            <FormInput label="Phone Number" name="phone_number" required placeholder="Enter phone number" />
+            <FormInput label="Address" name="address" required placeholder="Street address" />
+            <FormInput label="City" name="city" required placeholder="Enter city" />
+            <FormInput label="State" name="state" required placeholder="Enter state" />
+            <FormInput label="Postal Code" name="postal_code" required placeholder="Enter postal code" />
+          </Form>
+        </div>
       ),
     },
     {
       title: 'Verify Identity',
       content: (
-        <Form
-          layout="vertical"
-          form={form}
-          onValuesChange={(_, allValues) => setFormData((prev) => ({ ...prev, ...allValues }))}
-        >
-          <FormInput label="BVN" name="bvn" required placeholder="Enter BVN" />
-
-          <FormSelect
-            label="Gender"
-            name="gender"
-            options={[
-              { value: 'male', label: 'Male' },
-              { value: 'female', label: 'Female' },
-            ]}
-            placeholder="male / female"
-          />
-
-          <Form.Item
-            label="Date of Birth"
-            name="dob"
-            rules={[{ required: true, message: 'Please select date of birth!' }]}
+        <div className="space-y-4">
+          <div className="rounded-xl border border-slate-800 bg-slate-950/60 px-4 py-3 text-sm text-slate-300">
+            {platformBvnVerified
+              ? 'Verified platform identity data will be reused for Anchor. Only complete fields that are still missing.'
+              : 'Provide the identity fields Anchor requires to finish your account setup.'}
+          </div>
+          <Form
+            layout="vertical"
+            form={form}
+            onValuesChange={(_, allValues) => setFormData((prev) => ({ ...prev, ...allValues }))}
           >
-            <DatePicker
-              className="!text-alt bg-transparent hover:bg-transparent border-alt py-3"
-              format="YYYY-MM-DD"
-              placeholder="Select date"
-              style={{ width: '100%' }}
-              disabledDate={(candidate) => candidate && candidate.valueOf() > Date.now()}
+            <FormInput
+              label="BVN"
+              name="bvn"
+              required={!bvnLocked}
+              disabled={bvnLocked}
+              placeholder={bvnLocked ? 'Verified on platform' : 'Enter BVN'}
             />
-          </Form.Item>
-        </Form>
+            <FormSelect
+              label="Gender"
+              name="gender"
+              required
+              disabled={genderLocked}
+              options={[
+                { value: 'male', label: 'Male' },
+                { value: 'female', label: 'Female' },
+              ]}
+              placeholder="male / female"
+            />
+            <Form.Item
+              label="Date of Birth"
+              name="dob"
+              rules={[{ required: true, message: 'Please select date of birth!' }]}
+            >
+              <input
+                type="date"
+                max={dayjs().format('YYYY-MM-DD')}
+                className="app-form-control"
+                disabled={dobLocked}
+              />
+            </Form.Item>
+          </Form>
+        </div>
       ),
     },
     {
@@ -271,7 +283,12 @@ const AccountCreationWizard = ({
           <h2 className="text-lg font-semibold mb-4 text-alt">Review your information</h2>
           <div className="bg-gray- rounded-xl p-4">
             {Object.entries(formData)?.map(([key, val]) => {
-              const displayVal = dayjs.isDayjs(val) ? val.format('YYYY-MM-DD') : val || '--'
+              const displayVal =
+                key === 'bvn' && !val && platformBvnVerified
+                  ? 'Verified on platform'
+                  : dayjs.isDayjs(val)
+                  ? val.format('YYYY-MM-DD')
+                  : val || '--'
 
               return (
                 <p key={key} className="text-alt capitalize">
@@ -301,12 +318,10 @@ const AccountCreationWizard = ({
           </p>
 
           <div className="mt-6 text-center">
-            <Progress
-              percent={100}
-              status="active"
-              format={() => <span className="text-alt">All Steps Completed</span>}
-              strokeColor="#1677ff"
-            />
+            <div className="h-2 w-full overflow-hidden rounded-full bg-slate-800">
+              <div className="h-full w-full rounded-full bg-alt" />
+            </div>
+            <span className="mt-3 inline-block text-sm text-alt">All Steps Completed</span>
           </div>
         </div>
       ),
@@ -340,11 +355,17 @@ const AccountCreationWizard = ({
 
   return (
     <div className="max-w-2xl mx-auto bg-gray shadow-xl rounded-2xl p-8 mt-10">
-      <Steps current={current} className="mb-8">
-        {steps.map((item) => (
-          <Step key={item.title} title={item.title} className="!text-white" />
-        ))}
-      </Steps>
+      <div className="wizard-steps mb-8">
+        {steps.map((item, index) => {
+          const state = index === current ? 'current' : index < current ? 'done' : 'upcoming'
+          return (
+            <div key={item.title} className={`wizard-steps__item wizard-steps__item--${state}`}>
+              <div className="wizard-steps__index">{index + 1}</div>
+              <div className="wizard-steps__title">{item.title}</div>
+            </div>
+          )
+        })}
+      </div>
 
       <AnimatePresence mode="wait">
         <motion.div
@@ -371,7 +392,7 @@ const AccountCreationWizard = ({
         ) : (
           <div className="text-center ">
             <AppButton
-              type="primary"
+              type="button"
               className={'!border-gray-700  !text-white'}
               size="large"
               onClick={() => setIsAncorModal(false)}

@@ -5,19 +5,40 @@
     }
   }
 
-  .ant-select {
-    .ant-select-selector {
-      background: none;
-      @apply border border-alt py-3 text-gray-200;
+  .app-form-select {
+    width: 100%;
+    background: transparent;
+    @apply border border-alt py-3 px-3 text-gray-200 rounded-md;
+
+    option {
+      background-color: #111827;
+      color: #e5e7eb;
+    }
+
+    &:disabled {
+      @apply opacity-60 cursor-not-allowed;
     }
   }
+
+  .app-form-select--multiple {
+    min-height: 8rem;
+  }
+
+  .app-select-hint {
+    @apply mt-2 text-xs text-gray-400;
+  }
+
   &.whiteBg {
     label {
       @apply text-black;
     }
-    .ant-select {
-      .ant-select-selector {
-        @apply text-gray-800;
+
+    .app-form-select {
+      @apply text-gray-800;
+
+      option {
+        background-color: white;
+        color: #1f2937;
       }
     }
   }
@@ -30,83 +51,104 @@
     }
   }
 
-  .ant-select {
-    .ant-select-selector {
-      background: none;
-      @apply border border-alt py-3 text-gray-200;
-
-      .ant-select-selection-placeholder {
-        @apply text-gray-200/50;
-      }
-    }
+  .app-form-select {
+    width: 100%;
+    background: transparent;
+    @apply border border-alt py-3 px-3 text-gray-200 rounded-md;
   }
+
   &.whiteBg {
     label {
       @apply text-black;
     }
-    .ant-select {
-      .ant-select-selector {
-        @apply text-gray-800;
-      }
+
+    .app-form-select {
+      @apply text-gray-800;
     }
   }
 }
 
-.ant-select {
-  .ant-select-selector {
-    background: none;
-    @apply border border-alt py-3 text-gray-200;
-  }
-  &.whiteBg {
-    .ant-select-selector {
-      @apply border border-alt py-3 text-gray-800;
-    }
-  }
+.plain-select-shell {
+  position: relative;
+  width: 100%;
 }
 
-.plain-select.ant-select {
-  .ant-select-selector {
-    background-color: #1f2937 !important;
-    border-color: #374151 !important;
-    color: #e5e7eb !important;
-  }
-
-  .ant-select-selection-placeholder {
-    color: rgba(229, 231, 235, 0.55) !important;
-  }
-
-  .ant-select-selection-item {
-    color: #e5e7eb !important;
-  }
-
-  .ant-select-selection-search-input {
-    color: #f3f4f6 !important;
-    background-color: transparent !important;
-  }
-
-  .ant-select-arrow {
-    color: #9ca3af !important;
-  }
+.plain-select-trigger {
+  width: 100%;
+  min-height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  border-radius: 0.5rem;
+  background-color: #1f2937;
+  border: 1px solid #374151;
+  color: #e5e7eb;
+  padding: 0.625rem 0.875rem;
+  text-align: left;
 }
 
-.plain-select-dropdown.ant-select-dropdown {
-  background-color: #111827 !important;
-  border: 1px solid #374151 !important;
+.plain-select-trigger__placeholder {
+  color: rgba(229, 231, 235, 0.55);
+}
 
-  .ant-select-item {
-    color: #e5e7eb !important;
-  }
+.plain-select-trigger__value {
+  color: #e5e7eb;
+}
 
-  .ant-select-item-option-active:not(.ant-select-item-option-disabled) {
-    background-color: #1f2937 !important;
-  }
+.plain-select-trigger__chevron {
+  color: #9ca3af;
+  transition: transform 0.15s ease;
+}
 
-  .ant-select-item-option-selected:not(.ant-select-item-option-disabled) {
-    background-color: #0f172a !important;
-    color: #f3f4f6 !important;
-  }
+.plain-select-trigger__chevron--open {
+  transform: rotate(180deg);
+}
 
-  .ant-empty-description {
-    color: #9ca3af !important;
-  }
+.plain-select-dropdown-native {
+  position: absolute;
+  top: calc(100% + 0.375rem);
+  left: 0;
+  right: 0;
+  z-index: 30;
+  border: 1px solid #374151;
+  border-radius: 0.75rem;
+  background-color: #111827;
+  box-shadow: 0 18px 38px rgba(2, 6, 23, 0.45);
+  padding: 0.5rem;
+}
+
+.plain-select-search {
+  width: 100%;
+  border-radius: 0.5rem;
+  border: 1px solid #374151;
+  background-color: #0f172a;
+  color: #f3f4f6;
+  padding: 0.625rem 0.75rem;
+  outline: none;
+}
+
+.plain-select-options {
+  max-height: 14rem;
+  overflow-y: auto;
+  margin-top: 0.5rem;
+}
+
+.plain-select-option {
+  width: 100%;
+  text-align: left;
+  border-radius: 0.5rem;
+  padding: 0.625rem 0.75rem;
+  color: #e5e7eb;
+}
+
+.plain-select-option:hover,
+.plain-select-option--active {
+  background-color: #1f2937;
+}
+
+.plain-select-empty {
+  padding: 0.75rem;
+  color: #9ca3af;
+  font-size: 0.875rem;
 }

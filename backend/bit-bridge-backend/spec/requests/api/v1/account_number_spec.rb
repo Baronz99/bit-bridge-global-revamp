@@ -38,7 +38,7 @@ RSpec.describe 'Anchor account number', type: :request do
 
     it 'returns anchor_phone_already_exists code when provider rejects duplicate phone' do
       user = build_user(:tier2)
-      Account.create!(user: user, vendor: 'anchor', account_type: :individual, useable_id: 'abc123')
+      Account.create!(user: user, vendor: 'anchor', account_type: :individual, useable_id: 'abc123', status: :completed)
       allow_any_instance_of(AnchorService).to receive(:create_account_number).and_return(
         { status: :bad_request, message: 'PhoneNumber already exist in this organization' }
       )
@@ -56,7 +56,7 @@ RSpec.describe 'Anchor account number', type: :request do
 
     it 'returns provider_unavailable code when provider is down' do
       user = build_user(:tier2)
-      Account.create!(user: user, vendor: 'anchor', account_type: :individual, useable_id: 'abc123')
+      Account.create!(user: user, vendor: 'anchor', account_type: :individual, useable_id: 'abc123', status: :completed)
       allow_any_instance_of(AnchorService).to receive(:create_account_number).and_return(
         { status: :bad_request, message: '503 Service unavailable', provider_status: 503, provider_body: { error: 'unavailable' } }
       )
@@ -72,7 +72,7 @@ RSpec.describe 'Anchor account number', type: :request do
 
     it 'returns anchor_phone_already_exists for alternate phone message' do
       user = build_user(:tier2)
-      Account.create!(user: user, vendor: 'anchor', account_type: :individual, useable_id: 'abc123')
+      Account.create!(user: user, vendor: 'anchor', account_type: :individual, useable_id: 'abc123', status: :completed)
       allow_any_instance_of(AnchorService).to receive(:create_account_number).and_return(
         { status: :bad_request, message: 'phone number already attached to customer', provider_status: 400, provider_body: { errors: [{ detail: 'phone number already attached' }] } }
       )
@@ -87,7 +87,7 @@ RSpec.describe 'Anchor account number', type: :request do
 
     it 'returns anchor_account_number_failed with request_id on generic errors' do
       user = build_user(:tier2)
-      Account.create!(user: user, vendor: 'anchor', account_type: :individual, useable_id: 'abc123')
+      Account.create!(user: user, vendor: 'anchor', account_type: :individual, useable_id: 'abc123', status: :completed)
       allow_any_instance_of(AnchorService).to receive(:create_account_number).and_return(
         { status: :bad_request, message: 'unknown error' }
       )
@@ -103,7 +103,7 @@ RSpec.describe 'Anchor account number', type: :request do
 
     it 'fails when provider returns success without account_number' do
       user = build_user(:tier2)
-      Account.create!(user: user, vendor: 'anchor', account_type: :individual, useable_id: 'abc123')
+      Account.create!(user: user, vendor: 'anchor', account_type: :individual, useable_id: 'abc123', status: :completed)
       allow_any_instance_of(AnchorService).to receive(:create_account_number).and_return(
         { status: :ok, response: Account.new(account_number: nil), provider_status: 200, provider_body: {} }
       )
@@ -120,7 +120,7 @@ RSpec.describe 'Anchor account number', type: :request do
 
     it 'passes the Account object via keyword args to AnchorService' do
       user = build_user(:tier2)
-      account = Account.create!(user: user, vendor: 'anchor', account_type: :individual, useable_id: 'abc123')
+      account = Account.create!(user: user, vendor: 'anchor', account_type: :individual, useable_id: 'abc123', status: :completed)
 
       expect_any_instance_of(AnchorService).to receive(:create_account_number)
         .with(type: account.account_type.to_sym, account: instance_of(Account))
@@ -138,7 +138,7 @@ RSpec.describe 'Anchor account number', type: :request do
 
     it 'returns 200 when eligible and service succeeds' do
       user = build_user(:tier2)
-      Account.create!(user: user, vendor: 'anchor', account_type: :individual, useable_id: 'abc123')
+      Account.create!(user: user, vendor: 'anchor', account_type: :individual, useable_id: 'abc123', status: :completed)
       payload = { 'account_number' => '1234567890' }
       allow_any_instance_of(AnchorService).to receive(:create_account_number).and_wrap_original do |m, **kwargs|
         kwargs[:account].update!(account_number: payload['account_number'])
@@ -186,7 +186,7 @@ RSpec.describe 'Anchor account number', type: :request do
       get '/api/v1/accounts/get_account_number', headers: auth_headers(user)
       expect(response).to have_http_status(:accepted)
       body = JSON.parse(response.body)
-      expect(body['message']).to match(/provisioning is in progress/i)
+      expect(body['message']).to eq('Anchor account created; account number pending')
       expect(body.dig('meta', 'provisioning_pending')).to eq(true)
       expect(body.dig('meta', 'retry_after_seconds')).to eq(5)
       expect(body.dig('flow', 'next_action')).to eq('provision_account_number')
@@ -232,6 +232,22 @@ RSpec.describe 'Anchor account number', type: :request do
       expect(body.dig('flow', 'next_action')).to eq('complete_kyc')
     end
 
+    it 'allows provisioning when anchor kyc has been webhook-approved as verified' do
+      user = build_user(:tier2)
+      Account.create!(user: user, vendor: 'anchor', account_type: :individual, useable_id: 'abc123', status: :verified)
+
+      allow_any_instance_of(AnchorService).to receive(:create_account_number).and_wrap_original do |_m, **kwargs|
+        kwargs[:account].update!(account_number: '1234567890')
+        { status: :ok, response: kwargs[:account] }
+      end
+
+      post '/api/v1/accounts/provision_account_number', headers: auth_headers(user)
+      expect(response).to have_http_status(:ok)
+      body = JSON.parse(response.body)
+      expect(body['data']['account_number']).to eq('1234567890')
+      expect(body.dig('flow', 'state')).to eq('provisioned')
+    end
+
     it 'returns already provisioned when account number already exists and backfills status' do
       user = build_user(:tier2)
       account = Account.create!(
@@ -258,7 +274,7 @@ RSpec.describe 'Anchor account number', type: :request do
         vendor: 'anchor',
         account_type: :individual,
         status: :completed,
-        useable_id: 'dep_acc_123'
+        useable_id: 'dep_acc_123-anc_acc'
       )
 
       allow_any_instance_of(AnchorService).to receive(:sync_anchor_deposit_account!).and_return(account)

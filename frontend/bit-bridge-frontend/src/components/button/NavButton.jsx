@@ -1,16 +1,15 @@
-import { Button } from 'antd'
 import './button-style.scss'
 import PropTypes from 'prop-types'
 
-const NavButton = ({ children, onClick, className }) => {
+const NavButton = ({ children, onClick, className = '' }) => {
   return (
-    <Button
+    <button
+      type="button"
       onClick={onClick}
-      className={`${className} button font-medium md:h-10  navbtn bg-alt border-none px-0`}
-      shape="round"
+      className={`app-button ${className} button font-medium md:h-10 navbtn bg-alt border-none px-4 rounded-full`.trim()}
     >
       {children}
-    </Button>
+    </button>
   )
 }
 
@@ -19,4 +18,5 @@ NavButton.propTypes = {
   onClick: PropTypes.func,
   className: PropTypes.string,
 }
+
 export default NavButton

@@ -1,5 +1,4 @@
 import { NavLink, useNavigate } from 'react-router-dom'
-// import SearchField from '../serachField/SearchField'
 import Nav from '../nav/Nav'
 import {
   MenuUnfoldOutlined,
@@ -8,14 +7,12 @@ import {
 } from '@ant-design/icons'
 import './style.scss'
 import logoIcon from '../../assets/logos/bitbridge-logo-clear.png'
-import { Badge, Button, Form } from 'antd'
 import { useEffect, useState } from 'react'
 import DrawerModal from '../drawer/Drawer'
 import Carts from '../carts/Carts'
 import { useDispatch, useSelector } from 'react-redux'
 import { GET_CART, SET_LOADING } from '../../redux/app'
 import { userLogin, userLogout } from '../../redux/actions/auth'
-import FormInput from '../formInput/FormInput'
 import ClassicBtn from '../button/ClassicButton'
 
 const Header = () => {
@@ -29,10 +26,30 @@ const Header = () => {
   const [showLogin, setShowLogin] = useState(false)
   const { user } = useSelector((state) => state.auth)
   const dispatch = useDispatch()
+  const [loginForm, setLoginForm] = useState({ email: '', password: '' })
+  const [loginLoading, setLoginLoading] = useState(false)
 
   useEffect(() => {
     dispatch(GET_CART())
   }, [dispatch])
+
+  const handleLoginSubmit = async (event) => {
+    event.preventDefault()
+    setLoginLoading(true)
+    dispatch(SET_LOADING(true))
+
+    try {
+      const result = await dispatch(userLogin({ user: loginForm }))
+      if (userLogin.fulfilled.match(result)) {
+        navigate('/dashboard/home')
+        setShowLogin(false)
+        setLoginForm({ email: '', password: '' })
+      }
+    } finally {
+      setLoginLoading(false)
+      dispatch(SET_LOADING(false))
+    }
+  }
 
   return (
     <>
@@ -49,23 +66,22 @@ const Header = () => {
         <div className="max-w-app-layout -700 m-auto px-4">
           <div className="flex gap-3 flex-wrap md:flex-row flex-col justify-between items-center">
             <div className="w-full md:w-max flex items-center gap-4">
-              <Button
+              <button
+                type="button"
                 onClick={() => setToggle((prev) => !prev)}
-                className="md:hidden nav-btn"
-                shape="circle"
-                icon={<MenuUnfoldOutlined />}
-              />
+                className="md:hidden nav-btn inline-flex h-10 w-10 items-center justify-center rounded-full border border-slate-700 bg-transparent text-slate-200"
+                aria-label="Toggle navigation"
+              >
+                <MenuUnfoldOutlined />
+              </button>
 
-              {/* Brand lockup */}
               <NavLink to="/" className="flex items-center gap-3">
-                {/* Icon-only logo */}
                 <img
                   src={logoIcon}
                   alt="BitBridge Global logo"
                   className="h-10 w-10 object-contain"
                 />
 
-                {/* Wordmark – now visible on mobile too */}
                 <div className="leading-tight">
                   <div className="text-slate-100 font-semibold tracking-[0.16em] text-[11px] md:text-xs uppercase">
                     BIT BRIDGE
@@ -86,16 +102,17 @@ const Header = () => {
                 Get App
               </a>
 
-              <Badge className="badge" count={cartItems.length} showZero>
-                <Button
-                  className="bg-none"
-                  onClick={() => setOpen(true)}
-                  type="default"
-                  shape="circle"
-                  icon={<ShoppingCartOutlined className={`${inActive}`} />}
-                  size="middle"
-                />
-              </Badge>
+              <button
+                type="button"
+                className="relative inline-flex h-10 w-10 items-center justify-center rounded-full border border-slate-700 bg-transparent text-slate-200"
+                onClick={() => setOpen(true)}
+                aria-label="Open cart"
+              >
+                <ShoppingCartOutlined className={`${inActive}`} />
+                <span className="absolute -right-1 -top-1 inline-flex min-h-5 min-w-5 items-center justify-center rounded-full bg-alt px-1 text-[10px] font-semibold text-black">
+                  {cartItems.length}
+                </span>
+              </button>
 
               {user ? (
                 <NavLink
@@ -119,28 +136,28 @@ const Header = () => {
                     } absolute py-4 w-60 right-0`}
                   >
                     <div className="p-2 z-50 bg-gray-900 border border-primary rounded-lg">
-                      <Form
-                        initialValues={{
-                          email: '',
-                          password: '',
-                        }}
-                        onFinish={(values) => {
-                          dispatch(SET_LOADING(true))
-
-                          dispatch(userLogin({ user: values })).then((result) => {
-                            if (userLogin.fulfilled.match(result)) {
-                              dispatch(SET_LOADING(false))
-                              navigate('/dashboard/home')
-                              setShowLogin(false)
-                            } else if (userLogin.rejected.match(result)) {
-                              dispatch(SET_LOADING(false))
-                            }
-                          })
-                        }}
-                      >
-                        <FormInput name="email" placeholder="Email" />
-                        <FormInput type="password" name="password" placeholder="**********" />
-                        <ClassicBtn htmlType="submit" className="w-full">
+                      <form className="space-y-3" onSubmit={handleLoginSubmit}>
+                        <input
+                          type="email"
+                          value={loginForm.email}
+                          onChange={(event) =>
+                            setLoginForm((prev) => ({ ...prev, email: event.target.value }))
+                          }
+                          placeholder="Email"
+                          className="w-full rounded-md border border-slate-700 bg-slate-950 px-3 py-3 text-sm text-white outline-none focus:border-alt"
+                          required
+                        />
+                        <input
+                          type="password"
+                          value={loginForm.password}
+                          onChange={(event) =>
+                            setLoginForm((prev) => ({ ...prev, password: event.target.value }))
+                          }
+                          placeholder="**********"
+                          className="w-full rounded-md border border-slate-700 bg-slate-950 px-3 py-3 text-sm text-white outline-none focus:border-alt"
+                          required
+                        />
+                        <ClassicBtn htmlType="submit" isLoading={loginLoading} className="w-full !my-0">
                           Sign In
                         </ClassicBtn>
                         <NavLink
@@ -149,8 +166,8 @@ const Header = () => {
                         >
                           Confirm Account
                         </NavLink>
-                      </Form>
-                      <NavLink to="/signup" className={`${inActive} block text-center`}>
+                      </form>
+                      <NavLink to="/signup" className={`${inActive} block text-center mt-3`}>
                         Sign up
                       </NavLink>
                     </div>

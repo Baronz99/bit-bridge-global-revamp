@@ -21,6 +21,7 @@ import FormInput from '../../../components/formInput/FormInput'
 import { createUserTransaction } from '../../../redux/actions/transaction'
 import { SET_LOADING } from '../../../redux/app'
 import client from '../../../api/client'
+import { getAdminUserKycReuse } from '../../../api/adminOps'
 
 const ViewUser = () => {
   const { id } = useParams()
@@ -54,12 +55,42 @@ const ViewUser = () => {
   const [providerLookupRefs, setProviderLookupRefs] = useState({})
   const [providerLookupResult, setProviderLookupResult] = useState({})
   const [enrichLoading, setEnrichLoading] = useState({})
+  const [kycReuseLoading, setKycReuseLoading] = useState(false)
+  const [kycReuseError, setKycReuseError] = useState('')
+  const [kycReuse, setKycReuse] = useState(null)
 
   const [form] = Form.useForm()
 
   useEffect(() => {
     dispatch(getUser(id))
   }, [dispatch, id])
+
+  useEffect(() => {
+    let active = true
+
+    const loadKycReuse = async () => {
+      try {
+        setKycReuseLoading(true)
+        setKycReuseError('')
+        const res = await getAdminUserKycReuse(id)
+        if (!active) return
+        setKycReuse(res?.data?.data?.kyc_reuse || null)
+      } catch (error) {
+        if (!active) return
+        setKycReuseError(
+          error?.response?.data?.message || 'Unable to load reusable BVN triage.'
+        )
+      } finally {
+        if (active) setKycReuseLoading(false)
+      }
+    }
+
+    loadKycReuse()
+
+    return () => {
+      active = false
+    }
+  }, [id])
 
   const handleSubmit = (values) => {
     dispatch(SET_LOADING(true))
@@ -488,6 +519,39 @@ const ViewUser = () => {
 
   const kycLevelLabel = user?.kyc_level || 'Not set'
   const idTypeLabel = user?.id_type ? user.id_type.toUpperCase() : 'Not provided'
+  const kycReuseActionLabel =
+    kycReuse?.recommended_action === 'secure_reconciliation_for_anchor_and_cards'
+      ? 'Anchor and cards exposed'
+      : kycReuse?.recommended_action === 'secure_reconciliation_for_cards'
+      ? 'Cards exposed'
+      : kycReuse?.recommended_action === 'monitor_anchor_safe_cards_risky'
+      ? 'Anchor safe, cards risky'
+      : kycReuse?.recommended_action === 'secure_bvn_reentry_before_anchor_or_cards'
+      ? 'Re-entry before Anchor or cards'
+      : 'No immediate action'
+  const kycReuseStatusLabel = kycReuse?.needs_review
+    ? 'Needs review'
+    : kycReuse?.reusable_bvn_available
+    ? 'Reusable'
+    : kycReuse?.bvn_verified
+    ? 'Verified only'
+    : 'Not verified'
+  const kycReuseSupportInstruction =
+    kycReuse?.recommended_action === 'secure_reconciliation_for_anchor_and_cards'
+      ? 'Pause Anchor and card assistance until support securely reconciles reusable BVN for this user.'
+      : kycReuse?.recommended_action === 'secure_reconciliation_for_cards'
+      ? 'Do not continue card setup until the user securely re-enters BVN or support reconciles the reusable BVN record.'
+      : kycReuse?.recommended_action === 'monitor_anchor_safe_cards_risky'
+      ? 'Anchor is already safe. Only block future card setup until reusable BVN is restored.'
+      : kycReuse?.recommended_action === 'secure_bvn_reentry_before_anchor_or_cards'
+      ? 'Direct the user to secure BVN re-entry before starting Anchor or card flows.'
+      : 'No support action is required right now.'
+  const kycReuseSupportTone =
+    kycReuse?.needs_review && (kycReuse?.has_anchor_account || kycReuse?.has_cards || kycReuse?.has_cardholder_profile)
+      ? 'is-risk'
+      : kycReuse?.needs_review
+      ? 'is-warning'
+      : 'is-safe'
 
   const isStudentUseCase = user?.primary_use_case === 'student_life'
   const pinSetLabel = user?.transaction_pin_set ? 'Set' : 'Not set'
@@ -790,6 +854,53 @@ const ViewUser = () => {
               ) : null}
             </div>
             {revealError ? <p className="admin-reveal-error">{revealError}</p> : null}
+
+            <div className="admin-user-card admin-user-card--subtle admin-kyc-reuse">
+              <div className="admin-card-header">
+                <div>
+                  <p className="admin-card-eyebrow">Downstream reuse</p>
+                  <h2>Reusable BVN triage</h2>
+                </div>
+                <div className="admin-card-aside">
+                  <span className="admin-card-label">Status</span>
+                  <span className={`admin-badge ${kycReuse?.needs_review ? 'is-warning' : 'is-active'}`}>
+                    {kycReuseStatusLabel}
+                  </span>
+                </div>
+              </div>
+
+              {kycReuseLoading ? (
+                <p className="admin-empty">Loading reusable BVN triage...</p>
+              ) : kycReuseError ? (
+                <p className="admin-reveal-error">{kycReuseError}</p>
+              ) : (
+                <>
+                  <p className="admin-kyc-reuse-copy">
+                    {kycReuse?.needs_review
+                      ? 'This user is marked BVN-verified on the platform, but provider-safe BVN reuse is not available yet.'
+                      : 'This user has a reusable BVN posture that is safe for downstream provider flows.'}
+                  </p>
+                  <div className="admin-kyc-reuse-flags">
+                    <span className={`admin-chip ${kycReuse?.reusable_bvn_available ? 'is-safe' : 'is-risk'}`}>
+                      Reusable BVN: {kycReuse?.reusable_bvn_available ? 'Yes' : 'No'}
+                    </span>
+                    <span className="admin-chip">
+                      Anchor: {kycReuse?.has_anchor_account ? (kycReuse?.anchor_account_provisioned ? 'Provisioned' : 'Started') : 'No account'}
+                    </span>
+                    <span className="admin-chip">
+                      Cards: {kycReuse?.has_cards ? 'Active cards' : kycReuse?.has_cardholder_profile ? 'Cardholder only' : 'No card setup'}
+                    </span>
+                    <span className="admin-chip">
+                      Guidance: {kycReuseActionLabel}
+                    </span>
+                  </div>
+                  <div className={`admin-kyc-reuse-note ${kycReuseSupportTone}`}>
+                    <span className="admin-kyc-reuse-note__label">Support next step</span>
+                    <p>{kycReuseSupportInstruction}</p>
+                  </div>
+                </>
+              )}
+            </div>
 
             <div className="admin-user-grid admin-user-grid--wide">
               <div className="admin-kv">

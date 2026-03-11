@@ -4,6 +4,7 @@ import {
   createCard,
   getBeneficiaries,
   getAccounts,
+  getAccountSummary,
   getAnchorOnboardingState,
   getBankList,
   getUserAccount,
@@ -20,6 +21,8 @@ const initialState = {
   message: '',
   card: null,
   anchorOnboarding: null,
+  accountSummary: null,
+  accountSummaryLoading: false,
 }
 
 const AccountSlice = createSlice({
@@ -99,6 +102,26 @@ const AccountSlice = createSlice({
         return {
           ...state,
           loading: true,
+        }
+      })
+      .addCase(getAccountSummary.fulfilled, (state, action) => {
+        return {
+          ...state,
+          accountSummary: action.payload || null,
+          accountSummaryLoading: false,
+        }
+      })
+      .addCase(getAccountSummary.rejected, (state, action) => {
+        return {
+          ...state,
+          message: action.payload?.message,
+          accountSummaryLoading: false,
+        }
+      })
+      .addCase(getAccountSummary.pending, (state) => {
+        return {
+          ...state,
+          accountSummaryLoading: true,
         }
       })
       .addCase(getBankList.fulfilled, (state, action) => {
@@ -210,3 +233,5 @@ const AccountSlice = createSlice({
 })
 
 export default AccountSlice.reducer
+
+

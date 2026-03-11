@@ -21,36 +21,30 @@ const AboutUs = () => {
             <h3 className="text-2xl text-primary font-semibold"> Why Choose Bit Bridge Global? </h3>
             <p className="md:text-base my-5 text-justify text-gray-700">
               We stand out as a reliable and customer-centric platform committed to simplifying
-              financial transactions. Here’s why thousands trust us:
+              financial transactions. Hereâ€™s why thousands trust us:
             </p>
             <div>
               <p className="text-gray-800 text-base my-4 font-normal">
-                <span className="font-semibold">✅ Fast Transactions –</span> Enjoy instant
+                <span className="font-semibold">âœ… Fast Transactions â€“</span> Enjoy instant
                 processing for bill payments.
               </p>
             </div>
 
             <div>
               <p className="text-gray-800 text-base my-4 font-normal">
-                <span className="font-semibold">✅ Secure & Reliable –</span> Your data and
+                <span className="font-semibold">âœ… Secure & Reliable â€“</span> Your data and
                 transactions are safeguarded with industry-leading security measures
               </p>
             </div>
-            {/* <div>
-              <p className="text-gray-800 text-base my-4 font-normal">
-                <span className="font-semibold">✅ Competitive Rates –</span> Get the best market
-                value for your gift card trades
-              </p>
-            </div> */}
             <div>
               <p className="text-gray-800 text-base my-4 font-normal">
-                <span className="font-semibold">✅ 24/7 Customer Support –</span> Our dedicated team
+                <span className="font-semibold">âœ… 24/7 Customer Support â€“</span> Our dedicated team
                 is always available to assist you
               </p>
             </div>
             <div>
               <p className="text-gray-800 text-base my-4 font-normal">
-                <span className="font-semibold">✅ User-Friendly Experience –</span> Our platform is
+                <span className="font-semibold">âœ… User-Friendly Experience â€“</span> Our platform is
                 designed for smooth navigation on both desktop and mobile devices.
               </p>
             </div>
@@ -58,16 +52,6 @@ const AboutUs = () => {
             <div>
               <h3 className="text-2xl text-primary font-semibold"> Our Services </h3>
 
-              {/* <div>
-                <p className="text-gray-800 text-base my-4 font-semibold">
-                  1. Trade Gift Cards for Instant Cash
-                </p>
-                <p className="text-gray-800 px-4 font-semibold">
-                  Got unused or unwanted gift cards? Convert them into cash effortlessly! We support
-                  a wide range of gift cards, offering <bold>competitive rates</bold> and{' '}
-                  <bold>instant payouts</bold>
-                </p>
-              </div> */}
               <div>
                 <p className="text-gray-800 text-base my-4 font-semibold">
                   1. Pay Utility Bills with Ease
@@ -90,7 +74,7 @@ const AboutUs = () => {
 
               <div className="my-6">
                 <p className="text-gray-700">
-                  We go beyond just transactions – we are committed to providing exceptional
+                  We go beyond just transactions â€“ we are committed to providing exceptional
                   customer service. Whether you need assistance with bill payments, or navigating
                   our platform, our team of experts is here to offer personalized guidance and
                   ensure a seamless experience.
@@ -119,7 +103,7 @@ const AboutUs = () => {
                   <p className="text-base text-gray-800 my-5">
                     {' '}
                     Experience the convenience of paying your bills with *Bit Bridge Global*.
-                    Get started today!{' '}
+                    GetÂ startedÂ today!{' '}
                   </p>
                 </p>
               </div>

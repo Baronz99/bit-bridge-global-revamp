@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useDispatch, useSelector } from 'react-redux'
 import { userDelete, userPasswordUpdate, userProfile } from '../../redux/actions/auth'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { SET_LOADING, setThemeMode } from '../../redux/app'
 import AppModal from '../../components/modal/Modal'
 import { toast } from 'react-toastify'
@@ -19,7 +19,7 @@ import FeesLimitsPanel from './profile/FeesLimitsPanel' // ✅ NEW
 
 // helper from onboarding API
 import { updateKycProfile } from '../../api/onboarding'
-import client from '../../api/client'
+import { verifyNin } from '../../api/kyc'
 
 // ID type options
 const idTypeOptions = [
@@ -282,9 +282,14 @@ const proofOfAddressOptions = [
   { value: 'other', label: 'Other' },
 ]
 
+const VALID_PROFILE_SECTIONS = ['profile', 'kyc', 'security', 'fees', 'danger']
+
+const resolveActiveSection = (value) =>
+  VALID_PROFILE_SECTIONS.includes(value) ? value : 'profile'
 const ProfileAccountPage = () => {
   const dispatch = useDispatch()
   const navigate = useNavigate()
+  const [searchParams, setSearchParams] = useSearchParams()
   const { user } = useSelector((state) => state.auth)
   const { themeMode } = useSelector((state) => state.app || {})
 
@@ -334,6 +339,17 @@ const ProfileAccountPage = () => {
     user?.phone_verified === true ||
     !!user?.phone_verified_at ||
     !!up?.phone_verified_at
+
+  useEffect(() => {
+    const nextSection = resolveActiveSection(searchParams.get('section'))
+    setActive((current) => (current === nextSection ? current : nextSection))
+  }, [searchParams])
+
+  const openSection = (section) => {
+    const nextSection = resolveActiveSection(section)
+    setActive(nextSection)
+    setSearchParams({ section: nextSection })
+  }
 
   // IMPORTANT:
   // Never push phone_e164 into the editable input.
@@ -427,7 +443,7 @@ const ProfileAccountPage = () => {
 
       if (shouldVerifyNin) {
         try {
-          const ninRes = await client.post('/kyc/nin/verify', { nin: submittedNin })
+          const ninRes = await verifyNin(submittedNin)
           const ninPayload = ninRes?.data || {}
           const displayTitle = String(ninPayload?.display?.title || '').trim()
           const displayMessage = String(ninPayload?.display?.message || '').trim()
@@ -491,8 +507,7 @@ const ProfileAccountPage = () => {
       dispatch(SET_LOADING(false))
     }
   }
-
-  const handlePasswordUpdate = () => {
+const handlePasswordUpdate = () => {
     if (userPassword.password !== userPassword.confirm_password) {
       toast('password mismatch', { type: 'error' })
       return
@@ -517,8 +532,7 @@ const ProfileAccountPage = () => {
       }
     })
   }
-
-  const handleUserDelete = () => {
+const handleUserDelete = () => {
     dispatch(SET_LOADING(true))
     dispatch(userDelete(user.id)).then((result) => {
       if (userDelete.fulfilled.match(result)) {
@@ -537,7 +551,7 @@ const ProfileAccountPage = () => {
     return (
       <button
         type="button"
-        onClick={() => setActive(id)}
+        onClick={() => openSection(id)}
         className={[
           'relative w-full text-left rounded-2xl border px-4 py-3 transition',
           'backdrop-blur',
@@ -732,3 +746,11 @@ const ProfileAccountPage = () => {
 }
 
 export default ProfileAccountPage
+
+
+
+
+
+
+
+

@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import { FireOutlined, GiftOutlined, ThunderboltOutlined, TrophyOutlined } from '@ant-design/icons'
-import client from '../../api/client'
+import { getRewards } from '../../api/rewards'
 import nairaFormat from '../../utils/nairaFormat'
 
 const Rewards = () => {
@@ -14,7 +14,7 @@ const Rewards = () => {
     const loadRewards = async () => {
       setLoading(true)
       try {
-        const response = await client.get('/rewards')
+        const response = await getRewards()
         if (!active) return
         setSummary(response?.data?.data || null)
         setRewards(Array.isArray(response?.data?.rewards) ? response.data.rewards : [])
@@ -240,3 +240,4 @@ const Rewards = () => {
 }
 
 export default Rewards
+

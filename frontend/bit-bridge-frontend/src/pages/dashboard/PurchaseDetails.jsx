@@ -238,7 +238,7 @@ const DashboardPurchaseDetails = () => {
 
     const loadRewards = async () => {
       try {
-        const response = await client.get('/rewards')
+        const response = await getRewards()
         if (!active) return
         setRewardsSummary(response?.data?.data || null)
       } catch {
@@ -344,4 +344,6 @@ const DashboardPurchaseDetails = () => {
 }
 
 export default DashboardPurchaseDetails
+
+
 

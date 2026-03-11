@@ -61,6 +61,7 @@ Rails.application.routes.draw do
 
       # Service availability (unknown-first signal)
       get "service_availability", to: "service_availability#index"
+      get "service_catalog", to: "service_catalog#index"
 
       scope :funding do
         get "anchor_pooled_account", to: "funding#anchor_pooled_account"
@@ -156,6 +157,7 @@ Rails.application.routes.draw do
           get  :get_account_number
           post :provision_account_number
           get  :anchor_onboarding_state
+          get  :account_summary
           get  :user_accounts
           get  :get_user_account_detail
           get  :get_account_details
@@ -337,6 +339,7 @@ Rails.application.routes.draw do
 
       # Bridge/Tunnel/Core alias groups
       scope :bridge, as: :bridge do
+        get "catalog", to: "service_catalog#index", defaults: { section: "bridge" }, as: :catalog
         get "timeline",     to: "timeline#index", as: :timeline
         get "timeline/:id", to: "timeline#show",  as: :timeline_item
 
@@ -391,6 +394,7 @@ Rails.application.routes.draw do
       end
 
       scope :tunnel, as: :tunnel do
+        get "catalog", to: "service_catalog#index", defaults: { section: "tunnel" }, as: :catalog
         scope :funding, as: :funding do
           get  "pooled_account", to: "funding#anchor_pooled_account", as: :pooled_account
           post "intents",        to: "funding#create",                as: :intents
@@ -464,6 +468,7 @@ Rails.application.routes.draw do
       end
 
       scope :core, as: :core do
+        get "catalog", to: "service_catalog#index", defaults: { section: "core" }, as: :catalog
         scope :auth, as: :auth do
           post   "login",           to: "sessions#create",         as: :login
           post   "refresh",         to: "users/sessions#refresh", as: :refresh
@@ -528,6 +533,7 @@ Rails.application.routes.draw do
         resources :kyc_reviews, only: %i[index update]
         get "pricing-spec", to: "pricing_spec#show"
         get "ops/health",   to: "ops#health"
+        get "ops/health/users/:user_id", to: "ops#user_kyc_reuse"
         get "ops/summary",  to: "ops#summary"
         resources :transaction_records, only: [:index]
         resources :refund_requests, only: %i[index create update]

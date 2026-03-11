@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useSelector } from 'react-redux'
 import { useNavigate } from 'react-router-dom'
 import ClassicBtn from '../../components/button/ClassicButton'
-import client from '../../api/client'
+import { createCircle, getCircles } from '../../api/circles'
 import { toast } from 'react-toastify'
 import { needsTier2Access, withTier2MissingDetails } from '../../utils/kycGate'
 
@@ -68,7 +68,7 @@ const CirclesPage = () => {
 
         // client will attach token + Accept JSON automatically.
         // If token is missing, client may 401; we show a helpful message.
-        const res = await client.get('/circles')
+        const res = await getCircles()
         const data = res?.data
 
         setGroups(Array.isArray(data) ? data : [])
@@ -110,7 +110,7 @@ const CirclesPage = () => {
       setError(null)
 
       // Rails typically expects { circle: {...} } – keep this payload shape.
-      const res = await client.post('/circles', {
+      const res = await createCircle({
         circle: {
           name: form.name.trim(),
           purpose: form.purpose.trim(),
@@ -505,3 +505,4 @@ const CirclesPage = () => {
 }
 
 export default CirclesPage
+

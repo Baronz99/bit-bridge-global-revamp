@@ -1,19 +1,10 @@
-import { Alert, Flex, Spin } from 'antd'
-const contentStyle = {
-  padding: 50,
-  background: 'rgba(0, 0, 0, 0.05)',
-  borderRadius: 4,
-}
-const content = <div style={contentStyle} />
 const Spinner = () => (
-  <Flex gap="middle" vertical>
-    <Spin tip="Loading...">
-      {/* <Alert
-        message="Alert message title"
-        description="Further details about the context of this alert."
-        type="info"
-      /> */}
-    </Spin>
-  </Flex>
+  <div className="flex items-center justify-center p-6">
+    <div className="inline-flex items-center gap-3 rounded-lg bg-black/5 px-4 py-3 text-sm text-slate-600">
+      <div className="h-6 w-6 animate-spin rounded-full border-2 border-slate-400 border-t-transparent" />
+      <span>Loading...</span>
+    </div>
+  </div>
 )
+
 export default Spinner

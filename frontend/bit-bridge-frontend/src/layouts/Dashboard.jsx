@@ -1,22 +1,20 @@
 // src/layouts/DashboardLayout.jsx
 
 import {
+  AppstoreOutlined,
+  CompassOutlined,
   HomeOutlined,
   LoginOutlined,
   MenuUnfoldOutlined,
-  UserOutlined,
-  WalletOutlined,
-  CreditCardOutlined,
-  IdcardOutlined,
+  ProfileOutlined,
+  SafetyOutlined,
 } from '@ant-design/icons'
 import PropTypes from 'prop-types'
 import { Navigate, NavLink, Outlet, useLocation } from 'react-router-dom'
-import SignalCellularAltIcon from '@mui/icons-material/SignalCellularAlt'
 import { useDispatch, useSelector } from 'react-redux'
 import { useEffect, useRef, useState } from 'react'
 import { userLogout } from '../redux/actions/auth'
 import DropDown from '../components/dropDown/DropDown'
-import { LuUtilityPole } from 'react-icons/lu'
 import { getWallet } from '../redux/actions/wallet'
 import DrawerModal from '../components/drawer/Drawer'
 import { SET_LOADING } from '../redux/app'
@@ -28,6 +26,7 @@ const DashboardLayout = () => {
   const dispatch = useDispatch()
   const sideNavRef = useRef(null)
   const menuRef = useRef(null)
+  const hasFetchedWallet = useRef(false)
   const { user, loading } = useSelector((state) => state.auth)
   const { themeMode } = useSelector((state) => state.app || {})
   const [open, setOpen] = useState(false)
@@ -51,6 +50,8 @@ const DashboardLayout = () => {
   }, [])
 
   useEffect(() => {
+    if (hasFetchedWallet.current) return
+    hasFetchedWallet.current = true
     dispatch(getWallet())
   }, [dispatch])
 
@@ -69,43 +70,14 @@ const DashboardLayout = () => {
   const sectionTitleClass = 'text-[10px] uppercase tracking-[0.22em] text-slate-500 text-center mb-2'
   const desktopSectionClass = 'px-3 lg:px-4 border-r border-slate-800/70 last:border-r-0'
   const mobileSectionTitleClass = 'text-[10px] uppercase tracking-[0.22em] text-slate-500'
+  const kycTierLabel = (user?.kyc_level || 'tier_0').replace('_', ' ').toUpperCase()
+  const kycTierTone = (user?.kyc_level || 'tier_0') === 'tier_0' ? 'border-amber-900/60 bg-amber-950/25 text-amber-300' : 'border-emerald-900/60 bg-emerald-950/25 text-emerald-300'
 
   const navSections = [
-    {
-      title: 'Bridge',
-      items: [
-        { to: '/dashboard/bridge/wallet', label: 'Wallet', icon: WalletOutlined },
-        { to: '/dashboard/bridge/utilities', label: 'Utilities', icon: LuUtilityPole },
-        { to: '/dashboard/bridge/circles', label: 'Circles', icon: UserOutlined },
-        { to: '/dashboard/bridge/rewards', label: 'Rewards', icon: LuUtilityPole },
-      ],
-    },
-    {
-      title: 'Tunnel',
-      items: [
-        { to: '/dashboard/tunnel/cards', label: 'Cards', icon: CreditCardOutlined },
-        { to: '/dashboard/tunnel/virtual-accounts', label: 'Accounts', icon: WalletOutlined },
-        { to: '/dashboard/tunnel/wallet', label: 'Wallet', icon: WalletOutlined },
-        { to: '/dashboard/tunnel/fx', label: 'FX', icon: SignalCellularAltIcon },
-      ],
-    },
-    {
-      title: 'Activity',
-      items: [
-        {
-          to: '/dashboard/activity/transactions',
-          label: 'Transactions',
-          icon: SignalCellularAltIcon,
-        },
-      ],
-    },
-    {
-      title: 'Core',
-      items: [
-        { to: '/dashboard/core/kyc', label: 'Verification', icon: IdcardOutlined },
-        { to: '/dashboard/core/profile', label: 'Profile', icon: UserOutlined },
-      ],
-    },
+    { title: 'Bridge', to: '/dashboard/bridge', icon: AppstoreOutlined },
+    { title: 'Tunnel', to: '/dashboard/tunnel', icon: CompassOutlined },
+    { title: 'Activity', to: '/dashboard/activity', icon: ProfileOutlined },
+    { title: 'Core', to: '/dashboard/core', icon: SafetyOutlined },
   ]
 
   const renderNavItem = ({ to, label, icon: Icon }, extraClass = '') => (
@@ -149,6 +121,7 @@ const DashboardLayout = () => {
           </NavLink>
 
           <div className="md:flex w-full max-w-5xl items-start justify-between hidden text-gray-200 gap-4">
+            <div className={`inline-flex items-center gap-2 self-center rounded-full border px-3 py-2 text-[11px] uppercase tracking-[0.18em] ${kycTierTone}`}><SafetyOutlined className="text-sm" /><span>{kycTierLabel}</span></div>
             <nav className="flex-1 flex justify-center">
               <div className="flex items-start rounded-2xl border border-slate-800/70 bg-black/30 px-3 py-3">
                 <div className={desktopSectionClass}>
@@ -158,11 +131,7 @@ const DashboardLayout = () => {
                 {navSections.map((section) => (
                   <div key={section.title} className={desktopSectionClass}>
                     <div className={sectionTitleClass}>{section.title}</div>
-                    <div className="flex gap-4 lg:gap-5">
-                      {section.items.map((item) => (
-                        <div key={item.to}>{renderNavItem(item)}</div>
-                      ))}
-                    </div>
+                    {renderNavItem({ to: section.to, label: section.title, icon: section.icon })}
                   </div>
                 ))}
               </div>
@@ -171,7 +140,7 @@ const DashboardLayout = () => {
             <DropDown />
           </div>
 
-          <div className="flex gap-4 md:hidden" />
+          <div className="flex items-center gap-2 md:hidden"><div className={`inline-flex items-center gap-1 rounded-full border px-2 py-1 text-[10px] uppercase tracking-[0.16em] ${kycTierTone}`}><SafetyOutlined className="text-[11px]" /><span>{kycTierLabel}</span></div></div>
         </header>
 
         <div className="bb-dashboard-frame flex overflow-hidden mt-0 h-full flex-1 w-full md:px-6">
@@ -191,13 +160,9 @@ const DashboardLayout = () => {
                   {navSections.map((section) => (
                     <div key={section.title} className="flex flex-col gap-4">
                       <div className={mobileSectionTitleClass}>{section.title}</div>
-                      <ul className="flex flex-col gap-4">
-                        {section.items.map((item) => (
-                          <li key={item.to} onClick={() => setOpen(false)}>
-                            {renderNavItem(item, 'items-start')}
-                          </li>
-                        ))}
-                      </ul>
+                      <div onClick={() => setOpen(false)}>
+                        {renderNavItem({ to: section.to, label: section.title, icon: section.icon }, 'items-start')}
+                      </div>
                     </div>
                   ))}
 
@@ -248,3 +213,5 @@ DashboardLayout.propTypes = {
 }
 
 export default DashboardLayout
+
+

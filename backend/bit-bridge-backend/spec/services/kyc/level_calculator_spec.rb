@@ -6,13 +6,14 @@ RSpec.describe Kyc::LevelCalculator do
   let(:user) { create(:user, id_type: "nin") }
 
   def attach_proof!(profile)
-    file = Tempfile.new(["proof", ".txt"])
-    file.write("proof")
+    file = Tempfile.new(["proof", ".png"])
+    file.binmode
+    file.write("\x89PNG\r\n\x1A\n")
     file.rewind
     profile.proof_of_address.attach(
       io: file,
-      filename: "proof.txt",
-      content_type: "text/plain"
+      filename: "proof.png",
+      content_type: "image/png"
     )
   ensure
     if file

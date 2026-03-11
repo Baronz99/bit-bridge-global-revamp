@@ -28,18 +28,16 @@ module Api
           render json: { data: ProvisionSerializer.new(@provision), message: 'provision has been created' },
                  status: :created
         else
-          render json: { message: @provision.errors.full_messages.to_sentence }, status: :unprocessable_entity
+          render_validation_error(@provision)
         end
       end
 
       # PATCH/PUT /provisions/1
       def update
         if @provision.update(provision_params)
-          render json: @provision
-
-
+          render json: { data: ProvisionSerializer.new(@provision), message: 'Provision updated' }, status: :ok
         else
-          render json: @provision.errors, status: :unprocessable_entity
+          render_validation_error(@provision)
         end
       end
 
@@ -65,6 +63,13 @@ module Api
         return if current_user&.admin?
 
         render json: { message: 'Admin access required' }, status: :forbidden
+      end
+
+      def render_validation_error(record)
+        render json: {
+          message: record.errors.full_messages.to_sentence,
+          errors: record.errors.to_hash(true)
+        }, status: :unprocessable_entity
       end
     end
   end

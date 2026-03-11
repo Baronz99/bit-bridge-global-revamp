@@ -1,16 +1,49 @@
-import { useDispatch, useSelector } from 'react-redux'
 import { useEffect, useState } from 'react'
-import { getProvisions } from '../../../redux/actions/provision'
 import LoadingComp from '../../../components/loader/LoadingComp'
 import ProductCard from '../../../components/product-card/ProductCard'
+import { getSectionCatalog } from '../../../api/catalog'
+import { groupBridgeUtilityCatalog } from '../../../utils/bridgeUtilityCatalog'
 
 const MobileTopUpViewComponents = () => {
-  const dispatch = useDispatch()
-  const { airtime, dataBundles, loading } = useSelector((state) => state.provision)
   const [activeTab, setActiveTab] = useState('airtime')
+  const [loading, setLoading] = useState(true)
+  const [services, setServices] = useState({
+    airtime: [],
+    dataBundles: [],
+  })
+
   useEffect(() => {
-    dispatch(getProvisions())
+    let active = true
+
+    const loadCatalog = async () => {
+      setLoading(true)
+      try {
+        const response = await getSectionCatalog('bridge')
+        if (!active) return
+        const items = Array.isArray(response?.data?.data) ? response.data.data : []
+        const grouped = groupBridgeUtilityCatalog(items)
+        setServices({
+          airtime: grouped.airtime,
+          dataBundles: grouped.dataBundles,
+        })
+      } catch {
+        if (!active) return
+        setServices({
+          airtime: [],
+          dataBundles: [],
+        })
+      } finally {
+        if (active) setLoading(false)
+      }
+    }
+
+    loadCatalog()
+
+    return () => {
+      active = false
+    }
   }, [])
+
   return (
     <div className="w-full">
       <section className="py-0 px-4 my-6 text-white">
@@ -50,7 +83,7 @@ const MobileTopUpViewComponents = () => {
           <LoadingComp className={'bg-gray-900'} />
         ) : (
           <div className="max-w-7xl text-white m-auto grid grid-cols-2 md:grid-cols-2 lg:grid-cols-3 gap-10">
-            {(activeTab === 'airtime' ? airtime : dataBundles).map((item) => (
+            {(activeTab === 'airtime' ? services.airtime : services.dataBundles).map((item) => (
               <ProductCard
                 link={`/dashboard/utilities/mobile-top-up/${item.id}/mobileform`}
                 key={item.id}

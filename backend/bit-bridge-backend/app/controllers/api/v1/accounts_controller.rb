@@ -38,6 +38,27 @@ module Api
         render json: { data: ActiveModelSerializers::SerializableResource.new(@accounts) }, status: :ok
       end
 
+      def account_summary
+        account = canonical_anchor_account_for(current_user)
+        backfill_anchor_completed_status!(account) if account.present?
+        account.reload if account.present?
+
+        has_deposit_account = account&.account_number.present? || false
+        flow = anchor_flow_snapshot(account, has_deposit_account: has_deposit_account)
+
+        render json: anchor_success_payload(
+          data: {
+            anchor_account: compact_anchor_account_summary(account)
+          }.compact,
+          message: 'Account summary fetched',
+          flow: flow,
+          extra: {
+            has_anchor_account: account.present?,
+            has_deposit_account: has_deposit_account
+          }
+        ), status: :ok
+      end
+
       def create
         if account_params[:vendor] == 'anchor'
           create_anchor_account
@@ -134,7 +155,7 @@ module Api
           ), status: :ok
         end
 
-        unless account.status.to_s == 'completed'
+        unless anchor_kyc_completed?(account)
           return render json: anchor_error_payload(
             'anchor_kyc_incomplete',
             'Complete Anchor KYC before generating an account number.',
@@ -1025,7 +1046,7 @@ module Api
 
         account.reload
         backfill_anchor_completed_status!(account)
-        return account if account.status.to_s == 'completed'
+        return account if anchor_kyc_completed?(account)
 
         kyc_payload = resolved_anchor_kyc_payload(request_params, account)
         kyc_missing_fields = anchor_kyc_missing_fields(kyc_payload)
@@ -1166,8 +1187,8 @@ module Api
 
         gender = normalize_anchor_gender(
           request_hash[:gender].presence ||
-          account&.gender ||
-          profile&.gender
+          profile&.gender ||
+          account&.gender
         )
 
         {
@@ -1179,7 +1200,7 @@ module Api
 
       def verified_anchor_bvn_from_kyc(user_kyc)
         return nil unless user_kyc
-        return nil unless user_kyc.bvn_status.to_s == 'verified' || user_kyc.bvn_verified_at.present?
+        return nil unless user_kyc.verified_and_reusable_bvn?
 
         normalize_anchor_bvn(user_kyc.decrypted_bvn)
       rescue StandardError
@@ -1496,6 +1517,22 @@ module Api
         "****#{digits[-4, 4]}"
       end
 
+      def compact_anchor_account_summary(account)
+        return nil if account.blank?
+
+        {
+          id: account.id,
+          vendor: account.vendor,
+          active: account.active,
+          status: account.status,
+          account_number: account.account_number,
+          account_number_masked: masked_account_number(account.account_number),
+          account_name: account.account_name,
+          bank_name: account.bank_name,
+          bank_code: account.bank_code
+        }.compact
+      end
+
       def anchor_flow_snapshot(account, has_deposit_account: false)
         if account.nil?
           return {
@@ -1511,30 +1548,50 @@ module Api
           }
         end
 
+        if anchor_kyc_completed?(account)
+          return {
+            state: 'customer_created_no_deposit_account',
+            next_action: 'provision_account_number'
+          } unless has_deposit_account
+
+          return {
+            state: 'provisioned',
+            next_action: 'none'
+          }
+        end
+
         if account.status.to_s != 'completed'
           return {
             state: 'blocked_kyc',
             next_action: 'verify_kyc'
           }
         end
-
-        return {
-          state: 'customer_created_no_deposit_account',
-          next_action: 'provision_account_number'
-        } unless has_deposit_account
-
-        {
-          state: 'provisioned',
-          next_action: 'none'
-        }
       end
 
       def backfill_anchor_completed_status!(account)
         return if account.blank?
+        sync_anchor_deposit_account_if_needed!(account)
         return unless account.account_number.present?
         return if account.status.to_s == 'completed'
 
         account.update(status: 'completed')
+      end
+
+      def anchor_kyc_completed?(account)
+        return false if account.blank?
+
+        %w[completed verified].include?(account.status.to_s)
+      end
+
+      def sync_anchor_deposit_account_if_needed!(account)
+        return if account.blank?
+        return if account.account_number.present?
+        return unless account.useable_id.to_s.end_with?('-anc_acc')
+
+        AnchorService.new.send(:sync_anchor_deposit_account!, account)
+        account.reload
+      rescue StandardError => e
+        Rails.logger.warn("[AccountsController] anchor sync skipped account_id=#{account&.id} message=#{e.message}") if defined?(Rails) && Rails.logger
       end
 
       # Deterministic selector for a user's canonical Anchor record.

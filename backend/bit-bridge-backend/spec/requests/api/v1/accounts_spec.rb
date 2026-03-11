@@ -244,5 +244,82 @@ RSpec.describe 'Accounts', type: :request do
         account
       )
     end
+
+    it 'prefers profile gender over a stale anchor account gender when client omits gender' do
+      user = build_user(:tier2)
+      UserProfile.create!(
+        user: user,
+        date_of_birth: Date.new(1989, 3, 20),
+        gender: 'female'
+      )
+      UserKyc.create!(
+        user: user,
+        bvn_status: 'verified',
+        bvn_verified_at: Time.current,
+        bvn_encrypted: '12345678901'
+      )
+      account = Account.create!(
+        user: user,
+        vendor: 'anchor',
+        account_type: :individual,
+        account_id: 'anc_customer_3',
+        status: :unverified,
+        gender: :male,
+        dob: Date.new(1989, 3, 20)
+      )
+
+      anchor_service = instance_double(AnchorService)
+      allow(AnchorService).to receive(:new).and_return(anchor_service)
+      allow(anchor_service).to receive(:user_kyc_verification).and_return(
+        status: :ok,
+        response: account,
+        message: 'KYC submitted'
+      )
+
+      post '/api/v1/accounts/verify_kyc',
+           params: { account: {} },
+           headers: auth_headers(user)
+
+      expect(response).to have_http_status(:ok)
+      expect(anchor_service).to have_received(:user_kyc_verification).with(
+        hash_including(
+          bvn: '12345678901',
+          dob: '1989-03-20',
+          gender: 'female'
+        ),
+        account
+      )
+    end
+
+    it 'does not reuse bvns from verified kyc records when the encrypted bvn value is missing' do
+      user = build_user(:tier2)
+      UserProfile.create!(
+        user: user,
+        date_of_birth: Date.new(1992, 3, 14),
+        gender: 'male'
+      )
+      UserKyc.create!(
+        user: user,
+        bvn_status: 'verified',
+        bvn_verified_at: Time.current,
+        bvn_encrypted: nil
+      )
+      Account.create!(
+        user: user,
+        vendor: 'anchor',
+        account_type: :individual,
+        account_id: 'anc_customer_4',
+        status: :unverified
+      )
+
+      post '/api/v1/accounts/verify_kyc',
+           params: { account: {} },
+           headers: auth_headers(user)
+
+      expect(response).to have_http_status(:unprocessable_entity)
+      body = JSON.parse(response.body)
+      expect(body['error']).to eq('anchor_kyc_incomplete')
+      expect(body.dig('details', 'missing_fields')).to include('bvn')
+    end
   end
 end

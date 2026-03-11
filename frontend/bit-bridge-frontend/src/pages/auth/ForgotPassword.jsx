@@ -64,7 +64,7 @@ export const ForgotPassword = () => {
             // width: "500px",
             justifyContent: 'center',
           }}
-          subTitle="Gift Card trading and exchange platform"
+          subTitle="Secure payments and rail operations platform"
           actions={
             <Space>
               Already have an account? <NavLink to={'/login'}>Login</NavLink>

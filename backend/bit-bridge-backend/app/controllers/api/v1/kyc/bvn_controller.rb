@@ -274,11 +274,13 @@ module Api
           snapshot_present: nil
         )
           normalized_reason = normalize_reason(status: status, reason: reason)
+          mismatch_fields = bvn_mismatch_fields(user_kyc)
           customer_display = customer_display_payload(
             status: status,
             reason: normalized_reason,
             next_check_seconds: next_check_seconds,
-            locked_until: user_kyc.bvn_locked_until
+            locked_until: user_kyc.bvn_locked_until,
+            mismatch_fields: mismatch_fields
           )
           payload = {
             status: status,
@@ -297,6 +299,7 @@ module Api
             last_checked_at: user_kyc.bvn_last_checked_at,
             reason_code: normalized_reason,
             reason: normalized_reason,
+            mismatch_fields: mismatch_fields,
             display: customer_display,
             cached: cached,
             retryable: retryable,
@@ -515,7 +518,7 @@ module Api
           nil
         end
 
-        def customer_display_payload(status:, reason:, next_check_seconds:, locked_until:)
+        def customer_display_payload(status:, reason:, next_check_seconds:, locked_until:, mismatch_fields:)
           status_key = status.to_s
           reason_key = reason.to_s
 
@@ -543,7 +546,7 @@ module Api
             {
               severity: "warning",
               title: "Details do not match",
-              message: "Your BVN details do not match your profile. Update your profile details and retry.",
+              message: mismatch_message_for_fields(mismatch_fields),
               action: "update_profile",
               action_label: "Update profile"
             }
@@ -565,6 +568,40 @@ module Api
               action_label: "Verify BVN"
             }
           end
+        end
+
+        def bvn_mismatch_fields(user_kyc)
+          fields = []
+          fields << "first_name" if user_kyc.bvn_first_name_match == false
+          fields << "last_name" if user_kyc.bvn_last_name_match == false
+          fields << "date_of_birth" if user_kyc.bvn_dob_match == false
+          fields
+        end
+
+        def mismatch_message_for_fields(fields)
+          names = fields.map { |field| mismatch_field_label(field) }.compact
+          if names.empty?
+            return "Your BVN details do not match your profile. Update your profile details and retry."
+          end
+
+          "Your #{to_sentence(names)} do #{names.one? ? 'es' : ''} not match your BVN record. Update your profile details and retry."
+        end
+
+        def mismatch_field_label(field)
+          case field.to_s
+          when "first_name" then "first name"
+          when "last_name" then "last name"
+          when "date_of_birth" then "date of birth"
+          end
+        end
+
+        def to_sentence(items)
+          values = Array(items).compact
+          return "" if values.empty?
+          return values.first if values.one?
+          return "#{values.first} and #{values.last}" if values.size == 2
+
+          "#{values[0..-2].join(', ')}, and #{values.last}"
         end
 
         def pending_review_display(reason_key)

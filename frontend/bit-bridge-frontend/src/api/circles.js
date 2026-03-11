@@ -1,47 +1,32 @@
-// src/api/circles.js
 import client from './client'
 
-// GET /circles/:id
-export const getCircleDetail = (id) => client.get(`/circles/${id}`)
+export const getCircles = () => client.get('/circles')
+export const createCircle = (payload) => client.post('/circles', payload)
+export const getCircle = (circleId) => client.get(`/circles/${circleId}`)
 
-// ✅ backward compatibility
-export const getCircle = getCircleDetail
+export const fundCircle = (circleId, payload) => client.post(`/circles/${circleId}/fund`, payload)
+export const withdrawCircle = (circleId, payload) =>
+  client.post(`/circles/${circleId}/withdraw`, payload)
 
-// POST /circles/:id/fund
-export const fundCircle = (id, payload) => client.post(`/circles/${id}/fund`, payload)
+export const getCircleAuditSummary = (circleId) =>
+  client.get(`/circles/${circleId}/audit_summary`)
 
-// POST /circles/:id/withdraw
-export const withdrawCircle = (id, payload) =>
-  client.post(`/circles/${id}/withdraw`, payload)
+export const exportCircleCsv = (circleId) =>
+  client.get(`/circles/${circleId}/export_csv`, { responseType: 'blob' })
 
-// GET /circles/:id/audit_summary
-export const getCircleAuditSummary = (id) =>
-  client.get(`/circles/${id}/audit_summary`)
+export const inviteCircleMember = (circleId, payload) =>
+  client.post(`/circles/${circleId}/memberships`, { membership: payload })
 
-// GET /circles/:id/export_csv
-export const exportCircleCsv = (id) =>
-  client.get(`/circles/${id}/export_csv`, { responseType: 'blob' })
+export const listCircleActivities = (circleId) =>
+  client.get(`/circles/${circleId}/activities`)
 
-// POST /circles/:id/memberships
-export const inviteCircleMember = (id, payload) =>
-  client.post(`/circles/${id}/memberships`, { membership: payload })
+export const createCircleActivity = (circleId, payload) =>
+  client.post(`/circles/${circleId}/activities`, { activity: payload })
 
-// GET /circles/:id/activities
-export const listCircleActivities = (id) =>
-  client.get(`/circles/${id}/activities`)
+export const reactToCircleTx = (circleTransactionId, emoji) =>
+  client.post(`/circle_transactions/${circleTransactionId}/react`, { emoji })
 
-// POST /circles/:id/activities
-export const createCircleActivity = (id, payload) =>
-  client.post(`/circles/${id}/activities`, payload)
-
-// POST /circles/:id/react
-export const reactToCircle = (id, payload) =>
-  client.post(`/circles/${id}/react`, payload)
-
-// DELETE /circles/:id/react
-export const unreactToCircle = (id, payload) =>
-  client.delete(`/circles/${id}/react`, { data: payload })
-
-// ✅ backward compatibility aliases
-export const reactToCircleTx = reactToCircle
-export const unreactToCircleTx = unreactToCircle
+export const unreactToCircleTx = (circleTransactionId, emoji) =>
+  client.delete(`/circle_transactions/${circleTransactionId}/unreact`, {
+    params: { emoji },
+  })

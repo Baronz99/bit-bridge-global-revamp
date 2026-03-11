@@ -28,7 +28,7 @@ module Api
         if @product.save
           render json: { data: ProductSerializer.new(@product), message: 'Product created' }, status: :created
         else
-          render json: { message: @product.errors.full_messages }, status: :unprocessable_entity
+          render_validation_error(@product)
         end
       end
 
@@ -37,7 +37,7 @@ module Api
         if @product.update(product_params)
           render json: { data: ProductSerializer.new(@product), message: 'Product updated' }, status: :ok
         else
-          render json: { message: @product.errors.full_messages }, status: :unprocessable_entity
+          render_validation_error(@product)
         end
       end
 
@@ -67,6 +67,13 @@ module Api
         return if current_user&.admin?
 
         render json: { message: 'Admin access required' }, status: :forbidden
+      end
+
+      def render_validation_error(record)
+        render json: {
+          message: record.errors.full_messages.to_sentence,
+          errors: record.errors.to_hash(true)
+        }, status: :unprocessable_entity
       end
     end
   end

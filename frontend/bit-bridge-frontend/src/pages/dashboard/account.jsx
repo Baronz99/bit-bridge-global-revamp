@@ -13,7 +13,7 @@ import PropTypes from 'prop-types'
 import statusStyleCard from '../../utils/statusCard'
 import MoneyTransferFlow from '../../components/fundTransfer/FundTransfer'
 import { getBankList } from '../../redux/actions/account'
-import { NavLink, useNavigate, useSearchParams } from 'react-router-dom'
+import { NavLink, useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import ShadowValue from '../../components/ShadowValue'
 import { toast } from 'react-toastify'
 import { needsTier2Access, withTier2MissingDetails } from '../../utils/kycGate'
@@ -162,6 +162,7 @@ const Account = () => {
   const formRef = useRef(null)
   const dispatch = useDispatch()
   const navigate = useNavigate()
+  const location = useLocation()
 
   const { user } = useSelector((state) => state.auth)
   const { data } = useSelector((state) => state.wallet)
@@ -170,8 +171,9 @@ const Account = () => {
 
 
   const [searchParams, setSearchParams] = useSearchParams()
+  const isFxRoute = location.pathname.endsWith('/dashboard/tunnel/fx')
   const urlMode = (searchParams.get('mode') || MODES.BRIDGE).toLowerCase()
-  const initialMode = urlMode === MODES.TUNNEL ? MODES.TUNNEL : MODES.BRIDGE
+  const initialMode = isFxRoute || urlMode === MODES.TUNNEL ? MODES.TUNNEL : MODES.BRIDGE
   const [mode, setMode] = useState(initialMode)
 
   const [isModalOpen, setIsModalOpen] = useState(false)
@@ -204,7 +206,7 @@ const Account = () => {
 
   // Keep mode synced with URL
   useEffect(() => {
-    const normalized = urlMode === MODES.TUNNEL ? MODES.TUNNEL : MODES.BRIDGE
+    const normalized = isFxRoute || urlMode === MODES.TUNNEL ? MODES.TUNNEL : MODES.BRIDGE
     if (normalized === MODES.TUNNEL && needsTier2) {
       toast.info(withTier2MissingDetails(user, 'Complete Tier 2 verification to use the Tunnel wallet.'), {
         position: 'top-right',
@@ -213,16 +215,18 @@ const Account = () => {
       })
       navigate('/dashboard/kyc')
       setMode(MODES.BRIDGE)
-      setSearchParams((prev) => {
-        const p = new URLSearchParams(prev)
-        p.delete('mode')
-        return p
-      })
+      if (!isFxRoute) {
+        setSearchParams((prev) => {
+          const p = new URLSearchParams(prev)
+          p.delete('mode')
+          return p
+        })
+      }
       return
     }
     setMode(normalized)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [urlMode, needsTier2, navigate, setSearchParams])
+  }, [isFxRoute, urlMode, needsTier2, navigate, setSearchParams])
 
   const setModeAndUrl = (nextMode) => {
     const normalized = nextMode === MODES.TUNNEL ? MODES.TUNNEL : MODES.BRIDGE
@@ -321,6 +325,13 @@ const Account = () => {
   }
 
   // Tunnel convert
+  useEffect(() => {
+    if (!isFxRoute || needsTier2) return
+    setMode(MODES.TUNNEL)
+    setConvertDirection('ngn_to_usd')
+    setIsConvertOpen(true)
+  }, [isFxRoute, needsTier2])
+
   const openConvert = () => {
     if (needsTier2) {
       toast.info(withTier2MissingDetails(user, 'Complete Tier 2 verification to use the Tunnel wallet.'), {
@@ -379,7 +390,8 @@ const Account = () => {
       setUsdTx(Array.isArray(usdData) ? usdData : usdData?.data || [])
       setNgnTx(Array.isArray(ngnData) ? ngnData : ngnData?.data || [])
 
-      setIsConvertOpen(false)
+      if (isFxRoute) navigate('/dashboard/tunnel', { replace: true })
+      else setIsConvertOpen(false)
       setConvertAmount('')
       setConvertPin('')
       setConvertQuote(null)
@@ -810,7 +822,7 @@ const Account = () => {
       </AppModal>
 
       {/* Tunnel conversion modal */}
-      <AppModal title={'Convert'} isModalOpen={isConvertOpen} handleCancel={() => setIsConvertOpen(false)}>
+      <AppModal title={'Convert'} isModalOpen={isConvertOpen} handleCancel={() => { if (isFxRoute) navigate('/dashboard/tunnel', { replace: true }); else setIsConvertOpen(false) }}>
         <div className="space-y-4">
           <div className="space-y-1">
             <div className="flex items-center justify-between">
