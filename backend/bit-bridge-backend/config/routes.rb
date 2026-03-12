@@ -285,6 +285,8 @@ Rails.application.routes.draw do
         collection do
           get   :user_profile, to: "core/users#user_profile"
           patch :user_update, to: "core/users#user_update"
+          post  :request_email_change, to: "core/users#request_email_change"
+          post  :confirm_email_change, to: "core/users#confirm_email_change"
           patch :update_password, to: "core/user_security#update_password"
           patch :user_password_update, to: "core/user_security#user_password_update"
           post  :password_reset, to: "core/user_security#password_reset"

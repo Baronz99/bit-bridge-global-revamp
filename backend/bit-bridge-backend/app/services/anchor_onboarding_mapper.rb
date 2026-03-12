@@ -137,9 +137,10 @@ class AnchorOnboardingMapper
 
     raw = value.to_s.strip
     normalized = raw.gsub(/\s+/, ' ')
+    normalized = normalized.gsub(/\(([^)]*)\)/, ' \1 ')
     normalized = normalized.sub(/\s+state\z/i, '')
-    normalized = normalized.gsub(/[^A-Za-z0-9\s]/, '').gsub(/\s+/, ' ').strip
-    return 'FCT' if normalized.casecmp('fct (abuja)').zero? || normalized.casecmp('abuja').zero? || normalized.casecmp('fct').zero?
+    normalized = normalized.gsub(/[^A-Za-z0-9\s]/, ' ').gsub(/\s+/, ' ').strip
+    return 'FCT' if normalized.casecmp('fct abuja').zero? || normalized.casecmp('abuja').zero? || normalized.casecmp('fct').zero?
 
     key = normalized.upcase
     canonical = NIGERIAN_STATE_CANONICAL[key]

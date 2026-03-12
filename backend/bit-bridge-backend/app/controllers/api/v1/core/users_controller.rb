@@ -15,6 +15,14 @@ module Api
         def basic_profile
           super
         end
+
+        def request_email_change
+          super
+        end
+
+        def confirm_email_change
+          super
+        end
       end
     end
   end

@@ -33,4 +33,15 @@ RSpec.describe CustomDeviseMailer, type: :mailer do
   ensure
     ENV["FRONTEND_URL"] = climate
   end
+
+  it "sends reconfirmation instructions to the unconfirmed email address" do
+    user = build(:user, :confirmed, email: "current@example.com", unconfirmed_email: "next@example.com")
+    allow(user).to receive(:pending_reconfirmation?).and_return(true)
+    allow(File).to receive(:exist?).and_call_original
+    allow(File).to receive(:exist?).with(Rails.root.join("app/assets/images/bitbridge-logo.png")).and_return(false)
+
+    mail = described_class.confirmation_instructions(user, "token-456")
+
+    expect(mail.to).to eq(["next@example.com"])
+  end
 end

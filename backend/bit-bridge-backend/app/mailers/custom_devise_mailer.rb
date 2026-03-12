@@ -6,6 +6,7 @@ class CustomDeviseMailer < Devise::Mailer
   # ===== EMAIL CONFIRMATION =====
   def confirmation_instructions(record, token, opts = {})
     frontend_url = "#{normalized_frontend_base_url}confirmation?confirmation_token=#{token}"
+    recipient = confirmation_recipient_for(record)
 
     attach_brand_logo
 
@@ -14,7 +15,7 @@ class CustomDeviseMailer < Devise::Mailer
     @token = token
     @user = record
 
-    mail(to: record.email, subject: opts[:subject])
+    mail(to: recipient, subject: opts[:subject])
   end
 
   # ===== FORGOT PASSWORD / RESET PASSWORD =====
@@ -51,5 +52,15 @@ class CustomDeviseMailer < Devise::Mailer
 
     first = raw.to_s.split(",").map(&:strip).reject(&:empty?).first || "http://127.0.0.1:5173/"
     first.end_with?("/") ? first : "#{first}/"
+  end
+
+  def confirmation_recipient_for(record)
+    if record.respond_to?(:pending_reconfirmation?) &&
+       record.pending_reconfirmation? &&
+       record.unconfirmed_email.present?
+      record.unconfirmed_email
+    else
+      record.email
+    end
   end
 end
