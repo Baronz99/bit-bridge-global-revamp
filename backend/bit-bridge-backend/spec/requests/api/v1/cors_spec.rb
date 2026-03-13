@@ -4,6 +4,7 @@ require 'rails_helper'
 
 RSpec.describe 'CORS preflight', type: :request do
   let(:origin) { 'https://bitbridgeglobal.com' }
+  let(:staging_origin) { 'https://bitbridge-mobile.netlify.app' }
   let(:requested_headers) { 'Accept, Authorization, Content-Type, Bit-Refresh-Token' }
 
   it 'allows preflight for api login from production origin' do
@@ -32,5 +33,19 @@ RSpec.describe 'CORS preflight', type: :request do
     expect(response.headers['Access-Control-Allow-Origin']).to eq(origin)
     expect(response.headers['Access-Control-Allow-Methods']).to include('GET')
     expect(response.headers['Access-Control-Allow-Headers']).to include('Authorization')
+  end
+
+  it 'allows preflight for api routes from the active Netlify staging origin' do
+    options '/api/v1/products',
+            headers: {
+              'Origin' => staging_origin,
+              'Access-Control-Request-Method' => 'GET',
+              'Access-Control-Request-Headers' => requested_headers
+            }
+
+    expect(response.headers['Access-Control-Allow-Origin']).to eq(staging_origin)
+    expect(response.headers['Access-Control-Allow-Methods']).to include('GET')
+    expect(response.headers['Access-Control-Expose-Headers']).to include('Authorization')
+    expect(response.headers['Access-Control-Expose-Headers']).to include('Bit-Refresh-Token')
   end
 end
