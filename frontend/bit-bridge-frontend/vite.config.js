@@ -63,15 +63,6 @@ export default defineConfig(({ mode }) => ({
             return 'data-utils'
           }
 
-          if (
-            id.includes('react') ||
-            id.includes('react-dom') ||
-            id.includes('scheduler') ||
-            id.includes('prop-types')
-          ) {
-            return 'react-vendor'
-          }
-
           return 'vendor'
         },
       },
