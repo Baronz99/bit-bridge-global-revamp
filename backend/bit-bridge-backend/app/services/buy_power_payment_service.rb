@@ -1029,6 +1029,12 @@ end
     PROVIDER_PENDING_CODES.include?(response_code.to_i)
   end
 
+  def pending_provider_payload?(payload)
+    return false unless payload.is_a?(Hash)
+
+    pending_response_code?(provider_response_code(payload))
+  end
+
   def log_tv_invalid_account(provider_payload:, bill_order:, request_id:)
     data_message =
       provider_payload&.dig('data', 'message') ||
@@ -1174,9 +1180,20 @@ end
       return { response: message, status: 'ignored' }
     end
 
+    normalized_payload = provider_response_payload(provider_payload)
+    if pending_provider_payload?(normalized_payload) && !force_refund
+      order.update!(
+        status: 'processing',
+        payment_method: payment_method,
+        reason: message,
+        provider_response: normalized_payload
+      )
+      enqueue_reconciliation(order)
+      return { response: 'Payment processing...', status: 'pending' }
+    end
+
     wallet = order.user.wallet
     amount = order.total_amount.to_d
-    normalized_payload = provider_response_payload(provider_payload)
     failure_code = BillOrder.infer_failure_code(
       reason: message,
       status: status,

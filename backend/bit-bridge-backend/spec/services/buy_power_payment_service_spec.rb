@@ -781,7 +781,7 @@ RSpec.describe BuyPowerPaymentService do
       expect(wallet.reload.commission.to_f).to eq(0.0)
     end
 
-    it 'keeps wallet orders processing on non-terminal provider response' do
+    it 'keeps wallet orders processing on provider responses without terminal signals' do
       allow(Config::Bills).to receive(:validate!).and_return(true)
       allow(Config::Bills).to receive(:base_url).and_return('http://example.test')
       allow(Config::Bills).to receive(:token).and_return('token')
@@ -822,10 +822,69 @@ RSpec.describe BuyPowerPaymentService do
 
       result = described_class.new.confirm_subscription(bill_order, 'wallet', false, request_id: 'spec')
 
-      expect(result[:status]).to eq('error')
-      expect(bill_order.reload.status).to eq('failed')
+      expect(result[:status]).to eq('pending')
+      expect(result[:response]).to eq('Payment processing...')
+      expect(bill_order.reload.status).to eq('processing')
       expect(WalletLedgerEntry.where(bill_order: bill_order).hold.count).to eq(1)
-      expect(WalletLedgerEntry.where(bill_order: bill_order).release.count).to eq(1)
+      expect(WalletLedgerEntry.where(bill_order: bill_order).release.count).to eq(0)
+    end
+
+    it 'treats documented provider server errors as pending and requeryable' do
+      allow(Config::Bills).to receive(:validate!).and_return(true)
+      allow(Config::Bills).to receive(:base_url).and_return('http://example.test')
+      allow(Config::Bills).to receive(:token).and_return('token')
+
+      response = {
+        'error' => true,
+        'status' => false,
+        'message' => 'Transaction failed to initiate.',
+        'responseCode' => 500
+      }
+      def response.success?
+        false
+      end
+
+      expect(described_class).to receive(:post).with('/vend', anything).and_return(response)
+
+      user = create(:user)
+      wallet = user.wallet
+      Transaction.create!(
+        wallet: wallet,
+        amount: 10_000,
+        bonus: 0,
+        status: :approved,
+        transaction_type: :deposit
+      )
+
+      bill_order = BillOrder.create!(
+        user: user,
+        meter_number: '08012345678',
+        meter_type: nil,
+        address: 'Test Address',
+        name: 'Test User',
+        tariff_class: 'A',
+        service_type: 'DATA',
+        email: user.email,
+        amount: 1000,
+        phone: '08012345678',
+        biller: 'MTN',
+        description: 'Data',
+        payment_type: 'online',
+        payment_method: 'wallet'
+      )
+
+      result = described_class.new.confirm_subscription(bill_order, 'wallet', false, request_id: 'spec')
+
+      expect(result[:status]).to eq('pending')
+      expect(result[:response]).to eq('Payment processing...')
+      expect(bill_order.reload.status).to eq('processing')
+      expect(bill_order.provider_response).to include(
+        'error' => true,
+        'message' => 'Transaction failed to initiate.',
+        'responseCode' => 500
+      )
+      expect(WalletLedgerEntry.where(bill_order: bill_order).hold.count).to eq(1)
+      expect(WalletLedgerEntry.where(bill_order: bill_order).release.count).to eq(0)
     end
 
     it 'releases hold and marks failed on hard provider error' do
