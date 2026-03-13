@@ -27,14 +27,6 @@ export default defineConfig(({ mode }) => ({
           }
 
           if (
-            id.includes('antd') ||
-            id.includes('@ant-design') ||
-            id.includes('antd-style')
-          ) {
-            return 'antd'
-          }
-
-          if (
             id.includes('@mui/') ||
             id.includes('@emotion/') ||
             id.includes('styled-components')
