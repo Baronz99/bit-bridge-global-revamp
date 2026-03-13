@@ -20,6 +20,7 @@ import FeesLimitsPanel from './profile/FeesLimitsPanel' // ✅ NEW
 // helper from onboarding API
 import { updateKycProfile } from '../../api/onboarding'
 import { verifyNin } from '../../api/kyc'
+import { confirmEmailChange, requestEmailChange } from '../../api/emailChange'
 
 // ID type options
 const idTypeOptions = [
@@ -304,6 +305,15 @@ const ProfileAccountPage = () => {
 
   const [open, setOpen] = useState(false)
   const [showPhoneModal, setShowPhoneModal] = useState(false)
+  const [showEmailModal, setShowEmailModal] = useState(false)
+  const [emailChangeStep, setEmailChangeStep] = useState('request')
+  const [emailChangeLoading, setEmailChangeLoading] = useState(false)
+  const [emailChangeInfo, setEmailChangeInfo] = useState('')
+  const [emailChangeForm, setEmailChangeForm] = useState({
+    new_email: '',
+    current_password: '',
+    phone_otp_code: '',
+  })
 
   // When user clicks "Verify", we seed the modal with whatever is in the input
   const [pendingPhone, setPendingPhone] = useState('')
@@ -383,6 +393,13 @@ const ProfileAccountPage = () => {
     setIdDocumentFile(null)
     setProofOfAddressFile(null)
     setPendingPhone('')
+    setEmailChangeForm({
+      new_email: '',
+      current_password: '',
+      phone_otp_code: '',
+    })
+    setEmailChangeInfo('')
+    setEmailChangeStep('request')
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user])
 
@@ -532,7 +549,7 @@ const handlePasswordUpdate = () => {
       }
     })
   }
-const handleUserDelete = () => {
+  const handleUserDelete = () => {
     dispatch(SET_LOADING(true))
     dispatch(userDelete(user.id)).then((result) => {
       if (userDelete.fulfilled.match(result)) {
@@ -544,6 +561,88 @@ const handleUserDelete = () => {
         toast(result.payload.message, { type: 'error' })
       }
     })
+  }
+
+  const openEmailChangeModal = () => {
+    setEmailChangeInfo('')
+    setEmailChangeStep('request')
+    setEmailChangeForm({
+      new_email: '',
+      current_password: '',
+      phone_otp_code: '',
+    })
+    setShowEmailModal(true)
+  }
+
+  const closeEmailChangeModal = () => {
+    if (emailChangeLoading) return
+    setShowEmailModal(false)
+    setEmailChangeInfo('')
+    setEmailChangeStep('request')
+    setEmailChangeForm({
+      new_email: '',
+      current_password: '',
+      phone_otp_code: '',
+    })
+  }
+
+  const handleEmailOtpRequest = async () => {
+    setEmailChangeLoading(true)
+    setEmailChangeInfo('')
+    try {
+      const response = await requestEmailChange({
+        new_email: emailChangeForm.new_email,
+        current_password: emailChangeForm.current_password,
+      })
+      setEmailChangeStep('confirm')
+      setEmailChangeInfo(
+        response?.message || 'Verification code sent to your verified phone number.'
+      )
+      toast(response?.message || 'Verification code sent to your phone.', { type: 'success' })
+    } catch (error) {
+      const message =
+        error?.response?.data?.message ||
+        error?.response?.data?.error ||
+        'Unable to send verification code.'
+      setEmailChangeInfo(message)
+      toast(message, { type: 'error' })
+    } finally {
+      setEmailChangeLoading(false)
+    }
+  }
+
+  const handleEmailChangeConfirm = async () => {
+    setEmailChangeLoading(true)
+    setEmailChangeInfo('')
+    try {
+      const response = await confirmEmailChange({
+        new_email: emailChangeForm.new_email,
+        current_password: emailChangeForm.current_password,
+        phone_otp_code: emailChangeForm.phone_otp_code,
+      })
+      const nextUser = await dispatch(userProfile()).unwrap()
+      setUserInfo((prev) => ({
+        ...prev,
+        email: nextUser?.email || prev.email,
+      }))
+      if (emailChangeForm.new_email) {
+        const nextEmail = emailChangeForm.new_email.trim().toLowerCase()
+        localStorage.setItem('email', nextEmail)
+        localStorage.setItem('confirmation_flow', 'email-change')
+      }
+      toast(response?.message || 'Email change initiated. Check your new inbox.', { type: 'success' })
+      closeEmailChangeModal()
+      navigate('/check-email?flow=email-change')
+    } catch (error) {
+      const message =
+        error?.response?.data?.message ||
+        error?.response?.data?.error ||
+        'Unable to confirm email change.'
+      setEmailChangeInfo(message)
+      toast(message, { type: 'error' })
+    } finally {
+      setEmailChangeLoading(false)
+    }
   }
 
   const NavButton = ({ id, title, desc }) => {
@@ -688,6 +787,9 @@ const handleUserDelete = () => {
                     userPassword={userPassword}
                     setUserPassword={setUserPassword}
                     onPasswordUpdate={handlePasswordUpdate}
+                    currentEmail={user?.email || userInfo.email}
+                    pendingEmail={user?.unconfirmed_email || ''}
+                    onOpenEmailChange={openEmailChangeModal}
                     phoneVerified={phoneVerified}
                     onOpenPhoneVerify={() => {
                       setPendingPhone(String(userInfo?.user_profile?.phone_number || '').trim())
@@ -741,6 +843,100 @@ const handleUserDelete = () => {
         // ✅ Seed with whatever user is trying to verify (fallback to profile phone)
         defaultPhone={pendingPhone || up?.phone_number || userInfo?.user_profile?.phone_number || ''}
       />
+
+      <AppModal isModalOpen={showEmailModal} handleCancel={closeEmailChangeModal}>
+        <div className="rounded-2xl shadow-lg p-6 max-w-lg mx-auto text-white">
+          <h2 className="text-xl font-semibold mb-2">Change email</h2>
+          <p className="text-sm text-slate-300 mb-5">
+            Secure this change with your current password and an OTP sent to your verified phone.
+            Your login email will only switch after you confirm the link in the new inbox.
+          </p>
+
+          <div className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-slate-200/80">New email</label>
+              <input
+                type="email"
+                value={emailChangeForm.new_email}
+                onChange={(e) =>
+                  setEmailChangeForm((prev) => ({ ...prev, new_email: e.target.value }))
+                }
+                className="mt-1 w-full rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-white outline-none focus:ring-2 focus:ring-amber-500/40"
+                placeholder="new-email@example.com"
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-slate-200/80">Current password</label>
+              <input
+                type="password"
+                value={emailChangeForm.current_password}
+                onChange={(e) =>
+                  setEmailChangeForm((prev) => ({ ...prev, current_password: e.target.value }))
+                }
+                className="mt-1 w-full rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-white outline-none focus:ring-2 focus:ring-amber-500/40"
+                placeholder="Enter current password"
+              />
+            </div>
+
+            {emailChangeStep === 'confirm' ? (
+              <div>
+                <label className="block text-sm font-medium text-slate-200/80">
+                  Phone verification code
+                </label>
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  value={emailChangeForm.phone_otp_code}
+                  onChange={(e) =>
+                    setEmailChangeForm((prev) => ({
+                      ...prev,
+                      phone_otp_code: e.target.value.replace(/\D/g, '').slice(0, 6),
+                    }))
+                  }
+                  className="mt-1 w-full rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-white outline-none focus:ring-2 focus:ring-amber-500/40"
+                  placeholder="Enter 6-digit OTP"
+                />
+              </div>
+            ) : null}
+
+            {emailChangeInfo ? (
+              <div className="rounded-xl border border-white/10 bg-white/5 px-3 py-3 text-sm text-slate-200">
+                {emailChangeInfo}
+              </div>
+            ) : null}
+          </div>
+
+          <div className="mt-6 flex flex-col sm:flex-row gap-3 sm:justify-end">
+            <button
+              type="button"
+              onClick={closeEmailChangeModal}
+              className="px-4 py-2 rounded-xl border border-white/15 bg-white/5 hover:bg-white/10 text-white transition"
+            >
+              Cancel
+            </button>
+            {emailChangeStep === 'confirm' ? (
+              <button
+                type="button"
+                disabled={emailChangeLoading}
+                onClick={handleEmailChangeConfirm}
+                className="px-4 py-2 rounded-xl bg-amber-600 text-white hover:bg-amber-700 transition disabled:opacity-60"
+              >
+                {emailChangeLoading ? 'Confirming...' : 'Confirm email change'}
+              </button>
+            ) : (
+              <button
+                type="button"
+                disabled={emailChangeLoading}
+                onClick={handleEmailOtpRequest}
+                className="px-4 py-2 rounded-xl bg-amber-600 text-white hover:bg-amber-700 transition disabled:opacity-60"
+              >
+                {emailChangeLoading ? 'Sending code...' : 'Send phone OTP'}
+              </button>
+            )}
+          </div>
+        </div>
+      </AppModal>
     </>
   )
 }

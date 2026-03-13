@@ -11,6 +11,8 @@ const ConfirmEmail = () => {
   const { user } = useSelector((state) => state.auth)
 
   const token = query.get('confirmation_token')
+  const flow = query.get('flow') || localStorage.getItem('confirmation_flow') || 'signup'
+  const isEmailChange = flow === 'email-change'
   const navigate = useNavigate()
 
   // 👇 prevents double-run of the effect (React StrictMode)
@@ -40,6 +42,9 @@ const ConfirmEmail = () => {
         if (refreshToken) setRefreshToken(refreshToken)
 
         dispatch(SET_LOADING(false))
+        if (isEmailChange) {
+          localStorage.removeItem('confirmation_flow')
+        }
         navigate('/confirmation-success')
       })
       .catch((err) => {
@@ -59,13 +64,15 @@ const ConfirmEmail = () => {
 
       {token ? (
         <p className="text-white text-lg">
-          Confirming your email, please wait...
+          {isEmailChange ? 'Confirming your new email, please wait...' : 'Confirming your email, please wait...'}
         </p>
       ) : user?.confirmed_at ? (
-        <p className="text-white text-lg">Email has been confirmed</p>
+        <p className="text-white text-lg">
+          {isEmailChange ? 'New email has been confirmed' : 'Email has been confirmed'}
+        </p>
       ) : (
         <p className="text-white text-lg">
-          Email confirmation has been sent to {email}
+          {isEmailChange ? `New email confirmation has been sent to ${email}` : `Email confirmation has been sent to ${email}`}
         </p>
       )}
 
@@ -76,16 +83,19 @@ const ConfirmEmail = () => {
       <button
         className="bg-purple-950 text-white px-4 py-2 rounded-md hover:bg-purple-800 transition-all duration-300"
         onClick={() => {
-          navigate('/login')
+          navigate(isEmailChange ? '/dashboard/profile-account?section=security' : '/login')
         }}
       >
-        Continue to Login
+        {isEmailChange ? 'Back to security' : 'Continue to Login'}
       </button>
 
       <p className="text-gray-500 text-sm">
         If you have not received a confirmation email, please check your spam
         folder or{' '}
-        <NavLink to="/send-confirmation" className="text-purple-200 font-semibold">
+        <NavLink
+          to={`/send-confirmation${isEmailChange ? '?flow=email-change' : ''}`}
+          className="text-purple-200 font-semibold"
+        >
           resend confirmation
         </NavLink>
         .

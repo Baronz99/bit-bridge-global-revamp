@@ -3,6 +3,7 @@ import {getAudioDurationInSeconds} from "@remotion/media-utils";
 import type {FC} from "react";
 import {BitBridgeAdVertical} from "./compositions/BitBridgeAdVertical";
 import {BitBridgeLogoRevealVertical} from "./compositions/BitBridgeLogoRevealVertical";
+import {TeamWalletFlow} from "./compositions/TeamWalletFlow";
 import {BitBridgeTransferAdVertical} from "./compositions/BitBridgeTransferAdVertical";
 
 const FPS = 30;
@@ -66,6 +67,24 @@ export const RemotionRoot: FC = () => {
         width={1080}
         height={1920}
         durationInFrames={6 * FPS}
+      />
+      <Composition
+        id="TeamWalletFlow"
+        component={TeamWalletFlow}
+        fps={FPS}
+        width={1080}
+        height={1920}
+        durationInFrames={540}
+        calculateMetadata={async () => {
+          return {
+            durationInFrames: Math.max(
+              540,
+              await getDurationFromAudio(
+                "ElevenLabs_2026-03-06T16_08_54_Michael C. Vincent - Confident, Expressive_pvc_sp95_s80_sb80_se25_b_m2.mp3",
+              ),
+            ),
+          };
+        }}
       />
     </>
   );

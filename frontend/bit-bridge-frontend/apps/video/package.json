@@ -7,10 +7,12 @@
     "render": "remotion render src/index.ts BitBridgeAdVertical out/bitbridge-ad-vertical.mp4 --codec=h264",
     "render:transfer": "remotion render src/index.ts BitBridgeTransferAdVertical out/bitbridge-transfer-ad-vertical.mp4 --codec=h264",
     "render:logo": "remotion render src/index.ts BitBridgeLogoRevealVertical out/bitbridge-logo-reveal-vertical.mp4 --codec=h264",
+    "render:team-wallet": "remotion render src/index.ts TeamWalletFlow out/team-wallet-flow.mp4 --codec=h264",
     "video:studio": "npm run studio",
     "video:render": "npm run render",
     "video:render:transfer": "npm run render:transfer",
-    "video:render:logo": "npm run render:logo"
+    "video:render:logo": "npm run render:logo",
+    "video:render:team-wallet": "npm run render:team-wallet"
   },
   "dependencies": {
     "@remotion/media-utils": "^4.0.306",

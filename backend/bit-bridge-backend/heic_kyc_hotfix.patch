@@ -1,0 +1,144 @@
+diff --git a/backend/bit-bridge-backend/app/models/user_profile.rb b/backend/bit-bridge-backend/app/models/user_profile.rb
+index 29ee0d2..aca69e3 100644
+--- a/backend/bit-bridge-backend/app/models/user_profile.rb
++++ b/backend/bit-bridge-backend/app/models/user_profile.rb
+@@ -1,11 +1,14 @@
+ # frozen_string_literal: true
+ 
+ class UserProfile < ApplicationRecord
++  ALLOWED_KYC_ATTACHMENT_CONTENT_TYPES = %w[image/jpeg image/png application/pdf].freeze
++
+   belongs_to :user
+ 
+   validates :phone_e164, uniqueness: { case_sensitive: false }, allow_blank: true
+   validates :gender, inclusion: { in: %w[male female], allow_nil: true, allow_blank: true }
+   validate :phone_number_must_be_normalizable
++  validate :kyc_attachments_must_use_supported_formats
+ 
+   has_one_attached :id_document
+   has_one_attached :proof_of_address
+@@ -34,6 +37,18 @@ class UserProfile < ApplicationRecord
+     errors.add(:phone_number, 'is invalid')
+   end
+ 
++  def kyc_attachments_must_use_supported_formats
++    %i[id_document proof_of_address].each do |attachment_name|
++      attachment = public_send(attachment_name)
++      next unless attachment.attached?
++
++      content_type = attachment.blob&.content_type.to_s
++      next if ALLOWED_KYC_ATTACHMENT_CONTENT_TYPES.include?(content_type)
++
++      errors.add(attachment_name, 'must be a JPG, PNG, or PDF file')
++    end
++  end
++
+   def sync_phone_verification_state_if_phone_changed
+     return unless will_save_change_to_phone_number?
+ 
+diff --git a/backend/bit-bridge-backend/spec/requests/api/v1/kyc/bvn_verify_spec.rb b/backend/bit-bridge-backend/spec/requests/api/v1/kyc/bvn_verify_spec.rb
+index 62ae693..ca069d3 100644
+--- a/backend/bit-bridge-backend/spec/requests/api/v1/kyc/bvn_verify_spec.rb
++++ b/backend/bit-bridge-backend/spec/requests/api/v1/kyc/bvn_verify_spec.rb
+@@ -43,22 +43,24 @@ RSpec.describe 'BVN verification caching', type: :request do
+   end
+ 
+   def attach_docs!(profile)
+-    id_file = Tempfile.new(['id_doc', '.txt'])
+-    id_file.write('id-doc')
++    id_file = Tempfile.new(['id_doc', '.png'])
++    id_file.binmode
++    id_file.write("\x89PNG\r\n\x1A\n")
+     id_file.rewind
+     profile.id_document.attach(
+       io: id_file,
+-      filename: 'id_doc.txt',
+-      content_type: 'text/plain'
++      filename: 'id_doc.png',
++      content_type: 'image/png'
+     )
+ 
+-    poa_file = Tempfile.new(['proof', '.txt'])
+-    poa_file.write('proof')
++    poa_file = Tempfile.new(['proof', '.png'])
++    poa_file.binmode
++    poa_file.write("\x89PNG\r\n\x1A\n")
+     poa_file.rewind
+     profile.proof_of_address.attach(
+       io: poa_file,
+-      filename: 'proof.txt',
+-      content_type: 'text/plain'
++      filename: 'proof.png',
++      content_type: 'image/png'
+     )
+   ensure
+     if id_file
+diff --git a/backend/bit-bridge-backend/spec/requests/api/v1/kyc/nin_verify_spec.rb b/backend/bit-bridge-backend/spec/requests/api/v1/kyc/nin_verify_spec.rb
+index e06130d..47e5b8f 100644
+--- a/backend/bit-bridge-backend/spec/requests/api/v1/kyc/nin_verify_spec.rb
++++ b/backend/bit-bridge-backend/spec/requests/api/v1/kyc/nin_verify_spec.rb
+@@ -20,13 +20,14 @@ RSpec.describe "NIN verification", type: :request do
+   end
+ 
+   def attach_proof!(profile)
+-    poa_file = Tempfile.new(["proof", ".txt"])
+-    poa_file.write("proof")
++    poa_file = Tempfile.new(["proof", ".png"])
++    poa_file.binmode
++    poa_file.write("\x89PNG\r\n\x1A\n")
+     poa_file.rewind
+     profile.proof_of_address.attach(
+       io: poa_file,
+-      filename: "proof.txt",
+-      content_type: "text/plain"
++      filename: "proof.png",
++      content_type: "image/png"
+     )
+   ensure
+     if poa_file
+diff --git a/backend/bit-bridge-backend/spec/services/kyc/level_calculator_spec.rb b/backend/bit-bridge-backend/spec/services/kyc/level_calculator_spec.rb
+index 23b8658..96c70ff 100644
+--- a/backend/bit-bridge-backend/spec/services/kyc/level_calculator_spec.rb
++++ b/backend/bit-bridge-backend/spec/services/kyc/level_calculator_spec.rb
+@@ -6,13 +6,14 @@ RSpec.describe Kyc::LevelCalculator do
+   let(:user) { create(:user, id_type: "nin") }
+ 
+   def attach_proof!(profile)
+-    file = Tempfile.new(["proof", ".txt"])
+-    file.write("proof")
++    file = Tempfile.new(["proof", ".png"])
++    file.binmode
++    file.write("\x89PNG\r\n\x1A\n")
+     file.rewind
+     profile.proof_of_address.attach(
+       io: file,
+-      filename: "proof.txt",
+-      content_type: "text/plain"
++      filename: "proof.png",
++      content_type: "image/png"
+     )
+   ensure
+     if file
+diff --git a/backend/bit-bridge-backend/spec/services/kyc/requirements_calculator_spec.rb b/backend/bit-bridge-backend/spec/services/kyc/requirements_calculator_spec.rb
+index 5a8add5..79949d8 100644
+--- a/backend/bit-bridge-backend/spec/services/kyc/requirements_calculator_spec.rb
++++ b/backend/bit-bridge-backend/spec/services/kyc/requirements_calculator_spec.rb
+@@ -6,13 +6,14 @@ RSpec.describe Kyc::RequirementsCalculator do
+   let(:user) { create(:user, id_type: "nin", kyc_level: "tier_1") }
+ 
+   def attach_proof!(profile)
+-    poa_file = Tempfile.new(["proof", ".txt"])
+-    poa_file.write("proof")
++    poa_file = Tempfile.new(["proof", ".png"])
++    poa_file.binmode
++    poa_file.write("\x89PNG\r\n\x1A\n")
+     poa_file.rewind
+     profile.proof_of_address.attach(
+       io: poa_file,
+-      filename: "proof.txt",
+-      content_type: "text/plain"
++      filename: "proof.png",
++      content_type: "image/png"
+     )
+   ensure
+     if poa_file
