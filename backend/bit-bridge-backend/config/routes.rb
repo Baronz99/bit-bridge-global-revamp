@@ -104,6 +104,9 @@ Rails.application.routes.draw do
         resources :devices, only: [:create]
         delete "devices", to: "devices#destroy"
         delete "devices/:token", to: "devices#destroy"
+        get "service_status_subscriptions", to: "service_status_subscriptions#index"
+        post "service_status_subscriptions", to: "service_status_subscriptions#create"
+        delete "service_status_subscriptions", to: "service_status_subscriptions#destroy"
       end
 
       # Cards

@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[7.1].define(version: 2026_03_08_112000) do
+ActiveRecord::Schema[7.1].define(version: 2026_03_16_173000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pgcrypto"
   enable_extension "plpgsql"
@@ -790,6 +790,23 @@ ActiveRecord::Schema[7.1].define(version: 2026_03_08_112000) do
     t.index ["user_id"], name: "index_reward_transactions_on_user_id"
   end
 
+  create_table "service_status_subscriptions", id: :uuid, default: -> { "gen_random_uuid()" }, force: :cascade do |t|
+    t.uuid "user_id", null: false
+    t.string "provider", null: false
+    t.string "service_key", null: false
+    t.string "channel", default: "push", null: false
+    t.boolean "active", default: true, null: false
+    t.string "last_notified_state"
+    t.datetime "last_notified_at"
+    t.datetime "expires_at"
+    t.jsonb "metadata", default: {}, null: false
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["provider", "service_key", "active"], name: "idx_service_status_subscriptions_lookup"
+    t.index ["user_id", "provider", "service_key", "channel"], name: "idx_service_status_subscriptions_uniqueness", unique: true
+    t.index ["user_id"], name: "index_service_status_subscriptions_on_user_id"
+  end
+
   create_table "transaction_pin_reset_codes", force: :cascade do |t|
     t.uuid "user_id", null: false
     t.string "phone_e164", null: false
@@ -1146,6 +1163,7 @@ ActiveRecord::Schema[7.1].define(version: 2026_03_08_112000) do
   add_foreign_key "refund_requests", "users", column: "handled_by_admin_id"
   add_foreign_key "reward_transactions", "bill_orders"
   add_foreign_key "reward_transactions", "users"
+  add_foreign_key "service_status_subscriptions", "users"
   add_foreign_key "transaction_pin_reset_codes", "users"
   add_foreign_key "transaction_records", "bill_orders"
   add_foreign_key "transaction_records", "transactions", column: "exchange_id"

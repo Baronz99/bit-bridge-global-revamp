@@ -112,7 +112,7 @@ RSpec.describe Bills::ExecuteIntent, type: :service do
     service = instance_double(BuyPowerPaymentService)
     allow(BuyPowerPaymentService).to receive(:new).and_return(service)
     allow(service).to receive(:confirm_subscription) do |order, *_args, **_kwargs|
-      order.update!(status: :processing)
+      order.update!(status: :processing, provider_reference: 'provider-2')
       { status: 'pending', response: 'Payment processing...' }
     end
 
@@ -172,7 +172,7 @@ RSpec.describe Bills::ExecuteIntent, type: :service do
     service = instance_double(BuyPowerPaymentService)
     allow(BuyPowerPaymentService).to receive(:new).and_return(service)
     allow(service).to receive(:confirm_subscription) do |order, *_args, **_kwargs|
-      order.update!(status: :processing)
+      order.update!(status: :processing, provider_reference: 'provider-late')
       { status: 'pending', response: 'Payment processing...' }
     end
 
@@ -356,6 +356,9 @@ RSpec.describe Bills::ExecuteIntent, type: :service do
     expect(result[:http_status]).to eq(:unprocessable_entity)
     expect(result.dig(:body, :error_code)).to eq('SERVICE_UNAVAILABLE')
     expect(intent.reload.status).to eq('draft')
+    subscription = user.service_status_subscriptions.find_by(service_key: 'IKEJA_ELECTRICITY')
+    expect(subscription).to be_present
+    expect(subscription.active).to eq(true)
   end
 
   it 'allows checkout with warning when provider status is unstable' do

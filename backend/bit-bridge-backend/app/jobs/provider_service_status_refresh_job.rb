@@ -19,6 +19,7 @@ class ProviderServiceStatusRefreshJob < ApplicationJob
     grouped = grouped_orders(window_started_at, window_ended_at)
     provider_rows = fetch_provider_rows(window_started_at: window_started_at, window_ended_at: window_ended_at)
     keys = (grouped.keys + provider_rows.keys).uniq
+    previous_rows = ProviderServiceStatus.where(provider: PROVIDER, service_key: keys).index_by(&:service_key)
     rows = []
 
     keys.each do |service_key|
@@ -38,6 +39,13 @@ class ProviderServiceStatusRefreshJob < ApplicationJob
     ProviderServiceStatus.upsert_all(
       rows,
       unique_by: :index_provider_service_statuses_on_provider_and_service_key
+    ) if rows.any?
+
+    Core::Notifications::ServiceStatusRecoveryPublisher.call(
+      provider: PROVIDER,
+      previous_rows: previous_rows,
+      current_rows: rows,
+      occurred_at: @now
     ) if rows.any?
 
     {

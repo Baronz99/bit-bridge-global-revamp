@@ -30,6 +30,7 @@ class User < ApplicationRecord
   has_many :cards
   has_many :notification_devices, dependent: :destroy
   has_many :notification_events, dependent: :destroy
+  has_many :service_status_subscriptions, dependent: :destroy
   has_many :beneficiaries, dependent: :destroy
   has_one :user_kyc, dependent: :destroy
   has_many :kyc_reviews, dependent: :destroy

@@ -296,6 +296,8 @@ end
     end
 
     def service_unavailable_response(status)
+      subscribe_to_service_recovery(status)
+
       {
         http_status: :unprocessable_entity,
         body: {
@@ -313,6 +315,24 @@ end
           intent: intent_payload
         }
       }
+    end
+
+    def subscribe_to_service_recovery(status)
+      return unless @intent.user.present?
+      return unless @intent.bill_order&.service_type.to_s.upcase == 'ELECTRICITY'
+
+      Core::Notifications::ServiceStatusSubscriptionManager.subscribe!(
+        user: @intent.user,
+        provider: 'buypower',
+        service_key: status[:service_key],
+        metadata: {
+          source: 'checkout_unavailable',
+          bill_order_id: @intent.bill_order_id
+        }
+      )
+    rescue StandardError => e
+      Rails.logger.warn("[Bills::ExecuteIntent] service recovery subscribe failed intent_id=#{@intent.id} error=#{e.class}: #{e.message}")
+      nil
     end
 
     def append_service_warning(body)

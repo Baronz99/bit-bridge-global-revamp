@@ -87,4 +87,50 @@ RSpec.describe ProviderServiceStatusRefreshJob, type: :job do
     expect(row.reliability_percent).to eq(0)
     expect(row.sample_size).to eq(12)
   end
+
+  it 'publishes a recovery notification when a subscribed provider returns to available' do
+    user = create(:user)
+    ServiceStatusSubscription.create!(
+      user: user,
+      provider: 'buypower',
+      service_key: 'ABUJA_ELECTRICITY',
+      channel: 'push',
+      active: true,
+      expires_at: 3.days.from_now
+    )
+    ProviderServiceStatus.create!(
+      provider: 'buypower',
+      service_key: 'ABUJA_ELECTRICITY',
+      state: 'down',
+      reliability_percent: 20,
+      sample_size: 25,
+      window_started_at: 45.minutes.ago,
+      window_ended_at: 15.minutes.ago
+    )
+
+    payload = {
+      'status' => 'ok',
+      'message' => 'Successful',
+      'data' => [
+        {
+          'vertical' => 'ELECTRICITY',
+          'disco_code' => 'ABUJA',
+          'success_percentage' => 97,
+          'failure_percentage' => 3,
+          'provider_online' => true
+        }
+      ]
+    }
+
+    service = instance_double(BuyPowerPaymentService)
+    allow(BuyPowerPaymentService).to receive(:new).and_return(service)
+    allow(service).to receive(:reliability_index).and_return(status: 'success', response: payload)
+
+    described_class.perform_now(now: Time.current.change(usec: 0))
+
+    event = user.notification_events.order(:created_at).last
+    expect(event).to be_present
+    expect(event.event_type).to eq('service.status.restored')
+    expect(event.state).to eq('available')
+  end
 end
