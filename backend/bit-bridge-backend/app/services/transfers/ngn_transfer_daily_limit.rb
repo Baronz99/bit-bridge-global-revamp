@@ -5,7 +5,7 @@ module Transfers
     BUSINESS_TIMEZONE = 'Africa/Lagos'
     TIER_2_DAILY_LIMIT = 500_000.to_d
     TIER_3_DAILY_LIMIT = 3_000_000.to_d
-    TIER_4_DAILY_LIMIT = TIER_3_DAILY_LIMIT
+    TIER_4_DAILY_LIMIT = 5_000_000.to_d
     TRANSFER_SUBTYPES = %w[principal fee].freeze
 
     def self.limit_for(user)
