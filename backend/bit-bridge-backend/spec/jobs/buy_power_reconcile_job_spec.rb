@@ -194,7 +194,7 @@ RSpec.describe BuyPowerReconcileJob, type: :job do
     expect(entries.refund.count).to eq(1)
   end
 
-  it 'fails and refunds when no provider reference is available' do
+  it 'falls back to the bill order id when provider references are blank' do
     allow(Config::Bills).to receive(:validate!).and_return(true)
     allow(Config::Bills).to receive(:base_url).and_return('http://example.test')
     allow(Config::Bills).to receive(:token).and_return('token')
@@ -230,17 +230,28 @@ RSpec.describe BuyPowerReconcileJob, type: :job do
     )
 
     WalletLedgerEntry.ensure_hold!(wallet: wallet, bill_order: bill_order, amount: 1000)
-    WalletLedgerEntry.record_debit!(wallet: wallet, bill_order: bill_order, amount: 1000)
+
+    requery_response = {
+      'result' => {
+        'status' => true,
+        'message' => 'Successful transaction',
+        'data' => { 'id' => 'txn_fallback', 'units' => '1', 'token' => 'abc-123' }
+      }
+    }
+    expect_any_instance_of(BuyPowerPaymentService).to receive(:re_query).with(bill_order.id.to_s)
+      .and_return(status: :ok, response: requery_response)
 
     expect { described_class.perform_now(bill_order.id) }
       .not_to have_enqueued_job(described_class)
 
     bill_order.reload
-    expect(bill_order.status).to eq('failed')
+    expect(bill_order.status).to eq('completed')
+    expect(bill_order.provider_reference).to eq('txn_fallback')
     entries = WalletLedgerEntry.where(bill_order: bill_order)
     expect(entries.hold.count).to eq(1)
-    expect(entries.release.count).to eq(0)
-    expect(entries.refund.count).to eq(1)
+    expect(entries.release.count).to eq(1)
+    expect(entries.debit.count).to eq(1)
+    expect(entries.refund.count).to eq(0)
   end
 
   it 'fails processing wallet order with provider error and releases hold' do
@@ -377,3 +388,4 @@ RSpec.describe BuyPowerReconcileJob, type: :job do
     expect(bill_order.reload.status).to eq('processing')
   end
 end
+

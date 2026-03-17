@@ -822,14 +822,13 @@ RSpec.describe BuyPowerPaymentService do
 
       result = described_class.new.confirm_subscription(bill_order, 'wallet', false, request_id: 'spec')
 
-      expect(result[:status]).to eq('pending')
-      expect(result[:response]).to eq('Payment processing...')
-      expect(bill_order.reload.status).to eq('processing')
+      expect(result[:status]).to eq('error')
+      expect(bill_order.reload.status).to eq('failed')
       expect(WalletLedgerEntry.where(bill_order: bill_order).hold.count).to eq(1)
       expect(WalletLedgerEntry.where(bill_order: bill_order).release.count).to eq(0)
     end
 
-    it 'treats documented provider server errors as pending and requeryable' do
+    it 'fails immediately on explicit provider error payloads even when responseCode is 500' do
       allow(Config::Bills).to receive(:validate!).and_return(true)
       allow(Config::Bills).to receive(:base_url).and_return('http://example.test')
       allow(Config::Bills).to receive(:token).and_return('token')
@@ -875,9 +874,8 @@ RSpec.describe BuyPowerPaymentService do
 
       result = described_class.new.confirm_subscription(bill_order, 'wallet', false, request_id: 'spec')
 
-      expect(result[:status]).to eq('pending')
-      expect(result[:response]).to eq('Payment processing...')
-      expect(bill_order.reload.status).to eq('processing')
+      expect(result[:status]).to eq('error')
+      expect(bill_order.reload.status).to eq('failed')
       expect(bill_order.provider_response).to include(
         'error' => true,
         'message' => 'Transaction failed to initiate.',
@@ -1106,3 +1104,4 @@ RSpec.describe BuyPowerPaymentService do
     end
   end
 end
+

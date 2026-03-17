@@ -51,6 +51,15 @@ class BuyPowerPaymentService
     'benin-electric' => 'BH'
   }.freeze
   PROVIDER_PENDING_CODES = [202, 500, 502, 503].freeze
+  PROVIDER_PENDING_MESSAGE_HINTS = [
+    'in progress',
+    'processing',
+    'pending',
+    'requery',
+    'retry',
+    'timeout',
+    'temporarily unavailable'
+  ].freeze
 
   # Required env vars:
   # - BUYPOWER_TOKEN
@@ -1274,3 +1283,4 @@ end
     )
   end
 end
+

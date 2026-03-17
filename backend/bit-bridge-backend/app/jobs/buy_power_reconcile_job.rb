@@ -44,7 +44,7 @@ class BuyPowerReconcileJob < ApplicationJob
     end
 
     # 2) Re-query provider
-    reference = order.provider_reference.presence || order.id
+    reference = order.provider_reference.presence || order.transaction_id.presence || order.idempotency_key.presence || order.id.to_s
     response  = service.re_query(reference)
 
     unless response[:status] == :ok
@@ -377,3 +377,4 @@ class BuyPowerReconcileJob < ApplicationJob
     Rails.logger.error("[BuyPowerReconcileJob] sync_bill_payment_intent failed order=#{order.id} #{e.class}: #{e.message}")
   end
 end
+
