@@ -11,7 +11,7 @@ RSpec.describe BuyPowerReconcileJob, type: :job do
     allow(Config::Bills).to receive(:base_url).and_return('http://example.test')
     allow(Config::Bills).to receive(:token).and_return('token')
 
-    user = create(:user)
+    user = create(:user, email: "reconcile-success-#{SecureRandom.hex(4)}@example.com")
     wallet = user.wallet
     Transaction.create!(
       wallet: wallet,
@@ -65,7 +65,7 @@ RSpec.describe BuyPowerReconcileJob, type: :job do
     allow(Config::Bills).to receive(:base_url).and_return('http://example.test')
     allow(Config::Bills).to receive(:token).and_return('token')
 
-    user = create(:user)
+    user = create(:user, email: "reconcile-refund-#{SecureRandom.hex(4)}@example.com")
     wallet = user.wallet
     Transaction.create!(
       wallet: wallet,
@@ -117,7 +117,7 @@ RSpec.describe BuyPowerReconcileJob, type: :job do
     allow(Config::Bills).to receive(:base_url).and_return('http://example.test')
     allow(Config::Bills).to receive(:token).and_return('token')
 
-    user = create(:user)
+    user = create(:user, email: "reconcile-requeue-#{SecureRandom.hex(4)}@example.com")
     bill_order = BillOrder.create!(
       user: user,
       meter_number: '08012345678',
@@ -144,12 +144,12 @@ RSpec.describe BuyPowerReconcileJob, type: :job do
       .to have_enqueued_job(described_class)
   end
 
-  it 'fails after max attempts when provider response is not ok' do
+  it 'marks stale non-ok requery orders for review without re-enqueueing' do
     allow(Config::Bills).to receive(:validate!).and_return(true)
     allow(Config::Bills).to receive(:base_url).and_return('http://example.test')
     allow(Config::Bills).to receive(:token).and_return('token')
 
-    user = create(:user)
+    user = create(:user, email: "reconcile-max-#{SecureRandom.hex(4)}@example.com")
     wallet = user.wallet
     Transaction.create!(
       wallet: wallet,
@@ -176,11 +176,12 @@ RSpec.describe BuyPowerReconcileJob, type: :job do
       status: 'processing',
       reason: nil,
       provider_reference: 'bp-ref-4',
-      reconcile_attempts: BuyPowerReconcileJob::DEFAULT_MAX_ATTEMPTS - 1
+      reconcile_attempts: 0
     )
 
     WalletLedgerEntry.ensure_hold!(wallet: wallet, bill_order: bill_order, amount: 1000)
     WalletLedgerEntry.record_debit!(wallet: wallet, bill_order: bill_order, amount: 1000)
+    bill_order.update_column(:updated_at, 3.hours.ago)
 
     allow_any_instance_of(BuyPowerPaymentService).to receive(:re_query)
       .and_return(status: :unprocessable_entity, response: 'error')
@@ -189,9 +190,8 @@ RSpec.describe BuyPowerReconcileJob, type: :job do
       .not_to have_enqueued_job(described_class)
 
     bill_order.reload
-    expect(bill_order.status).to eq('failed')
-    entries = WalletLedgerEntry.where(bill_order: bill_order)
-    expect(entries.refund.count).to eq(1)
+    expect(bill_order.status).to eq('processing')
+    expect(bill_order.reason).to eq('Reconcile stalled: unprocessable_entity')
   end
 
   it 'falls back to the bill order id when provider references are blank' do
@@ -199,7 +199,7 @@ RSpec.describe BuyPowerReconcileJob, type: :job do
     allow(Config::Bills).to receive(:base_url).and_return('http://example.test')
     allow(Config::Bills).to receive(:token).and_return('token')
 
-    user = create(:user)
+    user = create(:user, email: "reconcile-fallback-#{SecureRandom.hex(4)}@example.com")
     wallet = user.wallet
     Transaction.create!(
       wallet: wallet,
@@ -254,6 +254,62 @@ RSpec.describe BuyPowerReconcileJob, type: :job do
     expect(entries.refund.count).to eq(0)
   end
 
+  it 'prefers the bill order id over idempotency key when provider references are blank' do
+    allow(Config::Bills).to receive(:validate!).and_return(true)
+    allow(Config::Bills).to receive(:base_url).and_return('http://example.test')
+    allow(Config::Bills).to receive(:token).and_return('token')
+
+    user = create(:user, email: "reconcile-id-preference-#{SecureRandom.hex(4)}@example.com")
+    wallet = user.wallet
+    Transaction.create!(
+      wallet: wallet,
+      amount: 10_000,
+      bonus: 0,
+      status: :approved,
+      transaction_type: :deposit
+    )
+
+    bill_order = BillOrder.create!(
+      user: user,
+      meter_number: '08012345678',
+      meter_type: 'PREPAID',
+      address: 'Test Address',
+      name: 'Test User',
+      tariff_class: 'A',
+      service_type: 'ELECTRICITY',
+      email: user.email,
+      amount: 1000,
+      phone: '08012345678',
+      biller: 'ABUJA',
+      description: 'Electricity',
+      payment_type: 'online',
+      payment_method: 'wallet',
+      status: 'processing',
+      provider_reference: nil,
+      transaction_id: nil,
+      idempotency_key: SecureRandom.uuid
+    )
+
+    WalletLedgerEntry.ensure_hold!(wallet: wallet, bill_order: bill_order, amount: 1000)
+
+    requery_response = {
+      'result' => {
+        'status' => true,
+        'message' => 'Successful transaction',
+        'data' => { 'id' => 'txn_pref', 'units' => '1', 'token' => '1551-5424-2084-0524-9259' }
+      }
+    }
+
+    expect_any_instance_of(BuyPowerPaymentService).to receive(:re_query).with(bill_order.id.to_s)
+      .and_return(status: :ok, response: requery_response)
+
+    described_class.perform_now(bill_order.id)
+
+    bill_order.reload
+    expect(bill_order.status).to eq('completed')
+    expect(bill_order.provider_reference).to eq('txn_pref')
+  end
+
   it 'fails processing wallet order with provider error and releases hold' do
     allow(Config::Bills).to receive(:validate!).and_return(true)
     allow(Config::Bills).to receive(:base_url).and_return('http://example.test')
@@ -263,7 +319,7 @@ RSpec.describe BuyPowerReconcileJob, type: :job do
     allow(BuyPowerPaymentService).to receive(:new).and_return(service)
     expect(service).not_to receive(:re_query)
 
-    user = create(:user)
+    user = create(:user, email: "reconcile-provider-error-#{SecureRandom.hex(4)}@example.com")
     wallet = user.wallet
     Transaction.create!(
       wallet: wallet,
@@ -311,7 +367,7 @@ RSpec.describe BuyPowerReconcileJob, type: :job do
     allow(Config::Bills).to receive(:base_url).and_return('http://example.test')
     allow(Config::Bills).to receive(:token).and_return('token')
 
-    user = create(:user)
+    user = create(:user, email: "reconcile-hard-error-#{SecureRandom.hex(4)}@example.com")
     wallet = user.wallet
     Transaction.create!(
       wallet: wallet,
@@ -361,7 +417,7 @@ RSpec.describe BuyPowerReconcileJob, type: :job do
     allow(BuyPowerPaymentService).to receive(:new).and_return(service)
     expect(service).not_to receive(:re_query)
 
-    user = create(:user)
+    user = create(:user, email: "reconcile-shadow-#{SecureRandom.hex(4)}@example.com")
     bill_order = BillOrder.create!(
       user: user,
       meter_number: SecureRandom.uuid,

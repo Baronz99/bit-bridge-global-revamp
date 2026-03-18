@@ -44,7 +44,7 @@ class BuyPowerReconcileJob < ApplicationJob
     end
 
     # 2) Re-query provider
-    reference = order.provider_reference.presence || order.transaction_id.presence || order.idempotency_key.presence || order.id.to_s
+    reference = order.provider_reference.presence || order.transaction_id.presence || order.id.to_s.presence || order.idempotency_key.presence
     response  = service.re_query(reference)
 
     unless response[:status] == :ok

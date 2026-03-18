@@ -993,6 +993,8 @@ end
   end
 
   def provider_status_from(response)
+    return nil unless response.is_a?(Hash)
+
     response&.dig('data', 'status')&.to_s&.downcase ||
       response&.dig('status')&.to_s&.downcase ||
       response&.dig('responseCode')&.to_s&.downcase
