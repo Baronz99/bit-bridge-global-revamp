@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[7.1].define(version: 2026_03_16_173000) do
+ActiveRecord::Schema[7.1].define(version: 2026_03_18_170000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pgcrypto"
   enable_extension "plpgsql"
@@ -97,6 +97,16 @@ ActiveRecord::Schema[7.1].define(version: 2026_03_16_173000) do
     t.datetime "updated_at", null: false
     t.index ["event_type", "reference"], name: "index_anchor_webhook_events_on_event_type_and_reference", unique: true
     t.index ["received_at"], name: "index_anchor_webhook_events_on_received_at"
+  end
+
+  create_table "badges", id: :uuid, default: -> { "gen_random_uuid()" }, force: :cascade do |t|
+    t.string "key", null: false
+    t.string "name", null: false
+    t.text "description"
+    t.boolean "active", default: true, null: false
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["key"], name: "index_badges_on_key", unique: true
   end
 
   create_table "bank_transactions", id: :uuid, default: -> { "gen_random_uuid()" }, force: :cascade do |t|
@@ -350,6 +360,11 @@ ActiveRecord::Schema[7.1].define(version: 2026_03_16_173000) do
     t.datetime "updated_at", null: false
     t.integer "balance_cents", default: 0, null: false
     t.string "currency", default: "NGN", null: false
+    t.string "circle_type", default: "standard", null: false
+    t.string "kyc_mode", default: "strict", null: false
+    t.bigint "max_contribution_cents"
+    t.string "badge_label"
+    t.string "visibility", default: "private", null: false
     t.index ["owner_id"], name: "index_circles_on_owner_id"
   end
 
@@ -919,6 +934,22 @@ ActiveRecord::Schema[7.1].define(version: 2026_03_16_173000) do
     t.index ["status"], name: "index_unmatched_credits_on_status"
   end
 
+  create_table "user_badges", id: :uuid, default: -> { "gen_random_uuid()" }, force: :cascade do |t|
+    t.uuid "user_id", null: false
+    t.uuid "badge_id", null: false
+    t.uuid "granted_by_user_id"
+    t.uuid "source_circle_id"
+    t.string "source_rule"
+    t.datetime "granted_at", null: false
+    t.jsonb "metadata", default: {}, null: false
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["badge_id"], name: "index_user_badges_on_badge_id"
+    t.index ["granted_at"], name: "index_user_badges_on_granted_at"
+    t.index ["user_id", "badge_id", "source_circle_id"], name: "index_user_badges_unique_source", unique: true
+    t.index ["user_id"], name: "index_user_badges_on_user_id"
+  end
+
   create_table "user_kycs", id: :uuid, default: -> { "gen_random_uuid()" }, force: :cascade do |t|
     t.uuid "user_id", null: false
     t.string "bvn_status", default: "unverified", null: false
@@ -1169,6 +1200,10 @@ ActiveRecord::Schema[7.1].define(version: 2026_03_16_173000) do
   add_foreign_key "transaction_records", "transactions", column: "exchange_id"
   add_foreign_key "transactions", "accounts"
   add_foreign_key "transactions", "wallets"
+  add_foreign_key "user_badges", "badges"
+  add_foreign_key "user_badges", "circles", column: "source_circle_id"
+  add_foreign_key "user_badges", "users"
+  add_foreign_key "user_badges", "users", column: "granted_by_user_id"
   add_foreign_key "user_profiles", "users", on_delete: :nullify
   add_foreign_key "vendors", "users"
   add_foreign_key "wallet_ledger_entries", "bill_orders"

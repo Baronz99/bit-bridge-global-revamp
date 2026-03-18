@@ -5,8 +5,8 @@ module Api
     module Circles
       class TimelineController < ApplicationController
         before_action :authenticate_user!
-        before_action :ensure_tier2!, message: 'Complete Tier 2 verification to use shared groups.'
         before_action :set_circle
+        before_action :ensure_circle_access_gate!
 
         # GET /api/v1/circles/:id/timeline
         def index
@@ -29,6 +29,10 @@ module Api
           @circle = current_user.circles.find(params[:id])
         rescue ActiveRecord::RecordNotFound
           render json: { error: 'Circle not found' }, status: :not_found
+        end
+
+        def ensure_circle_access_gate!
+          ensure_circle_access!(@circle, message: 'Complete Tier 2 verification to use shared groups.')
         end
       end
     end

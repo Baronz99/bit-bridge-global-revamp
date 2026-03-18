@@ -141,6 +141,45 @@ class ApplicationController < ActionController::API
     }, status: :forbidden
   end
 
+  def current_user_phone_verified?
+    current_user&.user_profile&.phone_verified_at.present?
+  end
+
+  def ensure_circle_access!(circle, message: nil)
+    return true if current_user&.kyc_at_least?('tier_2')
+    return true if circle&.flexible_kyc? && current_user_phone_verified?
+
+    render json: {
+      error: 'kyc_required',
+      message: message || 'Complete Tier 2 verification to use shared groups.'
+    }, status: :forbidden
+
+    false
+  end
+
+  def ensure_circle_funding_access!(circle, amount_cents:, over_limit_message: nil)
+    return ensure_tier2!(message: 'Complete Tier 2 verification to use shared groups.') unless circle&.flexible_kyc?
+
+    unless current_user_phone_verified? && current_user&.kyc_at_least?('tier_1')
+      render json: {
+        error: 'kyc_required',
+        message: 'Complete verification to contribute to this circle'
+      }, status: :forbidden
+      return false
+    end
+
+    cap = circle.contribution_cap_for(current_user)
+    if cap.present? && amount_cents.to_i > cap.to_i
+      render json: {
+        error: 'kyc_required',
+        message: over_limit_message || 'Complete verification to contribute above your current limit'
+      }, status: :forbidden
+      return false
+    end
+
+    true
+  end
+
   def ensure_super_admin!
     return if current_user&.super_admin?
 

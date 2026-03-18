@@ -20,14 +20,23 @@ module Api
         response.headers['Pragma'] = 'no-cache'
         response.headers['Expires'] = '0'
 
-        user = User.includes(:user_profile, :user_kyc, :wallet, :accounts).find(current_user.id)
+        user = User.includes(
+          :user_kyc,
+          :wallet,
+          { user_badges: %i[badge source_circle] },
+          user_profile: [
+            { id_document_attachment: :blob },
+            { proof_of_address_attachment: :blob }
+          ]
+        ).find(current_user.id)
         profile = user.user_profile
         kyc = user.user_kyc
         ngn_wallet = user.wallet
         account = user.accounts.order(created_at: :desc).first
 
-        id_doc_review = latest_document_review(user.id, 'id_document')
-        proof_doc_review = latest_document_review(user.id, 'proof_of_address')
+        document_reviews = latest_document_reviews(user.id)
+        id_doc_review = document_reviews['id_document']
+        proof_doc_review = document_reviews['proof_of_address']
 
         render json: {
           data: {
@@ -50,6 +59,7 @@ module Api
             account: serialize_compact_account(account),
             user_profile: serialize_compact_profile(profile, id_doc_review: id_doc_review, proof_doc_review: proof_doc_review),
             user_kyc: serialize_compact_kyc(kyc),
+            badges: serialize_user_badges(user),
             kyc_requirements: ::Kyc::RequirementsCalculator.new(user).call
           }.compact
         }, status: :ok
@@ -102,7 +112,7 @@ module Api
         email = params[:email].to_s.downcase.strip
         user =
           if email.present?
-            User.find_by("LOWER(email) = :email OR LOWER(COALESCE(unconfirmed_email, '')) = :email", email: email)
+            User.find_by('LOWER(email) = :email OR LOWER(COALESCE(unconfirmed_email, \'\')) = :email', email: email)
           end
 
         return render json: { message: 'User not found' }, status: :not_found unless user
@@ -453,7 +463,7 @@ module Api
           }, status: :too_many_requests
         end
 
-        code = SecureRandom.random_number(1000000).to_s.rjust(6, '0')
+        code = SecureRandom.random_number(1_000_000).to_s.rjust(6, '0')
         digest = BCrypt::Password.create(code)
         expires_at = Time.current + PhoneVerificationCode::TTL
         next_send_count = latest&.send_count.to_i + 1
@@ -569,6 +579,7 @@ module Api
                  status: :unprocessable_entity
         end
       end
+
       # ========= CHANGE PASSWORD WHILE LOGGED IN =========
 
       def user_password_update
@@ -664,23 +675,31 @@ module Api
       def serialize_compact_wallet(wallet)
         return nil unless wallet
 
+        summary = compact_wallet_summary(wallet)
+
         {
           id: wallet.id,
           wallet_type: wallet.wallet_type,
           currency: wallet.currency,
-          balance: wallet.balance,
-          available_balance: wallet.respond_to?(:ledger_available_balance) ? wallet.ledger_available_balance : wallet.balance,
+          balance: summary[:balance],
+          available_balance: summary[:available_balance],
           commission: wallet.commission,
-          total_bills: wallet.respond_to?(:total_bills) ? wallet.total_bills : nil,
-          withdrawn: wallet.respond_to?(:withdrawn) ? wallet.withdrawn : nil,
-          total_deposit: wallet.respond_to?(:total_deposit) ? wallet.total_deposit : nil,
-          wallet_stats: serialize_wallet_stats(wallet)
+          total_bills: summary[:total_bills],
+          withdrawn: summary[:withdrawn],
+          total_deposit: summary[:total_deposit],
+          wallet_stats: summary[:wallet_stats]
         }.compact
       end
 
-      # Explicit stats for mobile home/dashboard chips.
-      # These are category-safe and derived from real persisted records.
-      def serialize_wallet_stats(wallet)
+      def compact_wallet_summary(wallet)
+        available_balance =
+          if wallet.respond_to?(:ledger_available_balance)
+            wallet.ledger_available_balance
+          else
+            wallet.balance
+          end
+        balance = wallet.ngn? ? available_balance : wallet.balance
+
         approved_withdrawals =
           wallet.transactions
                 .where(transaction_type: :withdrawal, status: :approved)
@@ -733,15 +752,24 @@ module Api
         other_withdrawals = 0.to_d if other_withdrawals.negative?
 
         {
-          schema_version: 1,
-          bills_wallet_total: bills_total.to_f,
-          bank_transfers_total: transfer_total.to_f,
-          bank_transfer_principal_total: transfer_principal.to_f,
-          bank_transfer_fee_total: transfer_fees.to_f,
-          card_spend_total: card_spend_total.to_f,
-          circle_funding_total: circle_funding_total.to_f,
-          other_withdrawals_total: other_withdrawals.to_f,
-          total_withdrawals_approved: total_withdrawals_approved.to_f
+          balance: balance,
+          available_balance: available_balance,
+          total_bills: bills_total,
+          withdrawn: total_withdrawals_approved,
+          total_deposit: wallet.transactions
+                               .where(transaction_type: :deposit, status: :approved)
+                               .sum(Arel.sql("amount + COALESCE(bonus, 0)")),
+          wallet_stats: {
+            schema_version: 1,
+            bills_wallet_total: bills_total.to_f,
+            bank_transfers_total: transfer_total.to_f,
+            bank_transfer_principal_total: transfer_principal.to_f,
+            bank_transfer_fee_total: transfer_fees.to_f,
+            card_spend_total: card_spend_total.to_f,
+            circle_funding_total: circle_funding_total.to_f,
+            other_withdrawals_total: other_withdrawals.to_f,
+            total_withdrawals_approved: total_withdrawals_approved.to_f
+          }
         }
       end
 
@@ -796,11 +824,16 @@ module Api
         }.compact
       end
 
-      def latest_document_review(user_id, kyc_type)
+      def latest_document_reviews(user_id)
         KycReview
-          .where(user_id: user_id, kyc_type: kyc_type)
+          .where(user_id: user_id, kyc_type: %w[id_document proof_of_address])
           .order(created_at: :desc)
-          .first
+          .group_by(&:kyc_type)
+          .transform_values(&:first)
+      end
+
+      def latest_document_review(user_id, kyc_type)
+        latest_document_reviews(user_id)[kyc_type]
       end
 
       def resolve_document_status(uploaded:, review:)
@@ -868,6 +901,22 @@ module Api
           tier3_status: kyc.effective_tier3_status,
           tier3_verified_at: kyc.tier3_verified_at
         }.compact
+      end
+
+      def serialize_user_badges(user)
+        user.user_badges
+            .sort_by { |grant| [grant.granted_at || Time.at(0), grant.created_at || Time.at(0)] }
+            .reverse
+            .map do |grant|
+          {
+            id: grant.id,
+            key: grant.badge&.key,
+            name: grant.badge&.name,
+            granted_at: grant.granted_at,
+            source_circle_id: grant.source_circle_id,
+            source_circle_name: grant.source_circle&.name
+          }
+        end
       end
 
       def set_user
@@ -1181,6 +1230,7 @@ module Api
       def phone_variants(e164_digits)
         ["#{e164_digits}", "+#{e164_digits}"]
       end
+
       def user_params
         params.require(:user).permit(
           :email,
@@ -1285,4 +1335,3 @@ module Api
     end
   end
 end
-

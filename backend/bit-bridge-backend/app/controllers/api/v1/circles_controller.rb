@@ -6,8 +6,11 @@ module Api
   module V1
     class CirclesController < ApplicationController
       before_action :authenticate_user!
-      before_action :ensure_tier2!, message: 'Complete Tier 2 verification to use shared groups.'
+      before_action :ensure_circle_index_access!, only: %i[index]
+      before_action :ensure_tier2!, only: %i[create withdraw], message: 'Complete Tier 2 verification to use shared groups.'
       before_action :set_circle, only: %i[show fund withdraw audit_summary export_csv]
+      before_action :ensure_circle_access_gate!, only: %i[show audit_summary export_csv]
+      before_action :ensure_circle_funding_gate!, only: %i[fund]
 
       # Keep your existing withdraw rule
       before_action :authorize_withdraw!, only: %i[withdraw]
@@ -20,7 +23,7 @@ module Api
         circles = current_user.circles.includes(:owner)
 
         render json: circles.as_json(
-          only: %i[id name purpose description created_at balance_cents currency],
+          only: %i[id name purpose description created_at balance_cents currency circle_type kyc_mode max_contribution_cents badge_label visibility],
           include: { owner: { only: %i[id] } }
         )
       end
@@ -35,7 +38,7 @@ module Api
                             .limit(10)
 
         circle_json = @circle.as_json(
-          only: %i[id name purpose description created_at balance_cents currency],
+          only: %i[id name purpose description created_at balance_cents currency circle_type kyc_mode max_contribution_cents badge_label visibility],
           include: { owner: { only: %i[id] } }
         )
 
@@ -91,13 +94,20 @@ module Api
       end
 
       def create
-        circle = Circle.new(circle_params.merge(owner: current_user))
+        if official_circle_requested? && !current_user&.admin?
+          return render json: {
+            error: 'not_authorized',
+            message: 'Only BitBridge admins can create official circles'
+          }, status: :forbidden
+        end
+
+        circle = Circle.new(create_circle_params.merge(owner: current_user))
 
         if circle.save
           circle.circle_memberships.find_or_create_by!(user: current_user, role: :admin)
 
           render json: circle.as_json(
-            only: %i[id name purpose description created_at balance_cents currency],
+            only: %i[id name purpose description created_at balance_cents currency circle_type kyc_mode max_contribution_cents badge_label visibility],
             include: { owner: { only: %i[id] } }
           ), status: :created
         else
@@ -423,8 +433,36 @@ module Api
           params.dig(:circle, :idempotency_key).presence
       end
 
-      def circle_params
-        params.require(:circle).permit(:name, :purpose, :description)
+      def create_circle_params
+        permitted = params.require(:circle).permit(
+          :name, :purpose, :description, :circle_type, :kyc_mode, :max_contribution_cents, :badge_label, :visibility
+        )
+        return permitted.merge(circle_type: 'standard', kyc_mode: 'strict', visibility: 'private', max_contribution_cents: nil, badge_label: nil) unless current_user&.admin?
+
+        permitted
+      end
+
+      def official_circle_requested?
+        params.dig(:circle, :circle_type).to_s == 'official'
+      end
+
+      def ensure_circle_index_access!
+        return if current_user&.kyc_at_least?('tier_2')
+        return if current_user_phone_verified? && current_user.circles.where(circle_type: 'official', kyc_mode: 'flexible').exists?
+
+        ensure_tier2!(message: 'Complete Tier 2 verification to use shared groups.')
+      end
+
+      def ensure_circle_access_gate!
+        ensure_circle_access!(@circle, message: 'Complete Tier 2 verification to use shared groups.')
+      end
+
+      def ensure_circle_funding_gate!
+        ensure_circle_funding_access!(
+          @circle,
+          amount_cents: params[:amount_cents],
+          over_limit_message: 'Complete verification to contribute above your current limit'
+        )
       end
 
       def member_payload(membership)

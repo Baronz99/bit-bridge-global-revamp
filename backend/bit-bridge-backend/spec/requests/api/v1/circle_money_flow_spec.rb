@@ -3,17 +3,67 @@
 require 'rails_helper'
 
 RSpec.describe 'Circle Money Flow', type: :request do
-  def create_circle_for(user, balance_cents: nil)
-    attrs = { name: 'Alpha', owner: user }
+  def create_user(*traits, **attrs)
+    create(:user, *traits, email: attrs[:email] || "circle-#{SecureRandom.hex(6)}@example.com", **attrs.except(:email))
+  end
+
+  def create_circle_for(user, balance_cents: nil, **extra_attrs)
+    attrs = { name: 'Alpha', owner: user }.merge(extra_attrs)
     attrs[:balance_cents] = balance_cents if balance_cents
     circle = Circle.create!(**attrs)
     CircleMembership.create!(circle: circle, user: user, role: :admin)
     circle
   end
 
+  def verify_phone!(user, phone: '08012345678')
+    profile = user.user_profile || user.build_user_profile
+    profile.first_name ||= 'Test'
+    profile.last_name ||= 'User'
+    profile.phone_number = phone
+    profile.phone_verified_at = Time.current
+    profile.save!
+  end
+
+  describe 'GET /api/v1/circles/:id' do
+    it 'still requires tier2 for a standard circle' do
+      user = create_user(:confirmed, email: "circle-tier1-#{SecureRandom.hex(6)}@example.com", kyc_level: 'tier_1')
+      verify_phone!(user)
+      circle = create_circle_for(user)
+
+      get "/api/v1/circles/#{circle.id}", headers: auth_headers(user)
+
+      expect(response).to have_http_status(:forbidden)
+      expect(response.parsed_body['error']).to eq('kyc_required')
+    end
+
+    it 'allows tier1 access for an official flexible circle when phone is verified' do
+      user = create_user(:confirmed, email: "circle-flex-#{SecureRandom.hex(6)}@example.com", kyc_level: 'tier_1')
+      verify_phone!(user)
+      circle = create_circle_for(
+        user,
+        circle_type: 'official',
+        kyc_mode: 'flexible',
+        max_contribution_cents: 50_00,
+        visibility: 'official_featured',
+        badge_label: 'Founders'
+      )
+
+      get "/api/v1/circles/#{circle.id}", headers: auth_headers(user)
+
+      expect(response).to have_http_status(:ok)
+      expect(response.parsed_body).to include(
+        'circle_type' => 'official',
+        'kyc_mode' => 'flexible',
+        'max_contribution_cents' => 50_00,
+        'visibility' => 'official_featured',
+        'badge_label' => 'Founders'
+      )
+    end
+  end
+
   describe 'POST /api/v1/circles/:id/fund' do
     it 'returns 401 when no auth header' do
-      circle = Circle.create!(name: 'Alpha', owner: create(:user))
+      circle = Circle.create!(name: 'Alpha', owner: create_user(email: "circle-owner-#{SecureRandom.hex(6)}@example.com"))
 
       post "/api/v1/circles/#{circle.id}/fund", params: { amount_cents: 1000 }
 
@@ -21,8 +71,8 @@ RSpec.describe 'Circle Money Flow', type: :request do
     end
 
     it 'returns 404 when user is not a member of the circle' do
-      user = create(:user, :tier2, :with_pin)
-      other_circle = Circle.create!(name: 'Beta', owner: create(:user))
+      user = create_user(:tier2, :with_pin, email: "circle-member-#{SecureRandom.hex(6)}@example.com")
+      other_circle = Circle.create!(name: 'Beta', owner: create_user(email: "circle-other-owner-#{SecureRandom.hex(6)}@example.com"))
 
       post "/api/v1/circles/#{other_circle.id}/fund",
            params: { amount_cents: 1000, pin: '1234' },
@@ -34,7 +84,7 @@ RSpec.describe 'Circle Money Flow', type: :request do
     end
 
     it 'returns 403 when user is not tier2' do
-      user = create(:user)
+      user = create_user
       circle = create_circle_for(user)
 
       post "/api/v1/circles/#{circle.id}/fund",
@@ -44,8 +94,88 @@ RSpec.describe 'Circle Money Flow', type: :request do
       expect(response).to have_http_status(:forbidden)
     end
 
+    it 'allows tier1 funding within cap for an official flexible circle' do
+      user = create_user(:confirmed, :with_pin, email: "circle-fund-tier1-#{SecureRandom.hex(6)}@example.com", kyc_level: 'tier_1')
+      verify_phone!(user)
+      circle = create_circle_for(
+        user,
+        circle_type: 'official',
+        kyc_mode: 'flexible',
+        max_contribution_cents: 20_00,
+        visibility: 'official_featured'
+      )
+      wallet = user.ngn_wallet
+      wallet.transactions.create!(
+        transaction_type: :deposit,
+        status: :approved,
+        coin_type: :bank,
+        amount: 100
+      )
+
+      post "/api/v1/circles/#{circle.id}/fund",
+           params: { amount_cents: 20_00, pin: '1234' },
+           headers: auth_headers(user)
+
+      expect(response).to have_http_status(:ok)
+      expect(circle.reload.balance_cents).to eq(20_00)
+    end
+
+    it 'returns 403 when a tier1 user funds above the configured cap for an official flexible circle' do
+      user = create_user(:confirmed, :with_pin, email: "circle-cap-tier1-#{SecureRandom.hex(6)}@example.com", kyc_level: 'tier_1')
+      verify_phone!(user)
+      circle = create_circle_for(
+        user,
+        circle_type: 'official',
+        kyc_mode: 'flexible',
+        max_contribution_cents: 20_00
+      )
+      wallet = user.ngn_wallet
+      wallet.transactions.create!(
+        transaction_type: :deposit,
+        status: :approved,
+        coin_type: :bank,
+        amount: 100
+      )
+
+      post "/api/v1/circles/#{circle.id}/fund",
+           params: { amount_cents: 25_00, pin: '1234' },
+           headers: auth_headers(user)
+
+      expect(response).to have_http_status(:forbidden)
+      expect(response.parsed_body).to eq(
+        'error' => 'kyc_required',
+        'message' => 'Complete verification to contribute above your current limit'
+      )
+      expect(circle.reload.balance_cents).to eq(0)
+    end
+
+    it 'allows tier2 funding on an official flexible circle without applying the cap' do
+      user = create_user(:confirmed, :tier2, :with_pin, email: "circle-cap-tier2-#{SecureRandom.hex(6)}@example.com")
+      verify_phone!(user)
+      circle = create_circle_for(
+        user,
+        circle_type: 'official',
+        kyc_mode: 'flexible',
+        max_contribution_cents: 20_00
+      )
+      wallet = user.ngn_wallet
+      wallet.transactions.create!(
+        transaction_type: :deposit,
+        status: :approved,
+        coin_type: :bank,
+        amount: 100
+      )
+
+      post "/api/v1/circles/#{circle.id}/fund",
+           params: { amount_cents: 25_00, pin: '1234' },
+           headers: auth_headers(user)
+
+      expect(response).to have_http_status(:ok)
+      expect(circle.reload.balance_cents).to eq(25_00)
+    end
+
     it 'returns 403 when transaction PIN not set' do
-      user = create(:user, :tier2)
+      user = create_user(:tier2)
       circle = create_circle_for(user)
 
       post "/api/v1/circles/#{circle.id}/fund",
@@ -56,7 +186,7 @@ RSpec.describe 'Circle Money Flow', type: :request do
     end
 
     it 'returns 422 when PIN is missing' do
-      user = create(:user, :tier2, :with_pin)
+      user = create_user(:tier2, :with_pin)
       circle = create_circle_for(user)
 
       post "/api/v1/circles/#{circle.id}/fund",
@@ -69,7 +199,7 @@ RSpec.describe 'Circle Money Flow', type: :request do
     end
 
     it 'returns 422 when PIN is invalid' do
-      user = create(:user, :tier2, :with_pin)
+      user = create_user(:tier2, :with_pin)
       circle = create_circle_for(user)
       wallet = user.ngn_wallet
       wallet.transactions.create!(
@@ -89,7 +219,7 @@ RSpec.describe 'Circle Money Flow', type: :request do
     end
 
     it 'returns 422 when wallet balance is insufficient' do
-      user = create(:user, :tier2, :with_pin)
+      user = create_user(:tier2, :with_pin)
       circle = create_circle_for(user)
 
       post "/api/v1/circles/#{circle.id}/fund",
@@ -102,7 +232,7 @@ RSpec.describe 'Circle Money Flow', type: :request do
     end
 
     it 'returns 200 on success' do
-      user = create(:user, :tier2, :with_pin)
+      user = create_user(:tier2, :with_pin)
       circle = create_circle_for(user)
       wallet = user.ngn_wallet
       wallet.transactions.create!(
@@ -120,7 +250,7 @@ RSpec.describe 'Circle Money Flow', type: :request do
     end
 
     it 'is idempotent with idempotency_key' do
-      user = create(:user, :tier2, :with_pin)
+      user = create_user(:tier2, :with_pin)
       circle = create_circle_for(user)
       wallet = user.ngn_wallet
       wallet.transactions.create!(
@@ -153,7 +283,7 @@ RSpec.describe 'Circle Money Flow', type: :request do
     end
 
     it 'attaches group_reference to both legs and returns a grouped timeline item with derived status' do
-      user = create(:user, :tier2, :with_pin)
+      user = create_user(:tier2, :with_pin)
       circle = create_circle_for(user)
       wallet = user.ngn_wallet
       wallet.transactions.create!(
@@ -197,7 +327,7 @@ RSpec.describe 'Circle Money Flow', type: :request do
     end
 
     it 'is idempotent with Idempotency-Key header' do
-      user = create(:user, :tier2, :with_pin)
+      user = create_user(:tier2, :with_pin)
       circle = create_circle_for(user)
       wallet = user.ngn_wallet
       wallet.transactions.create!(
@@ -235,7 +365,7 @@ RSpec.describe 'Circle Money Flow', type: :request do
 
   describe 'POST /api/v1/circles/:id/withdraw' do
     it 'returns 401 when no auth header' do
-      circle = Circle.create!(name: 'Alpha', owner: create(:user))
+      circle = Circle.create!(name: 'Alpha', owner: create_user)
 
       post "/api/v1/circles/#{circle.id}/withdraw", params: { amount_cents: 1000 }
 
@@ -243,7 +373,7 @@ RSpec.describe 'Circle Money Flow', type: :request do
     end
 
     it 'returns 403 when user is not tier2' do
-      user = create(:user)
+      user = create_user
       circle = create_circle_for(user, balance_cents: 5000)
 
       post "/api/v1/circles/#{circle.id}/withdraw",
@@ -254,7 +384,7 @@ RSpec.describe 'Circle Money Flow', type: :request do
     end
 
     it 'returns 403 when transaction PIN not set' do
-      user = create(:user, :tier2)
+      user = create_user(:tier2)
       circle = create_circle_for(user, balance_cents: 5000)
 
       post "/api/v1/circles/#{circle.id}/withdraw",
@@ -265,7 +395,7 @@ RSpec.describe 'Circle Money Flow', type: :request do
     end
 
     it 'returns 422 when PIN is missing or invalid' do
-      user = create(:user, :tier2, :with_pin)
+      user = create_user(:tier2, :with_pin)
       circle = create_circle_for(user, balance_cents: 5000)
 
       post "/api/v1/circles/#{circle.id}/withdraw",
@@ -276,7 +406,7 @@ RSpec.describe 'Circle Money Flow', type: :request do
     end
 
     it 'returns 200 on success' do
-      user = create(:user, :tier2, :with_pin)
+      user = create_user(:tier2, :with_pin)
       circle = create_circle_for(user, balance_cents: 5000)
 
       post "/api/v1/circles/#{circle.id}/withdraw",
@@ -287,7 +417,7 @@ RSpec.describe 'Circle Money Flow', type: :request do
     end
 
     it 'blocks withdraw when open disputes exist' do
-      user = create(:user, :tier2, :with_pin)
+      user = create_user(:tier2, :with_pin)
       circle = create_circle_for(user, balance_cents: 5000)
       tx = circle.circle_transactions.create!(
         user: user,
@@ -306,7 +436,7 @@ RSpec.describe 'Circle Money Flow', type: :request do
     end
 
     it 'is idempotent with idempotency_key' do
-      user = create(:user, :tier2, :with_pin)
+      user = create_user(:tier2, :with_pin)
       circle = create_circle_for(user, balance_cents: 5000)
 
       key = 'idem-456'

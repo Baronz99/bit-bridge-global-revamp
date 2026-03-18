@@ -6,8 +6,8 @@ module Api
   module V1
     class CircleAuditsController < ApplicationController
       before_action :authenticate_user!
-      before_action :ensure_tier2!, message: 'Complete Tier 2 verification to use shared groups.'
       before_action :set_circle
+      before_action :ensure_circle_access_gate!
 
       # GET /api/v1/circles/:id/audit
       def show
@@ -106,6 +106,10 @@ module Api
         domain_mask = domain_name.present? ? "#{domain_name[0]}***" : '***'
         tld_part = tld.present? ? ".#{tld}" : ''
         "#{local_mask}@#{domain_mask}#{tld_part}"
+      end
+
+      def ensure_circle_access_gate!
+        ensure_circle_access!(@circle, message: 'Complete Tier 2 verification to use shared groups.')
       end
     end
   end

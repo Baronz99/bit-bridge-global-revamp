@@ -4,8 +4,9 @@ module Api
   module V1
     class CircleActivitiesController < ApplicationController
       before_action :authenticate_user!
-      before_action :ensure_tier2!, message: 'Complete Tier 2 verification to use shared groups.'
       before_action :set_circle
+      before_action :ensure_circle_access_gate!, only: %i[index show]
+      before_action :ensure_tier2!, only: [:create], message: 'Complete Tier 2 verification to use shared groups.'
       before_action :authorize_create!, only: [:create]
 
       # GET /api/v1/circles/:circle_id/activities
@@ -70,6 +71,10 @@ module Api
 
       def activity_params
         params.require(:activity).permit(:name, :target_amount_cents, :deadline_at, :contribution_frequency)
+      end
+
+      def ensure_circle_access_gate!
+        ensure_circle_access!(@circle, message: 'Complete Tier 2 verification to use shared groups.')
       end
 
       def activity_json(activity, memberships)

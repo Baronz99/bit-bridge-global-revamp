@@ -3,7 +3,26 @@
 class Circle < ApplicationRecord
   class InsufficientBalanceError < StandardError; end
 
+  attribute :circle_type, :string, default: 'standard'
+  attribute :kyc_mode, :string, default: 'strict'
+  attribute :visibility, :string, default: 'private'
+
   belongs_to :owner, class_name: 'User'
+
+  enum circle_type: {
+    standard: 'standard',
+    official: 'official'
+  }, _prefix: :circle_type
+
+  enum kyc_mode: {
+    strict: 'strict',
+    flexible: 'flexible'
+  }, _prefix: :kyc_mode
+
+  enum visibility: {
+    private: 'private',
+    official_featured: 'official_featured'
+  }, _prefix: :visibility
 
   has_many :circle_memberships, dependent: :destroy
   has_many :members, through: :circle_memberships, source: :user
@@ -12,6 +31,25 @@ class Circle < ApplicationRecord
   has_many :circle_transactions, dependent: :destroy
 
   monetize :balance_cents, with_model_currency: :currency, allow_nil: true if defined?(MoneyRails)
+
+  validates :circle_type, presence: true, inclusion: { in: circle_types.keys }
+  validates :kyc_mode, presence: true, inclusion: { in: kyc_modes.keys }
+  validates :visibility, presence: true, inclusion: { in: visibilities.keys }
+
+  def official?
+    circle_type == 'official'
+  end
+
+  def flexible_kyc?
+    official? && kyc_mode == 'flexible'
+  end
+
+  def contribution_cap_for(user)
+    return nil unless flexible_kyc?
+    return nil if user&.kyc_at_least?('tier_2')
+
+    max_contribution_cents.presence
+  end
 
   # Mini-wallet helper: apply a credit or debit and keep balance in sync
   #

@@ -26,11 +26,12 @@ class User < ApplicationRecord
   has_many :funding_intents, dependent: :destroy
   has_many :matched_inbound_bank_transfers, class_name: "InboundBankTransfer", foreign_key: :matched_user_id, inverse_of: :matched_user
   has_many :reward_transactions
+  has_many :user_badges, dependent: :destroy
+  has_many :badges, through: :user_badges
   has_many :accounts
   has_many :cards
   has_many :notification_devices, dependent: :destroy
   has_many :notification_events, dependent: :destroy
-  has_many :service_status_subscriptions, dependent: :destroy
   has_many :beneficiaries, dependent: :destroy
   has_one :user_kyc, dependent: :destroy
   has_many :kyc_reviews, dependent: :destroy

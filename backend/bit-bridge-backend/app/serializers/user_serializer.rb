@@ -16,6 +16,7 @@ class UserSerializer < ActiveModel::Serializer
              :phone_verified,
              :phone_verified_at,
              :phone_e164,
+             :badges,
              :transaction_pin_set,
              :transaction_pin_locked,
              :transaction_pin_lock_remaining_seconds
@@ -59,6 +60,21 @@ class UserSerializer < ActiveModel::Serializer
 
   def transaction_pin_set
     object.transaction_pin_set?
+  end
+
+  def badges
+    object.user_badges
+          .includes(:badge, :source_circle)
+          .order(granted_at: :desc, created_at: :desc)
+          .map do |grant|
+      {
+        key: grant.badge&.key,
+        name: grant.badge&.name,
+        granted_at: grant.granted_at,
+        source_circle_id: grant.source_circle_id,
+        source_circle_name: grant.source_circle&.name
+      }
+    end
   end
 
   def transaction_pin_locked
