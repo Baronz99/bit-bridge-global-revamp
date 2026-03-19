@@ -35,6 +35,9 @@ class Circle < ApplicationRecord
   validates :circle_type, presence: true, inclusion: { in: circle_types.keys }
   validates :kyc_mode, presence: true, inclusion: { in: kyc_modes.keys }
   validates :visibility, presence: true, inclusion: { in: visibilities.keys }
+  validates :min_contribution_cents,
+            numericality: { greater_than_or_equal_to: 0, allow_nil: true }
+  validate :min_contribution_not_above_max
 
   def official?
     circle_type == 'official'
@@ -49,6 +52,10 @@ class Circle < ApplicationRecord
     return nil if user&.kyc_at_least?('tier_2')
 
     max_contribution_cents.presence
+  end
+
+  def minimum_contribution_cents
+    min_contribution_cents.presence
   end
 
   # Mini-wallet helper: apply a credit or debit and keep balance in sync
@@ -100,5 +107,14 @@ class Circle < ApplicationRecord
         tx
       end
     end
+  end
+
+  private
+
+  def min_contribution_not_above_max
+    return if min_contribution_cents.blank? || max_contribution_cents.blank?
+    return if min_contribution_cents.to_i <= max_contribution_cents.to_i
+
+    errors.add(:min_contribution_cents, 'must be less than or equal to max contribution')
   end
 end

@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[7.1].define(version: 2026_03_19_110000) do
+ActiveRecord::Schema[7.1].define(version: 2026_03_19_153000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pgcrypto"
   enable_extension "plpgsql"
@@ -365,6 +365,7 @@ ActiveRecord::Schema[7.1].define(version: 2026_03_19_110000) do
     t.bigint "max_contribution_cents"
     t.string "badge_label"
     t.string "visibility", default: "private", null: false
+    t.bigint "min_contribution_cents"
     t.index ["owner_id"], name: "index_circles_on_owner_id"
   end
 

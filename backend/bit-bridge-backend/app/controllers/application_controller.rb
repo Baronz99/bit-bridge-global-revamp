@@ -158,6 +158,16 @@ class ApplicationController < ActionController::API
   end
 
   def ensure_circle_funding_access!(circle, amount_cents:, over_limit_message: nil)
+    minimum = circle&.minimum_contribution_cents
+    if minimum.present? && amount_cents.to_i < minimum.to_i
+      render json: {
+        error: 'minimum_contribution_required',
+        message: 'Contribution is below the minimum allowed for this circle',
+        min_contribution_cents: minimum.to_i
+      }, status: :unprocessable_entity
+      return false
+    end
+
     return ensure_tier2!(message: 'Complete Tier 2 verification to use shared groups.') unless circle&.flexible_kyc?
 
     unless current_user_phone_verified? && current_user&.kyc_at_least?('tier_1')

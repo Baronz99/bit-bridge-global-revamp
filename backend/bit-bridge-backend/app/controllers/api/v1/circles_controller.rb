@@ -24,7 +24,7 @@ module Api
         circles = current_user.circles.includes(:owner)
 
         render json: circles.as_json(
-          only: %i[id name purpose description created_at balance_cents currency circle_type kyc_mode max_contribution_cents badge_label visibility],
+          only: %i[id name purpose description created_at balance_cents currency circle_type kyc_mode min_contribution_cents max_contribution_cents badge_label visibility],
           include: { owner: { only: %i[id] } }
         )
       end
@@ -39,7 +39,7 @@ module Api
                             .limit(10)
 
         circle_json = @circle.as_json(
-          only: %i[id name purpose description created_at balance_cents currency circle_type kyc_mode max_contribution_cents badge_label visibility],
+          only: %i[id name purpose description created_at balance_cents currency circle_type kyc_mode min_contribution_cents max_contribution_cents badge_label visibility],
           include: { owner: { only: %i[id] } }
         )
 
@@ -108,7 +108,7 @@ module Api
           circle.circle_memberships.find_or_create_by!(user: current_user, role: :admin)
 
           render json: circle.as_json(
-            only: %i[id name purpose description created_at balance_cents currency circle_type kyc_mode max_contribution_cents badge_label visibility],
+            only: %i[id name purpose description created_at balance_cents currency circle_type kyc_mode min_contribution_cents max_contribution_cents badge_label visibility],
             include: { owner: { only: %i[id] } }
           ), status: :created
         else
@@ -444,9 +444,9 @@ module Api
 
       def create_circle_params
         permitted = params.require(:circle).permit(
-          :name, :purpose, :description, :circle_type, :kyc_mode, :max_contribution_cents, :badge_label, :visibility
+          :name, :purpose, :description, :circle_type, :kyc_mode, :min_contribution_cents, :max_contribution_cents, :badge_label, :visibility
         )
-        return permitted.merge(circle_type: 'standard', kyc_mode: 'strict', visibility: 'private', max_contribution_cents: nil, badge_label: nil) unless current_user&.admin?
+        return permitted.merge(circle_type: 'standard', kyc_mode: 'strict', visibility: 'private', min_contribution_cents: nil, max_contribution_cents: nil, badge_label: nil) unless current_user&.admin?
 
         permitted
       end

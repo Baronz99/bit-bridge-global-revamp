@@ -43,6 +43,7 @@ RSpec.describe 'Circle Money Flow', type: :request do
         user,
         circle_type: 'official',
         kyc_mode: 'flexible',
+        min_contribution_cents: 10_00,
         max_contribution_cents: 50_00,
         visibility: 'official_featured',
         badge_label: 'Founders'
@@ -54,6 +55,7 @@ RSpec.describe 'Circle Money Flow', type: :request do
       expect(response.parsed_body).to include(
         'circle_type' => 'official',
         'kyc_mode' => 'flexible',
+        'min_contribution_cents' => 10_00,
         'max_contribution_cents' => 50_00,
         'visibility' => 'official_featured',
         'badge_label' => 'Founders'
@@ -140,6 +142,38 @@ RSpec.describe 'Circle Money Flow', type: :request do
 
       expect(response).to have_http_status(:ok)
       expect(circle.reload.balance_cents).to eq(20_00)
+    end
+
+    it 'returns 422 when funding below the configured minimum contribution' do
+      user = create_user(:confirmed, :with_pin, email: "circle-min-tier1-#{SecureRandom.hex(6)}@example.com", kyc_level: 'tier_1')
+      verify_phone!(user)
+      circle = create_circle_for(
+        user,
+        circle_type: 'official',
+        kyc_mode: 'flexible',
+        min_contribution_cents: 10_000_00,
+        max_contribution_cents: 500_000_00,
+        visibility: 'official_featured'
+      )
+      wallet = user.ngn_wallet
+      wallet.transactions.create!(
+        transaction_type: :deposit,
+        status: :approved,
+        coin_type: :bank,
+        amount: 100_000
+      )
+
+      post "/api/v1/circles/#{circle.id}/fund",
+           params: { amount_cents: 5_000_00, pin: '1234' },
+           headers: auth_headers(user)
+
+      expect(response).to have_http_status(:unprocessable_entity)
+      expect(response.parsed_body).to eq(
+        'error' => 'minimum_contribution_required',
+        'message' => 'Contribution is below the minimum allowed for this circle',
+        'min_contribution_cents' => 10_000_00
+      )
+      expect(circle.reload.balance_cents).to eq(0)
     end
 
     it 'returns 403 when a tier1 user funds above the configured cap for an official flexible circle' do
