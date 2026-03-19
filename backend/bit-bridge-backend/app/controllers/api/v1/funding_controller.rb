@@ -6,6 +6,7 @@ module Api
   module V1
     class FundingController < ApplicationController
       before_action :ensure_anchor_pooled_account_configured!
+      before_action :ensure_user_not_restricted_for_funding!, only: %i[create]
 
       def anchor_pooled_account
         render json: { data: anchor_pooled_account_payload }, status: :ok
@@ -19,6 +20,12 @@ module Api
 
         expected_amount_cents = normalize_amount_cents(intent_params[:amount_cents])
         return if performed?
+        return unless Risk::ControlEnforcer.precheck_inbound_request!(
+          controller: self,
+          user: current_user,
+          amount_cents: expected_amount_cents,
+          source_type: 'FundingIntent'
+        )
 
         funding_intent = create_funding_intent!(provider: provider, expected_amount_cents: expected_amount_cents)
 
@@ -121,6 +128,14 @@ module Api
           credited_transaction_id: funding_intent.credited_transaction_id,
           account: anchor_pooled_account_payload
         }
+      end
+
+      def ensure_user_not_restricted_for_funding!
+        Risk::ControlEnforcer.enforce_unrestricted!(
+          controller: self,
+          user: current_user,
+          message: 'Account is temporarily restricted pending review.'
+        )
       end
     end
   end

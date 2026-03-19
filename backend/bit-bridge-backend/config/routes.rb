@@ -532,6 +532,7 @@ Rails.application.routes.draw do
       # Admin
       namespace :admin do
         resources :statistics, only: [:index]
+        resources :risk_controls, only: [:index]
         get "circles/:id/contributors", to: "circle_contributors#show"
         resources :kyc_reviews, only: %i[index update]
         get "pricing-spec", to: "pricing_spec#show"
@@ -580,6 +581,8 @@ Rails.application.routes.draw do
 
         resources :users, only: [:index] do
           post :reveal, on: :member
+          resource :risk_control, only: %i[show update], controller: "user_risk_controls"
+          resources :risk_events, only: [:index], controller: "user_risk_events"
         end
       end
     end

@@ -185,8 +185,20 @@ RSpec.describe 'Anchor NGN transfers', type: :request do
 
     expect(response).to have_http_status(:forbidden)
     body = JSON.parse(response.body)
-    expect(body['error_code']).to eq('TIER_INELIGIBLE')
+    expect(body['error']).to eq('kyc_required')
     expect(body['required_level']).to eq('tier_2')
+  end
+
+  it 'blocks restricted users from initiating transfer' do
+    user.create_user_risk_control!(monitoring_enabled: true, restricted: true, restriction_reason: 'review')
+
+    post_transfer(500)
+
+    expect(response).to have_http_status(:forbidden)
+    expect(JSON.parse(response.body)).to eq(
+      'error' => 'account_restricted',
+      'message' => 'Account is temporarily restricted pending review.'
+    )
   end
 
   it 'returns 422 when pin is invalid' do
@@ -396,7 +408,7 @@ RSpec.describe 'Anchor NGN transfers', type: :request do
 
     expect(response).to have_http_status(:bad_gateway)
     body = JSON.parse(response.body)
-    expect(body['message']).to eq('Transfer provider is temporarily unavailable. Please retry shortly.')
+    expect(body['message']).to eq('Transfer provider is temporarily unavailable. Use another bank account or retry manually later.')
     expect(body['error_code']).to eq('transfer_provider_unavailable')
   end
 end

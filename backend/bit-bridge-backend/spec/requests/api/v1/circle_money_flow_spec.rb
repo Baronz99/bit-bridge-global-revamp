@@ -94,6 +94,28 @@ RSpec.describe 'Circle Money Flow', type: :request do
       expect(response).to have_http_status(:forbidden)
     end
 
+    it 'blocks restricted users from funding a circle' do
+      user = create_user(:tier2, :with_pin, email: "circle-restricted-#{SecureRandom.hex(6)}@example.com")
+      user.create_user_risk_control!(monitoring_enabled: true, restricted: true, restriction_reason: 'review')
+      circle = create_circle_for(user)
+      user.ngn_wallet.transactions.create!(
+        transaction_type: :deposit,
+        status: :approved,
+        coin_type: :bank,
+        amount: 100
+      )
+
+      post "/api/v1/circles/#{circle.id}/fund",
+           params: { amount_cents: 1000, pin: '1234' },
+           headers: auth_headers(user)
+
+      expect(response).to have_http_status(:forbidden)
+      expect(response.parsed_body).to eq(
+        'error' => 'account_restricted',
+        'message' => 'Account is temporarily restricted pending review.'
+      )
+    end
+
     it 'allows tier1 funding within cap for an official flexible circle' do
       user = create_user(:confirmed, :with_pin, email: "circle-fund-tier1-#{SecureRandom.hex(6)}@example.com", kyc_level: 'tier_1')
       verify_phone!(user)

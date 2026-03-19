@@ -310,6 +310,45 @@ RSpec.describe AnchorWebhookProcessor do
       expect(record.status).to eq('approved')
     end
 
+    it 'auto restricts monitored users after pooled credit when inbound thresholds are exceeded' do
+      user = create(:user, email: "pooled-risk-#{SecureRandom.hex(4)}@example.com")
+      user.create_user_risk_control!(
+        monitoring_enabled: true,
+        auto_lock_enabled: true,
+        single_txn_limit_cents: 20_000
+      )
+      intent = FundingIntent.create!(
+        user: user,
+        provider: 'anchor',
+        reference: 'BBG-RISK01-ABCD',
+        expected_amount_cents: 30_000,
+        expires_at: 20.minutes.from_now,
+        status: 'pending',
+        metadata: {}
+      )
+
+      payload = {
+        'type' => 'payin.received',
+        'attributes' => {
+          'payIn' => {
+            'id' => 'payin_pool_risk',
+            'reference' => intent.reference,
+            'amount' => '30000',
+            'currency' => 'NGN'
+          }
+        }
+      }
+
+      service = instance_double(AnchorService)
+      allow(AnchorService).to receive(:new).and_return(service)
+      allow(service).to receive(:fetch_payin).and_return(status: :bad_request, message: 'not needed')
+
+      described_class.call(payload: payload, raw_body: payload.to_json)
+
+      expect(user.reload.user_risk_control.restricted).to eq(true)
+      expect(user.risk_events.last&.trigger_type).to eq('single_txn_limit_exceeded')
+    end
+
     it 'does not double-credit pooled intent on duplicate payin webhook deliveries' do
       user = create(:user, email: "pooled-dup-#{SecureRandom.hex(4)}@example.com")
       wallet = user.ngn_wallet

@@ -329,6 +329,43 @@ class AnchorService
       { message: e.message.to_s || 'bad request', status: :bad_request }
     end
   end
+
+  def freeze_deposit_account(account_id:, freeze_reason:, freeze_description:)
+    body = {
+      data: {
+        type: 'DepositAccount',
+        attributes: {
+          freezeReason: freeze_reason,
+          freezeDescription: freeze_description
+        }
+      }
+    }.to_json
+
+    response = self.class.post("/api/v1/accounts/#{account_id}/freeze", headers: @headers, body: body)
+    return { status: :ok, data: response['data'] || response } if response.success?
+
+    { status: :bad_request, message: extract_anchor_error_message(response, fallback: 'Unable to freeze deposit account') }
+  rescue StandardError => e
+    { status: :bad_request, message: e.message.to_s }
+  end
+
+  def unfreeze_deposit_account(account_id:)
+    body = {
+      data: {
+        id: account_id,
+        type: 'DepositAccount',
+        attributes: {}
+      }
+    }.to_json
+
+    response = self.class.post('/api/v1/accounts/unfreeze', headers: @headers, body: body)
+    return { status: :ok, data: response['data'] || response } if response.success?
+
+    { status: :bad_request, message: extract_anchor_error_message(response, fallback: 'Unable to unfreeze deposit account') }
+  rescue StandardError => e
+    { status: :bad_request, message: e.message.to_s }
+  end
+
   def fetch_inbound_transfer(transfer_id)
     response = self.class.get("api/v1/inbound-transfers/#{transfer_id}", headers: @headers)
     return { status: :ok, data: response['data'] || response } if response.success?

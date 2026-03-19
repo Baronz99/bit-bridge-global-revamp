@@ -219,6 +219,47 @@ RSpec.describe AnchorService do
     expect(result[:message]).to eq('Endpoint not found')
   end
 
+  it 'calls the Anchor freeze deposit account endpoint' do
+    response = double('response', success?: true)
+    allow(response).to receive(:[]).with('data').and_return({ 'id' => '172286425432341-anc_acc' })
+    posted_body = nil
+
+    allow(described_class).to receive(:post) do |path, headers:, body:|
+      posted_body = body
+      expect(path).to eq('/api/v1/accounts/172286425432341-anc_acc/freeze')
+      expect(headers['x-anchor-key']).to eq('test-key')
+      response
+    end
+
+    result = service.freeze_deposit_account(
+      account_id: '172286425432341-anc_acc',
+      freeze_reason: 'FRAUD',
+      freeze_description: 'Fraudulent transactions'
+    )
+
+    expect(result[:status]).to eq(:ok)
+    expect(posted_body).to include('"freezeReason":"FRAUD"')
+    expect(posted_body).to include('"freezeDescription":"Fraudulent transactions"')
+  end
+
+  it 'calls the Anchor unfreeze deposit account endpoint' do
+    response = double('response', success?: true)
+    allow(response).to receive(:[]).with('data').and_return({ 'id' => '172286425432341-anc_acc' })
+    posted_body = nil
+
+    allow(described_class).to receive(:post) do |path, headers:, body:|
+      posted_body = body
+      expect(path).to eq('/api/v1/accounts/unfreeze')
+      expect(headers['x-anchor-key']).to eq('test-key')
+      response
+    end
+
+    result = service.unfreeze_deposit_account(account_id: '172286425432341-anc_acc')
+
+    expect(result[:status]).to eq(:ok)
+    expect(posted_body).to include('"id":"172286425432341-anc_acc"')
+  end
+
   it 'normalizes HTML gateway failures for account resolution' do
     response = double('response', success?: false, message: 'Net::HTTPBadGateway')
     allow(response).to receive(:parsed_response).and_return('<html><title>502 Bad Gateway</title></html>')

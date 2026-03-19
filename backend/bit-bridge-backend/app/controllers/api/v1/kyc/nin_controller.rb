@@ -164,15 +164,15 @@ module Api
           when "verified"
             user_kyc.nin_status = "verified"
             user_kyc.nin_verified_at = Time.current
-            user_kyc.nin_encrypted = nin
+            user_kyc.assign_nin_identity!(nin)
           when "pending_review"
             user_kyc.nin_status = "pending_review"
             user_kyc.nin_verified_at = nil
-            user_kyc.nin_encrypted = nin
+            user_kyc.assign_nin_identity!(nin)
           else
             user_kyc.nin_status = "mismatch"
             user_kyc.nin_verified_at = nil
-            user_kyc.nin_encrypted = nin
+            user_kyc.assign_nin_identity!(nin)
           end
 
           user_kyc.save!

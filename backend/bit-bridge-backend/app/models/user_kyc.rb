@@ -11,8 +11,19 @@ class UserKyc < ApplicationRecord
            :bvn_snapshot_dob,
            :bvn_snapshot_reference
 
+  def assign_nin_identity!(raw_nin)
+    normalized_nin = raw_nin.to_s.gsub(/\D/, '')
+    self.nin_encrypted = normalized_nin
+    self.nin_last4 = normalized_nin.last(4)
+    self.nin_fingerprint = normalized_nin.present? ? Kyc::NinFingerprint.generate(normalized_nin) : nil
+  end
+
   def verified?
     bvn_status == "verified" && bvn_verified_at.present?
+  end
+
+  def verified_and_reusable_bvn?
+    verified? && bvn_identity_confirmed?
   end
 
   def bvn_identity_confirmed?

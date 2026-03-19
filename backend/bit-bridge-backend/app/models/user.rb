@@ -28,6 +28,8 @@ class User < ApplicationRecord
   has_many :reward_transactions
   has_many :user_badges, dependent: :destroy
   has_many :badges, through: :user_badges
+  has_one :user_risk_control, dependent: :destroy
+  has_many :risk_events, dependent: :destroy
   has_many :accounts
   has_many :cards
   has_many :notification_devices, dependent: :destroy
@@ -126,6 +128,7 @@ class User < ApplicationRecord
   ADMIN_FEATURES = {
     admin: %w[support ops compliance super_admin],
     kyc_review: %w[compliance super_admin],
+    risk_controls: %w[compliance super_admin],
     pricing_spec: %w[super_admin],
     ops_tools: %w[ops super_admin]
   }.freeze

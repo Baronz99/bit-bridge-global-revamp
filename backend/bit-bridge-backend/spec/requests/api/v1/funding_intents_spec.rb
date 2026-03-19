@@ -3,7 +3,7 @@
 require 'rails_helper'
 
 RSpec.describe 'Funding intents', type: :request do
-  let(:user) { create(:user, :confirmed) }
+  let(:user) { create(:user, :confirmed, email: 'funding-intents-spec@example.com') }
   let(:headers) { auth_headers(user) }
 
   before do
@@ -30,6 +30,36 @@ RSpec.describe 'Funding intents', type: :request do
       expect(data.dig('account', 'bank_name')).to eq('Anchor Bank')
       expect(data.dig('account', 'account_number')).to eq('1234567890')
       expect(FundingIntent.find(data['id']).user_id).to eq(user.id)
+    end
+
+    it 'blocks restricted users from creating funding intents' do
+      user.create_user_risk_control!(monitoring_enabled: true, restricted: true, restriction_reason: 'review')
+
+      post '/api/v1/funding/intents',
+           params: { amount_cents: 25_000, provider: 'anchor' },
+           headers: headers
+
+      expect(response).to have_http_status(:forbidden)
+      expect(JSON.parse(response.body)).to eq(
+        'error' => 'account_restricted',
+        'message' => 'Account is temporarily restricted pending review.'
+      )
+    end
+
+    it 'auto restricts monitored users when a requested funding amount exceeds the configured single transaction limit' do
+      user.create_user_risk_control!(monitoring_enabled: true, auto_lock_enabled: true, single_txn_limit_cents: 20_000)
+
+      post '/api/v1/funding/intents',
+           params: { amount_cents: 25_000, provider: 'anchor' },
+           headers: headers
+
+      expect(response).to have_http_status(:forbidden)
+      expect(JSON.parse(response.body)).to eq(
+        'error' => 'risk_review_required',
+        'message' => 'This account has been placed under review due to configured risk limits.'
+      )
+      expect(user.reload.user_risk_control.restricted).to eq(true)
+      expect(user.risk_events.last&.trigger_type).to eq('single_txn_limit_exceeded')
     end
   end
 

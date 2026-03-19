@@ -373,6 +373,13 @@ class AnchorWebhookProcessor
         reference: reference
       )
 
+      Risk::ControlEnforcer.evaluate_inbound_credit!(
+        user: funding_intent.user,
+        amount_cents: inbound_transfer.amount_cents,
+        source_type: 'FundingIntent',
+        source_id: funding_intent.id
+      )
+
       intent_metadata = funding_intent.metadata.is_a?(Hash) ? funding_intent.metadata.deep_dup : {}
       intent_metadata['credited_at'] = Time.current.utc.iso8601
       intent_metadata['anchor_payin_id'] = payin_id if payin_id.present?

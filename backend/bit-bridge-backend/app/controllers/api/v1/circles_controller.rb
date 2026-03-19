@@ -18,6 +18,7 @@ module Api
 
       # Require PIN for money movement
       before_action :require_pin_for_circle_money_movement!, only: %i[fund withdraw]
+      before_action :ensure_user_not_restricted_for_circle_money!, only: %i[fund withdraw]
 
       def index
         circles = current_user.circles.includes(:owner)
@@ -425,6 +426,14 @@ module Api
         return if require_transaction_pin!(nil, error_key: :errors)
 
         false
+      end
+
+      def ensure_user_not_restricted_for_circle_money!
+        Risk::ControlEnforcer.enforce_unrestricted!(
+          controller: self,
+          user: current_user,
+          message: 'Account is temporarily restricted pending review.'
+        )
       end
 
       def extract_idempotency_key

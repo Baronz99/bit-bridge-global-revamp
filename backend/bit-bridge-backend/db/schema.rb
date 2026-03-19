@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[7.1].define(version: 2026_03_18_170000) do
+ActiveRecord::Schema[7.1].define(version: 2026_03_19_110000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pgcrypto"
   enable_extension "plpgsql"
@@ -805,6 +805,22 @@ ActiveRecord::Schema[7.1].define(version: 2026_03_18_170000) do
     t.index ["user_id"], name: "index_reward_transactions_on_user_id"
   end
 
+  create_table "risk_events", id: :uuid, default: -> { "gen_random_uuid()" }, force: :cascade do |t|
+    t.uuid "user_id", null: false
+    t.string "trigger_type", null: false
+    t.bigint "amount_cents"
+    t.bigint "threshold_cents"
+    t.string "action_taken", null: false
+    t.string "source_type"
+    t.uuid "source_id"
+    t.jsonb "metadata", default: {}, null: false
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["trigger_type"], name: "index_risk_events_on_trigger_type"
+    t.index ["user_id", "created_at"], name: "index_risk_events_on_user_id_and_created_at"
+    t.index ["user_id"], name: "index_risk_events_on_user_id"
+  end
+
   create_table "service_status_subscriptions", id: :uuid, default: -> { "gen_random_uuid()" }, force: :cascade do |t|
     t.uuid "user_id", null: false
     t.string "provider", null: false
@@ -1003,12 +1019,14 @@ ActiveRecord::Schema[7.1].define(version: 2026_03_18_170000) do
     t.boolean "nin_first_name_match"
     t.boolean "nin_last_name_match"
     t.decimal "nin_match_score", precision: 4, scale: 3
+    t.string "nin_fingerprint"
     t.index ["bvn_encrypted"], name: "index_user_kycs_on_bvn_encrypted"
     t.index ["bvn_fingerprint"], name: "index_user_kycs_on_bvn_fingerprint"
     t.index ["bvn_retry_locked_at"], name: "index_user_kycs_on_bvn_retry_locked_at"
     t.index ["bvn_snapshot_expires_at"], name: "index_user_kycs_on_bvn_snapshot_expires_at"
     t.index ["bvn_status"], name: "index_user_kycs_on_bvn_status"
     t.index ["nin_encrypted"], name: "index_user_kycs_on_nin_encrypted"
+    t.index ["nin_fingerprint"], name: "index_user_kycs_on_nin_fingerprint"
     t.index ["nin_status"], name: "index_user_kycs_on_nin_status"
     t.index ["user_id"], name: "index_user_kycs_on_user_id", unique: true
   end
@@ -1037,6 +1055,26 @@ ActiveRecord::Schema[7.1].define(version: 2026_03_18_170000) do
     t.string "gender"
     t.index ["phone_e164"], name: "index_user_profiles_on_phone_e164_unique", unique: true, where: "((phone_e164 IS NOT NULL) AND ((phone_e164)::text <> ''::text))"
     t.index ["user_id"], name: "index_user_profiles_on_user_id"
+  end
+
+  create_table "user_risk_controls", id: :uuid, default: -> { "gen_random_uuid()" }, force: :cascade do |t|
+    t.uuid "user_id", null: false
+    t.boolean "monitoring_enabled", default: false, null: false
+    t.boolean "auto_lock_enabled", default: false, null: false
+    t.bigint "single_txn_limit_cents"
+    t.bigint "daily_limit_cents"
+    t.bigint "weekly_limit_cents"
+    t.boolean "restricted", default: false, null: false
+    t.string "restriction_reason"
+    t.datetime "provider_freeze_requested_at"
+    t.string "provider_freeze_status"
+    t.text "provider_freeze_error"
+    t.uuid "set_by_admin_id"
+    t.uuid "released_by_admin_id"
+    t.datetime "released_at"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["user_id"], name: "index_user_risk_controls_on_user_id", unique: true
   end
 
   create_table "users", id: :uuid, default: -> { "gen_random_uuid()" }, force: :cascade do |t|
@@ -1194,6 +1232,7 @@ ActiveRecord::Schema[7.1].define(version: 2026_03_18_170000) do
   add_foreign_key "refund_requests", "users", column: "handled_by_admin_id"
   add_foreign_key "reward_transactions", "bill_orders"
   add_foreign_key "reward_transactions", "users"
+  add_foreign_key "risk_events", "users"
   add_foreign_key "service_status_subscriptions", "users"
   add_foreign_key "transaction_pin_reset_codes", "users"
   add_foreign_key "transaction_records", "bill_orders"
@@ -1205,6 +1244,9 @@ ActiveRecord::Schema[7.1].define(version: 2026_03_18_170000) do
   add_foreign_key "user_badges", "users"
   add_foreign_key "user_badges", "users", column: "granted_by_user_id"
   add_foreign_key "user_profiles", "users", on_delete: :nullify
+  add_foreign_key "user_risk_controls", "users"
+  add_foreign_key "user_risk_controls", "users", column: "released_by_admin_id"
+  add_foreign_key "user_risk_controls", "users", column: "set_by_admin_id"
   add_foreign_key "vendors", "users"
   add_foreign_key "wallet_ledger_entries", "bill_orders"
   add_foreign_key "wallet_ledger_entries", "wallets"
