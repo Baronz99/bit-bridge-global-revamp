@@ -228,9 +228,9 @@ Rails.application.routes.draw do
 
       resources :fees, only: [:index]
 
-      resources :wallets, controller: "bridge/wallets" do
+      resources :wallets, controller: "wallets" do
         collection do
-          get :user, to: "bridge/wallets#user"
+          get :user, to: "wallets#user"
           post "tunnel/activate",     to: "tunnel/wallet#activate_tunnel"
           post "tunnel/convert",      to: "tunnel/fx_conversions#convert_ngn_to_usd"
           post "tunnel/quote",        to: "tunnel/fx_quotes#quote_ngn_to_usd"
