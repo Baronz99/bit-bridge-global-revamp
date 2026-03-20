@@ -231,11 +231,11 @@ Rails.application.routes.draw do
       resources :wallets, controller: "wallets" do
         collection do
           get :user, to: "wallets#user"
-          post "tunnel/activate",     to: "tunnel/wallet#activate_tunnel"
-          post "tunnel/convert",      to: "tunnel/fx_conversions#convert_ngn_to_usd"
-          post "tunnel/quote",        to: "tunnel/fx_quotes#quote_ngn_to_usd"
-          post "tunnel/convert-back", to: "tunnel/fx_conversions#convert_usd_to_ngn"
-          post "tunnel/quote-back",   to: "tunnel/fx_quotes#quote_usd_to_ngn"
+          post "tunnel/activate",     to: "wallets#activate_tunnel"
+          post "tunnel/convert",      to: "wallets#convert_ngn_to_usd"
+          post "tunnel/quote",        to: "wallets#quote_ngn_to_usd"
+          post "tunnel/convert-back", to: "wallets#convert_usd_to_ngn"
+          post "tunnel/quote-back",   to: "wallets#quote_usd_to_ngn"
           post "send_money",          to: "bridge/wallet_transfers#send_money"
         end
       end
