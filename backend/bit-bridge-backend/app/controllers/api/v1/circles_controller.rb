@@ -22,11 +22,9 @@ module Api
 
       def index
         circles = current_user.circles.includes(:owner)
+        memberships_by_circle_id = current_user.circle_memberships.where(circle_id: circles.map(&:id)).index_by(&:circle_id)
 
-        render json: circles.as_json(
-          only: %i[id name purpose description created_at balance_cents currency circle_type kyc_mode min_contribution_cents max_contribution_cents badge_label visibility],
-          include: { owner: { only: %i[id] } }
-        )
+        render json: circles.map { |circle| serialize_circle(circle, membership_for_current: memberships_by_circle_id[circle.id]) }
       end
 
       def show
@@ -37,11 +35,6 @@ module Api
                             .includes(:user, :reactions, :circle_activity, :wallet_transaction, dispute: :raised_by)
                             .order(occurred_at: :desc)
                             .limit(10)
-
-        circle_json = @circle.as_json(
-          only: %i[id name purpose description created_at balance_cents currency circle_type kyc_mode min_contribution_cents max_contribution_cents badge_label visibility],
-          include: { owner: { only: %i[id] } }
-        )
 
         membership_for_current = memberships.find { |m| m.user_id == current_user.id }
 
@@ -57,6 +50,12 @@ module Api
         can_withdraw =
           (@circle.owner_id == current_user.id) ||
           (membership_for_current && membership_for_current.admin?)
+
+        circle_json = serialize_circle(
+          @circle,
+          membership_for_current: membership_for_current,
+          current_role: current_role
+        )
 
         recent_transactions_json = recent_txs.map do |tx|
           reactions_grouped = tx.reactions.group(:emoji).count
@@ -107,10 +106,7 @@ module Api
         if circle.save
           circle.circle_memberships.find_or_create_by!(user: current_user, role: :admin)
 
-          render json: circle.as_json(
-            only: %i[id name purpose description created_at balance_cents currency circle_type kyc_mode min_contribution_cents max_contribution_cents badge_label visibility],
-            include: { owner: { only: %i[id] } }
-          ), status: :created
+          render json: serialize_circle(circle, current_role: 'owner'), status: :created
         else
           render json: { errors: circle.errors.full_messages }, status: :unprocessable_entity
         end
@@ -542,6 +538,28 @@ module Api
           return [fi, li].reject(&:blank?).map { |c| "#{c}." }.join(' ').strip
         end
         mask_email(email)
+      end
+
+      def serialize_circle(circle, membership_for_current: nil, current_role: nil)
+        json = circle.as_json(
+          only: %i[id name purpose description created_at balance_cents currency circle_type kyc_mode min_contribution_cents max_contribution_cents badge_label visibility],
+          include: { owner: { only: %i[id] } }
+        )
+
+        visible = circle_balance_visible?(circle, membership_for_current: membership_for_current, current_role: current_role)
+        json['balance_visible'] = visible
+        json.delete('balance_cents') unless visible
+        json
+      end
+
+      def circle_balance_visible?(circle, membership_for_current: nil, current_role: nil)
+        return true unless circle.official?
+
+        role = current_role.presence
+        role ||= 'owner' if circle.owner_id == current_user.id
+        role ||= membership_for_current&.role
+
+        role == 'owner' || role == 'admin'
       end
     end
   end

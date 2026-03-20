@@ -58,8 +58,47 @@ RSpec.describe 'Circle Money Flow', type: :request do
         'min_contribution_cents' => 10_00,
         'max_contribution_cents' => 50_00,
         'visibility' => 'official_featured',
-        'badge_label' => 'Founders'
+        'badge_label' => 'Founders',
+        'balance_visible' => true
       )
+    end
+
+    it 'hides official circle balance from non-admin members' do
+      owner = create_user(:confirmed, :tier2, email: "circle-owner-hide-#{SecureRandom.hex(6)}@example.com")
+      member = create_user(:confirmed, :tier2, email: "circle-member-hide-#{SecureRandom.hex(6)}@example.com")
+      circle = create_circle_for(
+        owner,
+        balance_cents: 125_000,
+        circle_type: 'official',
+        kyc_mode: 'flexible',
+        visibility: 'official_featured',
+        badge_label: 'Founders'
+      )
+      CircleMembership.create!(circle: circle, user: member, role: :member)
+
+      get "/api/v1/circles/#{circle.id}", headers: auth_headers(member)
+
+      expect(response).to have_http_status(:ok)
+      expect(response.parsed_body['balance_visible']).to eq(false)
+      expect(response.parsed_body).not_to have_key('balance_cents')
+    end
+
+    it 'keeps official circle balance visible to owner/admin members' do
+      owner = create_user(:confirmed, :tier2, email: "circle-owner-show-#{SecureRandom.hex(6)}@example.com")
+      circle = create_circle_for(
+        owner,
+        balance_cents: 125_000,
+        circle_type: 'official',
+        kyc_mode: 'flexible',
+        visibility: 'official_featured',
+        badge_label: 'Founders'
+      )
+
+      get "/api/v1/circles/#{circle.id}", headers: auth_headers(owner)
+
+      expect(response).to have_http_status(:ok)
+      expect(response.parsed_body['balance_visible']).to eq(true)
+      expect(response.parsed_body['balance_cents']).to eq(125_000)
     end
   end
 
