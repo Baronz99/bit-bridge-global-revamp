@@ -284,19 +284,19 @@ Rails.application.routes.draw do
       resources :users do
         collection do
           get   :user_profile
-          patch :user_update, to: "core/users#user_update"
-          post  :request_email_change, to: "core/users#request_email_change"
-          post  :confirm_email_change, to: "core/users#confirm_email_change"
-          patch :update_password, to: "core/user_security#update_password"
-          patch :user_password_update, to: "core/user_security#user_password_update"
-          post  :password_reset, to: "core/user_security#password_reset"
-          get   :password_reset, to: "core/user_security#password_reset"
+          patch :user_update, to: "users#user_update"
+          post  :request_email_change, to: "users#request_email_change"
+          post  :confirm_email_change, to: "users#confirm_email_change"
+          patch :update_password, to: "users#update_password"
+          patch :user_password_update, to: "users#user_password_update"
+          post  :password_reset, to: "users#password_reset"
+          get   :password_reset, to: "users#password_reset"
           patch :activate_user
           get   :resend_confirmation_token
-          patch :onboarding_stage, to: "core/onboarding_progress#onboarding_stage"
+          patch :onboarding_stage, to: "users#onboarding_stage"
           patch :basic_profile
-          patch :use_case, to: "core/onboarding_progress#use_case"
-          patch :update_kyc_level, to: "core/kyc_profile#update_kyc_level"
+          patch :use_case, to: "users#use_case"
+          patch :update_kyc_level, to: "users#update_kyc_level"
         end
 
         member do
