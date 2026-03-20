@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[7.1].define(version: 2026_03_19_153000) do
+ActiveRecord::Schema[7.1].define(version: 2026_03_20_084500) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pgcrypto"
   enable_extension "plpgsql"
@@ -592,6 +592,25 @@ ActiveRecord::Schema[7.1].define(version: 2026_03_19_153000) do
     t.index ["user_id"], name: "index_kyc_tier3_events_on_user_id"
     t.index ["user_kyc_id", "created_at"], name: "index_kyc_tier3_events_on_user_kyc_id_and_created_at"
     t.index ["user_kyc_id"], name: "index_kyc_tier3_events_on_user_kyc_id"
+  end
+
+  create_table "kyc_verification_snapshots", id: :uuid, default: -> { "gen_random_uuid()" }, force: :cascade do |t|
+    t.string "document_type", null: false
+    t.string "fingerprint", null: false
+    t.string "status", null: false
+    t.string "provider"
+    t.string "first_name"
+    t.string "last_name"
+    t.string "date_of_birth"
+    t.boolean "watchlisted", default: false, null: false
+    t.string "provider_reference"
+    t.datetime "captured_at"
+    t.datetime "expires_at"
+    t.jsonb "metadata", default: {}, null: false
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["document_type", "fingerprint"], name: "index_kyc_verification_snapshots_on_doc_and_fingerprint", unique: true
+    t.index ["expires_at"], name: "index_kyc_verification_snapshots_on_expires_at"
   end
 
   create_table "monify_tokens", id: :uuid, default: -> { "gen_random_uuid()" }, force: :cascade do |t|

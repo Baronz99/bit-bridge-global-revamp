@@ -63,6 +63,7 @@ module Api
           last4 = bvn[-4, 4]
           fingerprint = ::Kyc::BvnFingerprint.generate(bvn)
           profile_fingerprint = build_profile_fingerprint(user.user_profile)
+          hydrate_shared_snapshot!(user_kyc, fingerprint)
 
           snapshot_ok = snapshot_available?(user_kyc, fingerprint)
           log_snapshot_availability(user, user_kyc, fingerprint) unless snapshot_ok
@@ -147,9 +148,9 @@ module Api
 
           mark_pending_request!(user_kyc, profile_fingerprint)
 
-          basic = ::Kyc::PremblyBvnBasicValidation.new(bvn).call
-          unless basic[:ok]
-            if basic[:invalid]
+          result = ::Kyc::PremblyBvnVerification.new(bvn).call
+          unless result[:ok]
+            if result[:invalid]
               update_last_result!(
                 user_kyc,
                 status: "failed",
@@ -163,21 +164,6 @@ module Api
               }, status: :unprocessable_entity
             end
 
-            wait = PROVIDER_BACKOFF_SECONDS
-            response.set_header("Retry-After", wait.to_s)
-            return handle_provider_unavailable!(
-              user,
-              user_kyc,
-              profile_fingerprint,
-              bvn,
-              last4,
-              fingerprint,
-              wait
-            )
-          end
-
-          result = ::Kyc::PremblyBvnVerification.new(bvn).call
-          unless result[:ok]
             wait = PROVIDER_BACKOFF_SECONDS
             response.set_header("Retry-After", wait.to_s)
             return handle_provider_unavailable!(
@@ -414,6 +400,30 @@ module Api
             bvn_snapshot_reference: result[:reference].to_s.presence,
             bvn_snapshot_captured_at: Time.current,
             bvn_snapshot_expires_at: Time.current + BVN_SNAPSHOT_TTL
+          )
+          ::Kyc::VerificationSnapshotStore.write!(
+            document_type: "bvn",
+            fingerprint: user_kyc.bvn_fingerprint,
+            result: result,
+            status: user_kyc.bvn_status
+          )
+        end
+
+        def hydrate_shared_snapshot!(user_kyc, fingerprint)
+          return if snapshot_available?(user_kyc, fingerprint)
+
+          snapshot = ::Kyc::VerificationSnapshotStore.find_reusable(document_type: "bvn", fingerprint: fingerprint)
+          return unless snapshot
+
+          user_kyc.update!(
+            bvn_fingerprint: fingerprint,
+            bvn_snapshot_first_name: snapshot.first_name,
+            bvn_snapshot_last_name: snapshot.last_name,
+            bvn_snapshot_dob: snapshot.date_of_birth,
+            bvn_snapshot_watchlisted: snapshot.watchlisted,
+            bvn_snapshot_reference: snapshot.provider_reference,
+            bvn_snapshot_captured_at: snapshot.captured_at || Time.current,
+            bvn_snapshot_expires_at: snapshot.expires_at
           )
         end
 

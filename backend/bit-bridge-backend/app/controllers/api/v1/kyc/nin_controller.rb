@@ -32,6 +32,7 @@ module Api
 
           user = current_user
           user_kyc = user.user_kyc || user.build_user_kyc
+          fingerprint = ::Kyc::NinFingerprint.generate(nin)
 
           if user_kyc.nin_verified? && same_verified_nin?(user_kyc, nin)
             refresh_tier!(user)
@@ -41,6 +42,17 @@ module Api
               status: "verified",
               reason: nil,
               message: "NIN already verified for this account."
+            ), status: :ok
+          end
+
+          if reuse_shared_snapshot!(user: user, user_kyc: user_kyc, nin: nin, fingerprint: fingerprint)
+            refresh_tier!(user)
+            return render json: response_payload(
+              user,
+              user_kyc,
+              status: user_kyc.nin_status,
+              reason: user_kyc.nin_last_result_reason,
+              message: "Used saved NIN details for verification."
             ), status: :ok
           end
 
@@ -81,6 +93,12 @@ module Api
           outcome = ::Kyc::NinMatcher.resolve_match_outcome(user.user_profile, result)
           apply_outcome!(user_kyc, nin, result, outcome)
           update_last_result!(user_kyc, status: outcome[:status], reason: outcome[:reason])
+          ::Kyc::VerificationSnapshotStore.write!(
+            document_type: "nin",
+            fingerprint: user_kyc.nin_fingerprint || fingerprint,
+            result: result,
+            status: outcome[:status]
+          )
           refresh_tier!(user)
 
           render json: response_payload(user, user_kyc, status: user_kyc.nin_status, reason: outcome[:reason]), status: :ok
@@ -346,6 +364,17 @@ module Api
             nin_last_result_reason: nil,
             nin_last_checked_at: Time.current
           )
+        end
+
+        def reuse_shared_snapshot!(user:, user_kyc:, nin:, fingerprint:)
+          snapshot = ::Kyc::VerificationSnapshotStore.find_reusable(document_type: "nin", fingerprint: fingerprint)
+          return false unless snapshot
+
+          result = snapshot.to_result_hash
+          outcome = ::Kyc::NinMatcher.resolve_match_outcome(user.user_profile, result)
+          apply_outcome!(user_kyc, nin, result, outcome)
+          update_last_result!(user_kyc, status: outcome[:status], reason: outcome[:reason])
+          true
         end
       end
     end

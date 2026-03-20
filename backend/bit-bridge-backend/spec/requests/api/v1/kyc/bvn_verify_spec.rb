@@ -4,7 +4,7 @@ require 'rails_helper'
 
 RSpec.describe 'BVN verification caching', type: :request do
   include ActiveJob::TestHelper
-  let(:user) { create(:user, :confirmed) }
+  let(:user) { create(:user, :confirmed, email: "bvn-cache-#{SecureRandom.hex(4)}@example.com") }
   let(:headers) { auth_headers(user) }
   let(:bvn) { '12345678901' }
 
@@ -39,7 +39,6 @@ RSpec.describe 'BVN verification caching', type: :request do
     )
     user.user_profile.update_column(:phone_verified_at, Time.current)
     user.create_user_kyc!
-    allow(Kyc::PremblyBvnBasicValidation).to receive(:new).and_return(double(call: { ok: true }))
   end
 
   def attach_docs!(profile)
@@ -317,6 +316,34 @@ RSpec.describe 'BVN verification caching', type: :request do
     expect(json['cached']).to eq(true)
   end
 
+  it 'reuses a shared BVN snapshot captured for another user' do
+    fingerprint = Kyc::BvnFingerprint.generate(bvn)
+    KycVerificationSnapshot.create!(
+      document_type: 'bvn',
+      fingerprint: fingerprint,
+      status: 'verified',
+      provider: 'prembly',
+      first_name: 'Test',
+      last_name: 'User',
+      date_of_birth: '1990-01-01',
+      watchlisted: false,
+      provider_reference: 'shared-bvn-ref',
+      captured_at: 1.hour.ago,
+      expires_at: 7.days.from_now
+    )
+
+    expect(Kyc::PremblyBvnVerification).not_to receive(:new)
+
+    post '/api/v1/kyc/bvn/verify', params: { bvn: bvn }, headers: headers
+
+    expect(response).to have_http_status(:ok)
+    json = JSON.parse(response.body)
+    expect(json['status']).to eq('verified')
+    expect(json['cached']).to eq(true)
+    expect(json['message']).to eq('Used saved BVN details for verification.')
+    expect(json['prembly_reference']).to eq('shared-bvn-ref')
+  end
+
   it 'skips provider call during transient backoff window' do
     fingerprint = Kyc::BvnFingerprint.generate(bvn)
     profile_fp = profile_fingerprint(user.user_profile)
@@ -441,10 +468,9 @@ RSpec.describe 'BVN verification caching', type: :request do
     expect(json['retryable']).to eq(false)
   end
 
-  it 'returns 422 when basic validation reports invalid BVN' do
-    allow(Kyc::PremblyBvnBasicValidation).to receive(:new).with(bvn)
+  it 'returns 422 when verification reports invalid BVN' do
+    allow(Kyc::PremblyBvnVerification).to receive(:new).with(bvn)
       .and_return(double(call: { ok: false, invalid: true, status_code: 400 }))
-    expect(Kyc::PremblyBvnVerification).not_to receive(:new)
 
     expect do
       post '/api/v1/kyc/bvn/verify', params: { bvn: bvn }, headers: headers
@@ -455,9 +481,7 @@ RSpec.describe 'BVN verification caching', type: :request do
     expect(json['reason']).to eq('bvn_invalid')
   end
 
-  it 'returns pending when basic is ok and advance is unavailable' do
-    allow(Kyc::PremblyBvnBasicValidation).to receive(:new).with(bvn)
-      .and_return(double(call: { ok: true }))
+  it 'returns pending when verification is unavailable' do
     result = { ok: false, error: 'Timeout', status_code: 500 }
     allow(Kyc::PremblyBvnVerification).to receive(:new).with(bvn)
       .and_return(double(call: result))
@@ -470,6 +494,27 @@ RSpec.describe 'BVN verification caching', type: :request do
     json = JSON.parse(response.body)
     expect(json['status']).to eq('pending')
     expect(json['reason']).to eq('provider_unavailable')
+  end
+
+  it 'makes a single provider verification call for a fresh BVN check' do
+    result = {
+      ok: true,
+      reference: 'prembly-ref',
+      first_name: 'Test',
+      last_name: 'User',
+      date_of_birth: '01-Jan-1990',
+      watchlisted: false
+    }
+
+    expect(Kyc::PremblyBvnVerification).to receive(:new).with(bvn).once
+      .and_return(double(call: result))
+
+    post '/api/v1/kyc/bvn/verify', params: { bvn: bvn }, headers: headers
+
+    expect(response).to have_http_status(:ok)
+    json = JSON.parse(response.body)
+    expect(json['status']).to eq('verified')
+    expect(json['cached']).to eq(false)
   end
 
   it 'returns next_check_seconds while pending' do

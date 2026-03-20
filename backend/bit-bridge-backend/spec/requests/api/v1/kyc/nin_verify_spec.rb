@@ -3,7 +3,7 @@
 require "rails_helper"
 
 RSpec.describe "NIN verification", type: :request do
-  let(:user) { create(:user, :confirmed) }
+  let(:user) { create(:user, :confirmed, email: "nin-verify-#{SecureRandom.hex(4)}@example.com") }
   let(:headers) { auth_headers(user) }
   let(:nin) { "12345678901" }
 
@@ -114,6 +114,33 @@ RSpec.describe "NIN verification", type: :request do
     expect(json["message"]).to eq("NIN already verified for this account.")
     expect(json["prembly_reference"]).to eq("existing-nin-ref")
     expect(json.dig("display", "title")).to eq("NIN verified")
+  end
+
+  it "reuses a shared NIN snapshot captured for another user" do
+    fingerprint = Kyc::NinFingerprint.generate(nin)
+    KycVerificationSnapshot.create!(
+      document_type: "nin",
+      fingerprint: fingerprint,
+      status: "verified",
+      provider: "prembly",
+      first_name: "Test",
+      last_name: "User",
+      date_of_birth: "1990-01-01",
+      watchlisted: false,
+      provider_reference: "shared-nin-ref",
+      captured_at: 30.minutes.ago,
+      expires_at: 7.days.from_now
+    )
+
+    expect(Kyc::PremblyNinVerification).not_to receive(:new)
+
+    post "/api/v1/kyc/nin/verify", params: { nin: nin }, headers: headers
+
+    expect(response).to have_http_status(:ok)
+    json = JSON.parse(response.body)
+    expect(json["status"]).to eq("verified")
+    expect(json["message"]).to eq("Used saved NIN details for verification.")
+    expect(json["prembly_reference"]).to eq("shared-nin-ref")
   end
 
   it "reuses recent mismatch result for same NIN without profile changes" do
