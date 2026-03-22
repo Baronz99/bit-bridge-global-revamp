@@ -41,15 +41,23 @@ module Api
           action_type = params[:action_type].to_s
           notes = params[:notes].to_s.presence
           reason = params[:reason].to_s.presence
+          raw_bvn = params[:bvn].to_s
           user = @review.user
           user_kyc = user.user_kyc || user.create_user_kyc
 
           case action_type
           when 'approve'
-            user_kyc.update!(
-              bvn_status: 'verified',
-              bvn_verified_at: user_kyc.bvn_verified_at || Time.current
-            )
+            begin
+              ::Kyc::BvnVerificationState.mark_verified!(
+                user_kyc,
+                raw_bvn: raw_bvn,
+                verified_at: user_kyc.bvn_verified_at || Time.current
+              )
+            rescue ::Kyc::BvnVerificationState::MissingReusableBvnError
+              return render json: {
+                message: 'Reusable BVN is required before approving BVN verification.'
+              }, status: :unprocessable_entity
+            end
             @review.update!(
               status: 'approved',
               notes: notes,
@@ -57,7 +65,7 @@ module Api
               decided_by_admin_id: current_user.id,
               decided_at: Time.current
             )
-            user.update!(kyc_level: Kyc::LevelCalculator.resolve_level(user))
+            user.update!(kyc_level: ::Kyc::LevelCalculator.resolve_level(user))
             log_audit(user, 'admin_review_action', 'approved', metadata: { review_id: @review.id, reason: reason })
 
           when 'reject'
@@ -72,7 +80,7 @@ module Api
               decided_by_admin_id: current_user.id,
               decided_at: Time.current
             )
-            user.update!(kyc_level: Kyc::LevelCalculator.resolve_level(user))
+            user.update!(kyc_level: ::Kyc::LevelCalculator.resolve_level(user))
             log_audit(user, 'admin_review_action', 'rejected', metadata: { review_id: @review.id, reason: reason })
 
           when 'request_correction'

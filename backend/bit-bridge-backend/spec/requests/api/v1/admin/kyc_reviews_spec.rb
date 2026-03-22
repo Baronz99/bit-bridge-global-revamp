@@ -3,9 +3,9 @@
 require 'rails_helper'
 
 RSpec.describe 'Admin KYC reviews', type: :request do
-  let(:admin) { create(:user, role: 'admin', admin_role: 'compliance') }
+  let(:admin) { create(:user, email: 'compliance-admin@example.com', role: 'admin', admin_role: 'compliance') }
   let(:headers) { auth_headers(admin) }
-  let(:user) { create(:user) }
+  let(:user) { create(:user, email: 'review-target@example.com') }
 
   before do
     user.create_user_profile!(
@@ -48,7 +48,7 @@ RSpec.describe 'Admin KYC reviews', type: :request do
   end
 
   it 'includes mismatches without snapshots when include_mismatch is true' do
-    other_user = create(:user)
+    other_user = create(:user, email: 'other-mismatch@example.com')
     other_user.create_user_profile!(
       first_name: 'No',
       last_name: 'Snapshot',
@@ -65,7 +65,7 @@ RSpec.describe 'Admin KYC reviews', type: :request do
       bvn_snapshot_dob: nil,
       bvn_snapshot_expires_at: nil
     )
-    pending_user = create(:user)
+    pending_user = create(:user, email: 'pending-review@example.com')
     pending_user.create_user_profile!(
       first_name: 'Pending',
       last_name: 'User',
@@ -111,5 +111,36 @@ RSpec.describe 'Admin KYC reviews', type: :request do
     expect(pending_item['bvn_retry_next_at']).to be_present
     expect(pending_item['retry_events']).to be_an(Array)
     expect(pending_item['retry_events'].first['status']).to eq('retry_scheduled')
+  end
+
+  it 'requires reusable BVN before approving a review' do
+    review = KycReview.order(created_at: :desc).first
+
+    patch "/api/v1/admin/kyc_reviews/#{review.id}",
+          params: { action_type: 'approve' },
+          headers: headers
+
+    expect(response).to have_http_status(:unprocessable_entity)
+    expect(JSON.parse(response.body)['message']).to eq('Reusable BVN is required before approving BVN verification.')
+
+    expect(user.user_kyc.reload.bvn_status).to eq('mismatch')
+    expect(review.reload.status).to eq('pending')
+  end
+
+  it 'stores BVN for reusable verification when approving with a valid BVN' do
+    review = KycReview.order(created_at: :desc).first
+
+    patch "/api/v1/admin/kyc_reviews/#{review.id}",
+          params: { action_type: 'approve', bvn: '12345678901' },
+          headers: headers
+
+    expect(response).to have_http_status(:ok)
+
+    kyc = user.user_kyc.reload
+    expect(kyc.bvn_status).to eq('verified')
+    expect(kyc.bvn_verified_at).to be_present
+    expect(kyc.decrypted_bvn).to eq('12345678901')
+    expect(kyc.verified_and_reusable_bvn?).to eq(true)
+    expect(review.reload.status).to eq('approved')
   end
 end
