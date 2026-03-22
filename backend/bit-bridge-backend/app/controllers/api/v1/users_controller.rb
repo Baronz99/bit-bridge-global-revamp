@@ -583,15 +583,19 @@ module Api
       # ========= CHANGE PASSWORD WHILE LOGGED IN =========
 
       def user_password_update
-        unless current_user.valid_password?(user_params[:old_password])
+        current_password = password_change_current_password
+        new_password = password_change_new_password
+        password_confirmation = password_change_confirmation
+
+        unless current_password.present? && current_user.valid_password?(current_password)
           return render json: { message: 'old password is incorrect' }, status: :unprocessable_entity
         end
 
-        unless user_params[:password] == user_params[:confirm_password]
+        unless new_password == password_confirmation
           return render json: { message: 'passwords do not match' }, status: :unprocessable_entity
         end
 
-        if current_user.update(password: user_params[:password])
+        if current_user.update(password: new_password)
           render json: { message: 'pasword has been updated' }
         else
           render json: {
@@ -1225,6 +1229,28 @@ module Api
           .where(user: current_user, phone_e164: phone_variants(phone_e164), status: 'pending')
           .order(created_at: :desc)
           .first
+      end
+
+      def password_change_payload
+        params[:user].is_a?(ActionController::Parameters) || params[:user].is_a?(Hash) ? params[:user] : {}
+      end
+
+      def password_change_current_password
+        password_change_payload[:old_password].presence ||
+          password_change_payload[:current_password].presence ||
+          params[:old_password].presence ||
+          params[:current_password].presence
+      end
+
+      def password_change_new_password
+        password_change_payload[:password].presence || params[:password].presence
+      end
+
+      def password_change_confirmation
+        password_change_payload[:confirm_password].presence ||
+          password_change_payload[:password_confirmation].presence ||
+          params[:confirm_password].presence ||
+          params[:password_confirmation].presence
       end
 
       def phone_variants(e164_digits)
