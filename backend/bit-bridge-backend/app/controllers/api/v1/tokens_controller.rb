@@ -10,11 +10,18 @@ module Api
       # GET /bill_orders
       def token
         raw = params[:refresh_token]
-        user = User.find_by_refresh_token(raw, allow_legacy: legacy_refresh_lookup?)
+        session = RefreshSession.find_by_token(raw)
+        user = session&.user || User.find_by_refresh_token(raw, allow_legacy: legacy_refresh_lookup?)
 
-        if user&.refresh_token_expires_at && user.refresh_token_expires_at > Time.current
+        if session.present? || (user&.refresh_token_expires_at && user.refresh_token_expires_at > Time.current)
           token, = Warden::JWTAuth::UserEncoder.new.call(user, :user, nil)
-          new_refresh_token = user.generate_refresh_token
+          new_refresh_token =
+            if session.present?
+              session.rotate!(ttl: user.refresh_token_ttl, request: request)
+            else
+              user.revoke_refresh_token!(raw)
+              user.generate_refresh_token(request: request)
+            end
 
           response.set_header('Authorization', "Bearer #{token}")
           response.set_header('X-Refresh-Token', "Bearer #{new_refresh_token}")

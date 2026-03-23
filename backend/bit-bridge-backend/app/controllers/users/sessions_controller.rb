@@ -11,8 +11,10 @@ module Users
 
     # DELETE /logout
     def destroy
-      # Revoke refresh token on logout if user is present
-      current_user&.revoke_refresh_token!
+      raw = refresh_token_from_request
+      if current_user.present?
+        raw.present? ? current_user.revoke_refresh_token!(raw) : current_user.revoke_all_refresh_tokens!
+      end
       # Let Devise clear warden session / JWT etc.
       super
     end
@@ -22,12 +24,21 @@ module Users
       raw = refresh_token_from_request
       return render json: { message: 'no refresh token' }, status: :unauthorized unless raw
 
-      user = User.find_by_refresh_token(raw, allow_legacy: legacy_refresh_lookup?)
+      session = RefreshSession.find_by_token(raw)
+      user = session&.user || User.find_by_refresh_token(raw, allow_legacy: legacy_refresh_lookup?)
       return render json: { error: 'invalid_refresh' }, status: :unauthorized unless user
 
       # 1) Check expiry first
-      if user.refresh_token_expired?
-        user.revoke_refresh_token!
+      if session.present?
+        if session.expired?
+          session.revoke!
+          return render json: {
+            error: 'session_expired',
+            message: 'Session expired. Please log in again.'
+          }, status: :unauthorized
+        end
+      elsif user.refresh_token_expired?
+        user.revoke_refresh_token!(raw)
         return render json: {
           error: 'session_expired',
           message: 'Session expired. Please log in again.'
@@ -35,13 +46,18 @@ module Users
       end
 
       # 2) Then validate token value
-      unless user.validate_refresh_token(raw)
+      unless session.present? || user.validate_refresh_token(raw)
         return render json: { error: 'invalid_refresh' }, status: :unauthorized
       end
 
       # 3) Rotate refresh token and issue new access token
-      user.revoke_refresh_token!
-      new_refresh_token = user.generate_refresh_token
+      new_refresh_token =
+        if session.present?
+          session.rotate!(ttl: refresh_token_ttl, request: request)
+        else
+          user.revoke_refresh_token!(raw)
+          user.generate_refresh_token(request: request)
+        end
 
       access_token, _payload =
         Warden::JWTAuth::UserEncoder.new.call(user, :user, nil)
@@ -59,7 +75,7 @@ module Users
 
     # Called on successful login
     def respond_with(resource, _opts = {})
-      refresh_token = resource.generate_refresh_token
+      refresh_token = resource.generate_refresh_token(request: request)
 
       # Get the JWT access token from the request environment
       access_token = request.env['warden-jwt_auth.token']

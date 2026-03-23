@@ -39,6 +39,32 @@ RSpec.describe 'Auth endpoints', type: :request do
     expect(body['access_token']).to be_present
   end
 
+  it 'keeps multiple refresh sessions independent across logins and rotations' do
+    first_login = post('/api/v1/login', params: { email: user.email, password: 'password123' })
+    expect(response).to have_http_status(:ok)
+    first_refresh = JSON.parse(response.body).fetch('refresh_token')
+
+    second_login = post('/api/v1/login', params: { email: user.email, password: 'password123' })
+    expect(response).to have_http_status(:ok)
+    second_refresh = JSON.parse(response.body).fetch('refresh_token')
+
+    expect(first_refresh).not_to eq(second_refresh)
+
+    post '/api/v1/refresh', headers: { 'Bit-Refresh-Token' => first_refresh }
+    expect(response).to have_http_status(:ok)
+    rotated_first = JSON.parse(response.body).fetch('refresh_token')
+
+    post '/api/v1/refresh', headers: { 'Bit-Refresh-Token' => first_refresh }
+    expect(response).to have_http_status(:unauthorized)
+
+    post '/api/v1/refresh', headers: { 'Bit-Refresh-Token' => second_refresh }
+    expect(response).to have_http_status(:ok)
+    expect(JSON.parse(response.body).fetch('refresh_token')).to be_present
+
+    post '/api/v1/refresh', headers: { 'Bit-Refresh-Token' => rotated_first }
+    expect(response).to have_http_status(:ok)
+  end
+
   it 'rejects login for unconfirmed users' do
     unconfirmed_user = build(
       :user,

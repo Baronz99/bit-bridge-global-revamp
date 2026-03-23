@@ -34,6 +34,7 @@ class User < ApplicationRecord
   has_many :cards
   has_many :notification_devices, dependent: :destroy
   has_many :notification_events, dependent: :destroy
+  has_many :refresh_sessions, dependent: :destroy
   has_many :beneficiaries, dependent: :destroy
   has_one :user_kyc, dependent: :destroy
   has_many :kyc_reviews, dependent: :destroy
@@ -196,15 +197,12 @@ class User < ApplicationRecord
   # -------------------------
   # Refresh token helpers
   # -------------------------
-  def generate_refresh_token
-    token = SecureRandom.hex(32)
-    digest = self.class.refresh_token_digest(token)
-    update!(
-      refresh_token: token,
-      refresh_token_digest: digest,
-      refresh_token_expires_at: Time.current + refresh_token_ttl
-    )
-    token
+  def generate_refresh_token(request: nil, session: nil)
+    if session.present?
+      session.rotate!(ttl: refresh_token_ttl, request: request)
+    else
+      RefreshSession.issue_for!(user: self, ttl: refresh_token_ttl, request: request)
+    end
   end
 
   def refresh_token_expired?
@@ -213,7 +211,12 @@ class User < ApplicationRecord
   end
 
   def validate_refresh_token(raw)
-    refresh_token_valid?(raw)
+    refresh_session_valid?(raw) || refresh_token_valid?(raw)
+  end
+
+  def refresh_session_valid?(raw)
+    session = refresh_sessions.active.find_by(token_digest: self.class.refresh_token_digest(raw))
+    session.present?
   end
 
   def refresh_token_valid?(raw)
@@ -228,12 +231,22 @@ class User < ApplicationRecord
     end
   end
 
-  def revoke_refresh_token!
+  def revoke_refresh_token!(raw = nil)
+    if raw.present?
+      session = refresh_sessions.find_by(token_digest: self.class.refresh_token_digest(raw))
+      return session.revoke! if session.present?
+    end
+
     update!(
       refresh_token: nil,
       refresh_token_digest: nil,
       refresh_token_expires_at: nil
     )
+  end
+
+  def revoke_all_refresh_tokens!
+    refresh_sessions.active.update_all(revoked_at: Time.current, updated_at: Time.current)
+    revoke_refresh_token!
   end
 
   def refresh_token_ttl

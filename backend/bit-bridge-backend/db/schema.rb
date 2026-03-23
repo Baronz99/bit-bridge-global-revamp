@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[7.1].define(version: 2026_03_20_084500) do
+ActiveRecord::Schema[7.1].define(version: 2026_03_23_141000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pgcrypto"
   enable_extension "plpgsql"
@@ -785,6 +785,23 @@ ActiveRecord::Schema[7.1].define(version: 2026_03_20_084500) do
     t.index ["product_id"], name: "index_provisions_on_product_id"
   end
 
+  create_table "refresh_sessions", id: :uuid, default: -> { "gen_random_uuid()" }, force: :cascade do |t|
+    t.uuid "user_id", null: false
+    t.string "token_digest", null: false
+    t.datetime "expires_at", null: false
+    t.datetime "revoked_at"
+    t.datetime "last_used_at"
+    t.datetime "last_rotated_at"
+    t.string "ip_address"
+    t.string "user_agent"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["token_digest"], name: "index_refresh_sessions_on_token_digest", unique: true
+    t.index ["user_id", "expires_at"], name: "index_refresh_sessions_on_user_id_and_expires_at"
+    t.index ["user_id", "revoked_at"], name: "index_refresh_sessions_on_user_id_and_revoked_at"
+    t.index ["user_id"], name: "index_refresh_sessions_on_user_id"
+  end
+
   create_table "refund_requests", id: :uuid, default: -> { "gen_random_uuid()" }, force: :cascade do |t|
     t.uuid "user_id"
     t.string "transaction_reference", null: false
@@ -1248,6 +1265,7 @@ ActiveRecord::Schema[7.1].define(version: 2026_03_20_084500) do
   add_foreign_key "order_items", "provisions"
   add_foreign_key "phone_verification_codes", "users"
   add_foreign_key "provisions", "products"
+  add_foreign_key "refresh_sessions", "users"
   add_foreign_key "refund_requests", "users"
   add_foreign_key "refund_requests", "users", column: "handled_by_admin_id"
   add_foreign_key "reward_transactions", "bill_orders"

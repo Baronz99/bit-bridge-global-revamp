@@ -15,7 +15,7 @@ module Users
         user = resource
 
         # generate / rotate refresh token
-        new_refresh_token = user.generate_refresh_token
+        new_refresh_token = user.generate_refresh_token(request: request)
 
         # issue access token
         access_token, _payload =

@@ -29,7 +29,7 @@ module Api
 
         # ✅ Generate a Devise-JWT compatible token
         access_token, _payload = Warden::JWTAuth::UserEncoder.new.call(user, :user, nil)
-        refresh_token = user.generate_refresh_token
+        refresh_token = user.generate_refresh_token(request: request)
 
         if user.admin?
           user.update_columns(
