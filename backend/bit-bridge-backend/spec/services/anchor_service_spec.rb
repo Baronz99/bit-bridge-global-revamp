@@ -299,6 +299,40 @@ RSpec.describe AnchorService do
     expect(posted_body.dig('data', 'attributes', 'phoneNumber')).to eq('2348102312186')
   end
 
+  it 'updates individual customer with digits-only anchor phone number' do
+    response = double('response', success?: true)
+    allow(response).to receive(:[]).with('data').and_return({ 'id' => 'cust_123' })
+
+    captured_path = nil
+    posted_body = nil
+    allow(described_class).to receive(:put) do |path, headers:, body:|
+      captured_path = path
+      posted_body = JSON.parse(body)
+      expect(headers['x-anchor-key']).to eq('test-key')
+      response
+    end
+
+    result = service.update_individual_customer(
+      customer_id: 'cust_123',
+      user_data: {
+        first_name: 'Agatha',
+        last_name: 'Okika',
+        user_id: user.id,
+        email: 'agatha@example.com',
+        postal_code: '540001',
+        city: 'Calabar',
+        state: 'Cross River',
+        phone_number: '+2348102889806',
+        address: '8 Miles, Winners Road, House Number 6'
+      }
+    )
+
+    expect(result[:status]).to eq(:ok)
+    expect(captured_path).to eq('/api/v1/customers/update/cust_123')
+    expect(posted_body.dig('data', 'attributes', 'fullName', 'lastName')).to eq('Okika')
+    expect(posted_body.dig('data', 'attributes', 'phoneNumber')).to eq('2348102889806')
+  end
+
   it 'sends idempotency header when creating counterparty' do
     response = double('response', success?: true)
     allow(response).to receive(:dig).with('data', 'id').and_return('cp_123')

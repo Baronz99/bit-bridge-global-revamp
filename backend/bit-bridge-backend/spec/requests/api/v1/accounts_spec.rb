@@ -332,6 +332,71 @@ RSpec.describe 'Accounts', type: :request do
       )
     end
 
+    it 'updates existing anchor customer to verified bvn name before retrying kyc' do
+      user = build_user(:tier2)
+      UserProfile.create!(
+        user: user,
+        first_name: 'Agatha',
+        last_name: 'Ibezimako',
+        phone_number: '08102889806',
+        date_of_birth: Date.new(1983, 5, 15),
+        gender: 'female',
+        address_line1: '8 Miles, Winners Road, House Number 6',
+        city: 'Calabar',
+        state: 'Cross River',
+        postal_code: '540001'
+      )
+      UserKyc.create!(
+        user: user,
+        bvn_status: 'verified',
+        bvn_verified_at: Time.current,
+        bvn_encrypted: '12345678901',
+        bvn_snapshot_first_name: 'Agatha',
+        bvn_snapshot_last_name: 'Okika'
+      )
+      account = Account.create!(
+        user: user,
+        vendor: 'anchor',
+        account_type: :individual,
+        account_id: 'anc_customer_existing',
+        status: :unverified
+      )
+
+      anchor_service = instance_double(AnchorService)
+      allow(AnchorService).to receive(:new).and_return(anchor_service)
+      allow(anchor_service).to receive(:update_individual_customer).and_return(
+        status: :ok,
+        response: { 'id' => 'anc_customer_existing' }
+      )
+      allow(anchor_service).to receive(:user_kyc_verification).and_return(
+        status: :ok,
+        response: account,
+        message: 'KYC submitted'
+      )
+
+      post '/api/v1/accounts/verify_kyc',
+           params: { account: {} },
+           headers: auth_headers(user)
+
+      expect(response).to have_http_status(:ok)
+      expect(anchor_service).to have_received(:update_individual_customer).with(
+        customer_id: 'anc_customer_existing',
+        user_data: hash_including(
+          first_name: 'Agatha',
+          last_name: 'Okika',
+          phone_number: '+2348102889806'
+        )
+      )
+      expect(anchor_service).to have_received(:user_kyc_verification).with(
+        hash_including(
+          bvn: '12345678901',
+          dob: '1983-05-15',
+          gender: 'female'
+        ),
+        account
+      )
+    end
+
     it 'prefers profile gender over a stale anchor account gender when client omits gender' do
       user = build_user(:tier2)
       UserProfile.create!(

@@ -79,6 +79,10 @@ module Api
         end
 
         request_params = account_params_or_empty
+        service = AnchorService.new
+        sync_anchor_customer_profile_before_kyc(account, request_params, service: service)
+        return if performed?
+
         kyc_payload = resolved_anchor_kyc_payload(request_params, account)
         kyc_missing_fields = anchor_kyc_missing_fields(kyc_payload)
         if kyc_missing_fields.any?
@@ -90,7 +94,6 @@ module Api
           ), status: :unprocessable_entity
         end
 
-        service = AnchorService.new
         service_response = service.user_kyc_verification(kyc_payload, account)
 
         if service_response[:status] == :ok
@@ -1078,6 +1081,10 @@ module Api
         backfill_anchor_completed_status!(account)
         return account if anchor_kyc_completed?(account)
 
+        service = AnchorService.new
+        sync_anchor_customer_profile_before_kyc(account, request_params, service: service)
+        return nil if performed?
+
         kyc_payload = resolved_anchor_kyc_payload(request_params, account)
         kyc_missing_fields = anchor_kyc_missing_fields(kyc_payload)
         if kyc_missing_fields.any?
@@ -1094,7 +1101,6 @@ module Api
           return nil
         end
 
-        service = AnchorService.new
         service_response = service.user_kyc_verification(kyc_payload, account)
 
         if service_response[:status] == :ok
@@ -1591,6 +1597,35 @@ module Api
 
       def same_name_value?(left, right)
         left.to_s.strip.downcase == right.to_s.strip.downcase
+      end
+
+      def sync_anchor_customer_profile_before_kyc(account, request_params, service:)
+        return account unless account.present? && account.account_id.present?
+
+        mismatch = anchor_verified_name_mismatch(current_user)
+        return account unless mismatch
+
+        account_info = AnchorOnboardingMapper.build_account_info(
+          user: current_user,
+          account_params: request_params
+        )
+        update_response = service.update_individual_customer(
+          customer_id: account.account_id,
+          user_data: account_info
+        )
+        return account if update_response[:status] == :ok
+
+        render json: anchor_error_payload(
+          'anchor_customer_update_failed',
+          update_response[:message].presence || 'Unable to update Anchor customer details before verification.',
+          retryable: true,
+          flow: {
+            state: 'temporary_provider_failure',
+            next_action: 'retry_kyc'
+          },
+          details: mismatch
+        ), status: :unprocessable_entity
+        nil
       end
 
       def masked_account_number(account_number)

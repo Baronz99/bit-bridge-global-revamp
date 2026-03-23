@@ -36,33 +36,22 @@ class AnchorService
     phone_number = normalize_anchor_phone(user_data[:phone_number])
     address      = user_data[:address]
 
-    body = {
-      data: {
-        type: 'IndividualCustomer',
-        attributes: {
-          fullName: {
-            firstName: first_name,
-            lastName: last_name
-          },
-          address: {
-            addressLine_1: address,
-            addressLine_2: address,
-            city: city,
-            state: state,
-            country: 'NG',
-            postalCode: postal_code
-          },
-          email: email,
-          phoneNumber: phone_number,
-          metadata: {
-            my_customerID: id
-          }
-        }
-      }
-    }.to_json
+    body = build_individual_customer_payload(
+      user_data.merge(
+        first_name: first_name,
+        last_name: last_name,
+        email: email,
+        postal_code: postal_code,
+        city: city,
+        state: state,
+        phone_number: phone_number,
+        address: address,
+        user_id: id
+      )
+    )
 
     begin
-      response = self.class.post('/api/v1/customers', headers: @headers, body: body)
+      response = self.class.post('/api/v1/customers', headers: @headers, body: body.to_json)
 
       if response.success?
         account_id = response['data']['id']
@@ -75,8 +64,32 @@ class AnchorService
         error_title = extract_anchor_error_message(response, fallback: 'bad request')
         raise StandardError.new(error_title.to_s)
       end
-    rescue StandardError => e
+  rescue StandardError => e
       { message: e.message || 'bad request', status: :bad_request, provider_status: (defined?(provider_status) && provider_status) || nil, provider_body: (defined?(provider_body) && provider_body) || nil }
+    end
+  end
+
+  def update_individual_customer(customer_id:, user_data:)
+    body = build_individual_customer_payload(user_data)
+
+    begin
+      response = self.class.put(
+        "/api/v1/customers/update/#{customer_id}",
+        headers: @headers,
+        body: body.to_json
+      )
+
+      raise extract_anchor_error_message(response, fallback: 'bad request') unless response.success?
+
+      {
+        status: :ok,
+        response: response['data']
+      }
+    rescue StandardError => e
+      {
+        message: e.message || 'bad request',
+        status: :bad_request
+      }
     end
   end
 
@@ -325,9 +338,36 @@ class AnchorService
       anchor_id = response.dig('data', 'id')
       Rails.logger.info("Anchor counterparty created id=#{anchor_id}") if anchor_id
       { data: response['data'], status: :ok }
-    rescue StandardError => e
+  rescue StandardError => e
       { message: e.message.to_s || 'bad request', status: :bad_request }
     end
+  end
+
+  def build_individual_customer_payload(user_data)
+    {
+      data: {
+        type: 'IndividualCustomer',
+        attributes: {
+          fullName: {
+            firstName: user_data[:first_name],
+            lastName: user_data[:last_name]
+          },
+          address: {
+            addressLine_1: user_data[:address],
+            addressLine_2: user_data[:address],
+            city: user_data[:city],
+            state: user_data[:state],
+            country: 'NG',
+            postalCode: user_data[:postal_code]
+          },
+          email: user_data[:email],
+          phoneNumber: normalize_anchor_phone(user_data[:phone_number]),
+          metadata: {
+            my_customerID: user_data[:user_id]
+          }
+        }
+      }
+    }
   end
 
   def freeze_deposit_account(account_id:, freeze_reason:, freeze_description:)
