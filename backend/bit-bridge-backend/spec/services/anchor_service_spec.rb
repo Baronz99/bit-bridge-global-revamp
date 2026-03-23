@@ -299,7 +299,7 @@ RSpec.describe AnchorService do
     expect(posted_body.dig('data', 'attributes', 'phoneNumber')).to eq('2348102312186')
   end
 
-  it 'updates individual customer with digits-only anchor phone number' do
+  it 'updates individual customer with local nigerian phone number format' do
     response = double('response', success?: true)
     allow(response).to receive(:[]).with('data').and_return({ 'id' => 'cust_123' })
 
@@ -330,7 +330,7 @@ RSpec.describe AnchorService do
     expect(result[:status]).to eq(:ok)
     expect(captured_path).to eq('/api/v1/customers/update/cust_123')
     expect(posted_body.dig('data', 'attributes', 'fullName', 'lastName')).to eq('Okika')
-    expect(posted_body.dig('data', 'attributes', 'phoneNumber')).to eq('2348102889806')
+    expect(posted_body.dig('data', 'attributes', 'phoneNumber')).to eq('08102889806')
   end
 
   it 'sends idempotency header when creating counterparty' do

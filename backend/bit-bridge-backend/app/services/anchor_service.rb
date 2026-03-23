@@ -47,7 +47,8 @@ class AnchorService
         phone_number: phone_number,
         address: address,
         user_id: id
-      )
+      ),
+      normalize_phone: true
     )
 
     begin
@@ -70,7 +71,10 @@ class AnchorService
   end
 
   def update_individual_customer(customer_id:, user_data:)
-    body = build_individual_customer_payload(user_data)
+    normalized_user_data = user_data.merge(
+      phone_number: normalize_anchor_customer_update_phone(user_data[:phone_number])
+    )
+    body = build_individual_customer_payload(normalized_user_data, normalize_phone: false)
 
     begin
       response = self.class.put(
@@ -343,7 +347,7 @@ class AnchorService
     end
   end
 
-  def build_individual_customer_payload(user_data)
+  def build_individual_customer_payload(user_data, normalize_phone:)
     {
       data: {
         type: 'IndividualCustomer',
@@ -361,7 +365,7 @@ class AnchorService
             postalCode: user_data[:postal_code]
           },
           email: user_data[:email],
-          phoneNumber: normalize_anchor_phone(user_data[:phone_number]),
+          phoneNumber: normalize_phone ? normalize_anchor_phone(user_data[:phone_number]) : user_data[:phone_number],
           metadata: {
             my_customerID: user_data[:user_id]
           }
@@ -434,6 +438,17 @@ class AnchorService
     digits
   end
   private :normalize_anchor_phone
+
+  def normalize_anchor_customer_update_phone(value)
+    digits = value.to_s.gsub(/\D+/, '')
+    return digits if digits.blank?
+    return "0#{digits[3..]}" if digits.start_with?('234') && digits.length == 13
+    return digits if digits.start_with?('0') && digits.length == 11
+    return "0#{digits}" if digits.length == 10
+
+    digits
+  end
+  private :normalize_anchor_customer_update_phone
 
   def get_inbound_transfer(transfer_id)
     response = self.class.get("api/v1/inbound-transfers/#{transfer_id}", headers: @headers)
