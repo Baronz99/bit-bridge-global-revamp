@@ -112,6 +112,93 @@ RSpec.describe 'Accounts', type: :request do
       expect(body.dig('flow', 'next_action')).to eq('verify_kyc')
     end
 
+    it 'prefers verified bvn snapshot names over profile names for anchor onboarding' do
+      user = build_user(:tier2)
+      UserProfile.create!(
+        user: user,
+        first_name: 'Agatha',
+        last_name: 'Ibezimako',
+        phone_number: '08000000000',
+        address_line1: '42 Profile Street',
+        city: 'Calabar',
+        state: 'Cross River',
+        postal_code: '540001',
+        date_of_birth: Date.new(1983, 5, 15)
+      )
+      UserKyc.create!(
+        user: user,
+        bvn_status: 'verified',
+        bvn_verified_at: Time.current,
+        bvn_encrypted: '12345678901',
+        bvn_snapshot_first_name: 'Agatha',
+        bvn_snapshot_last_name: 'Ibezimako'
+      )
+      created_account = Account.new(
+        user: user,
+        vendor: 'anchor',
+        account_type: :individual,
+        account_id: 'anc_customer_3',
+        status: :unverified
+      )
+
+      anchor_service = instance_double(AnchorService)
+      allow(AnchorService).to receive(:new).and_return(anchor_service)
+      allow(anchor_service).to receive(:create_individual_account).and_return(
+        status: :ok,
+        response: created_account
+      )
+
+      post '/api/v1/accounts',
+           params: { account: { vendor: 'anchor', first_name: 'Agatha', last_name: 'MarriedName' } },
+           headers: auth_headers(user)
+
+      expect(anchor_service).to have_received(:create_individual_account).with(
+        hash_including(first_name: 'Agatha', last_name: 'Ibezimako')
+      )
+      expect(response).to have_http_status(:ok)
+    end
+
+    it 'blocks anchor onboarding when profile name differs from verified bvn snapshot name' do
+      user = build_user(:tier2)
+      UserProfile.create!(
+        user: user,
+        first_name: 'Agatha',
+        last_name: 'MarriedName',
+        phone_number: '08000000000',
+        address_line1: '42 Profile Street',
+        city: 'Calabar',
+        state: 'Cross River',
+        postal_code: '540001',
+        date_of_birth: Date.new(1983, 5, 15)
+      )
+      UserKyc.create!(
+        user: user,
+        bvn_status: 'verified',
+        bvn_verified_at: Time.current,
+        bvn_encrypted: '12345678901',
+        bvn_snapshot_first_name: 'Agatha',
+        bvn_snapshot_last_name: 'Ibezimako'
+      )
+
+      anchor_service = instance_double(AnchorService)
+      allow(AnchorService).to receive(:new).and_return(anchor_service)
+      allow(anchor_service).to receive(:create_individual_account)
+
+      post '/api/v1/accounts',
+           params: { account: { vendor: 'anchor' } },
+           headers: auth_headers(user)
+
+      expect(anchor_service).not_to have_received(:create_individual_account)
+      expect(response).to have_http_status(:unprocessable_entity)
+      body = JSON.parse(response.body)
+      expect(body['error_code']).to eq('anchor_profile_name_mismatch')
+      expect(body.dig('flow', 'state')).to eq('blocked_verified_identity_mismatch')
+      expect(body.dig('flow', 'next_action')).to eq('review_verified_identity')
+      expect(body.dig('details', 'mismatched_fields')).to include('last_name')
+      expect(body.dig('details', 'profile_name', 'last_name')).to eq('MarriedName')
+      expect(body.dig('details', 'verified_bvn_name', 'last_name')).to eq('Ibezimako')
+    end
+
     it 'uses profile phone_e164 when phone_number is blank' do
       user = build_user(:tier2)
       UserProfile.create!(
@@ -243,6 +330,83 @@ RSpec.describe 'Accounts', type: :request do
         ),
         account
       )
+    end
+
+    it 'prefers profile gender over a stale anchor account gender when client omits gender' do
+      user = build_user(:tier2)
+      UserProfile.create!(
+        user: user,
+        date_of_birth: Date.new(1989, 3, 20),
+        gender: 'female'
+      )
+      UserKyc.create!(
+        user: user,
+        bvn_status: 'verified',
+        bvn_verified_at: Time.current,
+        bvn_encrypted: '12345678901'
+      )
+      account = Account.create!(
+        user: user,
+        vendor: 'anchor',
+        account_type: :individual,
+        account_id: 'anc_customer_3',
+        status: :unverified,
+        gender: :male,
+        dob: Date.new(1989, 3, 20)
+      )
+
+      anchor_service = instance_double(AnchorService)
+      allow(AnchorService).to receive(:new).and_return(anchor_service)
+      allow(anchor_service).to receive(:user_kyc_verification).and_return(
+        status: :ok,
+        response: account,
+        message: 'KYC submitted'
+      )
+
+      post '/api/v1/accounts/verify_kyc',
+           params: { account: {} },
+           headers: auth_headers(user)
+
+      expect(response).to have_http_status(:ok)
+      expect(anchor_service).to have_received(:user_kyc_verification).with(
+        hash_including(
+          bvn: '12345678901',
+          dob: '1989-03-20',
+          gender: 'female'
+        ),
+        account
+      )
+    end
+
+    it 'does not reuse bvns from verified kyc records when the encrypted bvn value is missing' do
+      user = build_user(:tier2)
+      UserProfile.create!(
+        user: user,
+        date_of_birth: Date.new(1992, 3, 14),
+        gender: 'male'
+      )
+      UserKyc.create!(
+        user: user,
+        bvn_status: 'verified',
+        bvn_verified_at: Time.current,
+        bvn_encrypted: nil
+      )
+      Account.create!(
+        user: user,
+        vendor: 'anchor',
+        account_type: :individual,
+        account_id: 'anc_customer_4',
+        status: :unverified
+      )
+
+      post '/api/v1/accounts/verify_kyc',
+           params: { account: {} },
+           headers: auth_headers(user)
+
+      expect(response).to have_http_status(:unprocessable_entity)
+      body = JSON.parse(response.body)
+      expect(body['error']).to eq('anchor_kyc_incomplete')
+      expect(body.dig('details', 'missing_fields')).to include('bvn')
     end
   end
 end

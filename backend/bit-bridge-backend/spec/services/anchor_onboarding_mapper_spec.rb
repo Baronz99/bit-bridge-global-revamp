@@ -36,12 +36,11 @@ RSpec.describe AnchorOnboardingMapper do
 
     it 'falls back to profile phone_e164 and normalizes to +234 format' do
       user = create(:user, email: 'user@example.com')
-      UserProfile.create!(
+      profile = UserProfile.create!(
         user: user,
         first_name: 'Profile',
         last_name: 'User',
         phone_number: nil,
-        phone_e164: '2348012345678',
         address_line1: 'Profile Street',
         city: 'Lagos',
         state: 'LA',
@@ -49,6 +48,7 @@ RSpec.describe AnchorOnboardingMapper do
         bvn: '12345678901',
         date_of_birth: Date.new(1990, 1, 1)
       )
+      profile.update_column(:phone_e164, '2348012345678')
 
       result = described_class.build_account_info(user: user, account_params: { vendor: 'anchor' })
 
@@ -73,6 +73,54 @@ RSpec.describe AnchorOnboardingMapper do
       result = described_class.build_account_info(user: user, account_params: { vendor: 'anchor' })
 
       expect(result[:state]).to eq('Rivers')
+    end
+
+    it 'normalizes FCT Abuja variants to FCT' do
+      user = create(:user, email: 'user@example.com')
+      UserProfile.create!(
+        user: user,
+        first_name: 'Michael',
+        last_name: 'Ayua',
+        phone_number: '08000000000',
+        address_line1: 'Area 1',
+        city: 'Abuja',
+        state: 'FCT (Abuja)',
+        postal_code: '900001',
+        bvn: '12345678901',
+        date_of_birth: Date.new(1990, 1, 1)
+      )
+
+      result = described_class.build_account_info(user: user, account_params: { vendor: 'anchor' })
+
+      expect(result[:state]).to eq('FCT')
+    end
+
+    it 'prefers verified bvn snapshot names over editable profile names' do
+      user = create(:user, email: 'user@example.com')
+      UserProfile.create!(
+        user: user,
+        first_name: 'Agatha',
+        last_name: 'MarriedName',
+        phone_number: '08000000000',
+        address_line1: 'Profile Street',
+        city: 'Calabar',
+        state: 'Cross River',
+        postal_code: '540001',
+        date_of_birth: Date.new(1983, 5, 15)
+      )
+      UserKyc.create!(
+        user: user,
+        bvn_status: 'verified',
+        bvn_verified_at: Time.current,
+        bvn_encrypted: '12345678901',
+        bvn_snapshot_first_name: 'Agatha',
+        bvn_snapshot_last_name: 'Ibezimako'
+      )
+
+      result = described_class.build_account_info(user: user, account_params: { vendor: 'anchor' })
+
+      expect(result[:first_name]).to eq('Agatha')
+      expect(result[:last_name]).to eq('Ibezimako')
     end
   end
 end

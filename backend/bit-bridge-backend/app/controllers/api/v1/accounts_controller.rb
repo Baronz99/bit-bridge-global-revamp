@@ -786,6 +786,20 @@ module Api
           ).merge(missing_fields: missing_fields), status: :unprocessable_entity
         end
 
+        name_mismatch = anchor_verified_name_mismatch(current_user)
+        if name_mismatch
+          return render json: anchor_error_payload(
+            'anchor_profile_name_mismatch',
+            'Your profile name does not match your verified BVN name.',
+            retryable: false,
+            flow: {
+              state: 'blocked_verified_identity_mismatch',
+              next_action: 'review_verified_identity'
+            },
+            details: name_mismatch
+          ), status: :unprocessable_entity
+        end
+
         log_anchor_onboarding_will_call(account_info)
         service_response = service.create_individual_account(account_info)
 
@@ -1067,11 +1081,15 @@ module Api
         kyc_payload = resolved_anchor_kyc_payload(request_params, account)
         kyc_missing_fields = anchor_kyc_missing_fields(kyc_payload)
         if kyc_missing_fields.any?
+          error_code = anchor_kyc_rejected?(account) ? 'anchor_kyc_rejected' : 'anchor_kyc_incomplete'
           render json: anchor_error_payload(
-            'anchor_kyc_incomplete',
+            error_code,
             'Complete Anchor KYC fields before verification.',
             retryable: false,
-            details: { missing_fields: kyc_missing_fields }
+            details: {
+              missing_fields: kyc_missing_fields,
+              rejection: anchor_kyc_rejection_details(account)
+            }.compact
           ), status: :unprocessable_entity
           return nil
         end
@@ -1520,6 +1538,12 @@ module Api
             current_blocker: 'Complete required profile fields',
             next_action_hint: 'complete_profile'
           )
+        when 'blocked_verified_identity_mismatch'
+          base.merge(
+            current_blocker: 'Profile name must match your verified BVN name',
+            next_action_hint: 'review_verified_identity',
+            identity_mismatch: details
+          ).compact
         else
           base
         end
@@ -1533,6 +1557,40 @@ module Api
           can_provision_account_number: %w[customer_created_no_deposit_account].include?(state),
           can_fund_wallet: %w[provisioned].include?(state)
         }
+      end
+
+      def anchor_verified_name_mismatch(user)
+        profile = user&.user_profile
+        user_kyc = user&.user_kyc
+        return nil unless profile && user_kyc&.verified_and_reusable_bvn?
+
+        verified_first = user_kyc.bvn_snapshot_first_name.to_s.strip
+        verified_last = user_kyc.bvn_snapshot_last_name.to_s.strip
+        return nil if verified_first.blank? || verified_last.blank?
+
+        profile_first = profile.first_name.to_s.strip
+        profile_last = profile.last_name.to_s.strip
+
+        mismatched_fields = []
+        mismatched_fields << 'first_name' if profile_first.present? && !same_name_value?(profile_first, verified_first)
+        mismatched_fields << 'last_name' if profile_last.present? && !same_name_value?(profile_last, verified_last)
+        return nil if mismatched_fields.empty?
+
+        {
+          mismatched_fields: mismatched_fields,
+          profile_name: {
+            first_name: profile_first.presence,
+            last_name: profile_last.presence
+          }.compact,
+          verified_bvn_name: {
+            first_name: verified_first,
+            last_name: verified_last
+          }
+        }
+      end
+
+      def same_name_value?(left, right)
+        left.to_s.strip.downcase == right.to_s.strip.downcase
       end
 
       def masked_account_number(account_number)
@@ -1644,7 +1702,7 @@ module Api
         event = latest_anchor_kyc_event(account)
         return nil if event.blank?
 
-        payload = event.payload
+        payload = event&.payload
         failure_data = payload.is_a?(Hash) ? payload.dig('attributes', 'failureEventData') : nil
         details = {
           event_type: event.event_type,

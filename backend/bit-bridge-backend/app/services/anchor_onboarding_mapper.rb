@@ -83,6 +83,7 @@ class AnchorOnboardingMapper
     @user = user
     @account_params = normalize_hash(account_params)
     @profile = user.user_profile
+    @user_kyc = user.user_kyc
     @profile_params = normalize_hash(@profile&.attributes || {})
     @user_params = normalize_hash(@user&.attributes || {})
   end
@@ -99,6 +100,7 @@ class AnchorOnboardingMapper
     mapped[:phone_number] = normalize_phone(mapped[:phone_number])
     mapped[:address] = @profile&.address_line1 if mapped[:address].blank? && @profile&.address_line1.present?
     mapped[:state] = normalize_state(mapped[:state])
+    apply_verified_name_overrides!(mapped)
 
     mapped
   end
@@ -137,9 +139,10 @@ class AnchorOnboardingMapper
 
     raw = value.to_s.strip
     normalized = raw.gsub(/\s+/, ' ')
+    normalized = normalized.gsub(/\(([^)]*)\)/, ' \1 ')
     normalized = normalized.sub(/\s+state\z/i, '')
-    normalized = normalized.gsub(/[^A-Za-z0-9\s]/, '').gsub(/\s+/, ' ').strip
-    return 'FCT' if normalized.casecmp('fct (abuja)').zero? || normalized.casecmp('abuja').zero? || normalized.casecmp('fct').zero?
+    normalized = normalized.gsub(/[^A-Za-z0-9\s]/, ' ').gsub(/\s+/, ' ').strip
+    return 'FCT' if normalized.casecmp('fct abuja').zero? || normalized.casecmp('abuja').zero? || normalized.casecmp('fct').zero?
 
     key = normalized.upcase
     canonical = NIGERIAN_STATE_CANONICAL[key]
@@ -162,5 +165,37 @@ class AnchorOnboardingMapper
     return raw if digits.blank?
 
     "+#{digits}"
+  end
+
+  def apply_verified_name_overrides!(mapped)
+    verified_names = verified_bvn_name_snapshot
+    return mapped unless verified_names
+
+    mapped[:first_name] = verified_names[:first_name] if verified_names[:first_name].present?
+    mapped[:last_name] = verified_names[:last_name] if verified_names[:last_name].present?
+    mapped
+  end
+
+  def verified_bvn_name_snapshot
+    return nil unless @user_kyc&.verified_and_reusable_bvn?
+
+    local_snapshot = {
+      first_name: normalize_string(@user_kyc.bvn_snapshot_first_name),
+      last_name: normalize_string(@user_kyc.bvn_snapshot_last_name)
+    }
+    return local_snapshot if local_snapshot[:first_name].present? && local_snapshot[:last_name].present?
+
+    fingerprint = @user_kyc.bvn_fingerprint.to_s.strip
+    return nil if fingerprint.blank?
+
+    snapshot = Kyc::VerificationSnapshotStore.find_reusable(document_type: 'bvn', fingerprint: fingerprint)
+    return nil unless snapshot
+
+    {
+      first_name: normalize_string(snapshot.first_name),
+      last_name: normalize_string(snapshot.last_name)
+    }
+  rescue StandardError
+    nil
   end
 end
