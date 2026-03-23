@@ -157,10 +157,27 @@ module Api
         end
 
         unless anchor_kyc_completed?(account)
+          error_code =
+            if anchor_kyc_rejected?(account)
+              'anchor_kyc_rejected'
+            elsif anchor_kyc_retryable_error?(account)
+              'provider_unavailable'
+            else
+              'anchor_kyc_incomplete'
+            end
+          error_message =
+            if error_code == 'anchor_kyc_rejected'
+              'Anchor KYC was rejected. Review your profile details and retry verification.'
+            elsif error_code == 'provider_unavailable'
+              'Anchor KYC could not be completed because the provider returned an error. Retry verification.'
+            else
+              'Complete Anchor KYC before generating an account number.'
+            end
           return render json: anchor_error_payload(
-            'anchor_kyc_incomplete',
-            'Complete Anchor KYC before generating an account number.',
-            retryable: false
+            error_code,
+            error_message,
+            retryable: false,
+            details: { rejection: anchor_kyc_rejection_details(account) }.compact
           ), status: :unprocessable_entity
         end
 
@@ -643,10 +660,7 @@ module Api
         if account.status.to_s == 'verifying' || account.status.to_s == 'pending'
           customer_response = service.fetch_customer_detail(account.account_id)
           if customer_response[:status] == :ok
-            customer_status = customer_response.dig(:data, 'attributes', 'status').to_s.downcase
-            if %w[approved verified completed active].any? { |v| customer_status.include?(v) }
-              account.update(status: 'completed')
-            end
+            sync_anchor_customer_verification_status!(account, customer_response[:data])
           end
         end
 
@@ -699,7 +713,8 @@ module Api
           data: {
             account_id: account&.id,
             account_number_masked: masked_account_number(account&.account_number),
-            kyc_status: account&.status
+            kyc_status: account&.status,
+            kyc_rejection: anchor_kyc_rejection_details(account)
           }.compact,
           message: 'Anchor onboarding state fetched',
           flow: flow,
@@ -1484,10 +1499,21 @@ module Api
             current_blocker: 'Complete Tier 2 verification',
             next_action_hint: 'complete_kyc'
           )
+        when 'kyc_rejected'
+          base.merge(
+            current_blocker: 'Anchor KYC was rejected by the provider',
+            next_action_hint: 'review_profile_and_retry_kyc',
+            rejection: details.is_a?(Hash) ? details[:rejection] : nil
+          ).compact
         when 'pending_kyc_review'
           base.merge(
             current_blocker: 'Anchor KYC is under provider review',
             next_action_hint: 'refresh_status'
+          )
+        when 'temporary_provider_failure'
+          base.merge(
+            current_blocker: 'Anchor provider returned a temporary verification error',
+            next_action_hint: 'retry_kyc'
           )
         when 'blocked_profile_incomplete'
           base.merge(
@@ -1542,6 +1568,27 @@ module Api
           }
         end
 
+        if anchor_kyc_rejected?(account)
+          return {
+            state: 'kyc_rejected',
+            next_action: 'verify_kyc'
+          }
+        end
+
+        if anchor_kyc_retryable_error?(account)
+          return {
+            state: 'temporary_provider_failure',
+            next_action: 'verify_kyc'
+          }
+        end
+
+        if anchor_kyc_requires_more_info?(account)
+          return {
+            state: 'blocked_kyc',
+            next_action: 'verify_kyc'
+          }
+        end
+
         if %w[verifying pending].include?(account.status.to_s)
           return {
             state: 'pending_kyc_review',
@@ -1582,6 +1629,148 @@ module Api
         return false if account.blank?
 
         %w[completed verified].include?(account.status.to_s)
+      end
+
+      def anchor_kyc_rejected?(account)
+        return false if account.blank?
+
+        account.status.to_s == 'unverified' &&
+          latest_anchor_kyc_event(account)&.event_type.to_s == 'customer.identification.rejected'
+      end
+
+      def anchor_kyc_rejection_details(account)
+        return nil if account.blank? || account.account_id.blank?
+
+        event = latest_anchor_kyc_event(account)
+        return nil if event.blank?
+
+        payload = event.payload
+        failure_data = payload.is_a?(Hash) ? payload.dig('attributes', 'failureEventData') : nil
+        details = {
+          event_type: event.event_type,
+          message: failure_data.is_a?(Hash) ? failure_data['message'].to_s.presence : nil,
+          validation_result: failure_data.is_a?(Hash) ? failure_data['validationResult'] : nil
+        }.compact
+        details[:message] ||= payload.dig('attributes', 'verification', 'details', 0, 'comment').to_s.presence
+        details.presence
+      end
+
+      def sync_anchor_customer_verification_status!(account, customer_data)
+        return if account.blank?
+
+        persist_anchor_customer_kyc_event!(account, customer_data)
+
+        verification_status =
+          customer_data.dig('attributes', 'verification', 'status').to_s.downcase
+        customer_status =
+          customer_data.dig('attributes', 'status').to_s.downcase
+
+        next_status =
+          if %w[approved verified completed].any? { |value| verification_status.include?(value) }
+            'completed'
+          elsif %w[error failed timeout].any? { |value| verification_status.include?(value) }
+            'unverified'
+          elsif %w[manualreview pending processing reviewing in_review].any? { |value| verification_status.include?(value) }
+            'verifying'
+          elsif verification_status.include?('rejected')
+            'unverified'
+          elsif verification_status.blank? && %w[approved verified completed].any? { |value| customer_status.include?(value) }
+            'completed'
+          end
+
+        return if next_status.blank? || account.status.to_s == next_status
+
+        account.update(status: next_status)
+      end
+
+      def latest_anchor_kyc_event(account)
+        return nil if account.blank? || account.account_id.blank?
+
+        AnchorWebhookEvent.where(
+          event_type: anchor_kyc_event_types,
+          reference: account.account_id
+        ).order(received_at: :desc, created_at: :desc).first
+      end
+
+      def anchor_kyc_retryable_error?(account)
+        latest_anchor_kyc_event(account)&.event_type.to_s == 'customer.identification.error'
+      end
+
+      def anchor_kyc_requires_more_info?(account)
+        %w[customer.identification.reenter_information customer.identification.awaitingdocument]
+          .include?(latest_anchor_kyc_event(account)&.event_type.to_s)
+      end
+
+      def anchor_kyc_event_types
+        %w[
+          customer.identification.approved
+          customer.identification.pending
+          customer.identification.manualreview
+          customer.identification.error
+          customer.identification.reenter_information
+          customer.identification.awaitingdocument
+          customer.identification.rejected
+        ]
+      end
+
+      def persist_anchor_customer_kyc_event!(account, customer_data)
+        return if account.blank? || account.account_id.blank?
+
+        verification = customer_data.dig('attributes', 'verification')
+        return unless verification.is_a?(Hash)
+
+        status = verification['status'].to_s.downcase
+        event_type =
+          if status.include?('rejected')
+            'customer.identification.rejected'
+          elsif %w[manualreview manual_review].any? { |value| status.include?(value) }
+            'customer.identification.manualreview'
+          elsif %w[pending processing reviewing in_review].any? { |value| status.include?(value) }
+            'customer.identification.pending'
+          elsif %w[error failed timeout].any? { |value| status.include?(value) }
+            'customer.identification.error'
+          end
+        return if event_type.blank?
+
+        payload = {
+          'type' => event_type,
+          'attributes' => {
+            'failureEventData' => {
+              'message' => verification.dig('details', 0, 'comment'),
+              'validationResult' => Array(verification.dig('details', 0, 'validatedItems')).map do |item|
+                {
+                  'validationType' => item['item'],
+                  'reason' => item['status']
+                }.compact
+              end,
+              'resource' => {
+                'type' => customer_data['type'],
+                'id' => customer_data['id']
+              }.compact
+            }
+          },
+          'relationships' => {
+            'resource' => {
+              'data' => {
+                'id' => customer_data['id'],
+                'type' => customer_data['type']
+              }.compact
+            }
+          }
+        }
+
+        event = AnchorWebhookEvent.find_or_initialize_by(
+          event_type: event_type,
+          reference: account.account_id
+        )
+        event.payload = payload
+        event.received_at ||= Time.current
+        event.status ||= 'processed'
+        event.processed_at ||= Time.current
+        event.error_message = nil
+        event.save! if event.changed?
+      rescue StandardError => e
+        Rails.logger.warn("[AccountsController] persist_anchor_customer_kyc_event_failed account_id=#{account.id} message=#{e.message}") if defined?(Rails) && Rails.logger
       end
 
       def sync_anchor_deposit_account_if_needed!(account)
@@ -1661,6 +1850,8 @@ module Api
           { state: 'temporary_provider_failure', next_action: 'retry_create_anchor_account' }
         when 'anchor_kyc_incomplete'
           { state: 'blocked_kyc', next_action: 'complete_kyc' }
+        when 'anchor_kyc_rejected'
+          { state: 'kyc_rejected', next_action: 'verify_kyc' }
         when 'anchor_kyc_already_verified'
           { state: 'customer_created_no_deposit_account', next_action: 'provision_account_number' }
         when 'pending_kyc_review'

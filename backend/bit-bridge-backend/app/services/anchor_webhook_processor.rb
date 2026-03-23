@@ -59,7 +59,13 @@ class AnchorWebhookProcessor
     normalized_event = event_type.to_s.strip.downcase
 
     case normalized_event
-    when 'customer.identification.approved', 'customer.identification.pending', 'customer.identification.rejected'
+    when 'customer.identification.approved',
+         'customer.identification.pending',
+         'customer.identification.manualreview',
+         'customer.identification.error',
+         'customer.identification.reenter_information',
+         'customer.identification.awaitingdocument',
+         'customer.identification.rejected'
       handle_kyc_event(event_type: normalized_event, payload: payload)
     when 'nip.inbound.completed'
       transfer_id = payload.dig('relationships', 'transfer', 'data', 'id')
@@ -107,19 +113,19 @@ class AnchorWebhookProcessor
     next_status =
       if event_type.include?('approved')
         'verified'
-      elsif event_type.include?('pending')
+      elsif event_type.include?('pending') || event_type.include?('manualreview')
         'verifying'
-      elsif event_type.include?('rejected')
+      elsif event_type.include?('error') || event_type.include?('reenter_information') || event_type.include?('awaitingdocument') || event_type.include?('rejected')
         'unverified'
       end
     return if next_status.blank?
 
-    if event_type.include?('rejected')
+    if next_status == 'unverified'
       rejection_message =
         payload.dig('attributes', 'failureEventData', 'message') ||
         payload.dig('attributes', 'verification', 'details', 0, 'comment')
       Rails.logger.warn(
-        "[AnchorWebhook] kyc_rejected account_id=#{account.id} customer_id=#{account.account_id} message=#{rejection_message}"
+        "[AnchorWebhook] kyc_status_changed event_type=#{event_type} account_id=#{account.id} customer_id=#{account.account_id} message=#{rejection_message}"
       )
     end
 

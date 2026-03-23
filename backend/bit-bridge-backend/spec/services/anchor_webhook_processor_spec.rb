@@ -118,6 +118,31 @@ RSpec.describe AnchorWebhookProcessor do
       expect(account.reload.status).to eq('unverified')
     end
 
+    it 'treats manual review as verifying and provider error as unverified' do
+      user = create(:user, email: "anchor-webhook-manual-#{SecureRandom.hex(4)}@example.com")
+      account = Account.create!(
+        user: user,
+        vendor: 'anchor',
+        account_id: 'cust_status_456',
+        status: :unverified
+      )
+
+      manual_review_payload = {
+        'type' => 'customer.identification.manualReview',
+        'relationships' => { 'customer' => { 'data' => { 'id' => account.account_id } } }
+      }
+      error_payload = {
+        'type' => 'customer.identification.error',
+        'relationships' => { 'customer' => { 'data' => { 'id' => account.account_id } } }
+      }
+
+      described_class.call(payload: manual_review_payload, raw_body: manual_review_payload.to_json)
+      expect(account.reload.status).to eq('verifying')
+
+      described_class.call(payload: error_payload, raw_body: error_payload.to_json)
+      expect(account.reload.status).to eq('unverified')
+    end
+
     it 'updates account_number and completed status for account number created webhook' do
       user = create(:user, email: "anchor-webhook-accountnumber-#{SecureRandom.hex(4)}@example.com")
       account = Account.create!(
