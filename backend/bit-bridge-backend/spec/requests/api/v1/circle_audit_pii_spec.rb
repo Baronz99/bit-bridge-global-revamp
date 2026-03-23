@@ -3,8 +3,8 @@
 require 'rails_helper'
 
 RSpec.describe 'Circle audit PII', type: :request do
-  let(:owner) { create(:user, :tier2, :with_pin) }
-  let(:member) { create(:user, :tier2, :with_pin) }
+  let(:owner) { create(:user, :tier2, :with_pin, email: "circle-audit-owner-#{SecureRandom.hex(6)}@example.com") }
+  let(:member) { create(:user, :tier2, :with_pin, email: "circle-audit-member-#{SecureRandom.hex(6)}@example.com") }
 
   def create_circle
     circle = Circle.create!(name: 'Alpha', owner: owner)

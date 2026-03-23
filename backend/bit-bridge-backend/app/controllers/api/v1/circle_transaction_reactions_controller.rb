@@ -4,8 +4,8 @@ module Api
   module V1
     class CircleTransactionReactionsController < ApplicationController
       before_action :authenticate_user!
-      before_action :ensure_tier2!, message: 'Complete Tier 2 verification to use shared groups.'
       before_action :set_tx!
+      before_action :ensure_reaction_access!
 
       # POST /api/v1/circle_transactions/:id/react
       # body: { emoji: "👍" }
@@ -60,6 +60,10 @@ module Api
         mine   = @tx.reactions.where(user_id: current_user.id).pluck(:emoji)
 
         render json: { reactions: { counts: counts, mine: mine } }, status: :ok
+      end
+
+      def ensure_reaction_access!
+        ensure_circle_access!(@tx.circle, message: 'Complete verification to react in this circle.')
       end
     end
   end

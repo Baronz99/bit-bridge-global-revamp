@@ -94,38 +94,15 @@ module Api
       def circle_user_payload(user, membership = nil)
         return nil unless user
 
-        profile = user.user_profile
-        first_name = profile&.first_name
-        last_name = profile&.last_name
         email = user.email
         username = membership&.username
 
         {
           id: user.id,
           username: username,
-          display_name: username.presence || mask_name(first_name, last_name, email),
-          email: mask_email(email)
+          display_name: circle_supporter_display_name(circle: @circle, subject_user: user, membership: membership, username: username),
+          email: masked_circle_email(email)
         }
-      end
-
-      def mask_email(email)
-        return '' if email.blank?
-        local, domain = email.split('@', 2)
-        return email if domain.blank?
-        local_mask = local.length <= 1 ? '*' : "#{local[0]}***"
-        domain_name, tld = domain.split('.', 2)
-        domain_mask = domain_name.present? ? "#{domain_name[0]}***" : '***'
-        tld_part = tld.present? ? ".#{tld}" : ''
-        "#{local_mask}@#{domain_mask}#{tld_part}"
-      end
-
-      def mask_name(first_name, last_name, email)
-        if first_name.present? || last_name.present?
-          fi = first_name.to_s.strip[0] || ''
-          li = last_name.to_s.strip[0] || ''
-          return [fi, li].reject(&:blank?).map { |c| "#{c}." }.join(' ').strip
-        end
-        mask_email(email)
       end
     end
   end

@@ -13,14 +13,6 @@ RSpec.describe 'Timeline', type: :request do
 
   let(:headers) { auth_headers(user) }
 
-  def auth_headers(user)
-    token, = Warden::JWTAuth::UserEncoder.new.call(user, :user, nil)
-    {
-      'Authorization' => "Bearer #{token}",
-      'ACCEPT' => 'application/json'
-    }
-  end
-
   describe 'GET /api/v1/timeline' do
     it 'returns 401 when unauthorized' do
       get '/api/v1/timeline'
@@ -151,6 +143,41 @@ RSpec.describe 'Timeline', type: :request do
       expect(items).not_to be_empty
       expect(items.map { |item| item.fetch('kind') }.uniq).to eq(['card_event'])
       expect(items.map { |item| item.fetch('id') }).to include("card-evt-#{card_event.id}")
+    end
+
+    it 'keeps founders-circle supporter identity anonymous to non-manager members in timeline' do
+      owner = create(:user, :confirmed, :tier2, email: "timeline-owner-#{SecureRandom.hex(6)}@example.com")
+      supporter = create(:user, :confirmed, :tier2, email: "timeline-supporter-#{SecureRandom.hex(6)}@example.com")
+      viewer = create(:user, :confirmed, :tier2, email: "timeline-viewer-#{SecureRandom.hex(6)}@example.com")
+      circle = Circle.create!(
+        name: 'BitBridge Founders',
+        owner: owner,
+        circle_type: 'official',
+        kyc_mode: 'flexible',
+        visibility: 'official_featured',
+        badge_label: 'Founders'
+      )
+      CircleMembership.create!(circle: circle, user: owner, role: :admin)
+      CircleMembership.create!(circle: circle, user: supporter, role: :member)
+      CircleMembership.create!(circle: circle, user: viewer, role: :member)
+      tx = CircleTransaction.create!(
+        circle: circle,
+        user: supporter,
+        amount_cents: 4_500,
+        direction: :credit,
+        kind: 'fund',
+        occurred_at: Time.current,
+        description: 'Supporter fund'
+      )
+
+      get '/api/v1/timeline', headers: auth_headers(viewer)
+
+      expect(response).to have_http_status(:ok)
+      item = JSON.parse(response.body).fetch('items').find { |entry| entry['id'] == "circle-tx-#{tx.id}" }
+      expect(item).to be_present
+      expect(item.dig('actor', 'name')).to eq('Anonymous Supporter')
+      expect(item.dig('actor', 'email')).to include('***@')
+      expect(item.dig('actor', 'email')).not_to include(supporter.email)
     end
   end
 end

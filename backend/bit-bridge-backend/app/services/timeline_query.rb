@@ -347,7 +347,12 @@ class TimelineQuery
           nil
         end
       email = mask_email(email)
-      name = username.presence || name
+      name =
+        if circle.founders_circle? && !circle.manager_user?(@user)
+          'Anonymous Supporter'
+        else
+          username.presence || name
+        end
       name = email if name.blank?
     else
       name = email if name.blank?

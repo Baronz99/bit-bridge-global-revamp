@@ -10,6 +10,7 @@ module Api
       before_action :ensure_tier2!, only: %i[create withdraw], message: 'Complete Tier 2 verification to use shared groups.'
       before_action :set_circle, only: %i[show fund withdraw audit_summary export_csv]
       before_action :ensure_circle_access_gate!, only: %i[show audit_summary export_csv]
+      before_action :ensure_founders_audit_access_gate!, only: %i[audit_summary export_csv]
       before_action :ensure_circle_funding_gate!, only: %i[fund]
 
       # Keep your existing withdraw rule
@@ -367,7 +368,7 @@ module Api
             amount_naira = tx.amount_cents.to_i / 100.0
             membership = @circle.circle_memberships.find_by(user_id: tx.user_id)
             username = membership&.username
-            email = mask_email(tx.user&.email)
+            email = masked_circle_email(tx.user&.email)
 
             out << [
               tx.id,
@@ -470,15 +471,16 @@ module Api
         )
       end
 
+      def ensure_founders_audit_access_gate!
+        ensure_founders_circle_admin_access!(@circle)
+      end
+
       def member_payload(membership)
         user = membership.user
-        profile = user.user_profile
-        first_name = profile&.first_name
-        last_name = profile&.last_name
-        phone = profile&.phone_number
+        phone = user.user_profile&.phone_number
         email = user.email
         username = membership.username
-        display_name = username.presence || mask_name(first_name, last_name, email)
+        display_name = circle_supporter_display_name(circle: @circle, subject_user: user, membership: membership, username: username)
 
         {
           id: membership.id,
@@ -486,8 +488,8 @@ module Api
           masked: true,
           user: {
             id: user.id,
-            email: mask_email(email),
-            phone_number: mask_phone(phone),
+            email: masked_circle_email(email),
+            phone_number: masked_circle_phone(phone),
             username: username,
             display_name: display_name
           }
@@ -497,47 +499,16 @@ module Api
       def circle_user_payload(user, membership = nil)
         return nil unless user
 
-        profile = user.user_profile
-        first_name = profile&.first_name
-        last_name = profile&.last_name
         email = user.email
         username = membership&.username
-        display_name = username.presence || mask_name(first_name, last_name, email)
+        display_name = circle_supporter_display_name(circle: @circle, subject_user: user, membership: membership, username: username)
 
         {
           id: user.id,
           username: username,
           display_name: display_name,
-          email: mask_email(email)
+          email: masked_circle_email(email)
         }
-      end
-
-      def mask_email(email)
-        return '' if email.blank?
-        local, domain = email.split('@', 2)
-        return email if domain.blank?
-        local_mask = local.length <= 1 ? '*' : "#{local[0]}***"
-        domain_name, tld = domain.split('.', 2)
-        domain_mask = domain_name.present? ? "#{domain_name[0]}***" : '***'
-        tld_part = tld.present? ? ".#{tld}" : ''
-        "#{local_mask}@#{domain_mask}#{tld_part}"
-      end
-
-      def mask_phone(phone)
-        return '' if phone.blank?
-        digits = phone.to_s.gsub(/\D/, '')
-        return '*' * phone.length if digits.length <= 4
-        masked = digits.gsub(/\d(?=\d{4})/, '*')
-        masked
-      end
-
-      def mask_name(first_name, last_name, email)
-        if first_name.present? || last_name.present?
-          fi = first_name.to_s.strip[0] || ''
-          li = last_name.to_s.strip[0] || ''
-          return [fi, li].reject(&:blank?).map { |c| "#{c}." }.join(' ').strip
-        end
-        mask_email(email)
       end
 
       def serialize_circle(circle, membership_for_current: nil, current_role: nil)

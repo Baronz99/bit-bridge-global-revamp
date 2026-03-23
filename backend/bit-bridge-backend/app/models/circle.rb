@@ -47,6 +47,20 @@ class Circle < ApplicationRecord
     official? && kyc_mode == 'flexible'
   end
 
+  def founders_circle?
+    official? && visibility == 'official_featured' && badge_label.to_s.downcase.include?('founder')
+  end
+
+  def manager_user?(user, membership: nil, current_role: nil)
+    return false unless user
+
+    role = current_role.presence
+    role ||= 'owner' if owner_id == user.id
+    role ||= membership&.role
+
+    role == 'owner' || role == 'admin'
+  end
+
   def contribution_cap_for(user)
     return nil unless flexible_kyc?
     return nil if user&.kyc_at_least?('tier_2')

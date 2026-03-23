@@ -190,6 +190,58 @@ class ApplicationController < ActionController::API
     true
   end
 
+  def ensure_founders_circle_admin_access!(circle, message: nil)
+    return true unless circle&.founders_circle?
+    return true if circle.manager_user?(current_user)
+
+    render json: {
+      error: 'not_authorized',
+      message: message || 'Only circle managers can view campaign audit data.'
+    }, status: :forbidden
+
+    false
+  end
+
+  def masked_circle_email(email)
+    return '' if email.blank?
+
+    local, domain = email.split('@', 2)
+    return email if domain.blank?
+
+    local_mask = local.length <= 1 ? '*' : "#{local[0]}***"
+    domain_name, tld = domain.split('.', 2)
+    domain_mask = domain_name.present? ? "#{domain_name[0]}***" : '***'
+    tld_part = tld.present? ? ".#{tld}" : ''
+    "#{local_mask}@#{domain_mask}#{tld_part}"
+  end
+
+  def masked_circle_phone(phone)
+    return '' if phone.blank?
+
+    digits = phone.to_s.gsub(/\D/, '')
+    return '*' * phone.to_s.length if digits.length <= 4
+
+    digits.gsub(/\d(?=\d{4})/, '*')
+  end
+
+  def masked_circle_name(first_name, last_name, email)
+    if first_name.present? || last_name.present?
+      fi = first_name.to_s.strip[0] || ''
+      li = last_name.to_s.strip[0] || ''
+      return [fi, li].reject(&:blank?).map { |char| "#{char}." }.join(' ').strip
+    end
+
+    masked_circle_email(email)
+  end
+
+  def circle_supporter_display_name(circle:, subject_user:, membership: nil, current_role: nil, username: nil)
+    return 'Anonymous Supporter' if circle&.founders_circle? && !circle.manager_user?(current_user, membership: membership, current_role: current_role)
+    return username if username.present?
+
+    profile = subject_user&.user_profile
+    masked_circle_name(profile&.first_name, profile&.last_name, subject_user&.email)
+  end
+
   def ensure_super_admin!
     return if current_user&.super_admin?
 

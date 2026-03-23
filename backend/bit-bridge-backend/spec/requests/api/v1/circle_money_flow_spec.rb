@@ -100,6 +100,56 @@ RSpec.describe 'Circle Money Flow', type: :request do
       expect(response.parsed_body['balance_visible']).to eq(true)
       expect(response.parsed_body['balance_cents']).to eq(125_000)
     end
+
+    it 'keeps founders-circle supporters anonymous to non-admin members' do
+      owner = create_user(:confirmed, :tier2, email: "circle-owner-founders-#{SecureRandom.hex(6)}@example.com")
+      supporter = create_user(:confirmed, :tier2, email: "circle-supporter-founders-#{SecureRandom.hex(6)}@example.com")
+      viewer = create_user(:confirmed, :tier2, email: "circle-viewer-founders-#{SecureRandom.hex(6)}@example.com")
+      circle = create_circle_for(
+        owner,
+        circle_type: 'official',
+        kyc_mode: 'flexible',
+        visibility: 'official_featured',
+        badge_label: 'Founders'
+      )
+      CircleMembership.create!(circle: circle, user: supporter, role: :member)
+      CircleMembership.create!(circle: circle, user: viewer, role: :member)
+      circle.circle_transactions.create!(
+        user: supporter,
+        amount_cents: 25_000,
+        direction: 'credit',
+        kind: 'fund',
+        description: 'Founder contribution'
+      )
+
+      get "/api/v1/circles/#{circle.id}", headers: auth_headers(viewer)
+
+      expect(response).to have_http_status(:ok)
+      expect(response.parsed_body.dig('recent_transactions', 0, 'user', 'display_name')).to eq('Anonymous Supporter')
+    end
+  end
+
+  describe 'GET /api/v1/circles/:id/audit_summary' do
+    it 'forbids founders-circle audit summary for non-admin members' do
+      owner = create_user(:confirmed, :tier2, email: "circle-owner-audit-#{SecureRandom.hex(6)}@example.com")
+      member = create_user(:confirmed, :tier2, email: "circle-member-audit-#{SecureRandom.hex(6)}@example.com")
+      circle = create_circle_for(
+        owner,
+        circle_type: 'official',
+        kyc_mode: 'flexible',
+        visibility: 'official_featured',
+        badge_label: 'Founders'
+      )
+      CircleMembership.create!(circle: circle, user: member, role: :member)
+
+      get "/api/v1/circles/#{circle.id}/audit_summary", headers: auth_headers(member)
+
+      expect(response).to have_http_status(:forbidden)
+      expect(response.parsed_body).to include(
+        'error' => 'not_authorized',
+        'message' => 'Only circle managers can view campaign audit data.'
+      )
+    end
   end
 
   describe 'POST /api/v1/circles/:id/fund' do
@@ -554,6 +604,37 @@ RSpec.describe 'Circle Money Flow', type: :request do
       expect(circle.reload.balance_cents).to eq(first_balance)
       expect(circle.circle_transactions.count).to eq(tx_count)
       expect(user.ngn_wallet.transactions.count).to eq(wallet_tx_count)
+    end
+  end
+
+  describe 'POST /api/v1/circle_transactions/:id/react' do
+    it 'allows a tier1 verified supporter to react in an official flexible circle' do
+      owner = create_user(:confirmed, :tier2, email: "circle-owner-react-#{SecureRandom.hex(6)}@example.com")
+      supporter = create_user(:confirmed, email: "circle-supporter-react-#{SecureRandom.hex(6)}@example.com", kyc_level: 'tier_1')
+      verify_phone!(supporter)
+      circle = create_circle_for(
+        owner,
+        circle_type: 'official',
+        kyc_mode: 'flexible',
+        visibility: 'official_featured',
+        badge_label: 'Founders'
+      )
+      CircleMembership.create!(circle: circle, user: supporter, role: :member)
+      tx = circle.circle_transactions.create!(
+        user: owner,
+        amount_cents: 10_000,
+        direction: 'credit',
+        kind: 'fund',
+        description: 'Seed funding'
+      )
+
+      post "/api/v1/circle_transactions/#{tx.id}/react",
+           params: { emoji: '👍' },
+           headers: auth_headers(supporter)
+
+      expect(response).to have_http_status(:ok)
+      expect(response.parsed_body.dig('reactions', 'counts', '👍')).to eq(1)
+      expect(response.parsed_body.dig('reactions', 'mine')).to include('👍')
     end
   end
 end

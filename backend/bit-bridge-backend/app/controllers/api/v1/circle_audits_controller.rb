@@ -8,6 +8,7 @@ module Api
       before_action :authenticate_user!
       before_action :set_circle
       before_action :ensure_circle_access_gate!
+      before_action :ensure_founders_audit_access_gate!
 
       # GET /api/v1/circles/:id/audit
       def show
@@ -34,7 +35,7 @@ module Api
             tx_count: tx_scope.count
           },
           transactions: txs.map { |tx|
-            email = mask_email(tx.user&.email)
+            email = masked_circle_email(tx.user&.email)
             username = membership_by_user_id[tx.user_id]&.username
             {
               id: tx.id,
@@ -67,7 +68,7 @@ module Api
           ]
 
           txs.each do |tx|
-            email = mask_email(tx.user&.email)
+            email = masked_circle_email(tx.user&.email)
             username = membership_by_user_id[tx.user_id]&.username
             csv << [
               tx.occurred_at,
@@ -97,19 +98,12 @@ module Api
         render json: { error: 'Circle not found' }, status: :not_found
       end
 
-      def mask_email(email)
-        return '' if email.blank?
-        local, domain = email.split('@', 2)
-        return email if domain.blank?
-        local_mask = local.length <= 1 ? '*' : "#{local[0]}***"
-        domain_name, tld = domain.split('.', 2)
-        domain_mask = domain_name.present? ? "#{domain_name[0]}***" : '***'
-        tld_part = tld.present? ? ".#{tld}" : ''
-        "#{local_mask}@#{domain_mask}#{tld_part}"
-      end
-
       def ensure_circle_access_gate!
         ensure_circle_access!(@circle, message: 'Complete Tier 2 verification to use shared groups.')
+      end
+
+      def ensure_founders_audit_access_gate!
+        ensure_founders_circle_admin_access!(@circle)
       end
     end
   end
