@@ -7,9 +7,11 @@
     "dev": "vite",
     "dev:staging": "vite --mode staging",
     "build": "vite build",
+    "build:demo": "vite build --mode demo && node scripts/finalize-demo-build.mjs",
     "lint": "eslint .",
     "lint:receipt": "eslint src/pages/dashboard/Receipt.jsx src/api/receipts.js",
     "preview": "vite preview",
+    "preview:demo": "vite preview --outDir dist-demo",
     "circular": "npx madge src --circular --extensions js,jsx"
   },
   "dependencies": {
@@ -62,3 +64,4 @@
     "vite": "^5.4.10"
   }
 }
+
