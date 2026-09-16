@@ -2,11 +2,13 @@ import PropTypes from 'prop-types'
 import { publicKey } from '../../redux/baseUrl'
 import { useEffect, useRef } from 'react'
 import { initializeMonifyPayment } from '../../redux/actions/transaction'
+import { isInvestorSandbox } from '../../config/sandbox'
 
 const PayMentButton = ({ user, amount, handleFormSubmit }) => {
   const scriptLoadedRef = useRef(false)
 
   useEffect(() => {
+    if (isInvestorSandbox) return undefined
     if (!window.MonnifySDK) {
       const script = document.createElement('script')
       script.src = 'https://sdk.monnify.com/plugin/monnify.js'
@@ -57,10 +59,11 @@ const PayMentButton = ({ user, amount, handleFormSubmit }) => {
   return (
     <button
       type="button"
+      disabled={isInvestorSandbox}
       onClick={handleFormSubmit}
       className="border-alt m-auto block max-w-sm w-full h-20 bg-primary rounded-lg  border px-4 py-2 shadow-md text-alt font-medium text-xl"
     >
-      Pay with Bank
+      {isInvestorSandbox ? 'Funding disabled in investor sandbox' : 'Pay with Bank'}
     </button>
   )
 }

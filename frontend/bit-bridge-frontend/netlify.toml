@@ -1,6 +1,7 @@
 [build]
-  command = "npm run build:demo"
-  publish = "dist-demo"
+  base = "frontend/bit-bridge-frontend"
+  command = "npm run build"
+  publish = "dist"
 
 [[redirects]]
   from = "/*"

@@ -35,6 +35,7 @@ import { getBusinessEntities } from '../api/business'
 import { getCircles } from '../api/circles'
 import { toast } from 'react-toastify'
 import { SECURITY_LOCK_ACTIVE_EVENT } from '../api/client'
+import { isInvestorSandbox } from '../config/sandbox'
 
 const DashboardLayout = () => {
   const dispatch = useDispatch()
@@ -286,6 +287,7 @@ const DashboardLayout = () => {
           </div>
 
           <div className="flex items-center gap-2 md:hidden"><div className={`inline-flex items-center gap-1 rounded-full border px-2 py-1 text-[10px] uppercase tracking-[0.16em] ${kycTierTone}`}><SafetyOutlined className="text-[11px]" /><span>{kycTierLabel}</span></div></div>
+          {isInvestorSandbox ? <div className="hidden sm:block rounded-full border border-cyan-400/30 bg-cyan-400/10 px-3 py-1 text-[10px] font-medium tracking-[0.08em] text-cyan-200">Investor Sandbox · Simulated funds</div> : null}
         </header>
         ) : null}
 
@@ -387,7 +389,6 @@ DashboardLayout.propTypes = {
 }
 
 export default DashboardLayout
-
 
 
 

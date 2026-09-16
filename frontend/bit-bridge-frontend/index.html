@@ -24,7 +24,9 @@
     <script type="module" src="/src/main.jsx"></script>
 
     <!-- Start of LiveChat (www.livechat.com) code -->
+    <script>window.__BITBRIDGE_INVESTOR_SANDBOX__ = '%VITE_INVESTOR_SANDBOX%' === 'true'</script>
     <script>
+      if (window.__BITBRIDGE_INVESTOR_SANDBOX__) { /* sandbox: no LiveChat */ } else {
       window.__lc = window.__lc || {}
       window.__lc.license = 19421433
       window.__lc.integration_name = "manual_onboarding"
@@ -56,6 +58,7 @@
         !n.__lc.asyncInit && e.init()
         n.LiveChatWidget = n.LiveChatWidget || e
       })(window, document, [].slice)
+      }
     </script>
     <noscript>
       <a href="https://www.livechat.com/chat-with/19421433/" rel="nofollow">Chat with us</a>,

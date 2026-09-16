@@ -8,6 +8,8 @@ export const getCircleContext = (circleId, params = {}) =>
   client.get(`/circles/${circleId}/context`, { params })
 export const getCircleSettings = (circleId) => client.get(`/circles/${circleId}/settings`)
 export const getCircleTreasury = (circleId) => client.get(`/circles/${circleId}/treasury`)
+export const getCircleTreasuryPayouts = (circleId) => client.get(`/circles/${circleId}/treasury/payouts`)
+export const createCircleTreasuryPayout = (circleId, payload) => client.post(`/circles/${circleId}/treasury/payouts`, payload)
 export const updateCircleSettings = (circleId, payload) =>
   client.patch(`/circles/${circleId}/settings`, payload)
 export const getCircleDuePlan = (circleId) => client.get(`/circles/${circleId}/due_plan`)

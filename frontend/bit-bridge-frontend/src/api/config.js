@@ -13,7 +13,9 @@ const stripApiV1Suffix = (url) => {
   return u.replace(/\/api\/v1$/i, '')
 }
 
+import { assertSandboxApiConfiguration, isInvestorSandbox } from '../config/sandbox'
 const MODE = import.meta.env.MODE
+assertSandboxApiConfiguration()
 
 /**
  * ✅ Use ONE base env var everywhere.
@@ -36,6 +38,7 @@ if (forcedBase) {
 }
 
 if (!rootUrl) {
+  if (isInvestorSandbox) throw new Error('Investor sandbox API configuration is missing. Set VITE_API_BASE_URL.')
   if (MODE === 'staging') {
     rootUrl =
       stripApiV1Suffix(stripTrailingSlash(import.meta.env.VITE_APP_STAGING_BASE_URL)) ||

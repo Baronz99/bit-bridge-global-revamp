@@ -18,6 +18,7 @@ import ShadowValue from '../../components/ShadowValue'
 import { toast } from 'react-toastify'
 import { needsTier2Access, withTier2MissingDetails } from '../../utils/kycGate'
 import { resolveReceiptReference } from '../../utils/receiptReference'
+import { isInvestorSandbox } from '../../config/sandbox'
 
 // NEW
 import {
@@ -297,6 +298,7 @@ const Account = () => {
 
   // Bridge funding (Monnify) unchanged
   const handleSubmit = (values) => {
+    if (isInvestorSandbox) { toast.info('Funding is disabled in the investor sandbox.'); return }
     dispatch(SET_LOADING(true))
 
     const redirectUrl =
@@ -919,8 +921,9 @@ const TransactionComp = ({
       {!isTunnel ? (
         <>
           <button
-            onClick={() => setIsModalOpen(true)}
-            className="flex flex-col items-center justify-center gap-1 text-purple-300 hover:text-alt cursor-pointer"
+            onClick={() => { if (!isInvestorSandbox) setIsModalOpen(true) }}
+            className={`flex flex-col items-center justify-center gap-1 ${isInvestorSandbox ? 'cursor-not-allowed text-slate-500' : 'cursor-pointer text-purple-300 hover:text-alt'}`}
+            disabled={isInvestorSandbox}
           >
             <span className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-purple-900/40 border border-purple-600/60">
               <WalletOutlined />
@@ -1002,5 +1005,4 @@ TransactionComp.propTypes = {
 }
 
 export default Account
-
 

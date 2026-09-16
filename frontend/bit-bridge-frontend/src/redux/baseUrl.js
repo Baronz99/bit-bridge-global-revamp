@@ -2,6 +2,7 @@
 
 // Use the same base URL selection logic as the rest of the app
 import { API_BASE_URL } from '../api/config'
+import { isInvestorSandbox } from '../config/sandbox'
 
 // Ensure baseUrl always ends with exactly one trailing slash
 const withTrailingSlash = (url) => {
@@ -18,5 +19,4 @@ export const apiRoute = 'api/v1/'
 
 // Monnify public key (unchanged)
 // Keep existing default so we don't break anything.
-export const publicKey =
-  import.meta.env.VITE_APP_MONNIFY_PUBLIC_KEY || 'MK_PROD_AH8EL53JW8'
+export const publicKey = isInvestorSandbox ? String(import.meta.env.VITE_APP_MONNIFY_PUBLIC_KEY || '') : import.meta.env.VITE_APP_MONNIFY_PUBLIC_KEY || 'MK_PROD_AH8EL53JW8'

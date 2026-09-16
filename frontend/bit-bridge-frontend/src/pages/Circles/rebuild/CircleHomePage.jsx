@@ -4,6 +4,8 @@ import {
   getCircleDueObligations,
   getCircleDuePlanSummary,
   getCirclePaymentItems,
+  createCircleTreasuryPayout,
+  getCircleTreasuryPayouts,
   getCircleWorkspace,
 } from '../../../api/circles'
 import CircleShell from './CircleShell'
@@ -137,6 +139,11 @@ const CircleHomePage = () => {
   const [dueSummary, setDueSummary] = useState({})
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const [payouts, setPayouts] = useState([])
+  const [showPayout, setShowPayout] = useState(false)
+  const [payout, setPayout] = useState({ amount: '', beneficiary_name: '', beneficiary_account_number: '', beneficiary_bank_name: '', beneficiary_bank_code: '', note: '', transaction_pin: '' })
+  const [payoutError, setPayoutError] = useState('')
+  const [payoutSubmitting, setPayoutSubmitting] = useState(false)
 
   useEffect(() => {
     if (!id) return
@@ -147,13 +154,15 @@ const CircleHomePage = () => {
       getCirclePaymentItems(id),
       getCircleDueObligations(id).catch(() => null),
       getCircleDuePlanSummary(id).catch(() => null),
+      getCircleTreasuryPayouts(id).catch(() => null),
     ])
-      .then(([workspaceResponse, itemResponse, obligationsResponse, summaryResponse]) => {
+      .then(([workspaceResponse, itemResponse, obligationsResponse, summaryResponse, payoutResponse]) => {
         if (cancelled) return
         setWorkspace(workspaceResponse?.data || {})
         setPaymentItems(normalizePaymentItems(itemResponse))
         setDueObligations(Array.isArray(obligationsResponse?.data) ? obligationsResponse.data : [])
         setDueSummary(summaryResponse?.data || {})
+        setPayouts(Array.isArray(payoutResponse?.data?.data) ? payoutResponse.data.data : [])
       })
       .catch(() => {
         if (cancelled) return
@@ -166,6 +175,27 @@ const CircleHomePage = () => {
       cancelled = true
     }
   }, [id])
+
+  const submitPayout = async (event) => {
+    event.preventDefault()
+    setPayoutError('')
+    const amountCents = Math.round(Number(String(payout.amount).replace(/,/g, '')) * 100)
+    if (!Number.isFinite(amountCents) || amountCents <= 0) return setPayoutError('Enter a valid payout amount.')
+    if (!payout.beneficiary_name || !payout.beneficiary_account_number || !payout.beneficiary_bank_name || !payout.beneficiary_bank_code) return setPayoutError('Complete the beneficiary bank details.')
+    if (!/^\d{4}$/.test(payout.transaction_pin)) return setPayoutError('Enter your 4-digit transaction PIN.')
+    setPayoutSubmitting(true)
+    try {
+      const response = await createCircleTreasuryPayout(id, { amount_cents: amountCents, beneficiary_name: payout.beneficiary_name, beneficiary_account_number: payout.beneficiary_account_number, beneficiary_bank_name: payout.beneficiary_bank_name, beneficiary_bank_code: payout.beneficiary_bank_code, note: payout.note, transaction_pin: payout.transaction_pin })
+      const created = response?.data?.data
+      if (created) setPayouts((items) => [created, ...items])
+      setShowPayout(false)
+      setPayout({ amount: '', beneficiary_name: '', beneficiary_account_number: '', beneficiary_bank_name: '', beneficiary_bank_code: '', note: '', transaction_pin: '' })
+      const refreshed = await getCircleWorkspace(id)
+      setWorkspace(refreshed?.data || workspace)
+    } catch (err) {
+      setPayoutError(err?.response?.data?.message || 'Unable to submit treasury payout.')
+    } finally { setPayoutSubmitting(false) }
+  }
 
   const records = useMemo(() => getRecentRecords(workspace), [workspace])
   const previewItems = useMemo(
@@ -396,10 +426,22 @@ const CircleHomePage = () => {
 
       <TreasuryCard
         balanceCents={workspace?.balance_cents || 0}
-        onPay={() => navigate(`/dashboard/shared-groups/${id}/pay`)}
+        onPay={() => setShowPayout(true)}
         statusLabel={treasuryStatus}
         helperLabel={treasuryHelp}
       />
+
+      {showPayout ? <section className="rounded-[28px] border border-cyan-400/20 bg-[#050b1b] px-5 py-5">
+        <div className="flex items-center justify-between"><div><p className="text-[11px] uppercase tracking-[0.24em] text-cyan-300">Treasury payout</p><h2 className="mt-2 text-lg font-semibold text-white">Send from Circle treasury</h2></div><button type="button" onClick={() => setShowPayout(false)} className="text-sm text-slate-400">Close</button></div>
+        <form onSubmit={submitPayout} className="mt-4 grid gap-3 md:grid-cols-2">
+          {['amount','beneficiary_name','beneficiary_account_number','beneficiary_bank_name','beneficiary_bank_code','note'].map((name) => <input key={name} value={payout[name]} onChange={(e) => setPayout((p) => ({ ...p, [name]: e.target.value }))} placeholder={name === 'amount' ? 'Amount (NGN)' : name.replaceAll('_',' ')} inputMode={name === 'amount' || name.includes('account') || name.includes('code') ? 'numeric' : undefined} className="rounded-xl border border-slate-800 bg-slate-950 px-3 py-3 text-sm text-white" />)}
+          <input value={payout.transaction_pin} onChange={(e) => setPayout((p) => ({ ...p, transaction_pin: e.target.value.replace(/\D/g,'').slice(0,4) }))} placeholder="Transaction PIN" type="password" inputMode="numeric" className="rounded-xl border border-slate-800 bg-slate-950 px-3 py-3 text-sm text-white" />
+          {payoutError ? <p className="md:col-span-2 text-sm text-rose-300">{payoutError}</p> : null}
+          <button disabled={payoutSubmitting} className="md:col-span-2 rounded-2xl bg-cyan-500 px-4 py-3 text-sm font-semibold text-slate-950 disabled:opacity-60">{payoutSubmitting ? 'Submitting...' : 'Submit treasury payout'}</button>
+        </form>
+      </section> : null}
+
+      {payouts.length ? <section className="rounded-[28px] border border-slate-900 bg-[#050b1b] px-5 py-5"><p className="text-[11px] uppercase tracking-[0.24em] text-slate-500">Treasury payout activity</p><div className="mt-3 space-y-2">{payouts.slice(0,5).map((item) => <div key={item.id || item.reference} className="flex items-center justify-between rounded-xl border border-slate-900 bg-slate-950/60 px-3 py-3 text-sm"><span className="text-slate-200">{item.beneficiary_name || item.destination?.account_name || 'Bank payout'}</span><span className="text-cyan-200">{String(item.lifecycle_state || item.status || 'pending').replaceAll('_',' ')}</span></div>)}</div></section> : null}
 
       <section className="rounded-[28px] border border-slate-900 bg-[#050b1b] px-5 py-5">
         <div className="flex items-center justify-between gap-3">
