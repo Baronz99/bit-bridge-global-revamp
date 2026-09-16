@@ -1,19 +1,5 @@
 .search-field {
-  &.ant-input-group-wrapper {
-    input {
-      padding: 12px 5px;
-    }
-    .ant-input-group-addon {
-      // padding: 12px 5px;
-      height: 40px;
-      button {
-        @apply bg-primary;
-        height: 100%;
-
-        &:hover {
-          @apply bg-alt;
-        }
-      }
-    }
+  input::placeholder {
+    color: rgba(229, 231, 235, 0.5);
   }
 }

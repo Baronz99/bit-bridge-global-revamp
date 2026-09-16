@@ -8,6 +8,8 @@ import PlainSelect from '../formSelect/plainSelect'
 import PropTypes from 'prop-types'
 import { useSelector } from 'react-redux'
 
+const readInputValue = (input) => input?.target?.value ?? input ?? ''
+
 const ProvisionDetails = ({
   selectedProvider,
   service_type,
@@ -83,9 +85,8 @@ const ProvisionDetails = ({
                 <FormInput
                   type="number"
                   step="0.01"
-                  // value={value}
                   onChange={(input) => {
-                    setValue({ ...value, amount: input })
+                    setValue({ ...value, amount: readInputValue(input) })
                   }}
                   placeholder={'Enter Amount'}
                   className={'whiteBg'}

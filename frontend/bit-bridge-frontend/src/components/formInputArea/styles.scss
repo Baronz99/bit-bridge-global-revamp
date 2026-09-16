@@ -1,7 +1,10 @@
 .formInput {
-  .ant-col {
-  }
   .ant-form-item-control {
     width: 100%;
+  }
+
+  .app-form-textarea {
+    width: 100%;
+    min-height: 7rem;
   }
 }

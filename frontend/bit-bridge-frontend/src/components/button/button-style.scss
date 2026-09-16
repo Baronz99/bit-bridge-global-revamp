@@ -1,4 +1,9 @@
-.ant-btn {
+.app-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  min-height: 3rem;
   background: none;
 
   &.navbtn {
@@ -11,6 +16,7 @@
     &:hover {
       @apply bg-primary text-white !important;
     }
+
     &.decline {
       background: red;
       color: white;
@@ -26,6 +32,7 @@
       &:hover {
         @apply bg-primary text-white !important;
       }
+
       &.decline {
         background: red;
         color: white;
@@ -36,41 +43,52 @@
       }
     }
   }
+
   &.cancel {
     @apply text-red-500 border border-red-600;
   }
 
   &:hover {
     @apply border-red-600;
-    //    background-color: rgba(255, 0, 0, 0.363) !important;
   }
+}
 
-  &.classic-btn {
-    @apply bg-none text-alt border-alt;
+.app-button--small {
+  min-height: 2rem;
+  padding-inline: 0.75rem;
+  font-size: 0.875rem;
+}
 
-    &.cancel {
-      @apply text-red-500 border border-red-600;
-      &:hover {
-        @apply border-red-600 text-white bg-red-600/20 !important;
-      }
-    }
+.app-button--middle {
+  min-height: 2.5rem;
+  padding-inline: 1rem;
+}
+
+.classic-btn {
+  @apply bg-none text-alt border-alt;
+
+  &.cancel {
+    @apply text-red-500 border border-red-600;
 
     &:hover {
-      @apply bg-alt text-white !important;
+      @apply border-red-600 text-white bg-red-600/20 !important;
     }
+  }
+
+  &:hover {
+    @apply bg-alt text-white !important;
   }
 }
 
 .white-bg {
-  .ant-btn {
-    background: none;
-
+  .app-button {
     &.button {
       @apply text-white;
 
       &:hover {
         @apply bg-primary text-white !important;
       }
+
       &.decline {
         background: red;
         color: white;
@@ -86,6 +104,7 @@
         &:hover {
           @apply bg-primary text-white !important;
         }
+
         &.decline {
           background: red;
           color: white;
@@ -96,48 +115,29 @@
         }
       }
     }
+
     &.cancel {
       @apply text-red-500 border border-red-600;
     }
 
     &:hover {
       @apply border-red-600;
-      //    background-color: rgba(255, 0, 0, 0.363) !important;
     }
+  }
 
-    &.classic-btn {
-      @apply bg-none text-alt border-alt;
+  .classic-btn {
+    @apply bg-none text-alt border-alt;
 
-      &.cancel {
-        @apply text-red-500 border border-red-600;
-        &:hover {
-          @apply border-red-600 text-white bg-red-600/20 !important;
-        }
-      }
+    &.cancel {
+      @apply text-red-500 border border-red-600;
 
       &:hover {
-        @apply bg-alt text-white !important;
+        @apply border-red-600 text-white bg-red-600/20 !important;
       }
     }
-  }
-}
 
-.navbtn {
-  &.ant-btn {
-    padding: 0;
-    @media (max-width: 700px) {
-      font-size: 12px;
-      padding-inline-start: 8px !important;
+    &:hover {
+      @apply bg-alt text-white !important;
     }
-  }
-}
-
-.ant-switch {
-  &.ant-switch-checked {
-    // background-color: green;
-    @apply bg-alt;
-  }
-  &.switch-button {
-    // background-color: yellow;
   }
 }

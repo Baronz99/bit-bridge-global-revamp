@@ -1,3 +1,4 @@
+import PropTypes from 'prop-types'
 import { useDispatch, useSelector } from 'react-redux'
 import dateFormater from '../../../utils/dateFormat'
 import nairaFormat from '../../../utils/nairaFormat'
@@ -8,12 +9,12 @@ import Loading from '../../../components/loader/Loading'
 import statusStyleCard from '../../../utils/statusCard'
 import { resolveReceiptReference } from '../../../utils/receiptReference'
 
-const Withdrawals = () => {
+const Withdrawals = ({ walletTypeOverride = null }) => {
   const { transactions, loading } = useSelector((state) => state.transaction)
   const dispatch = useDispatch()
 
   const ctx = useOutletContext()
-  const wallet_type = (ctx?.wallet_type || 'ngn').toLowerCase() === 'usd' ? 'usd' : 'ngn'
+  const wallet_type = (walletTypeOverride || ctx?.wallet_type || 'ngn').toLowerCase() === 'usd' ? 'usd' : 'ngn'
   const currencyForFormat = useMemo(() => (wallet_type === 'usd' ? 'usd' : 'ngn'), [wallet_type])
   const visibleTransactions = useMemo(
     () => (Array.isArray(transactions) ? transactions.filter((item) => item?.show_in_primary_feed !== false) : []),
@@ -179,6 +180,11 @@ const Withdrawals = () => {
       </div>
     </div>
   )
+}
+
+
+Withdrawals.propTypes = {
+  walletTypeOverride: PropTypes.oneOf(['ngn', 'usd']),
 }
 
 export default Withdrawals

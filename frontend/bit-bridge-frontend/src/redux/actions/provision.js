@@ -1,9 +1,22 @@
 import { createAsyncThunk } from '@reduxjs/toolkit'
 import client from '../../api/client'
 
+const stringifyErrorPayload = (value) => {
+  if (!value) return null
+  if (typeof value === 'string') return value
+  if (Array.isArray(value)) return value.join(', ')
+
+  if (typeof value === 'object') {
+    const entries = Object.values(value).flat().filter(Boolean)
+    if (entries.length > 0) return entries.join(', ')
+  }
+
+  return null
+}
+
 const getErrorMessage = (error, fallback = 'Something went wrong') =>
-  error?.response?.data?.message ||
-  error?.response?.data?.errors ||
+  stringifyErrorPayload(error?.response?.data?.message) ||
+  stringifyErrorPayload(error?.response?.data?.errors) ||
   error?.message ||
   fallback
 

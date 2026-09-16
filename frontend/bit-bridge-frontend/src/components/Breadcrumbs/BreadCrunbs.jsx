@@ -27,11 +27,13 @@ const BreadCrunbs = ({ id, setSelectedId, setOpen, link }) => {
           className={`absolute bottom-0 rounded z-10  p-2 px-4 bg-white ${toggle ? 'block' : 'hidden'}`}
         >
           <ul>
-            <li className="my-2">
-              <button className="" onClick={() => navigate(link)}>
-                View
-              </button>
-            </li>
+            {link ? (
+              <li className="my-2">
+                <button className="" onClick={() => navigate(link)}>
+                  View
+                </button>
+              </li>
+            ) : null}
             {/* <li className='my-2'>
                 <span className=''
                 onClick={()=> {
@@ -57,6 +59,7 @@ BreadCrunbs.propTypes = {
   setSelectedId: PropTypes.func,
   open: PropTypes.bool,
   setOpen: PropTypes.func,
+  link: PropTypes.string,
 }
 
 export default BreadCrunbs

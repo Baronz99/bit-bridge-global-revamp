@@ -24,6 +24,8 @@ const normalizeBaseUrl = (url) => {
 
 let refreshPromise = null
 
+export const SECURITY_LOCK_ACTIVE_EVENT = 'bitbridge:security-lock-active'
+
 const refreshAccessToken = async () => {
   const refreshToken = getRefreshToken()
   if (!refreshToken && !cookieAuthEnabled()) return null
@@ -165,8 +167,29 @@ client.interceptors.response.use(
       const fullUrl = `${base}${path}`
       console.warn('[api] network error', { method, url: fullUrl, code: error?.code })
     }
-
     const status = error?.response?.status
+    const securityLockPayload = error?.response?.data || {}
+    const securityLockCode = String(
+      securityLockPayload?.error_code || securityLockPayload?.code || ''
+    ).trim()
+
+    if (status === 403 && securityLockCode === 'security_lock_active') {
+      try {
+        window.dispatchEvent(
+          new CustomEvent(SECURITY_LOCK_ACTIVE_EVENT, {
+            detail: {
+              code: securityLockCode,
+              title: String(securityLockPayload?.title || '').trim() || undefined,
+              message: String(
+                securityLockPayload?.public_message || securityLockPayload?.message || ''
+              ).trim() || undefined,
+            },
+          })
+        )
+      } catch {
+        // no-op
+      }
+    }
 
     const expired =
       error?.response?.data?.message === 'Signature has expired' ||

@@ -33,8 +33,8 @@ const AdminDepositTransactions = () => {
   }
 
   useEffect(() => {
-    dispatch(getTransactions())
-  }, [])
+    dispatch(getTransactions({ params: { summary: true, limit: 200, transaction_type: 'deposit' } }))
+  }, [dispatch])
 
   const handleTransactionUpdate = (task) => {
     dispatch(
@@ -45,7 +45,7 @@ const AdminDepositTransactions = () => {
     ).then((result) => {
       if (updateTransaction.fulfilled.match(result)) {
         toast(result?.payload?.message || `transaction ${task}`, { type: 'success' })
-        dispatch(getTransactions())
+        dispatch(getTransactions({ params: { summary: true, limit: 200, transaction_type: 'deposit' } }))
       } else {
         toast(result?.payload?.message, { type: 'error' })
       }
@@ -110,7 +110,18 @@ const AdminDepositTransactions = () => {
                   {/* make conditional statement  here  */}
                   {/* <td colspan="5" rowspan="10" class="font-semibold text-gray-900 backdrop-blur backdrop-filter text-center">  </td> */}
                   {transactions?.map(
-                    ({ id, status, transaction_type, address, created_at, amount, currency, wallet_type }) => (
+                    ({
+                      id,
+                      status,
+                      transaction_type,
+                      display_type,
+                      source_kind,
+                      address,
+                      created_at,
+                      amount,
+                      currency,
+                      wallet_type,
+                    }) => (
                       <tr key={id}>
                         <td className="whitespace-nowrap border-b border-gray-200 px-3 py-3 text-sm text-gray-600/90  font-semibold ">
                           <p className="font-bold">
@@ -118,7 +129,10 @@ const AdminDepositTransactions = () => {
                           </p>
                         </td>
                         <td className="whitespace-nowrap border-b border-gray-200 px-3 py-3 text-sm text-gray-600/90  font-semibold ">
-                          <p className="font-bold">{transaction_type}</p>
+                          <p className="font-bold">{display_type || transaction_type}</p>
+                          {source_kind ? (
+                            <p className="text-xs text-gray-500 capitalize">{source_kind.replaceAll('_', ' ')}</p>
+                          ) : null}
                         </td>
 
                         <td className="relative whitespace-nowrap border-b  border-gray-200 py-3 pr-4 pl-3 text-gray-900  text-sm sm:pr-8 lg:pr-8">
@@ -141,7 +155,11 @@ const AdminDepositTransactions = () => {
                             id={id}
                             setSelectedId={setSelectedId}
                             setOpen={setOpen}
-                            link={`/admin/transactions/${id}`}
+                            link={
+                              ['wallet_transaction', 'fx_conversion', 'circle_treasury_inflow'].includes(source_kind)
+                                ? `/admin/transactions/${encodeURIComponent(id)}?source_kind=${encodeURIComponent(source_kind)}`
+                                : null
+                            }
                             open={open}
                           />
                           {/* <OptionDropDown id={id} handleDel={()=> {

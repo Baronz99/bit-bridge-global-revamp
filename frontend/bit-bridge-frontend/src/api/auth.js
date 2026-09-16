@@ -60,4 +60,8 @@ export function verifyPhoneOtp(payload) {
   return client.post('/phone_verification/verify', payload)
 }
 
+export function requestEmailVerification() {
+  return client.post('/users/request_email_verification')
+}
+
 console.log('API BASE URL:', API_BASE_URL)

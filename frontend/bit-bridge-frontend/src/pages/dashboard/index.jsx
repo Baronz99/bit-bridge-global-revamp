@@ -1,149 +1,224 @@
-// src/pages/dashboard/index.jsx
-
 import { TrophyOutlined, EyeInvisibleOutlined, EyeOutlined } from '@ant-design/icons'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { Link, useNavigate } from 'react-router-dom'
+import { useDispatch, useSelector } from 'react-redux'
+import { FaRegEye, FaRegEyeSlash } from 'react-icons/fa'
+import {
+  PiArrowsLeftRightBold,
+  PiCirclesThreeBold,
+  PiGlobeHemisphereWestBold,
+} from 'react-icons/pi'
+import { toast } from 'react-toastify'
 import nairaFormat from '../../utils/nairaFormat'
 import './style.scss'
-import NavButton from '../../components/button/NavButton'
-import { useEffect, useState } from 'react'
-import { useDispatch, useSelector } from 'react-redux'
-
 import Loading from '../../components/loader/Loading'
-import PowerComponent from '../../components/powerComponents/PowerComponent'
-import MobileTopUpViewComponents from './components/MobileTopUpViewComponent'
-import { getRescentPurchaseOrder, repurchaseOrder } from '../../redux/actions/purchasePower'
-import { SET_LOADING, toggleShadowMode } from '../../redux/app'
-import { getWallet } from '../../redux/actions/wallet'
-import { useNavigate } from 'react-router-dom'
 import AppModal from '../../components/modal/Modal'
-
 import ClassicBtn from '../../components/button/ClassicButton'
-import pickColorStyle from '../../utils/slect-color'
 import AccountCreationWizard from '../../components/accountCreationWizard/AccountCreationWizard'
 import AccountNumbers from '../../components/accountComponents/AccountComponents'
-import { getAccounts, getUserAccount } from '../../redux/actions/account'
-
-// ✅ Onboarding banner
 import OnboardingBanner from '../../components/onboarding/OnboardingBanner'
-
-import CableTvComponent from './components/cable-tv-compoent'
-import { FaRegEye, FaRegEyeSlash } from 'react-icons/fa'
 import ShadowValue from '../../components/ShadowValue'
+import { getCircleWorkspace } from '../../api/circles'
+import { getAccountSummary } from '../../redux/actions/account'
+import { userProfile } from '../../redux/actions/auth'
+import { toggleShadowMode } from '../../redux/app'
+import { getTimelinePreview, getServiceAvailability } from '../../api/home'
+import { getSectionCatalog } from '../../api/catalog'
+import { resolveReceiptPath } from '../../utils/receiptRouting'
+import { buildCircleWorkspaceActions, extractCircleRecentActivity } from '../../utils/circleWorkspace'
 import { needsTier2Access, withTier2MissingDetails } from '../../utils/kycGate'
+import {
+  getBridgeServicePresentation,
+  isBridgeCatalogServiceType,
+} from '../../utils/bridgeCatalogPresentation'
+import { requestEmailVerification } from '../../api/auth'
+import {
+  EMAIL_VERIFICATION_SUCCESS_MESSAGE,
+  getEmailVerificationDismissKey,
+  getEmailVerificationFeedback,
+  getEmailVerificationState,
+} from '../../utils/emailVerification'
 
-// ✅ Toasts
-import { toast } from 'react-toastify'
-import { dashboardServices } from '../../data/dashboardServices'
+const serviceStateStyles = {
+  operational: 'text-emerald-300 border-emerald-900/60',
+  degraded: 'text-amber-300 border-amber-900/60',
+  outage: 'text-rose-300 border-rose-900/60',
+  unknown: 'text-slate-300 border-slate-700',
+}
+
+const serviceStateCopy = {
+  operational: {
+    label: 'Available',
+    message: 'You can continue normally.',
+  },
+  degraded: {
+    label: 'Delays possible',
+    message: 'Transactions may take longer than usual.',
+  },
+  outage: {
+    label: 'Temporarily unavailable',
+    message: 'Please try again later.',
+  },
+  unknown: {
+    label: 'Status unavailable',
+    message: 'You can still try, but confirmation may be delayed.',
+  },
+}
+
+const uniqueBy = (items, getKey) => {
+  const seen = new Set()
+  return items.filter((item) => {
+    const key = getKey(item)
+    if (!key || seen.has(key)) return false
+    seen.add(key)
+    return true
+  })
+}
+
+const formatTimelineAmount = (item) => {
+  const amountCents = Number(item?.amount_cents || 0)
+  const currency =
+    String(item?.meta?.currency || '').toUpperCase() === 'USD' ||
+    String(item?.meta?.wallet_type || '').toLowerCase() === 'usd'
+      ? 'USD'
+      : 'NGN'
+  const amount = amountCents / 100
+
+  if (currency === 'USD') {
+    return new Intl.NumberFormat('en-US', {
+      style: 'currency',
+      currency: 'USD',
+      minimumFractionDigits: 2,
+    }).format(amount)
+  }
+
+  return nairaFormat(amount, 'ngn')
+}
+
+const formatTimelineDate = (value) => {
+  if (!value) return 'Not available'
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return 'Not available'
+  return date.toLocaleString()
+}
 
 const HomeDashboard = () => {
-  const { recentOrders } = useSelector((state) => state.purchase)
   const { data: walletData, loading } = useSelector((state) => state.wallet)
   const { user } = useSelector((state) => state.auth)
-  const { shadowMode } = useSelector((state) => state.app || {})
-  const {
-    accounts,
-    altBank,
-    altAccountNumber
-  } = useSelector((state) => state.account)
+  const { shadowMode, ownerMode, selectedCircleId, circleEntities } = useSelector((state) => state.app || {})
+  const { accountSummary, altBank, altAccountNumber } = useSelector((state) => state.account)
 
   const dispatch = useDispatch()
   const navigate = useNavigate()
 
-  const [open, setIsOpen] = useState(false)
   const [isAncorModal, setIsAncorModal] = useState(false)
   const [openAccount, setIsOpenAccount] = useState(false)
-  const [selectedBiller, setSelectedBillier] = useState()
-  const [selectedItem, setSelectedItem] = useState('Top Up')
   const [balanceMode, setBalanceMode] = useState('bridge')
   const [current, setCurrent] = useState(1)
   const [showAccountNumber, setShowAccountNumber] = useState(false)
   const [formData, setFormData] = useState({})
   const [accountDetails, setAccountDetails] = useState(null)
+  const [timelineItems, setTimelineItems] = useState([])
+  const [timelineLoading, setTimelineLoading] = useState(true)
+  const [serviceSnapshot, setServiceSnapshot] = useState(null)
+  const [serviceLoading, setServiceLoading] = useState(true)
+  const [catalogItems, setCatalogItems] = useState([])
+  const [circleWorkspace, setCircleWorkspace] = useState(null)
+  const [emailVerificationSending, setEmailVerificationSending] = useState(false)
+  const [emailVerificationMessage, setEmailVerificationMessage] = useState('')
 
-  // ✅ DISMISSIBLE ONBOARDING BANNER STATE (localStorage-backed)
-  const [showOnboardingBanner, setShowOnboardingBanner] = useState(() => {
-    return localStorage.getItem('bb_hide_onboarding_banner') !== 'true'
+  const [showOnboardingBanner, setShowOnboardingBanner] = useState(
+    () => localStorage.getItem('bb_hide_onboarding_banner') !== 'true'
+  )
+  const emailVerification = useMemo(() => getEmailVerificationState(user), [user])
+  const [showEmailVerificationBanner, setShowEmailVerificationBanner] = useState(() => {
+    if (typeof window === 'undefined') return false
+    return true
   })
+  const homeBootstrapRef = useRef(false)
 
   const dismissBanner = () => {
     localStorage.setItem('bb_hide_onboarding_banner', 'true')
     setShowOnboardingBanner(false)
   }
 
-  const handleRepurchase = (id) => {
-    dispatch(SET_LOADING(true))
-    dispatch(repurchaseOrder(id)).then((result) => {
-      if (repurchaseOrder.fulfilled.match(result)) {
-        const data = result.payload.data
-        dispatch(SET_LOADING(false))
-        setIsOpen(false)
-        navigate(`/dashboard/confirm/${data?.id}`)
-      } else {
-        dispatch(SET_LOADING(false))
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+
+    if (!emailVerification.canPrompt) {
+      if (emailVerification.email) {
+        sessionStorage.removeItem(getEmailVerificationDismissKey(emailVerification.email))
       }
-    })
-  }
+      setShowEmailVerificationBanner(false)
+      return
+    }
+
+    const dismissed =
+      sessionStorage.getItem(getEmailVerificationDismissKey(emailVerification.email)) === '1'
+    setShowEmailVerificationBanner(!dismissed)
+  }, [emailVerification.canPrompt, emailVerification.email])
 
   useEffect(() => {
-    dispatch(getUserAccount())
+    setEmailVerificationMessage('')
+  }, [emailVerification.email, emailVerification.emailVerifiedAt])
+
+  useEffect(() => {
+    if (homeBootstrapRef.current) return
+    homeBootstrapRef.current = true
+    dispatch(getAccountSummary())
   }, [dispatch])
 
   useEffect(() => {
-    dispatch(getWallet())
-  }, [dispatch])
+    let active = true
 
-  useEffect(() => {
-    dispatch(getRescentPurchaseOrder())
-  }, [dispatch])
+    const loadHomeData = async () => {
+      setTimelineLoading(true)
+      setServiceLoading(true)
 
-  useEffect(() => {
-    dispatch(getAccounts())
-  }, [dispatch])
+      try {
+        if (ownerMode === 'circle' && selectedCircleId) {
+          const circleRes = await getCircleWorkspace(selectedCircleId).catch(() => null)
+          if (!active) return
+          const circleData = circleRes?.data || null
+          setCircleWorkspace(circleData)
+          setTimelineItems(extractCircleRecentActivity(circleData))
+          setServiceSnapshot(null)
+          setCatalogItems([])
+          return
+        }
 
-  const items = [
-    {
-      label: 'Mobile Top Up',
-      name: 'Top Up',
-      render: <MobileTopUpViewComponents />,
-      btn: 'Mobile Top Up',
-    },
-    {
-      label: 'Pay Electric Bills',
-      name: 'Electric Bills',
-      render: <PowerComponent />,
-      btn: 'Electric Bills',
-    },
-    {
-      label: 'Subscribe Cable Tv',
-      name: 'TV Subscription',
-      render: <CableTvComponent />,
-      btn: 'Tv Subscription',
-    },
-  ]
+        const [timelineRes, serviceRes, catalogRes] = await Promise.all([
+          getTimelinePreview({ limit: 5 }).catch(() => null),
+          getServiceAvailability().catch(() => null),
+          getSectionCatalog('bridge').catch(() => null),
+        ])
 
-  const { label } = items.find((item) => item.name === selectedItem)
+        if (!active) return
 
-  const getAccountDetails = () => {
-    dispatch(getUserAccount())
-  }
+        setTimelineItems(Array.isArray(timelineRes?.data?.items) ? timelineRes.data.items : [])
+        setServiceSnapshot(serviceRes?.data?.data || null)
+        setCatalogItems(Array.isArray(catalogRes?.data?.data) ? catalogRes.data.data : [])
+        setCircleWorkspace(null)
+      } finally {
+        if (active) {
+          setTimelineLoading(false)
+          setServiceLoading(false)
+        }
+      }
+    }
 
-  // 🔐 KYC gate for virtual accounts
-const handleGenerate = (vendor) => {
-  const needsTier2 = needsTier2Access(user)
+    loadHomeData()
 
-  // Monnify/Moniepoint intentionally disabled for new account creation
-  if (vendor === 'monnify' || vendor === 'moniepoint') {
-    toast.info('New Monnify/Moniepoint account creation is currently disabled.', {
-      position: 'top-right',
-      autoClose: 4000,
-      pauseOnHover: true,
-    })
-    return
-  }
+    return () => {
+      active = false
+    }
+  }, [ownerMode, selectedCircleId])
 
-  // Anchor
-  if (vendor === 'anchor') {
-    if (needsTier2) {
-      toast.info(withTier2MissingDetails(user, 'Complete Tier 2 verification'), {
+  const handleGenerate = (vendor) => {
+    const needsTier2 = needsTier2Access(user)
+
+    if (vendor === 'monnify' || vendor === 'moniepoint') {
+      toast.info('New Monnify/Moniepoint account creation is currently disabled.', {
         position: 'top-right',
         autoClose: 4000,
         pauseOnHover: true,
@@ -151,431 +226,803 @@ const handleGenerate = (vendor) => {
       return
     }
 
-    navigate('/dashboard/virtual-accounts')
-    return
-  }
+    if (vendor === 'anchor') {
+      if (needsTier2) {
+        toast.info(withTier2MissingDetails(user, 'Complete Tier 2 verification'), {
+          position: 'top-right',
+          autoClose: 4000,
+          pauseOnHover: true,
+        })
+        return
+      }
 
-  toast.info('Only Anchor virtual account creation is currently enabled.', {
-    position: 'top-right',
-    autoClose: 4000,
-    pauseOnHover: true,
-  })
-}
+      navigate('/dashboard/virtual-accounts')
+      return
+    }
+
+    toast.info('Only Anchor virtual account creation is currently enabled.', {
+      position: 'top-right',
+      autoClose: 4000,
+      pauseOnHover: true,
+    })
+  }
 
   const maskAccountNumber = (num) => {
     if (!num) return ''
-    return num.replace(/\d(?=\d{4})/g, '•')
+    return num.replace(/\d(?=\d{4})/g, '*')
   }
 
-  const firstName =
-    user?.user_profile?.first_name || user?.email?.split('@')[0] || 'there'
-
+  const firstName = user?.user_profile?.first_name || user?.email?.split('@')[0] || 'there'
   const bridgeWallet = walletData?.bridge
   const tunnelWallet = walletData?.tunnel
-
-  const activeWallet =
-    balanceMode === 'tunnel' && tunnelWallet ? tunnelWallet : bridgeWallet
-  const balance = activeWallet?.balance ?? 0
-  const balanceLabel = balanceMode === 'tunnel' ? 'usd' : 'ngn'
-
-  const formatBalance = (amount) => {
-    if (balanceLabel === 'usd') {
-      return new Intl.NumberFormat('en-US', {
-        style: 'currency',
-        currency: 'USD',
-        minimumFractionDigits: 2,
-      }).format(amount || 0)
-    }
-    return nairaFormat(amount, 'ngn')
-  }
-
-  const handleServiceAction = (action) => {
-    if (!action) return
-    if (action.type === 'select') {
-      setSelectedItem(action.value)
-      return
-    }
-    if (action.type === 'navigate' && action.to) {
-      navigate(action.to)
-    }
-  }
-
-  const quickServices = dashboardServices.filter((item) => item.quickLabel)
-  const primaryServiceCards = dashboardServices.filter(
-    (item) => item.card && !item.featured
+  const selectedCircle = useMemo(
+    () => circleEntities?.find((circle) => String(circle?.id) === String(selectedCircleId || '')) || null,
+    [circleEntities, selectedCircleId]
   )
-  const featuredService = dashboardServices.find((item) => item.featured)
+  const activeCircle = circleWorkspace || selectedCircle
+  const isCircleWorkspace = ownerMode === 'circle' && Boolean(activeCircle?.id || selectedCircleId)
+  const activeCircleName = String(
+    activeCircle?.name || activeCircle?.title || activeCircle?.display_name || 'Circle workspace'
+  )
+  const activeCircleRole = String(
+    activeCircle?.current_user_role || activeCircle?.membership_role || activeCircle?.role || 'member'
+  )
+    .replace(/_/g, ' ')
+    .replace(/\b\w/g, (match) => match.toUpperCase())
+  const activeCircleMemberCount = Number(activeCircle?.member_count || activeCircle?.members_count || 0)
+  const activeCircleBalance = Number(activeCircle?.balance_cents || 0) / 100
+  const circlePermissions = activeCircle?.permissions || {}
+  const circleDuesSummary = activeCircle?.dues_summary || {}
+  const circleActions = useMemo(
+    () => (selectedCircleId ? buildCircleWorkspaceActions(selectedCircleId, activeCircle) : []),
+    [activeCircle, selectedCircleId]
+  )
+
+  const canonicalAnchorAccount = useMemo(() => {
+    const summaryAnchorAccount = accountSummary?.data?.anchor_account || null
+    if (!summaryAnchorAccount) return null
+
+    return {
+      ...summaryAnchorAccount,
+      active: Boolean(summaryAnchorAccount?.active),
+      status: summaryAnchorAccount?.status || accountSummary?.flow?.state || 'completed',
+    }
+  }, [accountSummary])
+
+  const bridgeCatalogActions = useMemo(() => {
+    return uniqueBy(
+      catalogItems
+        .filter((item) => isBridgeCatalogServiceType(item?.service_type))
+        .map((item) => {
+          const serviceType = String(item?.service_type || '').toUpperCase()
+          const presentation = getBridgeServicePresentation(serviceType)
+          return {
+            key: serviceType,
+            label: presentation?.label || item?.label || 'Open service',
+            to: item?.launcher_route || presentation?.route || '/dashboard/bridge/utilities',
+          }
+        }),
+      (item) => item.key
+    )
+  }, [catalogItems])
+
+  const bridgeActions = [
+    { label: 'Send', to: '/dashboard/bridge/send' },
+    { label: 'Receive', to: '/dashboard/virtual-accounts' },
+    bridgeCatalogActions[0] || { label: 'Utilities', to: '/dashboard/bridge/utilities' },
+    { label: 'Circles', to: '/dashboard/bridge/circles' },
+  ]
+
+  const tunnelActions = [
+    { label: 'Convert', to: '/dashboard/tunnel/fx' },
+    { label: 'Cards', to: '/dashboard/tunnel/cards' },
+    { label: 'Funding', to: '/dashboard/tunnel/funding' },
+    { label: 'Fund Card', to: '/dashboard/tunnel/cards' },
+  ]
+
+  const actionShortcuts = useMemo(() => {
+    const explicit = [
+      { label: 'Send money', to: '/dashboard/bridge/send' },
+      { label: 'Receive', to: '/dashboard/virtual-accounts' },
+      { label: 'Convert', to: '/dashboard/tunnel/fx' },
+      { label: 'Fund card', to: '/dashboard/tunnel/cards' },
+      { label: 'View activity', to: '/dashboard/activity' },
+    ]
+
+    const catalogShortcuts = bridgeCatalogActions.slice(0, 2).map((item) => ({
+      label: item.label,
+      to: item.to,
+    }))
+
+    return [...explicit.slice(0, 3), ...catalogShortcuts, ...explicit.slice(3)]
+  }, [bridgeCatalogActions])
+
+  const serviceStatuses = useMemo(() => {
+    return Array.isArray(serviceSnapshot?.services) ? serviceSnapshot.services.slice(0, 4) : []
+  }, [serviceSnapshot])
+
+  const handleSendEmailVerification = async () => {
+    setEmailVerificationSending(true)
+    setEmailVerificationMessage('')
+
+    try {
+      await requestEmailVerification()
+      setEmailVerificationMessage(EMAIL_VERIFICATION_SUCCESS_MESSAGE)
+      await dispatch(userProfile())
+    } catch (error) {
+      setEmailVerificationMessage(getEmailVerificationFeedback(error))
+    } finally {
+      setEmailVerificationSending(false)
+    }
+  }
+
+  const dismissEmailVerificationBanner = () => {
+    if (!emailVerification.email || typeof window === 'undefined') return
+    sessionStorage.setItem(getEmailVerificationDismissKey(emailVerification.email), '1')
+    setShowEmailVerificationBanner(false)
+  }
+
+  if (isCircleWorkspace) {
+    return (
+      <div className="homeDashboard min-h-screen bg-slate-950 text-slate-100 p-4 md:p-6">
+        <div className="max-w-7xl mx-auto flex flex-col gap-6">
+          {emailVerification.canPrompt && showEmailVerificationBanner ? (
+            <section>
+              <div className="rounded-3xl border border-amber-500/25 bg-[linear-gradient(135deg,rgba(245,158,11,0.08),rgba(15,23,42,0.92),rgba(2,6,23,0.96))] p-5 shadow-[0_16px_40px_rgba(15,23,42,0.2)]">
+                <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+                  <div className="max-w-2xl">
+                    <div className="text-[11px] uppercase tracking-[0.22em] text-amber-200/75">
+                      Account security
+                    </div>
+                    <h3 className="mt-2 text-xl font-semibold text-white">Verify your email</h3>
+                    <p className="mt-2 text-sm text-slate-300">
+                      Receive receipts, security alerts, and recover your account.
+                    </p>
+                    {emailVerificationMessage ? (
+                      <div className="mt-3 rounded-2xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-slate-100">
+                        {emailVerificationMessage}
+                      </div>
+                    ) : null}
+                  </div>
+
+                  <div className="flex flex-col sm:flex-row gap-3 md:min-w-[18rem] md:justify-end">
+                    <button
+                      type="button"
+                      onClick={handleSendEmailVerification}
+                      disabled={emailVerificationSending}
+                      className="rounded-2xl bg-amber-400 px-4 py-3 text-sm font-semibold text-slate-950 transition hover:bg-amber-300 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      {emailVerificationSending ? 'Sending...' : 'Send verification email'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={dismissEmailVerificationBanner}
+                      className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-medium text-slate-200 transition hover:bg-white/10"
+                    >
+                      Dismiss
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </section>
+          ) : null}
+
+          <section className="rounded-[28px] border border-sky-500/25 bg-[linear-gradient(135deg,rgba(2,6,23,0.96),rgba(12,74,110,0.22),rgba(15,23,42,0.94))] p-5 md:p-7 shadow-[0_24px_60px_rgba(2,6,23,0.45)]">
+            <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4">
+              <div>
+                <p className="text-[11px] uppercase tracking-[0.24em] text-sky-300/80 mb-1">
+                  Circle workspace
+                </p>
+                <h2 className="text-2xl md:text-3xl font-semibold">{activeCircleName}</h2>
+                <p className="mt-2 text-sm text-slate-300 max-w-2xl">
+                  Work inside this shared balance and activity context without falling back to personal wallet framing.
+                </p>
+                <div className="mt-4 flex flex-wrap gap-2 text-[11px]">
+                  {activeCircleMemberCount > 0 ? (
+                    <span className="px-3 py-1 rounded-full border border-slate-700/80 bg-slate-900/70">
+                      {activeCircleMemberCount} members
+                    </span>
+                  ) : null}
+                  <span className="px-3 py-1 rounded-full border border-slate-700/80 bg-slate-900/70">
+                    {activeCircleRole}
+                  </span>
+                  <span className="px-3 py-1 rounded-full border border-sky-500/30 bg-sky-500/10 text-sky-100">
+                    Activity-first workspace
+                  </span>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => dispatch(toggleShadowMode())}
+                className="inline-flex items-center gap-1 self-start rounded-full border border-slate-700 bg-slate-950/60 px-3 py-1.5 text-[11px] text-slate-200 hover:border-sky-400/50 transition-colors"
+              >
+                {shadowMode ? <EyeOutlined className="text-alt" /> : <EyeInvisibleOutlined className="text-alt" />}
+                <span>{shadowMode ? 'Show balances' : 'Hide balances'}</span>
+              </button>
+            </div>
+
+            <div className="mt-5 grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_minmax(0,0.95fr)] gap-4 items-stretch">
+              <div className="rounded-[24px] border border-sky-500/30 bg-slate-950/45 p-5 md:p-6">
+                <div className="text-[11px] uppercase tracking-[0.24em] text-slate-500 mb-2">Circle balance</div>
+                <div className="text-4xl md:text-5xl font-semibold tracking-[-0.03em] text-white">
+                  <ShadowValue>{nairaFormat(activeCircleBalance, 'ngn')}</ShadowValue>
+                </div>
+                <p className="mt-3 text-sm text-slate-400">
+                  Shared contributions, dues, approvals, and payouts stay visible inside this circle workspace.
+                </p>
+                {circleDuesSummary?.enabled ? (
+                  <div className="mt-3 rounded-2xl border border-sky-500/20 bg-slate-950/35 px-4 py-3 text-sm text-slate-300">
+                    Dues active:
+                    {' '}
+                    {Number(circleDuesSummary?.current_user_due_summary?.payable_months_count || 0)} open cycle(s)
+                  </div>
+                ) : null}
+
+                <div className="mt-5 grid grid-cols-2 md:grid-cols-4 gap-3">
+                  {circleActions.map((action) => (
+                    <button
+                      key={action.key}
+                      type="button"
+                      onClick={() => navigate(action.to)}
+                      className={
+                        action.primary
+                          ? 'rounded-2xl bg-sky-400 px-4 py-3 text-left text-sm font-semibold text-slate-950 hover:bg-sky-300 transition'
+                          : 'rounded-2xl border border-slate-700 bg-slate-900/70 px-4 py-3 text-left text-sm font-medium text-slate-100 hover:border-slate-500 hover:bg-slate-900 transition'
+                      }
+                    >
+                      {action.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="rounded-[24px] border border-slate-800 bg-slate-950/45 p-5 md:p-6">
+                <p className="text-[11px] uppercase tracking-[0.24em] text-slate-500 mb-2">Workspace note</p>
+                <h3 className="text-xl font-semibold text-white">Circle context is active</h3>
+                <p className="mt-2 text-sm text-slate-400">
+                  Personal wallet actions like deposit accounts, cards, and direct transfers remain in personal or business workspace. This surface stays group-scoped.
+                </p>
+                <div className="mt-4 flex flex-wrap gap-2 text-[11px]">
+                  {circlePermissions.can_approve_withdrawals ? (
+                    <span className="px-3 py-1 rounded-full border border-amber-500/25 bg-amber-500/10 text-amber-100">
+                      Approval role enabled
+                    </span>
+                  ) : null}
+                  {circlePermissions.can_manage_governance ? (
+                    <span className="px-3 py-1 rounded-full border border-sky-500/25 bg-sky-500/10 text-sky-100">
+                      Governance access
+                    </span>
+                  ) : null}
+                </div>
+                <div className="mt-4 flex flex-col gap-3">
+                  <button
+                    type="button"
+                    onClick={() => navigate(`/dashboard/shared-groups/${selectedCircleId}`)}
+                    className="rounded-2xl border border-slate-700 bg-slate-900/70 px-4 py-3 text-left text-sm font-medium text-slate-100 hover:border-slate-500 hover:bg-slate-900 transition"
+                  >
+                    View full circle workspace
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => navigate('/dashboard/activity')}
+                    className="rounded-2xl border border-slate-700 bg-slate-900/70 px-4 py-3 text-left text-sm font-medium text-slate-100 hover:border-slate-500 hover:bg-slate-900 transition"
+                  >
+                    Open activity
+                  </button>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <section className="rounded-3xl border border-slate-800 bg-slate-900/80 p-5 shadow-[0_16px_40px_rgba(15,23,42,0.28)]">
+            <div className="mb-4 flex items-center justify-between gap-3">
+              <div>
+                <p className="text-[11px] uppercase tracking-[0.2em] text-slate-500">Circle shortcuts</p>
+                <h3 className="text-lg md:text-xl font-semibold">Operate this workspace faster</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => navigate(`/dashboard/shared-groups/${selectedCircleId}`)}
+                className="text-xs text-sky-300 hover:text-white transition"
+              >
+                Open workspace
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
+              {[...circleActions, { key: 'activity', label: 'Activity', to: `/dashboard/shared-groups/${selectedCircleId}` }].map((item) => (
+                <button
+                  key={`${item.key}-${item.to}`}
+                  type="button"
+                  onClick={() => navigate(item.to)}
+                  className="rounded-2xl border border-slate-800 bg-slate-950/45 px-4 py-4 text-left text-sm font-medium text-slate-100 hover:border-slate-600 hover:bg-slate-950/65 transition"
+                >
+                  {item.label}
+                </button>
+              ))}
+            </div>
+          </section>
+
+          <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1.3fr)_minmax(0,0.7fr)] gap-6">
+            <div className="bg-slate-900/85 rounded-3xl border border-slate-800 p-5 lg:p-6 min-h-[220px] shadow-[0_16px_40px_rgba(15,23,42,0.2)]">
+              <div className="flex items-center justify-between mb-3">
+                <div>
+                  <h5 className="text-lg font-semibold">Circle activity</h5>
+                  <p className="text-xs text-slate-400">Recent shared balance movement for the active circle.</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => navigate(`/dashboard/shared-groups/${selectedCircleId}`)}
+                  className="text-xs text-sky-300 hover:text-white transition"
+                >
+                  Open circle
+                </button>
+              </div>
+
+              {timelineLoading ? (
+                <Loading />
+              ) : timelineItems.length ? (
+                <div className="space-y-3">
+                  {timelineItems.slice(0, 6).map((item) => (
+                    <div key={item.id} className="rounded-2xl border border-slate-800 bg-slate-950/45 px-4 py-3">
+                      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                        <div>
+                          <div className="text-sm font-semibold text-white">{item.description || item.label || 'Circle activity'}</div>
+                          <div className="mt-1 text-xs uppercase tracking-[0.16em] text-slate-500">
+                            {String(item.direction || item.status || 'posted').replace(/_/g, ' ')}
+                          </div>
+                          <div className="mt-1 text-xs text-slate-400">{formatTimelineDate(item.occurred_at || item.created_at)}</div>
+                        </div>
+                        <div className="text-right">
+                          <div className="text-sm font-semibold text-white">
+                            <ShadowValue>{nairaFormat((Number(item.amount_cents || 0) || 0) / 100, 'ngn')}</ShadowValue>
+                          </div>
+                          <div className="text-[11px] uppercase tracking-[0.16em] text-slate-500">
+                            {item.status || 'posted'}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-sm text-slate-400">
+                  No circle activity yet. Contributions, dues, and payouts will appear here once this workspace is active.
+                </p>
+              )}
+            </div>
+
+            <div className="bg-slate-900/85 rounded-3xl border border-slate-800 p-5 lg:p-6 shadow-[0_16px_40px_rgba(15,23,42,0.2)]">
+              <div className="flex items-center justify-between mb-3">
+                <div>
+                  <h5 className="text-lg font-semibold">Workspace identity</h5>
+                  <p className="text-xs text-slate-400">Keep the selected circle clear while you navigate the dashboard.</p>
+                </div>
+              </div>
+
+              <div className="space-y-3 text-sm text-slate-300">
+                <div className="rounded-2xl border border-slate-800 bg-slate-950/45 px-4 py-4">
+                  <div className="text-[11px] uppercase tracking-[0.16em] text-slate-500">Circle</div>
+                  <div className="mt-2 text-white font-semibold">{activeCircleName}</div>
+                </div>
+                <div className="rounded-2xl border border-slate-800 bg-slate-950/45 px-4 py-4">
+                  <div className="text-[11px] uppercase tracking-[0.16em] text-slate-500">Role</div>
+                  <div className="mt-2 text-white font-semibold">{activeCircleRole}</div>
+                </div>
+                {activeCircleMemberCount > 0 ? (
+                  <div className="rounded-2xl border border-slate-800 bg-slate-950/45 px-4 py-4">
+                    <div className="text-[11px] uppercase tracking-[0.16em] text-slate-500">Members</div>
+                    <div className="mt-2 text-white font-semibold">{activeCircleMemberCount}</div>
+                  </div>
+                ) : null}
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <>
       <div className="homeDashboard min-h-screen bg-slate-950 text-slate-100 p-4 md:p-6">
-        {/* ✅ Smart onboarding banner, driven by backend fields, now dismissible */}
         {showOnboardingBanner && (
           <div className="relative mb-3">
             <OnboardingBanner
               stage={user?.onboarding_stage}
               primaryUseCase={user?.primary_use_case}
-              hasVirtualAccount={Boolean(accounts?.length)}
+              hasVirtualAccount={Boolean(
+                canonicalAnchorAccount?.account_number || accountSummary?.extra?.has_deposit_account
+              )}
               onContinueClick={() => navigate('/dashboard/kyc')}
             />
 
-            {/* Close (X) button */}
             <button
               type="button"
               onClick={dismissBanner}
               className="absolute top-2 right-3 text-slate-400 hover:text-white text-lg"
               aria-label="Dismiss onboarding"
             >
-              ×
+              x
             </button>
           </div>
         )}
 
-        {/* Top: welcome + balance chip + quick actions */}
-        <div className="mb-6 flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-          <div>
-            <p className="text-[11px] uppercase tracking-[0.2em] text-slate-500 mb-1">
-              Dashboard
-            </p>
-            <h2 className="text-2xl md:text-3xl font-semibold">
-              Hi, {firstName} 👋
-            </h2>
-            <p className="mt-1 text-sm text-slate-400 max-w-xl">
-              Welcome back to BitBridge. Top up, pay bills, and manage your
-              virtual accounts in one place.
-            </p>
-          </div>
-
-          <div className="flex flex-col items-start md:items-end gap-3">
-            <div className="inline-flex items-center gap-3 rounded-full bg-slate-900/80 border border-slate-700 px-4 py-2">
-              <div className="flex flex-col">
-                <span className="text-[10px] uppercase tracking-[0.2em] text-slate-500">
-                  Wallet balance
-                </span>
-                {loading ? (
-                  <div className="pt-1">
-                    <Loading />
-                  </div>
-                ) : (
-                  <span className="text-lg md:text-xl font-semibold">
-                    <ShadowValue>{formatBalance(balance)}</ShadowValue>
-                  </span>
-                )}
-              </div>
-
-              <div>
-                <select
-                  value={balanceMode}
-                  onChange={(e) => setBalanceMode(e.target.value)}
-                  className="bg-slate-950/70 border border-slate-700 text-slate-200 text-[11px] rounded-full px-3 py-1 focus:outline-none focus:border-alt"
-                >
-                  <option value="bridge">Bridge (NGN)</option>
-                  <option value="tunnel" disabled={!tunnelWallet}>
-                    Tunnel (USD)
-                  </option>
-                </select>
-              </div>
-            </div>
-
-            <div className="inline-flex items-center gap-2 text-xs text-slate-300">
-              <TrophyOutlined className="text-yellow-500" />
-              <div className="flex flex-col">
-                <span>
-                  Bonus balance (spendable):{' '}
-                  <span className="font-semibold text-emerald-400">
-                    <ShadowValue>
-                      {nairaFormat(bridgeWallet?.commission ?? 0, 'ngn')}
-                    </ShadowValue>
-                  </span>
-                </span>
-                <span className="text-[10px] text-slate-500">Cashback from airtime/data</span>
-              </div>
-            </div>
-
-            {/* 🔒 Hide mode toggle */}
-            <div className="inline-flex items-center gap-2 text-xs text-slate-300">
-              <button
-                type="button"
-                onClick={() => dispatch(toggleShadowMode())}
-                className="inline-flex items-center gap-1 px-3 py-1.5 rounded-full bg-slate-900 border border-slate-700 text-[11px] text-slate-200 hover:border-alt/70 transition-colors"
-              >
-                {shadowMode ? (
-                  <EyeOutlined className="text-alt" />
-                ) : (
-                  <EyeInvisibleOutlined className="text-alt" />
-                )}
-                <span>{shadowMode ? 'Show balances' : 'Hide balances'}</span>
-              </button>
-            </div>
-
-           {/* Quick actions */}
-<div className="flex flex-wrap gap-2 mt-1">
-  <button
-    type="button"
-    onClick={() => navigate('/dashboard/wallet')}
-    className="px-3 py-1.5 text-xs rounded-full bg-alt/90 text-black font-medium hover:bg-alt transition-colors"
-  >
-    Bridge wallet (NGN)
-  </button>
-
-  <button
-    type="button"
-    onClick={() => navigate('/dashboard/wallet?mode=tunnel')}
-    className="px-3 py-1.5 text-xs rounded-full bg-orange-500 text-black font-medium hover:bg-orange-400 transition-colors"
-    title="Tunnel wallet (USD preview)"
-  >
-    Tunnel wallet (USD)
-  </button>
-
-  {quickServices.map((item) => (
-    <button
-      key={item.key}
-      type="button"
-      onClick={() => handleServiceAction(item.quickAction || item.action)}
-      className="px-3 py-1.5 text-xs rounded-full bg-slate-900 border border-slate-700 text-slate-200 hover:border-alt/70 transition-colors"
-    >
-      {item.quickLabel}
-    </button>
-  ))}
-</div>
-
-          </div>
-        </div>
-
-        {/* Second: service launcher cards */}
         <section className="mb-6">
-          <div className="mb-3 flex items-center justify-between">
-            <div>
-              <p className="text-[11px] uppercase tracking-[0.2em] text-slate-500">
-                Quick services
-              </p>
-              <h3 className="text-lg md:text-xl font-semibold">Pay & top up faster</h3>
-            </div>
-            <button
-              type="button"
-              onClick={() => navigate('/utility-services')}
-              className="text-xs text-slate-300 hover:text-white transition"
-            >
-              Browse all
-            </button>
-          </div>
+          <div className="rounded-[28px] border border-slate-800 bg-[linear-gradient(135deg,rgba(2,6,23,0.96),rgba(15,23,42,0.94))] p-5 md:p-7 shadow-[0_24px_60px_rgba(2,6,23,0.45)]">
+            <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4 mb-5">
+              <div>
+                <p className="text-[11px] uppercase tracking-[0.24em] text-slate-500 mb-1">
+                  Rail command center
+                </p>
+                <h2 className="text-2xl md:text-3xl font-semibold">Hi, {firstName}</h2>
+                <p className="mt-2 text-sm text-slate-400 max-w-2xl">
+                  Operate local and global money rails from one dashboard.
+                </p>
+              </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)] gap-4">
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              {primaryServiceCards.map((item) => {
-                const Icon = item.card?.icon
-                return (
-                  <button
-                    key={item.key}
-                    type="button"
-                    onClick={() => handleServiceAction(item.cardAction || item.action)}
-                    className="group text-left relative overflow-hidden rounded-2xl border border-slate-800 bg-slate-900/80 p-5 shadow-[0_12px_30px_rgba(15,23,42,0.25)] hover:border-alt/70 hover:bg-slate-900 transition"
-                  >
-                    <div
-                      className={`absolute -right-10 -top-10 h-24 w-24 rounded-full ${item.card?.glowClass} blur-2xl`}
-                    />
-                    <div
-                      className={`inline-flex h-11 w-11 items-center justify-center rounded-2xl ${item.card?.iconClass}`}
-                    >
-                      {Icon ? <Icon /> : null}
-                      {!Icon && item.card?.iconText ? (
-                        <span className="text-xs font-bold">{item.card.iconText}</span>
-                      ) : null}
-                    </div>
-                    <h3 className="font-semibold text-base mt-4">{item.label}</h3>
-                    <p className="text-xs text-slate-400 mt-1">{item.description}</p>
-                    <div className="mt-4 text-[11px] text-slate-400">
-                      {item.card?.cta} ?
-                    </div>
-                  </button>
-                )
-              })}
-            </div>
-
-            {featuredService ? (
-              <button
-                type="button"
-                onClick={() => handleServiceAction(featuredService.cardAction || featuredService.action)}
-                className="group text-left relative overflow-hidden rounded-3xl border border-slate-800 bg-gradient-to-br from-slate-900 via-slate-950 to-slate-900 p-6 shadow-[0_16px_40px_rgba(15,23,42,0.35)] hover:border-alt/70 transition"
-              >
-                <div
-                  className={`absolute right-4 top-4 h-20 w-20 rounded-full ${featuredService.card?.glowClass} blur-2xl`}
-                />
-                <div
-                  className={`inline-flex h-12 w-12 items-center justify-center rounded-2xl ${featuredService.card?.iconClass}`}
-                >
-                  {featuredService.card?.icon ? (
-                    <featuredService.card.icon />
-                  ) : (
-                    <span className="text-xs font-bold">
-                      {featuredService.card?.iconText}
+              <div className="flex flex-wrap items-center gap-2 text-xs text-slate-300">
+                <div className="inline-flex items-center gap-2 rounded-full border border-slate-700 bg-slate-950/60 px-3 py-1.5">
+                  <TrophyOutlined className="text-yellow-500" />
+                  <span>
+                    Bonus:{' '}
+                    <span className="font-semibold text-emerald-400">
+                      <ShadowValue>{nairaFormat(bridgeWallet?.commission ?? 0, 'ngn')}</ShadowValue>
                     </span>
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => dispatch(toggleShadowMode())}
+                  className="inline-flex items-center gap-1 rounded-full border border-slate-700 bg-slate-950/60 px-3 py-1.5 text-[11px] text-slate-200 hover:border-emerald-400/50 transition-colors"
+                >
+                  {shadowMode ? (
+                    <EyeOutlined className="text-alt" />
+                  ) : (
+                    <EyeInvisibleOutlined className="text-alt" />
+                  )}
+                  <span>{shadowMode ? 'Show balances' : 'Hide balances'}</span>
+                </button>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] gap-4 items-stretch">
+              <div className="rounded-[24px] border border-emerald-900/60 bg-emerald-950/40 p-5 md:p-6">
+                <div className="flex items-start justify-between gap-4 mb-5">
+                  <div>
+                    <div className="inline-flex h-11 w-11 items-center justify-center rounded-2xl bg-emerald-500/12 text-emerald-300">
+                      <PiCirclesThreeBold className="text-xl" />
+                    </div>
+                    <p className="mt-4 text-[11px] uppercase tracking-[0.24em] text-emerald-300/80">Bridge</p>
+                    <h3 className="mt-2 text-xl font-semibold text-white">Local NGN coordination</h3>
+                    <p className="mt-2 text-sm text-slate-300 max-w-md">
+                      Send, receive, and manage your local wallet activity.
+                    </p>
+                    <div className="mt-4 inline-flex flex-wrap items-center gap-2 rounded-full border border-emerald-900/70 bg-slate-950/40 px-3 py-1.5 text-[10px] uppercase tracking-[0.18em] text-emerald-200/80">
+                      <span>Primary rail</span>
+                      <span className="text-emerald-500/60">&middot;</span>
+                      <span>NGN ledger</span>
+                      <span className="text-emerald-500/60">&middot;</span>
+                      <span>Local settlement</span>
+                    </div>
+                  </div>
+                  <div>
+                    <select
+                      value={balanceMode}
+                      onChange={(e) => setBalanceMode(e.target.value)}
+                      className="bg-slate-950/70 border border-slate-700 text-slate-200 text-[11px] rounded-full px-3 py-1 focus:outline-none focus:border-alt"
+                    >
+                      <option value="bridge">Bridge (NGN)</option>
+                      <option value="tunnel" disabled={!tunnelWallet}>
+                        Tunnel (USD)
+                      </option>
+                    </select>
+                  </div>
+                </div>
+                <div className="mb-5">
+                  <div className="text-[11px] uppercase tracking-[0.24em] text-slate-500 mb-2">NGN balance</div>
+                  {loading ? (
+                    <Loading />
+                  ) : (
+                    <div className="text-4xl md:text-5xl font-semibold tracking-[-0.03em] text-white">
+                      <ShadowValue>{nairaFormat(bridgeWallet?.balance ?? 0, 'ngn')}</ShadowValue>
+                    </div>
                   )}
                 </div>
-                <h3 className="font-semibold text-lg mt-5">{featuredService.label}</h3>
-                <p className="text-sm text-slate-400 mt-2 max-w-sm">
-                  {featuredService.description}
-                </p>
-                <div className="mt-6 text-xs text-slate-300">
-                  {featuredService.card?.cta} ?
+                <div className="flex flex-col gap-3">
+                  <button
+                    type="button"
+                    onClick={() => navigate('/dashboard/bridge/send')}
+                    className="rounded-2xl bg-emerald-400 px-4 py-3 text-left text-sm font-semibold text-black hover:bg-emerald-300 transition"
+                  >
+                    Send money
+                  </button>
+                  <div className="grid grid-cols-3 gap-3">
+                    {bridgeActions
+                      .filter((action) => action.label !== 'Send')
+                      .map((action) => (
+                        <button
+                          key={action.label}
+                          type="button"
+                          onClick={() => navigate(action.to)}
+                          className="rounded-2xl border border-emerald-900/60 bg-slate-950/35 px-4 py-3 text-left text-sm font-medium text-slate-100 hover:border-emerald-400/60 hover:bg-slate-950/60 transition"
+                        >
+                          {action.label}
+                        </button>
+                      ))}
+                  </div>
                 </div>
-              </button>
-            ) : null}
-          </div>
-        </section>
-        {/* Third: recent activity + accounts snapshot */}
-        <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 mb-6">
-          {/* Recent transactions / purchases */}
-          <div className="bg-slate-900 rounded-2xl border border-slate-800 p-5 lg:p-6 min-h-[220px]">
-            <div className="flex items-center justify-between mb-3">
-              <h5 className="text-lg font-semibold">Recent activity</h5>
+              </div>
+
+              <div className="flex items-center justify-center">
+                <button
+                  type="button"
+                  onClick={() => navigate('/dashboard/tunnel/fx')}
+                  className="group inline-flex flex-col items-center gap-3 rounded-[24px] border border-slate-700 bg-slate-950/70 px-4 py-5 text-center hover:border-slate-500 transition"
+                >
+                  <span className="inline-flex h-11 w-11 items-center justify-center rounded-full bg-slate-800 text-slate-200">
+                    <PiArrowsLeftRightBold className="text-xl" />
+                  </span>
+                  <span className="text-[11px] uppercase tracking-[0.2em] text-slate-500">
+                    Convert between rails
+                  </span>
+                  <span className="inline-flex items-center gap-2 rounded-full border border-slate-700 px-3 py-1 text-[10px] uppercase tracking-[0.18em] text-slate-300">
+                    <span>Bridge NGN</span>
+                    <span className="text-slate-400">-&gt;</span>
+                    <span>Tunnel USD</span>
+                  </span>
+                  <span className="max-w-[9rem] text-xs text-slate-300 group-hover:text-white">
+                    Move value between both rails without leaving the dashboard.
+                  </span>
+                  <span className="text-sm font-semibold text-slate-100">Convert now</span>
+                </button>
+              </div>
+
+              <div className="rounded-[24px] border border-[#FF7A18] bg-[linear-gradient(135deg,rgba(255,138,42,0.16),rgba(255,176,90,0.1)_42%,rgba(15,23,42,0.9)_100%)] p-5 md:p-6">
+                <div className="flex items-start justify-between gap-4 mb-5">
+                  <div>
+                    <div className="inline-flex h-11 w-11 items-center justify-center rounded-2xl bg-[rgba(255,176,90,0.18)] text-[#FFB05A] shadow-[0_0_24px_rgba(255,176,90,0.12)]">
+                      <PiGlobeHemisphereWestBold className="text-xl" />
+                    </div>
+                    <p className="mt-4 text-[11px] uppercase tracking-[0.24em] text-[#FFB05A]">Tunnel</p>
+                    <h3 className="mt-2 text-xl font-semibold text-white">Global USD movement</h3>
+                    <p className="mt-2 text-sm text-slate-300 max-w-md">
+                      Convert, fund cards, and manage your global USD rail.
+                    </p>
+                  </div>
+                </div>
+                <div className="mb-5">
+                  <div className="text-[11px] uppercase tracking-[0.24em] text-slate-500 mb-2">USD balance</div>
+                  {loading ? (
+                    <Loading />
+                  ) : (
+                    <div className="text-3xl md:text-4xl font-semibold text-white">
+                      <ShadowValue>
+                        {new Intl.NumberFormat('en-US', {
+                          style: 'currency',
+                          currency: 'USD',
+                          minimumFractionDigits: 2,
+                        }).format(tunnelWallet?.balance ?? 0)}
+                      </ShadowValue>
+                    </div>
+                  )}
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  {tunnelActions.map((action) => (
+                    <button
+                      key={action.label}
+                      type="button"
+                      onClick={() => navigate(action.to)}
+                      className="rounded-2xl border border-[#FF7A18] bg-[rgba(255,138,42,0.08)] px-4 py-3 text-left text-sm font-medium text-slate-100 hover:border-[#FFB05A] hover:bg-[rgba(255,138,42,0.14)] transition"
+                    >
+                      {action.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
             </div>
 
-            <div className="flex flex-wrap gap-4 max-w-4xl">
-              {recentOrders?.length ? (
-                recentOrders.map((item) => (
-                  <div
-                    key={item.id}
-                    onClick={() => {
-                      setIsOpen(true)
-                      setSelectedBillier(item)
-                    }}
-                    className={`${pickColorStyle(
-                      item.biller
-                    )} cursor-pointer rounded-xl text-xs md:text-sm h-16 w-24 md:w-28 shadow-sm flex flex-col justify-center items-center transition-transform hover:scale-105`}
-                  >
-                    <span className="font-medium">{item.biller}</span>
-                    <span className="text-[11px] md:text-xs">
-                      <ShadowValue>
-                        {nairaFormat(item.amount)}
-                      </ShadowValue>
-                    </span>
-                  </div>
-                ))
+            <div className="mt-4 grid grid-cols-1 md:grid-cols-4 gap-3">
+              {serviceLoading ? (
+                <div className="md:col-span-4 rounded-2xl border border-slate-800 bg-slate-950/45 px-4 py-5">
+                  <Loading />
+                </div>
               ) : (
-                <p className="text-sm text-slate-400">
-                  No recent purchases yet. Buy power, airtime, or data to see
-                  them here.
-                </p>
+                serviceStatuses.map((item) => {
+                  const state = String(item?.state || 'unknown').toLowerCase()
+                  const copy = serviceStateCopy[state] || serviceStateCopy.unknown
+                  return (
+                    <div
+                      key={item.key || item.label}
+                      className={`rounded-2xl border bg-slate-950/45 px-4 py-3 ${serviceStateStyles[state] || serviceStateStyles.unknown}`}
+                    >
+                      <div className="text-[10px] uppercase tracking-[0.22em] text-slate-500">
+                        {item.label || item.key}
+                      </div>
+                      <div className="mt-2 text-sm font-medium text-slate-100">{copy.label}</div>
+                      <div className="mt-1 text-xs text-slate-400">
+                        {copy.message}
+                      </div>
+                    </div>
+                  )
+                })
               )}
             </div>
           </div>
+        </section>
 
-          {/* Accounts snapshot (Anchor / Moniepoint) */}
+        <section className="mb-6">
+          <div className="grid grid-cols-1 md:grid-cols-[minmax(0,1.35fr)_minmax(0,1fr)] gap-4">
+            <div className="rounded-3xl border border-slate-800 bg-slate-900/80 p-5 shadow-[0_16px_40px_rgba(15,23,42,0.28)]">
+              <div className="mb-4 flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-[11px] uppercase tracking-[0.2em] text-slate-500">Action shortcuts</p>
+                  <h3 className="text-lg md:text-xl font-semibold">Operate the rails faster</h3>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => navigate('/dashboard/activity')}
+                  className="text-xs text-slate-300 hover:text-white transition"
+                >
+                  Open ledger
+                </button>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
+                {actionShortcuts.map((item) => (
+                  <button
+                    key={`${item.label}-${item.to}`}
+                    type="button"
+                    onClick={() => navigate(item.to)}
+                    className="rounded-2xl border border-slate-800 bg-slate-950/45 px-4 py-4 text-left text-sm font-medium text-slate-100 hover:border-slate-600 hover:bg-slate-950/65 transition"
+                  >
+                    {item.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        </section>
+
+        {emailVerification.canPrompt && showEmailVerificationBanner ? (
+          <section className="mb-6">
+            <div className="rounded-3xl border border-amber-500/25 bg-[linear-gradient(135deg,rgba(245,158,11,0.08),rgba(15,23,42,0.92),rgba(2,6,23,0.96))] p-5 shadow-[0_16px_40px_rgba(15,23,42,0.2)]">
+              <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+                <div className="max-w-2xl">
+                  <div className="text-[11px] uppercase tracking-[0.22em] text-amber-200/75">
+                    Account security
+                  </div>
+                  <h3 className="mt-2 text-xl font-semibold text-white">Verify your email</h3>
+                  <p className="mt-2 text-sm text-slate-300">
+                    Receive receipts, security alerts, and recover your account.
+                  </p>
+                  {emailVerificationMessage ? (
+                    <div className="mt-3 rounded-2xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-slate-100">
+                      {emailVerificationMessage}
+                    </div>
+                  ) : null}
+                </div>
+
+                <div className="flex flex-col sm:flex-row gap-3 md:min-w-[18rem] md:justify-end">
+                  <button
+                    type="button"
+                    onClick={handleSendEmailVerification}
+                    disabled={emailVerificationSending}
+                    className="rounded-2xl bg-amber-400 px-4 py-3 text-sm font-semibold text-slate-950 transition hover:bg-amber-300 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {emailVerificationSending ? 'Sending...' : 'Send verification email'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={dismissEmailVerificationBanner}
+                    className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-medium text-slate-200 transition hover:bg-white/10"
+                  >
+                    Dismiss
+                  </button>
+                </div>
+              </div>
+            </div>
+          </section>
+        ) : null}
+
+        <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 mb-6">
+          <div className="bg-slate-900/85 rounded-3xl border border-slate-800 p-5 lg:p-6 min-h-[220px] shadow-[0_16px_40px_rgba(15,23,42,0.2)]">
+            <div className="flex items-center justify-between mb-3">
+              <div>
+                <h5 className="text-lg font-semibold">Recent activity</h5>
+                <p className="text-xs text-slate-400">Unified ledger preview across Bridge, Tunnel, bills, and cards.</p>
+              </div>
+              <Link to="/dashboard/activity" className="text-xs text-alt hover:text-white transition">
+                Open Activity
+              </Link>
+            </div>
+
+            {timelineLoading ? (
+              <Loading />
+            ) : timelineItems.length ? (
+              <div className="space-y-3">
+                {timelineItems.map((item) => {
+                  const receiptRoute = resolveReceiptPath(item)
+                  return (
+                    <div
+                      key={item.id}
+                      className="rounded-2xl border border-slate-800 bg-slate-950/45 px-4 py-3"
+                    >
+                      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                        <div>
+                          <div className="text-sm font-semibold text-white">{item.label || 'Activity'}</div>
+                          <div className="mt-1 text-xs uppercase tracking-[0.16em] text-slate-500">
+                            {(item.kind || 'activity').replace(/_/g, ' ')}
+                          </div>
+                          <div className="mt-1 text-xs text-slate-400">{formatTimelineDate(item.occurred_at)}</div>
+                        </div>
+                        <div className="flex items-center gap-4">
+                          <div className="text-right">
+                            <div className="text-sm font-semibold text-white">
+                              <ShadowValue>{formatTimelineAmount(item)}</ShadowValue>
+                            </div>
+                            <div className="text-[11px] uppercase tracking-[0.16em] text-slate-500">
+                              {item.status || 'posted'}
+                            </div>
+                          </div>
+                          {receiptRoute ? (
+                            <Link
+                              to={receiptRoute}
+                              className="text-xs text-alt hover:text-white transition"
+                            >
+                              Receipt
+                            </Link>
+                          ) : null}
+                        </div>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            ) : (
+              <p className="text-sm text-slate-400">
+                No ledger activity yet. Start with Bridge send, Tunnel convert, or bill payment.
+              </p>
+            )}
+          </div>
+
           <div
             id="accounts"
-            className="accounts-panel bg-slate-900 rounded-2xl border border-slate-800 p-5 lg:p-6"
+            className="accounts-panel bg-slate-900/85 rounded-3xl border border-slate-800 p-5 lg:p-6 shadow-[0_16px_40px_rgba(15,23,42,0.2)]"
           >
             <div className="flex items-center justify-between mb-3">
               <div>
                 <h5 className="text-lg font-semibold">Your accounts</h5>
                 <p className="text-xs text-slate-400">
-                  Incoming transfers to these accounts will fund your BitBridge
-                  wallet.
+                  Incoming transfers to these accounts will fund your BitBridge wallet.
                 </p>
               </div>
             </div>
 
             <AccountNumbers
-              accounts={accounts}
+              accounts={[]}
+              anchorAccount={canonicalAnchorAccount}
               generate={handleGenerate}
               onView={(i, data) => {
-                setAccountDetails(data)
+                const resolvedDetails =
+                  String(data?.vendor || '').toLowerCase() === 'anchor' && canonicalAnchorAccount
+                    ? canonicalAnchorAccount
+                    : data
+                setAccountDetails(resolvedDetails)
                 setIsOpenAccount(true)
               }}
             />
           </div>
         </div>
-
-        {/* Fourth: services switcher (detailed forms) */}
-        <section className="mb-6">
-          <div className="rounded-2xl border border-slate-800 bg-slate-900/70 p-4 lg:p-5 shadow-[0_12px_30px_rgba(15,23,42,0.28)]">
-            <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 mb-4">
-              <div className="flex flex-wrap items-center gap-2 text-slate-500">
-                <span className="text-[10px] uppercase tracking-[0.2em]">Services</span>
-                <span className="text-slate-600">/</span>
-                <h4 className="text-alt text-lg md:text-xl font-semibold">
-                  {label}
-                </h4>
-              </div>
-              <ul className="flex flex-wrap gap-2">
-                {items.map((item) => (
-                  <li key={item.label}>
-                    <NavButton
-                      onClick={() => setSelectedItem(item.name)}
-                      className={`${selectedItem === item.name && 'active'} block py-1.5 px-3 rounded-full text-[10px] md:text-[11px] tracking-wide uppercase`}
-                    >
-                      {item.btn}
-                    </NavButton>
-                  </li>
-                ))}
-              </ul>
-            </div>
-
-            <div className="rounded-xl border border-slate-800 bg-slate-950/40 p-3 md:p-4">
-              {items.map((item) =>
-                item.name === selectedItem ? (
-                  <div key={item.name} className="w-full">
-                    {item.render}
-                  </div>
-                ) : null
-              )}
-            </div>
-          </div>
-        </section>
       </div>
 
-      {/* Repurchase modal */}
-      <AppModal
-        isModalOpen={open}
-        handleCancel={() => setIsOpen((prev) => !prev)}
-      >
-        <div>
-          <h3 className="text-white text-center text-2xl font-medium">
-            Confirm
-          </h3>
-          <h3 className="text-white text-center text-lg">
-            {selectedBiller?.service_type} subscription
-          </h3>
-          <p
-            className={`${
-              selectedBiller?.biller === 'MTN'
-                ? 'text-alt'
-                : selectedBiller?.biller === 'GLO'
-                ? 'text-green-500'
-                : 'text-white'
-            } font-semibold text-center text-lg my-6`}
-          >
-            {selectedBiller?.biller}
-          </p>
-          <p className="text-2xl font-medium text-white text-center my-2">
-            {selectedBiller?.meter_number}
-          </p>
-          <p className="text-3xl text-white text-center my-4">
-            <ShadowValue>
-              {nairaFormat(selectedBiller?.amount ?? 0)}
-            </ShadowValue>
-          </p>
-          <div className="flex justify-center gap-6">
-            <ClassicBtn onclick={() => handleRepurchase(selectedBiller.id)}>
-              Confirm
-            </ClassicBtn>
-            <ClassicBtn onclick={() => setIsOpen(false)} type="cancel">
-              Cancel
-            </ClassicBtn>
-          </div>
-        </div>
-      </AppModal>
-
-      {/* Account details modal */}
       <AppModal
         isModalOpen={openAccount}
         handleCancel={() => setIsOpenAccount((prev) => !prev)}
       >
         <div>
-          <h2 className="text-xl font-bold mb-4 text-gray-200">
-            Account Details
-          </h2>
+          <h2 className="text-xl font-bold mb-4 text-gray-200">Account Details</h2>
           <div className="space-y-3 text-gray-200">
             <div className="flex gap-4">
               <span className="font-semibold">Bank:</span>
@@ -608,14 +1055,12 @@ const handleGenerate = (vendor) => {
               <span className="font-semibold">Status:</span>
               <span
                 className={`${
-                  accountDetails?.active ||
-                  accountDetails?.status === 'completed'
+                  accountDetails?.active || accountDetails?.status === 'completed'
                     ? 'text-green-500'
                     : 'text-red-500'
                 } font-medium`}
               >
-                {accountDetails?.active ||
-                accountDetails?.status === 'completed'
+                {accountDetails?.active || accountDetails?.status === 'completed'
                   ? 'Active'
                   : 'In-Active'}
               </span>
@@ -638,7 +1083,7 @@ const handleGenerate = (vendor) => {
           <div className="flex justify-center gap-6 mt-6">
             <ClassicBtn
               className="!text-emerald-300 border !border-emerald-400"
-              onclick={getAccountDetails}
+              onclick={() => navigate('/dashboard/virtual-accounts')}
               type="cancel"
             >
               View More Details
@@ -650,9 +1095,8 @@ const handleGenerate = (vendor) => {
         </div>
       </AppModal>
 
-      {/* Anchor KYC / account creation wizard */}
       <AppModal
-        title={'Generate Account'}
+        title="Generate Account"
         isModalOpen={isAncorModal}
         handleCancel={() => setIsAncorModal((prev) => !prev)}
       >
@@ -667,7 +1111,6 @@ const handleGenerate = (vendor) => {
           user={user}
         />
       </AppModal>
-
     </>
   )
 }

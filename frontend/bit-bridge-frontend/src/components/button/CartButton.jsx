@@ -1,26 +1,24 @@
 import { ShoppingCartOutlined } from '@ant-design/icons'
-import { Button } from 'antd'
 import PropTypes from 'prop-types'
 
 const CartButton = ({ children, onClick }) => {
-  const size = 'large'
   return (
     <div>
-      <Button
+      <button
+        type="button"
         onClick={onClick}
-        className="py-5 max-w-xl w-full text-white bg-primary hover:bg-primary/80"
-        shape="default"
-        icon={<ShoppingCartOutlined />}
-        size={size}
+        className="inline-flex min-h-12 w-full max-w-xl items-center justify-center gap-2 rounded-md bg-primary px-4 py-3 text-white hover:bg-primary/80"
       >
-        {children}
-      </Button>
+        <ShoppingCartOutlined />
+        <span>{children}</span>
+      </button>
     </div>
   )
 }
 
 CartButton.propTypes = {
   children: PropTypes.node,
+  onClick: PropTypes.func,
 }
 
 export default CartButton

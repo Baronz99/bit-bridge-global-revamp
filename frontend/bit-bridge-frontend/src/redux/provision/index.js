@@ -4,7 +4,6 @@ import { createProvision, getProvisions } from '../actions/provision'
 const initialState = {
   provision: {},
   provisions: [],
-  giftcards: [],
   mobileProviders: [],
   airtime: [],
   dataBundles: [],
@@ -40,9 +39,7 @@ const provisionSlice = createSlice({
 
       .addCase(getProvisions.fulfilled, (state, action) => {
         const products = action.payload.data
-        // utilities: filteredUtilities,
 
-        const filteredGiftCards = products.filter((item) => item.product.category === 'gift card')
         const filteredMobileProvider = products.filter(
           (item) => item.product.category === 'mobile provider'
         )
@@ -54,7 +51,6 @@ const provisionSlice = createSlice({
         return {
           ...state,
           products: action.payload.data,
-          giftcards: filteredGiftCards,
           services: filteredServices,
           airtime: airtime,
           dataBundles: databundles,

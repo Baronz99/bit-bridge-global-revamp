@@ -167,6 +167,18 @@
   color: #c2410c;
 }
 
+.admin-badge.is-monitoring {
+  background: #eff6ff;
+  border-color: #bfdbfe;
+  color: #1d4ed8;
+}
+
+.admin-badge.is-risk-lock {
+  background: #fef2f2;
+  border-color: #fecaca;
+  color: #b91c1c;
+}
+
 .admin-badge--mismatch {
   background: #fef2f2;
   border-color: #fecaca;
@@ -179,6 +191,13 @@
   border-radius: 20px;
   padding: 22px 24px;
   box-shadow: 0 18px 35px rgba(15, 23, 42, 0.08);
+}
+
+.admin-user-card--subtle {
+  margin: 18px 0 22px;
+  padding: 18px 20px;
+  background: linear-gradient(180deg, #fffdf8 0%, #fffaf0 100%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.7);
 }
 
 .admin-card-header {
@@ -223,6 +242,220 @@
   font-size: 13px;
   font-weight: 700;
   color: var(--au-accent);
+}
+
+.admin-kyc-reuse-copy {
+  font-size: 14px;
+  color: var(--au-muted);
+  margin-bottom: 14px;
+}
+
+.admin-risk-control {
+  margin-bottom: 22px;
+}
+
+.admin-risk-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 14px;
+}
+
+.admin-risk-toggle {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  border: 1px solid var(--au-border);
+  border-radius: 16px;
+  padding: 14px 16px;
+  background: #fff;
+}
+
+.admin-risk-toggle input {
+  margin-top: 4px;
+}
+
+.admin-risk-toggle strong {
+  display: block;
+  font-size: 14px;
+  color: var(--au-ink);
+}
+
+.admin-risk-toggle span {
+  display: block;
+  margin-top: 4px;
+  font-size: 13px;
+  color: var(--au-muted);
+}
+
+.admin-risk-limits {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 14px;
+  margin-top: 16px;
+}
+
+.admin-risk-field {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.admin-risk-field span {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--au-muted);
+}
+
+.admin-risk-field input,
+.admin-risk-field textarea {
+  border: 1px solid var(--au-border);
+  border-radius: 14px;
+  padding: 12px 14px;
+  font-size: 14px;
+  color: var(--au-ink);
+  background: #fff;
+}
+
+.admin-risk-field small {
+  font-size: 12px;
+  color: var(--au-muted);
+}
+
+.admin-risk-field--wide {
+  margin-top: 18px;
+}
+
+.admin-risk-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.admin-risk-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 18px;
+}
+
+.admin-risk-events {
+  margin-top: 22px;
+  border-top: 1px solid var(--au-border);
+  padding-top: 18px;
+}
+
+.admin-risk-event-list {
+  display: grid;
+  gap: 12px;
+}
+
+.admin-risk-event {
+  display: flex;
+  justify-content: space-between;
+  gap: 14px;
+  flex-wrap: wrap;
+  border: 1px solid var(--au-border);
+  border-radius: 14px;
+  padding: 14px 16px;
+  background: #fff;
+}
+
+.admin-risk-event__title {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--au-ink);
+}
+
+.admin-risk-event__meta {
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--au-muted);
+  text-transform: capitalize;
+}
+
+.admin-risk-event__amounts {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--au-muted);
+}
+
+.admin-risk-button {
+  border: 0;
+  border-radius: 999px;
+  padding: 11px 16px;
+  font-size: 13px;
+  font-weight: 700;
+  background: var(--au-accent);
+  color: #fff;
+  cursor: pointer;
+}
+
+.admin-risk-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.7;
+}
+
+.admin-risk-button--danger {
+  background: #b91c1c;
+}
+
+.admin-risk-button--ghost {
+  background: #fff;
+  color: var(--au-ink);
+  border: 1px solid var(--au-border);
+}
+
+.admin-kyc-reuse-flags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.admin-kyc-reuse-note {
+  margin-top: 14px;
+  border-radius: 16px;
+  border: 1px solid var(--au-border);
+  padding: 12px 14px;
+  background: #f8fafc;
+}
+
+.admin-kyc-reuse-note__label {
+  display: inline-flex;
+  margin-bottom: 6px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.admin-kyc-reuse-note p {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.admin-kyc-reuse-note.is-safe {
+  background: #ecfdf3;
+  border-color: #bbf7d0;
+  color: #166534;
+}
+
+.admin-kyc-reuse-note.is-warning {
+  background: #fff7ed;
+  border-color: #fed7aa;
+  color: #9a3412;
+}
+
+.admin-kyc-reuse-note.is-risk {
+  background: #fef2f2;
+  border-color: #fecaca;
+  color: #991b1b;
 }
 
 .admin-user-grid {
@@ -345,6 +578,18 @@
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.12em;
+}
+
+.admin-chip.is-safe {
+  background: #ecfdf3;
+  color: #15803d;
+  border-color: #bbf7d0;
+}
+
+.admin-chip.is-risk {
+  background: #fff7ed;
+  color: #c2410c;
+  border-color: #fed7aa;
 }
 
 .admin-user-actions {

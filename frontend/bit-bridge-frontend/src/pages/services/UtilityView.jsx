@@ -1,6 +1,5 @@
 import { Outlet, useLocation, useNavigate, useParams } from 'react-router-dom'
 import Header from '../../compnents/header/Header'
-import ProductCard from '../../compnents/product-card/ProductCard'
 import { useDispatch, useSelector } from 'react-redux'
 import { SET_LOADING } from '../../redux/app'
 import { useEffect, useRef, useState } from 'react'
@@ -23,7 +22,7 @@ const UtilityView = () => {
     amount: '',
     email: '',
   })
-  const { utilities, giftcards } = useSelector((state) => state.provision)
+  const { utilities } = useSelector((state) => state.provision)
   const { priceList } = useSelector((state) => state.billPurchase)
 
   const navigate = useNavigate()
@@ -102,27 +101,8 @@ const UtilityView = () => {
         </div>
       </section>
 
-      <section className="px-4 bg-gray-200 py-10">
-        <div className="max-w-7xl m-auto bg-red-40">
-          <h2 className="text-2xl my-4">More Products on BitBridge</h2>
-          <div className="grid sm:grid-cols-4 gap-3">
-            {giftcards.map(({ id, product, min_value, max_value, name, currency }) => (
-              <ProductCard
-                link={`/gift-cards/${id}`}
-                key={id}
-                id={id}
-                min_value={min_value}
-                currency={currency}
-                max_value={max_value}
-                provider={product.provider}
-                provision={name}
-              />
-            ))}
-          </div>
-        </div>
-      </section>
       <section className="px-4 py-20">
-        <h2 className="text-3xl font-semibold">How gift card work</h2>
+        <h2 className="text-3xl font-semibold">How utility payments work</h2>
         <div></div>
       </section>
     </div>

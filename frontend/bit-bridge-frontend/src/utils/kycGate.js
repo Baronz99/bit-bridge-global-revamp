@@ -27,11 +27,13 @@ const TIER_RANKS = {
   tier_1: 1,
   tier_2: 2,
   tier_3: 3,
+  tier_4: 4,
 }
 
 export const normalizeKycLevel = (raw) => {
   const value = (raw ?? '').toString().toLowerCase()
   if (!value || value === 'nil') return 'tier_0'
+  if (value.includes('tier_4') || value.includes('tier4')) return 'tier_4'
   if (value.includes('tier_3')) return 'tier_3'
   if (value.includes('tier_2')) return 'tier_2'
   if (value.includes('tier_1')) return 'tier_1'
@@ -48,6 +50,14 @@ export const kycAtLeast = (rawLevel, requiredLevel) =>
   kycRank(rawLevel) >= kycRank(requiredLevel)
 
 export const needsTier2Access = (user) => !kycAtLeast(user?.kyc_level, 'tier_2')
+
+export const hasVerifiedPhone = (user) => {
+  const profile = user?.user_profile || {}
+  return user?.phone_verified === true || !!user?.phone_verified_at || !!profile?.phone_verified_at
+}
+
+export const canUseCircles = (user) =>
+  kycAtLeast(user?.kyc_level, 'tier_2') || (kycAtLeast(user?.kyc_level, 'tier_1') && hasVerifiedPhone(user))
 
 export const withTier1MissingDetails = (user, baseMessage) => {
   const missing = getTier1MissingDetails(user)
@@ -68,26 +78,11 @@ export const getTier2MissingDetails = (user) => {
     missing.push('ID type')
   }
 
-  const hasAddress =
-    profile?.address_line1 &&
-    profile?.city &&
-    profile?.state &&
-    profile?.country
+  const hasIdentityEvidence =
+    !!profile?.id_document_url || kyc?.nin_status === 'verified' || !!kyc?.nin_verified_at
 
-  if (!hasAddress) {
-    missing.push('Address')
-  }
-
-  if (!profile?.proof_of_address_type) {
-    missing.push('Proof of address type')
-  }
-
-  if (!profile?.id_document_url) {
+  if (!hasIdentityEvidence) {
     missing.push('ID document')
-  }
-
-  if (!profile?.proof_of_address_url) {
-    missing.push('Proof of address')
   }
 
   return missing
@@ -97,4 +92,9 @@ export const withTier2MissingDetails = (user, baseMessage) => {
   const missing = getTier2MissingDetails(user)
   if (!missing.length) return baseMessage
   return `${baseMessage} Missing: ${missing.join(', ')}.`
+}
+
+export const withCircleAccessMissingDetails = (user, baseMessage) => {
+  if (kycAtLeast(user?.kyc_level, 'tier_2')) return baseMessage
+  return withTier1MissingDetails(user, baseMessage)
 }

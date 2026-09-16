@@ -89,6 +89,7 @@ const getErrorMessage = (error, fallback = 'Something went wrong') =>
 // Small helper: a friendlier auth error message for login
 const getLoginToastMessage = (error) => {
   const status = error?.response?.status
+  const code = error?.code
 
   // Wrong credentials
   if (status === 401 || status === 403) return 'Invalid email or password.'
@@ -101,8 +102,17 @@ const getLoginToastMessage = (error) => {
 
   if (backendMsg) return backendMsg
 
-  // Network / server issues
-  if (!status) return 'Network error. Please check your connection and try again.'
+  if (code === 'ECONNABORTED') {
+    return 'Login is taking longer than expected. Please try again.'
+  }
+
+  if (!status) {
+    const isOffline = typeof navigator !== 'undefined' && navigator?.onLine === false
+    return isOffline
+      ? 'You appear to be offline. Check your connection and try again.'
+      : 'We could not complete login right now. Please try again.'
+  }
+
   if (status >= 500) return 'Server error. Please try again shortly.'
 
   return 'Login failed. Please try again.'
@@ -434,3 +444,4 @@ export const changePasswordReset = createAsyncThunk('user/change-password', asyn
     console.log(error)
   }
 })
+

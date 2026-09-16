@@ -2,7 +2,6 @@ import { Button, Form } from 'antd'
 import { forwardRef, useImperativeHandle, useState } from 'react'
 import FormInput from '../formInput/FormInput'
 import './style.scss'
-import coinType from '../../data/coinType.json'
 import PropTypes from 'prop-types'
 import FormSelect from '../formSelect/FormSelect'
 import { useSelector } from 'react-redux'
@@ -95,7 +94,7 @@ const AddFund = forwardRef((props, ref) => {
           required={true}
           label={'Type'}
           disabled={true}
-          options={coinType}
+          options={[{ value: 'bank', label: 'BANK' }]}
         />
 
         {/* <Form.Item 

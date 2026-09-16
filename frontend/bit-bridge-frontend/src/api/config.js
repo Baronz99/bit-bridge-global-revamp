@@ -18,7 +18,7 @@ const MODE = import.meta.env.MODE
 /**
  * ✅ Use ONE base env var everywhere.
  * Prefer:
- * VITE_API_BASE_URL=https://bitbridgeglobal.com/api/v1
+ * VITE_API_BASE_URL=https://api.bitbridgeglobal.com/api/v1
  * (If you provide a root, we will append /api/v1.)
  */
 const forcedBaseRaw = stripTrailingSlash(import.meta.env.VITE_API_BASE_URL)

@@ -16,6 +16,9 @@ export const SendConfirmEmail = () => {
   const [loginType, setLoginType] = useState('phone')
   const dispatch = useDispatch()
   const navigate = useNavigate()
+  const location = useLocation()
+  const isEmailChange = new URLSearchParams(location.search).get('flow') === 'email-change'
+  const defaultEmail = localStorage.getItem('email') || ''
 
   console.log(loading)
 
@@ -29,6 +32,7 @@ export const SendConfirmEmail = () => {
         }}
       >
         <LoginForm
+          initialValues={{ email: defaultEmail }}
           loading={loading}
           onFinish={(values) => {
             dispatch(SET_LOADING(true))
@@ -38,7 +42,7 @@ export const SendConfirmEmail = () => {
                 dispatch(SET_LOADING(false))
                 toast(result?.payload?.message || 'Email sent', { type: 'success' })
 
-                navigate('/confirmation')
+                navigate(`/confirmation${isEmailChange ? '?flow=email-change' : ''}`)
               } else {
                 dispatch(SET_LOADING(false))
                 toast(result?.payload?.message || 'Email Confirmation failed', { type: 'error' })
@@ -57,10 +61,22 @@ export const SendConfirmEmail = () => {
             display: 'flex',
             justifyContent: 'center',
           }}
-          subTitle="Nigerians Largest trading and exchange platform"
+          subTitle={
+            isEmailChange
+              ? 'Resend confirmation to your pending new email address'
+              : 'Nigerians Largest trading and exchange platform'
+          }
           actions={
             <Space className="text-gray-800 font-medium text-base">
-              Already have an account? <NavLink to={'/login'}>Login</NavLink>
+              {isEmailChange ? (
+                <>
+                  Return to <NavLink to={'/dashboard/profile-account?section=security'}>Security</NavLink>
+                </>
+              ) : (
+                <>
+                  Already have an account? <NavLink to={'/login'}>Login</NavLink>
+                </>
+              )}
               {/* <AlipayCircleOutlined style={iconStyles} />
               <TaobaoCircleOutlined style={iconStyles} />
               <WeiboCircleOutlined style={iconStyles} /> */}
@@ -73,7 +89,10 @@ export const SendConfirmEmail = () => {
           }}
         >
           <Tabs centered activeKey={loginType} onChange={(activeKey) => setLoginType(activeKey)}>
-            <Tabs.TabPane key={'account'} tab={'Recieve Email Confirmation'} />
+            <Tabs.TabPane
+              key={'account'}
+              tab={isEmailChange ? 'Resend New Email Confirmation' : 'Recieve Email Confirmation'}
+            />
           </Tabs>
           <>
             <ProFormText

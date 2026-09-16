@@ -14,6 +14,36 @@ import './AddProducts.scss'
 //   }
 //   return e?.fileList;
 // };
+
+const SERVICE_TYPE_ALIASES = {
+  CABLE: 'TV',
+  POWER: 'ELECTRICITY',
+}
+
+const normalizeServiceType = (value) => {
+  const normalized = String(value || '').trim().toUpperCase()
+  return SERVICE_TYPE_ALIASES[normalized] || normalized || undefined
+}
+
+const parseAmount = (value) => {
+  const parsed = Number(value)
+  return Number.isFinite(parsed) ? parsed : NaN
+}
+
+const validateRange = (minValue, maxValue, label) => {
+  if (!Number.isFinite(minValue) || !Number.isFinite(maxValue)) {
+    throw new Error(`${label} values must be numeric`)
+  }
+
+  if (minValue < 0 || maxValue < 0) {
+    throw new Error(`${label} values cannot be negative`)
+  }
+
+  if (minValue > maxValue) {
+    throw new Error(`${label} minimum cannot be greater than maximum`)
+  }
+}
+
 const AddProduct = () => {
   const [form] = Form.useForm()
   const dispatch = useDispatch()
@@ -23,8 +53,6 @@ const AddProduct = () => {
     utility: { currency: 'ngn', service_type: 'UTILITY' },
     'mobile provider': { currency: 'ngn', service_type: 'VTU' },
     service: { currency: 'ngn' },
-    'gift card': { currency: 'usd' },
-    crypto: { currency: 'usd' },
   }
 
   const handleCategoryChange = (value) => {
@@ -90,10 +118,13 @@ const AddProduct = () => {
               const createBoth = isMobileProvider && values.create_both_provisions
 
               if (createBoth) {
-                const vtuMin = Number(values.vtu_min_value)
-                const vtuMax = Number(values.vtu_max_value)
-                const dataMin = Number(values.data_min_value)
-                const dataMax = Number(values.data_max_value)
+                const vtuMin = parseAmount(values.vtu_min_value)
+                const vtuMax = parseAmount(values.vtu_max_value)
+                const dataMin = parseAmount(values.data_min_value)
+                const dataMax = parseAmount(values.data_max_value)
+
+                validateRange(vtuMin, vtuMax, 'VTU')
+                validateRange(dataMin, dataMax, 'DATA')
 
                 const provisionPayloads = [
                   {
@@ -128,8 +159,10 @@ const AddProduct = () => {
                   )
                 )
               } else {
-                const minValue = Number(values.min_value)
-                const maxValue = Number(values.max_value)
+                const minValue = parseAmount(values.min_value)
+                const maxValue = parseAmount(values.max_value)
+
+                validateRange(minValue, maxValue, 'Provision')
 
                 const provisionPayload = {
                   name: values.provision_name,
@@ -138,7 +171,7 @@ const AddProduct = () => {
                   max_value: maxValue,
                   value_range: [minValue, maxValue],
                   provision_value_type: values.provision_value_type,
-                  service_type: values.service_type || undefined,
+                  service_type: normalizeServiceType(values.service_type),
                   description: values.provision_description || values.description,
                   notice: values.notice || values.notice_info,
                   product_id: productId,
@@ -155,7 +188,7 @@ const AddProduct = () => {
           }}
           initialValues={{
             provider: '',
-            currency: 'usd',
+            currency: 'ngn',
             provision_name: '',
             provision_value_type: 'range',
             min_value: 0,
@@ -172,7 +205,7 @@ const AddProduct = () => {
             attention: '',
             notice_info: '',
             header_info: '',
-            category: 'gift card',
+            category: 'service',
             create_both_provisions: false,
           }}
           layout="vertical"
@@ -190,10 +223,8 @@ const AddProduct = () => {
               onChange={handleCategoryChange}
               options={[
                 { label: 'service', value: 'service' },
-                { value: 'gift card', label: 'Gift Card' },
                 { value: 'mobile provider', label: 'Mobile Service' },
                 { value: 'utility', label: 'Utility' },
-                { value: 'crypto', label: 'Crypto' },
               ]}
               className="admin-dark-select"
             />
@@ -250,8 +281,8 @@ const AddProduct = () => {
                   options={[
                     { label: 'VTU', value: 'VTU' },
                     { label: 'DATA', value: 'DATA' },
-                    { label: 'CABLE', value: 'CABLE' },
-                    { label: 'POWER', value: 'POWER' },
+                    { label: 'TV', value: 'TV' },
+                    { label: 'ELECTRICITY', value: 'ELECTRICITY' },
                     { label: 'UTILITY', value: 'UTILITY' },
                   ]}
                   className="admin-dark-select"

@@ -5,9 +5,10 @@ import client from '../../api/client'
 const getErrorMessage = (error) =>
   error?.response?.data?.message || error?.message || 'Something went wrong'
 
-export const getUsers = createAsyncThunk('users/get-users', async (_, { rejectWithValue }) => {
+export const getUsers = createAsyncThunk('users/get-users', async (options = {}, { rejectWithValue }) => {
   try {
-    const response = await client.get('/users')
+    const params = options?.params || { summary: true, limit: 1000 }
+    const response = await client.get('/users', { params })
     const payload = response?.data
     const users =
       payload?.data?.users ??

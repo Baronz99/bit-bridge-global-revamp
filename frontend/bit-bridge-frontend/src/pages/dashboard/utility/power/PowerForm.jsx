@@ -14,7 +14,7 @@ import { createPurchaseOrder } from '../../../../redux/actions/purchasePower'
 import { SET_LOADING } from '../../../../redux/app'
 
 const DashboardPowerForm = () => {
-  const [id, biller] = useOutletContext()
+  const [id, selectedProvider] = useOutletContext()
   const [loading, setLoading] = useState(false)
   const [message, setMessage] = useState()
   const [err, setErr] = useState()
@@ -43,7 +43,7 @@ const DashboardPowerForm = () => {
         vendType,
         meter_type: vendType,
         amount: normalizedAmount,
-        biller,
+        biller: selectedProvider?.biller,
         email: user.email,
         phone: user?.user_profile?.phone_number,
         service_type: 'ELECTRICITY',
@@ -66,7 +66,6 @@ const DashboardPowerForm = () => {
     })
   }
 
-  console.log(biller)
   const [form] = Form.useForm()
   const appliedPrefillRef = useRef(false)
 

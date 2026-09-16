@@ -64,7 +64,6 @@ const ViewProduct = () => {
             label={'Category'}
             options={[
               { label: 'service', value: 'service' },
-              { value: 'gift card', label: 'Gift Card' },
               { value: 'mobile provider', label: 'Mobile Service' },
               { value: 'utility', label: 'Utility' },
               { value: 'power', label: 'Power' },

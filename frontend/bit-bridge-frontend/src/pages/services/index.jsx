@@ -3,6 +3,7 @@ import { useEffect } from 'react'
 import { useDispatch, useSelector } from 'react-redux'
 import img from '../../assets/images/banners/buy-power.jpg'
 import { useNavigate } from 'react-router-dom'
+import { PiArrowRightBold, PiGameControllerBold } from 'react-icons/pi'
 
 import LoadingComp from '../../components/loader/LoadingComp'
 import { getProvisions } from '../../redux/actions/provision'
@@ -30,8 +31,7 @@ const MainServices = () => {
               Purchase Electricity with your wallet with ease
             </h2>
             <p className="my-4 text-lg font-medium text-gray-600 text-lef">
-              Crypto conversion made easy - conver your crypto to cash in one simple step Pay with
-              crypto and stay connected while traveling!
+              Pay utility bills quickly with your wallet and stay connected while traveling.
             </p>
           </div>
           <div>
@@ -70,6 +70,31 @@ const MainServices = () => {
               </h3>
             </div>
           )}
+        </div>
+      </section>
+
+      <section className="pb-12 bg-white px-4">
+        <div className="max-w-7xl m-auto">
+          <div className="rounded-3xl border border-emerald-200 bg-[linear-gradient(135deg,#ecfdf5,#f8fafc)] p-6 md:p-8 flex flex-col md:flex-row md:items-center md:justify-between gap-5">
+            <div className="max-w-2xl">
+              <div className="inline-flex h-12 w-12 items-center justify-center rounded-2xl bg-emerald-100 text-emerald-700">
+                <PiGameControllerBold className="text-xl" />
+              </div>
+              <h3 className="mt-4 text-2xl font-semibold text-slate-900">Monnify betting services</h3>
+              <p className="mt-2 text-sm text-slate-600">
+                Betting billers are now available from the live Monnify catalog. Open the dashboard utility flow to pick a biller, enter the player ID, and pay from wallet.
+              </p>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => navigate('/dashboard/utilities/betting')}
+              className="inline-flex items-center gap-2 rounded-2xl bg-slate-900 px-5 py-3 text-sm font-semibold text-white transition hover:bg-slate-800"
+            >
+              Open betting services
+              <PiArrowRightBold />
+            </button>
+          </div>
         </div>
       </section>
     </div>

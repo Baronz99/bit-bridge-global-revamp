@@ -21,6 +21,12 @@ import FormInput from '../../../components/formInput/FormInput'
 import { createUserTransaction } from '../../../redux/actions/transaction'
 import { SET_LOADING } from '../../../redux/app'
 import client from '../../../api/client'
+import { getAdminUserKycReuse } from '../../../api/adminOps'
+import {
+  getAdminUserRiskEvents,
+  getAdminUserRiskControl,
+  updateAdminUserRiskControl,
+} from '../../../api/adminRiskControls'
 
 const ViewUser = () => {
   const { id } = useParams()
@@ -54,12 +60,49 @@ const ViewUser = () => {
   const [providerLookupRefs, setProviderLookupRefs] = useState({})
   const [providerLookupResult, setProviderLookupResult] = useState({})
   const [enrichLoading, setEnrichLoading] = useState({})
+  const [kycReuseLoading, setKycReuseLoading] = useState(false)
+  const [kycReuseError, setKycReuseError] = useState('')
+  const [kycReuse, setKycReuse] = useState(null)
+  const [riskControl, setRiskControl] = useState(null)
+  const [riskControlLoading, setRiskControlLoading] = useState(false)
+  const [riskControlSaving, setRiskControlSaving] = useState(false)
+  const [riskControlError, setRiskControlError] = useState('')
+  const [riskEvents, setRiskEvents] = useState([])
+  const [riskEventsLoading, setRiskEventsLoading] = useState(false)
+  const [riskEventsError, setRiskEventsError] = useState('')
 
   const [form] = Form.useForm()
 
   useEffect(() => {
     dispatch(getUser(id))
   }, [dispatch, id])
+
+  useEffect(() => {
+    let active = true
+
+    const loadKycReuse = async () => {
+      try {
+        setKycReuseLoading(true)
+        setKycReuseError('')
+        const res = await getAdminUserKycReuse(id)
+        if (!active) return
+        setKycReuse(res?.data?.data?.kyc_reuse || null)
+      } catch (error) {
+        if (!active) return
+        setKycReuseError(
+          error?.response?.data?.message || 'Unable to load reusable BVN triage.'
+        )
+      } finally {
+        if (active) setKycReuseLoading(false)
+      }
+    }
+
+    loadKycReuse()
+
+    return () => {
+      active = false
+    }
+  }, [id])
 
   const handleSubmit = (values) => {
     dispatch(SET_LOADING(true))
@@ -383,7 +426,67 @@ const ViewUser = () => {
     (adminUser?.role === 'super_admin' ? 'super_admin' : adminUser?.role === 'admin' ? 'support' : null)
   const canReveal = adminRole === 'compliance' || adminRole === 'super_admin'
   const isSuperAdmin = adminRole === 'super_admin'
+  const canManageRiskControls = adminRole === 'compliance' || adminRole === 'super_admin'
   const cardDebugEnabled = user?.admin_flags?.card_debug_enabled === true
+
+  useEffect(() => {
+    if (!canManageRiskControls) return
+
+    let active = true
+
+    const loadRiskControl = async () => {
+      try {
+        setRiskControlLoading(true)
+        setRiskControlError('')
+        const res = await getAdminUserRiskControl(id)
+        if (!active) return
+        setRiskControl(res?.data?.data || null)
+      } catch (error) {
+        if (!active) return
+        setRiskControlError(
+          error?.response?.data?.message || 'Unable to load risk controls.'
+        )
+      } finally {
+        if (active) setRiskControlLoading(false)
+      }
+    }
+
+    loadRiskControl()
+
+    return () => {
+      active = false
+    }
+  }, [canManageRiskControls, id])
+
+  useEffect(() => {
+    if (!canManageRiskControls) return
+
+    let active = true
+
+    const loadRiskEvents = async () => {
+      try {
+        setRiskEventsLoading(true)
+        setRiskEventsError('')
+        const res = await getAdminUserRiskEvents(id, { limit: 10 })
+        if (!active) return
+        setRiskEvents(Array.isArray(res?.data?.data) ? res.data.data : [])
+      } catch (error) {
+        if (!active) return
+        setRiskEventsError(
+          error?.response?.data?.message || 'Unable to load risk events.'
+        )
+        setRiskEvents([])
+      } finally {
+        if (active) setRiskEventsLoading(false)
+      }
+    }
+
+    loadRiskEvents()
+
+    return () => {
+      active = false
+    }
+  }, [canManageRiskControls, id, riskControl])
 
   const bvnStatusRaw = userKyc?.bvn_status || 'unverified'
   const bvnStatusLabel =
@@ -488,6 +591,59 @@ const ViewUser = () => {
 
   const kycLevelLabel = user?.kyc_level || 'Not set'
   const idTypeLabel = user?.id_type ? user.id_type.toUpperCase() : 'Not provided'
+  const kycReuseActionLabel =
+    kycReuse?.recommended_action === 'secure_reconciliation_for_anchor_and_cards'
+      ? 'Anchor and cards exposed'
+      : kycReuse?.recommended_action === 'secure_reconciliation_for_cards'
+      ? 'Cards exposed'
+      : kycReuse?.recommended_action === 'monitor_anchor_safe_cards_risky'
+      ? 'Anchor safe, cards risky'
+      : kycReuse?.recommended_action === 'secure_bvn_reentry_before_anchor_or_cards'
+      ? 'Re-entry before Anchor or cards'
+      : 'No immediate action'
+  const kycReuseStatusLabel = kycReuse?.needs_review
+    ? 'Needs review'
+    : kycReuse?.reusable_bvn_available
+    ? 'Reusable'
+    : kycReuse?.bvn_verified
+    ? 'Verified only'
+    : 'Not verified'
+  const kycReuseSupportInstruction =
+    kycReuse?.recommended_action === 'secure_reconciliation_for_anchor_and_cards'
+      ? 'Pause Anchor and card assistance until support securely reconciles reusable BVN for this user.'
+      : kycReuse?.recommended_action === 'secure_reconciliation_for_cards'
+      ? 'Do not continue card setup until the user securely re-enters BVN or support reconciles the reusable BVN record.'
+      : kycReuse?.recommended_action === 'monitor_anchor_safe_cards_risky'
+      ? 'Anchor is already safe. Only block future card setup until reusable BVN is restored.'
+      : kycReuse?.recommended_action === 'secure_bvn_reentry_before_anchor_or_cards'
+      ? 'Direct the user to secure BVN re-entry before starting Anchor or card flows.'
+      : 'No support action is required right now.'
+  const kycReuseSupportTone =
+    kycReuse?.needs_review && (kycReuse?.has_anchor_account || kycReuse?.has_cards || kycReuse?.has_cardholder_profile)
+      ? 'is-risk'
+      : kycReuse?.needs_review
+      ? 'is-warning'
+      : 'is-safe'
+  const baseRiskForm = useMemo(
+    () => ({
+      monitoring_enabled: riskControl?.monitoring_enabled || false,
+      auto_lock_enabled: riskControl?.auto_lock_enabled || false,
+      single_txn_limit_cents: riskControl?.single_txn_limit_cents ?? '',
+      daily_limit_cents: riskControl?.daily_limit_cents ?? '',
+      weekly_limit_cents: riskControl?.weekly_limit_cents ?? '',
+      restricted: riskControl?.restricted || false,
+      restriction_reason: riskControl?.restriction_reason || '',
+      security_locked: riskControl?.security_locked || false,
+      security_lock_reason: riskControl?.security_lock_reason || '',
+      security_lock_source: riskControl?.security_lock_source || 'support_initiated',
+    }),
+    [riskControl]
+  )
+  const [riskForm, setRiskForm] = useState(baseRiskForm)
+
+  useEffect(() => {
+    setRiskForm(baseRiskForm)
+  }, [baseRiskForm])
 
   const isStudentUseCase = user?.primary_use_case === 'student_life'
   const pinSetLabel = user?.transaction_pin_set ? 'Set' : 'Not set'
@@ -524,6 +680,69 @@ const ViewUser = () => {
     }).format(value)
   }
 
+  const normalizeRiskLimit = (value) => {
+    if (value === '' || value === null || value === undefined) return null
+    const parsed = Number(value)
+    return Number.isFinite(parsed) ? Math.max(0, Math.round(parsed)) : null
+  }
+
+  const formatRiskLimit = (value) => {
+    if (value === '' || value === null || value === undefined) return 'Not set'
+    return nairaFormat(Number(value) / 100, 'ngn')
+  }
+
+  const handleRiskFieldChange = (field, value) => {
+    setRiskForm((prev) => ({ ...prev, [field]: value }))
+  }
+
+  const handleRiskControlSave = async (overrides = {}) => {
+    if (!canManageRiskControls) return
+
+    const payload = {
+      monitoring_enabled: overrides.monitoring_enabled ?? riskForm.monitoring_enabled,
+      auto_lock_enabled: overrides.auto_lock_enabled ?? riskForm.auto_lock_enabled,
+      single_txn_limit_cents:
+        overrides.single_txn_limit_cents ?? normalizeRiskLimit(riskForm.single_txn_limit_cents),
+      daily_limit_cents:
+        overrides.daily_limit_cents ?? normalizeRiskLimit(riskForm.daily_limit_cents),
+      weekly_limit_cents:
+        overrides.weekly_limit_cents ?? normalizeRiskLimit(riskForm.weekly_limit_cents),
+      restricted: overrides.restricted ?? riskForm.restricted,
+      restriction_reason:
+        overrides.restriction_reason ?? (riskForm.restriction_reason || '').trim(),
+      security_locked: overrides.security_locked ?? riskForm.security_locked,
+      security_lock_reason:
+        overrides.security_lock_reason ?? (riskForm.security_lock_reason || '').trim(),
+      security_lock_source:
+        overrides.security_lock_source ?? (riskForm.security_lock_source || 'support_initiated'),
+    }
+
+    try {
+      setRiskControlSaving(true)
+      setRiskControlError('')
+      const res = await updateAdminUserRiskControl(id, payload)
+      setRiskControl(res?.data?.data || null)
+      toast(res?.data?.message || 'Risk controls updated', { type: 'success' })
+    } catch (error) {
+      const message =
+        error?.response?.data?.message || 'Unable to update risk controls.'
+      setRiskControlError(message)
+      toast(message, { type: 'error' })
+    } finally {
+      setRiskControlSaving(false)
+    }
+  }
+
+  const riskStatusLabel = riskForm.security_locked
+    ? 'Security locked'
+    : riskForm.restricted
+    ? 'Restricted'
+    : riskForm.monitoring_enabled
+    ? 'Monitored'
+    : 'Normal'
+  const providerFreezeStatusLabel =
+    riskControl?.provider_freeze_status?.replace(/_/g, ' ') || 'Not requested'
+
   const formatCardAmount = (value, currency) => {
     if (value === null || value === undefined || Number.isNaN(Number(value))) {
       return 'Not available'
@@ -535,6 +754,13 @@ const ViewUser = () => {
       return formatUsd(value)
     }
     return `${Number(value).toLocaleString()} ${currency.toUpperCase()}`
+  }
+
+  const formatCardCents = (value, currency) => {
+    if (value === null || value === undefined || Number.isNaN(Number(value))) {
+      return 'Not available'
+    }
+    return formatCardAmount(Number(value) / 100, currency)
   }
 
   const copyToClipboard = (text) => {
@@ -613,6 +839,22 @@ const ViewUser = () => {
     { key: 'compliance', label: 'KYC & Compliance' },
     { key: 'activity', label: 'Activity' },
   ]
+  const linkedBusinesses = useMemo(() => {
+    if (Array.isArray(user?.linked_businesses) && user.linked_businesses.length > 0) {
+      return user.linked_businesses
+    }
+
+    if (Array.isArray(user?.business_entities) && user.business_entities.length > 0) {
+      return user.business_entities.map((entity) => ({
+        id: entity?.id,
+        name: entity?.name,
+        status: entity?.status,
+        role: entity?.role || entity?.membership_role || entity?.owner_role,
+      }))
+    }
+
+    return []
+  }, [user?.linked_businesses, user?.business_entities])
 
   return (
     <>
@@ -640,6 +882,19 @@ const ViewUser = () => {
               </span>
               <span className="admin-badge is-role">{user?.role || 'user'}</span>
               <span className="admin-badge is-kyc">{kycLevelLabel}</span>
+              {canManageRiskControls ? (
+                <span
+                  className={`admin-badge ${
+                    riskForm.restricted
+                      ? 'is-risk-lock'
+                      : riskForm.monitoring_enabled
+                      ? 'is-monitoring'
+                      : ''
+                  }`}
+                >
+                  {riskStatusLabel}
+                </span>
+              ) : null}
             </div>
           </div>
 
@@ -657,45 +912,77 @@ const ViewUser = () => {
           </div>
 
           {activeTab === 'overview' ? (
-          <div className="admin-user-card admin-user-summary">
+            <>
+              <div className="admin-user-card admin-user-summary">
               <div className="admin-card-header">
-              <div>
-                <p className="admin-card-eyebrow">Account snapshot</p>
-                <h2>Core details</h2>
+                <div>
+                  <p className="admin-card-eyebrow">Account snapshot</p>
+                  <h2>Core details</h2>
+                </div>
+                <div className="admin-card-aside">
+                  <span className="admin-card-label">Wallets</span>
+                  <span className="admin-card-value">NGN + USD</span>
+                </div>
               </div>
-              <div className="admin-card-aside">
-                <span className="admin-card-label">Wallets</span>
-                <span className="admin-card-value">NGN + USD</span>
-              </div>
-            </div>
 
-            <div className="admin-user-grid">
-              <div className="admin-kv">
-                <span>Email</span>
-                <strong>{emailDisplay}</strong>
+              <div className="admin-user-grid">
+                <div className="admin-kv">
+                  <span>Email</span>
+                  <strong>{emailDisplay}</strong>
+                </div>
+                <div className="admin-kv">
+                  <span>User ID</span>
+                  <strong>{id}</strong>
+                </div>
+                <div className="admin-kv">
+                  <span>Balance</span>
+                  <strong>{nairaFormat(ngnWallet?.balance)}</strong>
+                </div>
+                <div className="admin-kv">
+                  <span>Status</span>
+                  <strong>{user?.status ?? (user?.active ? 'Active' : 'Inactive')}</strong>
+                </div>
+                <div className="admin-kv">
+                  <span>Role</span>
+                  <strong className="capitalize">{user?.role || 'user'}</strong>
+                </div>
+                <div className="admin-kv">
+                  <span>Wallet ID</span>
+                  <strong>{ngnWallet?.id || 'Not available'}</strong>
+                </div>
               </div>
-              <div className="admin-kv">
-                <span>User ID</span>
-                <strong>{id}</strong>
               </div>
-              <div className="admin-kv">
-                <span>Balance</span>
-                <strong>{nairaFormat(ngnWallet?.balance)}</strong>
+
+              <div className="admin-user-card admin-user-summary">
+                <div className="admin-card-header">
+                  <div>
+                    <p className="admin-card-eyebrow">Legal entities</p>
+                    <h2>Linked business accounts</h2>
+                  </div>
+                  <div className="admin-card-aside">
+                    <span className="admin-card-label">Count</span>
+                    <span className="admin-card-value">{linkedBusinesses.length}</span>
+                  </div>
+                </div>
+
+                {linkedBusinesses.length === 0 ? (
+                  <p className="admin-empty">No linked business entities found for this user.</p>
+                ) : (
+                  <div className="admin-user-grid admin-user-grid--wide">
+                    {linkedBusinesses.map((business) => (
+                      <div className="admin-kv" key={business?.id}>
+                        <span>{business?.name || 'Business entity'}</span>
+                        <strong className="capitalize">{business?.status || 'unknown'}</strong>
+                        <div className="admin-kv-meta">
+                          <span className="capitalize">{business?.role || 'member'}</span>
+                          <NavLink to={`/admin/businesses/${business?.id}`}>Open business</NavLink>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
-              <div className="admin-kv">
-                <span>Status</span>
-                <strong>{user?.status ?? (user?.active ? 'Active' : 'Inactive')}</strong>
-              </div>
-              <div className="admin-kv">
-                <span>Role</span>
-                <strong className="capitalize">{user?.role || 'user'}</strong>
-              </div>
-              <div className="admin-kv">
-                <span>Wallet ID</span>
-                <strong>{ngnWallet?.id || 'Not available'}</strong>
-              </div>
-            </div>
-          </div>
+            </>
           ) : null}
 
           {activeTab === 'financial' ? (
@@ -790,6 +1077,343 @@ const ViewUser = () => {
               ) : null}
             </div>
             {revealError ? <p className="admin-reveal-error">{revealError}</p> : null}
+
+            {canManageRiskControls ? (
+              <div className="admin-user-card admin-user-card--subtle admin-risk-control">
+                <div className="admin-card-header">
+                  <div>
+                    <p className="admin-card-eyebrow">Monitoring and restrictions</p>
+                    <h2>Risk control posture</h2>
+                  </div>
+                  <div className="admin-card-aside">
+                    <span className="admin-card-label">Provider freeze</span>
+                    <span className="admin-card-value capitalize">
+                      {providerFreezeStatusLabel}
+                    </span>
+                  </div>
+                </div>
+
+                {riskControlLoading ? (
+                  <p className="admin-empty">Loading risk controls...</p>
+                ) : (
+                  <>
+                    <p className="admin-kyc-reuse-copy">
+                      Monitoring keeps the account visible to compliance without blocking it.
+                      Auto-lock escalates to a restriction when configured inbound thresholds are
+                      breached, and the backend will request provider freeze where applicable.
+                    </p>
+                    {riskControlError ? <p className="admin-reveal-error">{riskControlError}</p> : null}
+
+                    <div className="admin-risk-grid">
+                      <label className="admin-risk-toggle">
+                        <input
+                          type="checkbox"
+                          checked={Boolean(riskForm.monitoring_enabled)}
+                          onChange={(e) =>
+                            handleRiskFieldChange('monitoring_enabled', e.target.checked)
+                          }
+                          disabled={riskControlSaving}
+                        />
+                        <div>
+                          <strong>Monitoring enabled</strong>
+                          <span>Track this account under enhanced compliance review.</span>
+                        </div>
+                      </label>
+
+                      <label className="admin-risk-toggle">
+                        <input
+                          type="checkbox"
+                          checked={Boolean(riskForm.auto_lock_enabled)}
+                          onChange={(e) =>
+                            handleRiskFieldChange('auto_lock_enabled', e.target.checked)
+                          }
+                          disabled={riskControlSaving}
+                        />
+                        <div>
+                          <strong>Auto-lock enabled</strong>
+                          <span>Restrict the account immediately when inbound thresholds are exceeded.</span>
+                        </div>
+                      </label>
+                    </div>
+
+                    <div className="admin-risk-limits">
+                      <label className="admin-risk-field">
+                        <span>Single inbound limit (cents)</span>
+                        <input
+                          type="number"
+                          min="0"
+                          value={riskForm.single_txn_limit_cents}
+                          onChange={(e) =>
+                            handleRiskFieldChange('single_txn_limit_cents', e.target.value)
+                          }
+                          disabled={riskControlSaving}
+                        />
+                        <small>{formatRiskLimit(riskForm.single_txn_limit_cents)}</small>
+                      </label>
+
+                      <label className="admin-risk-field">
+                        <span>Daily inbound limit (cents)</span>
+                        <input
+                          type="number"
+                          min="0"
+                          value={riskForm.daily_limit_cents}
+                          onChange={(e) =>
+                            handleRiskFieldChange('daily_limit_cents', e.target.value)
+                          }
+                          disabled={riskControlSaving}
+                        />
+                        <small>{formatRiskLimit(riskForm.daily_limit_cents)}</small>
+                      </label>
+
+                      <label className="admin-risk-field">
+                        <span>Weekly inbound limit (cents)</span>
+                        <input
+                          type="number"
+                          min="0"
+                          value={riskForm.weekly_limit_cents}
+                          onChange={(e) =>
+                            handleRiskFieldChange('weekly_limit_cents', e.target.value)
+                          }
+                          disabled={riskControlSaving}
+                        />
+                        <small>{formatRiskLimit(riskForm.weekly_limit_cents)}</small>
+                      </label>
+                    </div>
+
+                    <label className="admin-risk-field admin-risk-field--wide">
+                      <span>Restriction reason</span>
+                      <textarea
+                        rows={3}
+                        value={riskForm.restriction_reason}
+                        onChange={(e) =>
+                          handleRiskFieldChange('restriction_reason', e.target.value)
+                        }
+                        placeholder="Explain why the account is monitored or restricted."
+                        disabled={riskControlSaving}
+                      />
+                    </label>
+
+                    <div className="admin-risk-limits">
+                      <label className="admin-risk-field admin-risk-field--wide">
+                        <span>Security Lock reason</span>
+                        <textarea
+                          rows={3}
+                          value={riskForm.security_lock_reason}
+                          onChange={(e) =>
+                            handleRiskFieldChange('security_lock_reason', e.target.value)
+                          }
+                          placeholder="Explain why Security Lock is being activated or maintained."
+                          disabled={riskControlSaving}
+                        />
+                      </label>
+
+                      <label className="admin-risk-field">
+                        <span>Security Lock source</span>
+                        <select
+                          value={riskForm.security_lock_source}
+                          onChange={(e) =>
+                            handleRiskFieldChange('security_lock_source', e.target.value)
+                          }
+                          disabled={riskControlSaving}
+                        >
+                          <option value="support_initiated">Support initiated</option>
+                          <option value="system_initiated">System initiated</option>
+                          <option value="user_initiated">User initiated</option>
+                        </select>
+                        <small>User-initiated locks should remain user-scoped.</small>
+                      </label>
+                    </div>
+
+                    <div className="admin-risk-meta">
+                      <span className={`admin-chip ${riskForm.security_locked || riskForm.restricted ? 'is-risk' : 'is-safe'}`}>
+                        Internal status: {riskStatusLabel}
+                      </span>
+                      <span className={`admin-chip ${riskForm.security_locked ? 'is-risk' : 'is-safe'}`}>
+                        Security Lock: {riskForm.security_locked ? 'Active' : 'Inactive'}
+                      </span>
+                      <span className="admin-chip">
+                        Provider freeze: {providerFreezeStatusLabel}
+                      </span>
+                      {riskControl?.provider_freeze_requested_at ? (
+                        <span className="admin-chip">
+                          Freeze requested: {dateFormater(riskControl.provider_freeze_requested_at)}
+                        </span>
+                      ) : null}
+                      {riskControl?.released_at ? (
+                        <span className="admin-chip">
+                          Released: {dateFormater(riskControl.released_at)}
+                        </span>
+                      ) : null}
+                      {riskControl?.security_locked_at ? (
+                        <span className="admin-chip">
+                          Security Lock activated: {dateFormater(riskControl.security_locked_at)}
+                        </span>
+                      ) : null}
+                      {riskControl?.security_unlocked_at ? (
+                        <span className="admin-chip">
+                          Security Lock removed: {dateFormater(riskControl.security_unlocked_at)}
+                        </span>
+                      ) : null}
+                    </div>
+
+                    {riskControl?.provider_freeze_error ? (
+                      <div className="admin-kyc-reuse-note is-warning">
+                        <span className="admin-kyc-reuse-note__label">Provider freeze error</span>
+                        <p>{riskControl.provider_freeze_error}</p>
+                      </div>
+                    ) : null}
+
+                    <div className="admin-risk-actions">
+                      <button
+                        type="button"
+                        className="admin-risk-button"
+                        onClick={() => handleRiskControlSave()}
+                        disabled={riskControlSaving}
+                      >
+                        {riskControlSaving ? 'Saving...' : 'Save monitoring profile'}
+                      </button>
+                      <button
+                        type="button"
+                        className="admin-risk-button admin-risk-button--danger"
+                        onClick={() =>
+                          handleRiskControlSave({
+                            restricted: true,
+                            restriction_reason:
+                              (riskForm.restriction_reason || '').trim() ||
+                              'Manual compliance restriction',
+                          })
+                        }
+                        disabled={riskControlSaving}
+                      >
+                        Freeze account now
+                      </button>
+                      <button
+                        type="button"
+                        className="admin-risk-button admin-risk-button--ghost"
+                        onClick={() =>
+                          handleRiskControlSave({
+                            restricted: false,
+                          })
+                        }
+                        disabled={riskControlSaving}
+                      >
+                        Release hold
+                      </button>
+                      <button
+                        type="button"
+                        className="admin-risk-button"
+                        onClick={() =>
+                          handleRiskControlSave({
+                            security_locked: true,
+                            security_lock_source: riskForm.security_lock_source || 'support_initiated',
+                            security_lock_reason:
+                              (riskForm.security_lock_reason || '').trim() ||
+                              'Manual support security lock',
+                          })
+                        }
+                        disabled={riskControlSaving}
+                      >
+                        Activate Security Lock
+                      </button>
+                      <button
+                        type="button"
+                        className="admin-risk-button admin-risk-button--ghost"
+                        onClick={() =>
+                          handleRiskControlSave({
+                            security_locked: false,
+                            security_lock_reason: riskForm.security_lock_reason,
+                            security_lock_source: riskForm.security_lock_source || 'support_initiated',
+                          })
+                        }
+                        disabled={riskControlSaving}
+                      >
+                        Remove Security Lock
+                      </button>
+                    </div>
+
+                    <div className="admin-risk-events">
+                      <div className="admin-card-header">
+                        <div>
+                          <p className="admin-card-eyebrow">Recent triggers</p>
+                          <h2>Risk event timeline</h2>
+                        </div>
+                      </div>
+                      {riskEventsLoading ? (
+                        <p className="admin-empty">Loading risk events...</p>
+                      ) : riskEventsError ? (
+                        <p className="admin-reveal-error">{riskEventsError}</p>
+                      ) : riskEvents.length === 0 ? (
+                        <p className="admin-empty">No risk events recorded yet.</p>
+                      ) : (
+                        <div className="admin-risk-event-list">
+                          {riskEvents.map((event) => (
+                            <div key={event.id} className="admin-risk-event">
+                              <div>
+                                <p className="admin-risk-event__title">{event.trigger_type}</p>
+                                <p className="admin-risk-event__meta">
+                                  {event.action_taken} · {dateFormater(event.created_at)}
+                                </p>
+                              </div>
+                              <div className="admin-risk-event__amounts">
+                                <span>Amount: {formatRiskLimit(event.amount_cents)}</span>
+                                <span>Threshold: {formatRiskLimit(event.threshold_cents)}</span>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </>
+                )}
+              </div>
+            ) : null}
+
+            <div className="admin-user-card admin-user-card--subtle admin-kyc-reuse">
+              <div className="admin-card-header">
+                <div>
+                  <p className="admin-card-eyebrow">Downstream reuse</p>
+                  <h2>Reusable BVN triage</h2>
+                </div>
+                <div className="admin-card-aside">
+                  <span className="admin-card-label">Status</span>
+                  <span className={`admin-badge ${kycReuse?.needs_review ? 'is-warning' : 'is-active'}`}>
+                    {kycReuseStatusLabel}
+                  </span>
+                </div>
+              </div>
+
+              {kycReuseLoading ? (
+                <p className="admin-empty">Loading reusable BVN triage...</p>
+              ) : kycReuseError ? (
+                <p className="admin-reveal-error">{kycReuseError}</p>
+              ) : (
+                <>
+                  <p className="admin-kyc-reuse-copy">
+                    {kycReuse?.needs_review
+                      ? 'This user is marked BVN-verified on the platform, but provider-safe BVN reuse is not available yet.'
+                      : 'This user has a reusable BVN posture that is safe for downstream provider flows.'}
+                  </p>
+                  <div className="admin-kyc-reuse-flags">
+                    <span className={`admin-chip ${kycReuse?.reusable_bvn_available ? 'is-safe' : 'is-risk'}`}>
+                      Reusable BVN: {kycReuse?.reusable_bvn_available ? 'Yes' : 'No'}
+                    </span>
+                    <span className="admin-chip">
+                      Anchor: {kycReuse?.has_anchor_account ? (kycReuse?.anchor_account_provisioned ? 'Provisioned' : 'Started') : 'No account'}
+                    </span>
+                    <span className="admin-chip">
+                      Cards: {kycReuse?.has_cards ? 'Active cards' : kycReuse?.has_cardholder_profile ? 'Cardholder only' : 'No card setup'}
+                    </span>
+                    <span className="admin-chip">
+                      Guidance: {kycReuseActionLabel}
+                    </span>
+                  </div>
+                  <div className={`admin-kyc-reuse-note ${kycReuseSupportTone}`}>
+                    <span className="admin-kyc-reuse-note__label">Support next step</span>
+                    <p>{kycReuseSupportInstruction}</p>
+                  </div>
+                </>
+              )}
+            </div>
 
             <div className="admin-user-grid admin-user-grid--wide">
               <div className="admin-kv">
@@ -959,6 +1583,20 @@ const ViewUser = () => {
                     providerStatus && internalStatus && providerStatus !== internalStatus
                   const statusDrift =
                     internalStatus === 'pending' && providerStatus === 'active'
+                  const normalizedBalanceCurrency =
+                    card.provider_balance_currency || providerInfo?.currency || card.card_currency
+                  const availableBalanceLabel = formatCardCents(
+                    card.provider_available_balance_cents,
+                    normalizedBalanceCurrency
+                  )
+                  const totalBalanceLabel = formatCardCents(
+                    card.provider_balance_cents,
+                    normalizedBalanceCurrency
+                  )
+                  const bookBalanceLabel = formatCardCents(
+                    card.provider_book_balance_cents,
+                    normalizedBalanceCurrency
+                  )
 
                   return (
                     <div className="admin-card-item" key={card.id}>
@@ -1002,13 +1640,16 @@ const ViewUser = () => {
                       </div>
                       <div className="admin-card-item__meta admin-card-item__meta--details">
                         <div>
-                          <span>Balance</span>
-                          <strong>
-                            {formatCardAmount(
-                              providerInfo?.balance ?? card?.meta_data?.provider_balance,
-                              providerInfo?.currency || card.card_currency
-                            )}
-                          </strong>
+                          <span>Available balance</span>
+                          <strong>{availableBalanceLabel}</strong>
+                        </div>
+                        <div>
+                          <span>Total balance</span>
+                          <strong>{totalBalanceLabel}</strong>
+                        </div>
+                        <div>
+                          <span>Book balance</span>
+                          <strong>{bookBalanceLabel}</strong>
                         </div>
                         <div>
                           <span>Provider status</span>
@@ -1031,8 +1672,8 @@ const ViewUser = () => {
                         <div>
                           <span>Last provider sync</span>
                           <strong>
-                            {card.provider_updated_at || card.status_last_refreshed_at
-                              ? dateFormater(card.provider_updated_at || card.status_last_refreshed_at)
+                            {card.provider_balance_synced_at || card.provider_updated_at || card.status_last_refreshed_at
+                              ? dateFormater(card.provider_balance_synced_at || card.provider_updated_at || card.status_last_refreshed_at)
                               : 'Not synced'}
                           </strong>
                         </div>
@@ -1919,6 +2560,14 @@ const ViewUser = () => {
 }
 
 export default ViewUser
+
+
+
+
+
+
+
+
 
 
 

@@ -8,7 +8,7 @@ export const getStatistics = createAsyncThunk(
   'app/get-statistics',
   async (_, { rejectWithValue }) => {
     try {
-      const response = await client.get('/statistics')
+      const response = await client.get('/admin/statistics')
       return response.data
     } catch (error) {
       return rejectWithValue({ message: getErrorMessage(error) })

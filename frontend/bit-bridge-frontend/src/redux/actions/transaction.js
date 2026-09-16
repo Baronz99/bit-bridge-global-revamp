@@ -134,9 +134,11 @@ export const updateTransaction = createAsyncThunk(
 
 export const getTransactions = createAsyncThunk(
   'transaction/get-transactions',
-  async (_, { rejectWithValue }) => {
+  async (options = {}, { rejectWithValue }) => {
     try {
-      const response = await client.get('/transactions')
+      const response = await client.get('/transactions', {
+        params: options?.params || {},
+      })
       return response.data
     } catch (error) {
       return rejectWithValue({ message: getErrorMessage(error) })
@@ -146,9 +148,21 @@ export const getTransactions = createAsyncThunk(
 
 export const getTransaction = createAsyncThunk(
   'transaction/get-transaction',
-  async (id, { rejectWithValue }) => {
+  async (input, { rejectWithValue }) => {
+    const request = typeof input === 'object' && input !== null ? input : { id: input }
+    const { id, params } = request
+
     try {
-      const response = await client.get(`/transactions/${id}`)
+      if (params?.admin_detail) {
+        const adminParams = { ...params }
+        delete adminParams.admin_detail
+        const response = await client.get(`/transactions/${encodeURIComponent(id)}/admin_detail`, {
+          params: adminParams,
+        })
+        return response.data
+      }
+
+      const response = await client.get(`/transactions/${encodeURIComponent(id)}`, { params })
       return response.data
     } catch (error) {
       return rejectWithValue({ message: getErrorMessage(error) })

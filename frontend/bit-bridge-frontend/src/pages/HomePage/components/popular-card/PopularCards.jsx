@@ -5,7 +5,7 @@ import SimpleCard from '../../../../components/product-card/SimpleCard'
 
 const PopularCards = () => {
   const dispatch = useDispatch()
-  const { giftcards, mobileProviders } = useSelector((state) => state.product)
+  const { mobileProviders } = useSelector((state) => state.product)
 
   useEffect(() => {
     dispatch(getProducts())

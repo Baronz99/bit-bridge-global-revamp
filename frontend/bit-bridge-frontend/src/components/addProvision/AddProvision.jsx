@@ -77,9 +77,6 @@ const AddProvision = ({ productID, setIsOpen }) => {
                 { value: 'ngn', label: 'NGN' },
                 { value: 'usd', label: 'USD' },
                 { value: 'gbp', label: 'GBP' },
-                { value: 'btc', label: 'Bitcoin' },
-                { value: 'eth', label: 'Eth' },
-                { value: 'doge', label: 'DOGE' },
               ]}
             />
             <FormSelect

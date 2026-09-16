@@ -22,6 +22,11 @@ import { SET_LOADING } from '../redux/app'
 import { CiLogout } from 'react-icons/ci'
 import logo from '../assets/logos/logo-mod.png'
 import { PiHandWithdraw } from 'react-icons/pi'
+import { RiVipCrown2Line } from 'react-icons/ri'
+import { HiOutlineShieldExclamation } from 'react-icons/hi2'
+import { BsBuildings } from 'react-icons/bs'
+import { TbTransferIn } from 'react-icons/tb'
+import { PiBankLight } from 'react-icons/pi'
 const AdminDashboardLayout = () => {
   const dispatch = useDispatch()
 
@@ -51,11 +56,13 @@ const AdminDashboardLayout = () => {
   }
 
   useEffect(() => {
-    if ((!loading && !user) || (user && !user.admin)) {
+    if (loading) return
+
+    if (!user || !user.admin) {
       toast('No Authorization', { type: 'error' })
       navigate('/admin/login')
     }
-  }, [user, navigate])
+  }, [loading, user, navigate])
 
   if (loading) {
     return <LoaderPage />
@@ -64,7 +71,7 @@ const AdminDashboardLayout = () => {
   return (
     <div className="admin flex relative  h-screen">
       <aside
-        className={`${toggleNav ? 'w-60' : 'w-0 md:w-28'} h-full overflow-hidden px-0 transition-all ease-linear duration-150 shrink-0`}
+        className={`${toggleNav ? 'w-60' : 'w-0 md:w-28'} flex h-full shrink-0 flex-col overflow-y-auto overflow-x-hidden px-0 transition-all ease-linear duration-150`}
       >
         <div className="flex items-center justify-center flex-col py-7 bg-blue-800/60">
           <img src={img} alt="" className="w-28 h-28 rounded-full" />
@@ -74,7 +81,7 @@ const AdminDashboardLayout = () => {
           </div>
         </div>
 
-        <ul className="text-white font-semibold mt-10 px-1">
+        <ul className="mt-10 px-1 pb-8 text-white font-semibold">
           <li className="my-2 py-2 px-3 bg-blue-80 text-sm text-left ">
             {' '}
             <NavLink
@@ -137,6 +144,76 @@ const AdminDashboardLayout = () => {
             >
               <UsergroupAddOutlined className="text-2xl" />
               <span>Users</span>
+            </NavLink>{' '}
+          </li>
+          <li className="my-2 py-2 px-3 bg-blue-80 text-sm">
+            {' '}
+            <NavLink
+              to={'/admin/businesses'}
+              className={`flex ${toggleNav ? 'flex-row' : 'flex-col'} gap-3 `}
+            >
+              <BsBuildings className="text-2xl" />
+              <span>Businesses</span>
+            </NavLink>{' '}
+          </li>
+          <li className="my-2 py-2 px-3 bg-blue-80 text-sm">
+            {' '}
+            <NavLink
+              to={'/admin/official-circles'}
+              className={`flex ${toggleNav ? 'flex-row' : 'flex-col'} gap-3 `}
+            >
+              <RiVipCrown2Line className="text-2xl" />
+              <span>Official Circles</span>
+            </NavLink>{' '}
+          </li>
+          <li className="my-2 py-2 px-3 bg-blue-80 text-sm">
+            {' '}
+            <NavLink
+              to={'/admin/risk-monitoring'}
+              className={`flex ${toggleNav ? 'flex-row' : 'flex-col'} gap-3 `}
+            >
+              <HiOutlineShieldExclamation className="text-2xl" />
+              <span>Risk Monitoring</span>
+            </NavLink>{' '}
+          </li>
+          <li className="my-2 py-2 px-3 bg-blue-80 text-sm">
+            {' '}
+            <NavLink
+              to={'/admin/anchor-inbound-review'}
+              className={`flex ${toggleNav ? 'flex-row' : 'flex-col'} gap-3 `}
+            >
+              <TbTransferIn className="text-2xl" />
+              <span>Anchor Inbound</span>
+            </NavLink>{' '}
+          </li>
+          <li className="my-2 py-2 px-3 bg-blue-80 text-sm">
+            {' '}
+            <NavLink
+              to={'/admin/circle-treasury-review'}
+              className={`flex ${toggleNav ? 'flex-row' : 'flex-col'} gap-3 `}
+            >
+              <PiBankLight className="text-2xl" />
+              <span>Circle Treasury</span>
+            </NavLink>{' '}
+          </li>
+          <li className="my-2 py-2 px-3 bg-blue-80 text-sm">
+            {' '}
+            <NavLink
+              to={'/admin/treasury-sources'}
+              className={`flex ${toggleNav ? 'flex-row' : 'flex-col'} gap-3 `}
+            >
+              <PiBankLight className="text-2xl" />
+              <span>Treasury Sources</span>
+            </NavLink>{' '}
+          </li>
+          <li className="my-2 py-2 px-3 bg-blue-80 text-sm">
+            {' '}
+            <NavLink
+              to={'/admin/provider-accounts'}
+              className={`flex ${toggleNav ? 'flex-row' : 'flex-col'} gap-3 `}
+            >
+              <PiBankLight className="text-2xl" />
+              <span>Provider Accounts</span>
             </NavLink>{' '}
           </li>
           <li className="my-2 py-2 px-3 bg-blue-80 text-sm">

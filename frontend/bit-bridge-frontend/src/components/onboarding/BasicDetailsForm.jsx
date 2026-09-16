@@ -1,10 +1,11 @@
-import React from 'react';
-import PropTypes from 'prop-types';
-import { Form, Button } from 'antd';
-import FormInput from '../formInput/FormInput';
+import React from 'react'
+import PropTypes from 'prop-types'
+import { Form } from 'antd'
+import FormInput from '../formInput/FormInput'
+import ClassicBtn from '../button/ClassicButton'
 
 const BasicDetailsForm = ({ initialValues, onSubmit, loading }) => {
-  const [form] = Form.useForm();
+  const [form] = Form.useForm()
 
   return (
     <Form
@@ -60,23 +61,22 @@ const BasicDetailsForm = ({ initialValues, onSubmit, loading }) => {
       </p>
 
       <Form.Item className="mt-5 mb-0">
-        <Button
+        <ClassicBtn
           htmlType="submit"
-          type="primary"
-          loading={loading}
-          className="w-full h-11 bg-alt border-alt text-white rounded-xl shadow-md"
+          isLoading={loading}
+          className="w-full h-11 rounded-xl shadow-md !my-0"
         >
           Continue
-        </Button>
+        </ClassicBtn>
       </Form.Item>
     </Form>
-  );
-};
+  )
+}
 
 BasicDetailsForm.propTypes = {
   initialValues: PropTypes.object,
   onSubmit: PropTypes.func.isRequired,
   loading: PropTypes.bool,
-};
+}
 
-export default BasicDetailsForm;
+export default BasicDetailsForm

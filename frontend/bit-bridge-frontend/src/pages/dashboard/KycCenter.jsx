@@ -14,8 +14,8 @@ import {
   LockOutlined,
 } from '@ant-design/icons'
 import { NavLink, useNavigate } from 'react-router-dom'
-import client from '../../api/client'
-import { userProfile } from '../../redux/actions/auth'
+import { getBvnStatus, getTier3Status, postTier3Start, verifyBvn } from '../../api/kyc'
+import { userProfile as fetchUserProfile } from '../../redux/actions/auth'
 
 // Primary use-case → copy
 const useCaseConfig = {
@@ -99,19 +99,23 @@ const kycLevelConfig = {
     description: 'Phone verified + basic profile. Unlocks core wallet usage and onboarding.',
   },
   tier_2: {
-    label: 'Tier 2 - Full access',
+    label: 'Tier 2 - Verified Identity',
     description:
-      'BVN verified + ID upload + address. Unlocks cards, tunnel, transfers and virtual accounts.',
+      'BVN verified + ID type + (verified NIN or uploaded ID document). Unlocks cards, tunnel, transfers and virtual accounts.',
   },
   tier_3: {
-    label: 'Tier 3 - Biometric',
+    label: 'Tier 3 - Biometric Verified',
     description:
       'Face verification (liveness + BVN face match). Unlocks higher limits and stronger protection.',
+  },
+  tier_4: {
+    label: 'Tier 4 - Verified Address',
+    description: 'Tier 3 + proof of address. Full verification.',
   },
 }
 
 // ---------- tier helpers ----------
-const tierOrder = ['tier_0', 'tier_1', 'tier_2', 'tier_3']
+const tierOrder = ['tier_0', 'tier_1', 'tier_2', 'tier_3', 'tier_4']
 const TIER3_POLL_INTERVAL_MS = 2000
 const TIER3_POLL_TIMEOUT_MS = 30000
 const TIER3_UI_STATUS = {
@@ -125,6 +129,7 @@ const TIER3_UI_STATUS = {
 const normalizeTierKey = (raw) => {
   const k = (raw ?? 'nil').toString().toLowerCase()
   if (k === 'nil' || k === '') return 'tier_0'
+  if (k === 'tier4') return 'tier_4'
   if (!tierOrder.includes(k)) return 'tier_0'
   return k
 }
@@ -153,13 +158,18 @@ const tierCardCopy = {
   },
   tier_2: {
     title: 'Tier 2',
-    body: 'BVN verified + ID upload + address. Unlock all services.',
+    body: 'Verified identity: BVN + ID type + (NIN verified or ID upload).',
     hint: 'Full access',
   },
   tier_3: {
     title: 'Tier 3',
     body: 'Biometric verification (liveness + BVN face match) for higher limits & stronger protection.',
     hint: 'Higher limits',
+  },
+  tier_4: {
+    title: 'Tier 4',
+    body: 'Verified address: proof of address on file.',
+    hint: 'Full verification',
   },
 }
 
@@ -284,37 +294,6 @@ InlineModal.propTypes = {
   onClose: PropTypes.func.isRequired,
 }
 
-// ---- helper: Tier 3 endpoint fallback (only fallback on 404) ----
-async function postTier3Start(payload) {
-  const candidates = [
-    '/verification/tier3/start',       // correct if baseURL is .../api/v1
-    '/api/v1/verification/tier3/start' // safety if baseURL is misconfigured
-  ]
-
-  let lastErr = null
-  for (const url of candidates) {
-    try {
-      const res = await client.post(url, payload)
-      return res
-    } catch (e) {
-      lastErr = e
-      const status = e?.response?.status
-      if (status && status !== 404) throw e
-    }
-  }
-
-  const base = client?.defaults?.baseURL
-  const msg =
-    `Tier 3 endpoint not found (404).\n\n` +
-    `Tried: ${candidates.join(', ')}\n` +
-    (base ? `Axios baseURL: ${base}\n\n` : '\n') +
-    `Fix: confirm backend route exists: POST /api/v1/verification/tier3/start`
-  const err = new Error(msg)
-  err._isTier3NotFound = true
-  err._lastErr = lastErr
-  throw err
-}
-
 const KycCenter = () => {
   const dispatch = useDispatch()
   const { user } = useSelector((state) => state.auth) || {}
@@ -355,12 +334,18 @@ const KycCenter = () => {
     !!user?.user_profile?.phone_verified_at
 
   const userKyc = user?.user_kyc || {}
+  const userProfile = user?.user_profile || {}
   const bvnStatus = userKyc?.bvn_status || 'unverified'
   const bvnLast4 = userKyc?.bvn_last4 || ''
   const isBvnVerified = bvnStatus === 'verified'
 
-  const hasTier2 = normalizedTierKey === 'tier_2' || normalizedTierKey === 'tier_3'
-  const hasTier3 = normalizedTierKey === 'tier_3'
+  const hasTier2 =
+    normalizedTierKey === 'tier_2' || normalizedTierKey === 'tier_3' || normalizedTierKey === 'tier_4'
+  const hasTier3 = normalizedTierKey === 'tier_3' || normalizedTierKey === 'tier_4'
+  const hasTier4 = normalizedTierKey === 'tier_4'
+  const hasProofOfAddressForTier4 = Boolean(
+    userProfile?.proof_of_address_type && userProfile?.proof_of_address_url
+  )
 
   const goProfile = () => navigate('/dashboard/profile-account')
   const goVirtualAccounts = () => navigate('/dashboard/virtual-accounts')
@@ -394,7 +379,7 @@ const KycCenter = () => {
 
   const fetchTier3Status = React.useCallback(async () => {
     try {
-      const res = await client.get('/verification/tier3/status')
+      const res = await getTier3Status()
       const data = res?.data || null
       setTier3StatusSnapshot(data)
       const nextStatus = resolveTier3UiStatus(data, tier3SubmittedAt)
@@ -450,7 +435,7 @@ const KycCenter = () => {
     setBvnRetryUntil(null)
 
     try {
-      const res = await client.post('/kyc/bvn/verify', { bvn: normalized })
+      const res = await verifyBvn(normalized)
       const payload = res?.data || null
       setBvnResponse(payload)
       if (payload?.retry_after_seconds) {
@@ -459,7 +444,7 @@ const KycCenter = () => {
       if (payload?.status === 'verified' || payload?.status === 'pending_review' || payload?.status === 'pending') {
         setBvnInput('')
       }
-      await dispatch(userProfile())
+      await dispatch(fetchUserProfile())
     } catch (error) {
       const payload = error?.response?.data || null
       const message =
@@ -477,6 +462,20 @@ const KycCenter = () => {
   }
 
   const effectiveBvnStatus = bvnResponse?.status || bvnStatus
+  const bvnDisplay = bvnResponse?.display || null
+  const mismatchFields = Array.isArray(bvnResponse?.mismatch_fields) ? bvnResponse.mismatch_fields : []
+  const mismatchFieldLabels = mismatchFields.map((field) => {
+    switch (field) {
+      case 'first_name':
+        return 'First name'
+      case 'last_name':
+        return 'Last name'
+      case 'date_of_birth':
+        return 'Date of birth'
+      default:
+        return field
+    }
+  })
   const effectiveLast4 = bvnResponse?.bvn_last4 || bvnLast4
   const isBvnPending = effectiveBvnStatus === 'pending'
   const isVerifyingBvn = bvnSubmitting
@@ -523,6 +522,15 @@ const KycCenter = () => {
       : effectiveBvnStatus === 'locked'
       ? 'text-rose-300'
       : 'text-slate-400'
+  const bvnDisplayClass =
+    bvnDisplay?.severity === 'success'
+      ? 'text-emerald-300'
+      : bvnDisplay?.severity === 'warning'
+      ? 'text-amber-200'
+      : bvnDisplay?.severity === 'error'
+      ? 'text-rose-300'
+      : 'text-slate-300'
+  const bvnDisplayNeedsProfileAction = bvnDisplay?.action === 'update_profile'
 
   React.useEffect(() => {
     if (!bvnRetryUntil) return
@@ -533,7 +541,7 @@ const KycCenter = () => {
 
   const pollBvnStatus = React.useCallback(async () => {
     try {
-      const res = await client.get('/kyc/bvn/status')
+      const res = await getBvnStatus()
       const payload = res?.data || null
       if (payload) {
         setBvnResponse(payload)
@@ -559,7 +567,7 @@ const KycCenter = () => {
   React.useEffect(() => {
     const fetchInitialStatus = async () => {
       try {
-        const res = await client.get('/kyc/bvn/status')
+        const res = await getBvnStatus()
         const payload = res?.data || null
         if (payload) {
           setBvnResponse(payload)
@@ -638,7 +646,7 @@ const KycCenter = () => {
       setTier3UiStatus(TIER3_UI_STATUS.processing)
       startTier3Polling()
 
-      await dispatch(userProfile())
+      await dispatch(fetchUserProfile())
       await fetchTier3Status()
     } catch (error) {
       const status = error?.response?.status
@@ -686,6 +694,32 @@ const KycCenter = () => {
           </div>
         </div>
       </div>
+
+      <section className="mb-6 rounded-2xl border border-slate-800 bg-slate-900/80 p-5 md:p-6">
+        <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+          <div>
+            <div className="text-[11px] uppercase tracking-[0.2em] text-slate-500">Verification journey</div>
+            <h2 className="mt-2 text-lg md:text-xl font-semibold text-slate-100">Phone first, BVN next</h2>
+            <p className="mt-2 max-w-2xl text-sm text-slate-400">
+              Complete phone verification first, verify your BVN second, then continue to document and biometric steps only if your account needs higher tiers.
+            </p>
+          </div>
+          <div className="inline-flex flex-wrap items-center gap-2">
+            <span className={`inline-flex items-center gap-2 rounded-full border px-3 py-1 text-[11px] uppercase tracking-[0.18em] ${phoneVerified ? 'border-emerald-900/60 bg-emerald-950/30 text-emerald-300' : 'border-amber-900/60 bg-amber-950/25 text-amber-300'}`}>
+              {phoneVerified ? <CheckCircleOutlined /> : <LockOutlined />}
+              <span>Phone {phoneVerified ? 'verified' : 'pending'}</span>
+            </span>
+            <span className={`inline-flex items-center gap-2 rounded-full border px-3 py-1 text-[11px] uppercase tracking-[0.18em] ${isBvnVerified ? 'border-emerald-900/60 bg-emerald-950/30 text-emerald-300' : 'border-amber-900/60 bg-amber-950/25 text-amber-300'}`}>
+              {isBvnVerified ? <CheckCircleOutlined /> : <LockOutlined />}
+              <span>BVN {isBvnVerified ? 'verified' : 'pending'}</span>
+            </span>
+            <span className="inline-flex items-center gap-2 rounded-full border border-slate-700 bg-slate-950/45 px-3 py-1 text-[11px] uppercase tracking-[0.18em] text-slate-300">
+              <SafetyCertificateOutlined />
+              <span>{kycInfo.label}</span>
+            </span>
+          </div>
+        </div>
+      </section>
 
       {/* Main 2-column layout */}
       <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)] gap-6">
@@ -739,7 +773,7 @@ const KycCenter = () => {
           <div>
             <h3 className="text-sm font-semibold mb-1 flex items-center gap-2">
               <CreditCardOutlined className="text-alt" />
-              Next steps to unlock everything
+              Verification steps to unlock everything
             </h3>
             <p className="text-xs text-slate-400 mb-4">
               You only need <span className="font-semibold text-slate-200">three</span> quick
@@ -805,9 +839,9 @@ const KycCenter = () => {
                   3
                 </div>
                 <div>
-                  <p className="font-semibold text-slate-100">Upload ID and proof of address</p>
+                  <p className="font-semibold text-slate-100">Provide identity evidence</p>
                   <p className="text-xs text-slate-400 mt-1">
-                    Add your ID document and proof of address to complete Tier 2.
+                    Add your ID document or complete NIN verification to complete Tier 2.
                   </p>
                   <button
                     type="button"
@@ -851,6 +885,45 @@ const KycCenter = () => {
                 </div>
                 <div className="text-xs text-slate-300 mt-1">
                   Biometric verification completed. You now qualify for higher limits.
+                </div>
+              </div>
+            ) : null}
+
+            {hasTier3 && !hasTier4 ? (
+              <div className="mt-5 rounded-xl border border-slate-800 bg-slate-950/50 p-4">
+                <div className="text-xs uppercase tracking-[0.2em] text-slate-500 mb-2">
+                  Next upgrade
+                </div>
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <div className="font-semibold text-slate-100">Upgrade to Tier 4</div>
+                    <div className="text-xs text-slate-400 mt-1">
+                      Complete address verification by uploading proof of address.
+                    </div>
+                    {!hasProofOfAddressForTier4 && (
+                      <div className="text-xs text-amber-200 mt-2">
+                        Missing: Proof of address
+                      </div>
+                    )}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={goProfile}
+                    className="shrink-0 inline-flex items-center px-3 py-2 rounded-lg bg-alt text-black text-xs font-semibold hover:brightness-110 transition"
+                  >
+                    Open KYC documents
+                  </button>
+                </div>
+              </div>
+            ) : null}
+
+            {hasTier4 ? (
+              <div className="mt-5 rounded-xl border border-emerald-700/40 bg-emerald-900/20 p-4">
+                <div className="flex items-center gap-2 text-emerald-200 font-semibold">
+                  <CheckCircleOutlined /> Tier 4 verified
+                </div>
+                <div className="text-xs text-slate-300 mt-1">
+                  Proof of address is verified. Full verification complete.
                 </div>
               </div>
             ) : null}
@@ -980,13 +1053,13 @@ const KycCenter = () => {
                     <>
                       <span className="text-slate-100">Next:</span>{' '}
                       {phoneVerified
-                        ? 'complete your address and upload documents to unlock Tier 2.'
-                        : 'verify your phone and complete your profile/documents to unlock Tier 2.'}
+                        ? 'complete ID type and identity evidence to unlock Tier 2.'
+                        : 'verify your phone and complete your profile/identity checks to unlock Tier 2.'}
                     </>
                   )}
                 </div>
                 {requirements && tier2Ready && (
-                  requirementTier === 'tier_2' || requirementTier === 'tier_3' ? (
+                  requirementTier === 'tier_2' || requirementTier === 'tier_3' || requirementTier === 'tier_4' ? (
                     <div className="mt-2 text-slate-100">Tier 2 unlocked.</div>
                   ) : (
                     <div className="mt-2 text-slate-100">Tier 2 ready.</div>
@@ -1002,40 +1075,70 @@ const KycCenter = () => {
               </div>
             )}
             {effectiveBvnStatus === 'pending_review' && (
-              <p className="text-amber-200">
-                Submitted for review. You can re-check BVN if you updated your profile.
-              </p>
+              <div className={bvnDisplayClass}>
+                <p className="font-semibold">{bvnDisplay?.title || 'Verification under review'}</p>
+                <p className="mt-1">
+                  {bvnDisplay?.message || 'Submitted for review. You can re-check BVN if you updated your profile.'}
+                </p>
+                {bvnDisplayNeedsProfileAction && (
+                  <button
+                    type="button"
+                    onClick={goProfile}
+                    className="mt-2 underline text-amber-100 hover:text-amber-50"
+                  >
+                    {bvnDisplay?.action_label || 'Update profile'}
+                  </button>
+                )}
+              </div>
             )}
             {effectiveBvnStatus === 'pending' && (
-              <p className="text-amber-200">
-                BVN verification is pending. We will update automatically once the provider is available.
-              </p>
+              <div className={bvnDisplayClass}>
+                <p className="font-semibold">{bvnDisplay?.title || 'Verification in progress'}</p>
+                <p className="mt-1">
+                  {bvnDisplay?.message || 'BVN verification is pending. We will update automatically once the provider is available.'}
+                </p>
+              </div>
             )}
             {effectiveBvnStatus === 'mismatch' && (
-              <p className="text-rose-300">
-                BVN details do not match your profile. Check your name and date of birth, then retry.
+              <div className={bvnDisplayClass}>
+                <p className="font-semibold">{bvnDisplay?.title || 'Details do not match'}</p>
+                <p className="mt-1">
+                  {bvnDisplay?.message || 'BVN details do not match your profile. Check your name and date of birth, then retry.'}
+                </p>
                 <button
                   type="button"
                   onClick={goProfile}
-                  className="ml-2 underline text-rose-200 hover:text-rose-100"
+                  className="mt-2 underline text-rose-200 hover:text-rose-100"
                 >
-                  Update profile
+                  {bvnDisplay?.action_label || 'Update profile'}
                 </button>
-              </p>
+              </div>
             )}
             {effectiveBvnStatus === 'locked' && (
-              <p className="text-rose-300">
-                Verification locked. Try again later or contact support.
-              </p>
+              <div className={bvnDisplayClass}>
+                <p className="font-semibold">{bvnDisplay?.title || 'Verification temporarily locked'}</p>
+                <p className="mt-1">
+                  {bvnDisplay?.message || 'Verification locked. Try again later or contact support.'}
+                </p>
+              </div>
             )}
             {effectiveBvnStatus === 'failed' && (
-              <p className="text-rose-300">
-                {isRetryBackoff
-                  ? `Provider unavailable. Retry in ${retrySecondsRemaining}s.`
-                  : 'Provider unavailable. Please retry in a few minutes.'}
-              </p>
+              <div className={bvnDisplayClass}>
+                <p className="font-semibold">{bvnDisplay?.title || 'Verification failed'}</p>
+                <p className="mt-1">
+                  {bvnDisplay?.message ||
+                    (isRetryBackoff
+                      ? `Provider unavailable. Retry in ${retrySecondsRemaining}s.`
+                      : 'Provider unavailable. Please retry in a few minutes.')}
+                </p>
+              </div>
             )}
-            {effectiveBvnStatus === 'unverified' && <p>Enter your BVN to begin verification.</p>}
+            {effectiveBvnStatus === 'unverified' && (
+              <div className={bvnDisplayClass}>
+                <p className="font-semibold">{bvnDisplay?.title || 'Verification required'}</p>
+                <p className="mt-1">{bvnDisplay?.message || 'Enter your BVN to begin verification.'}</p>
+              </div>
+            )}
             {bvnResponse?.cached === true && bvnResponse?.message && (
               <p className="text-slate-300 mt-2">{bvnResponse.message}</p>
             )}
@@ -1198,3 +1301,5 @@ const KycCenter = () => {
 }
 
 export default KycCenter
+
+

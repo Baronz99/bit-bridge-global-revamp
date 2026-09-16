@@ -3,6 +3,49 @@ import { toast } from 'react-toastify'
 import client from '../../api/client'
 import nairaFormat from '../../utils/nairaFormat'
 
+const isPlainObject = (value) => {
+  if (value === null || typeof value !== 'object') return false
+  const proto = Object.getPrototypeOf(value)
+  return proto === Object.prototype || proto === null
+}
+
+const ensureSerializable = (value, path = 'payload', seen = new WeakSet()) => {
+  if (value == null) return
+
+  const valueType = typeof value
+  if (valueType === 'string' || valueType === 'number' || valueType === 'boolean') return
+
+  if (valueType === 'function' || valueType === 'symbol' || valueType === 'bigint') {
+    throw new Error(`Invalid ${path}: non-serializable value`)
+  }
+
+  if (typeof Element !== 'undefined' && value instanceof Element) {
+    throw new Error(`Invalid ${path}: DOM element detected`)
+  }
+
+  if (valueType !== 'object') return
+
+  if (seen.has(value)) {
+    throw new Error(`Invalid ${path}: circular reference detected`)
+  }
+  seen.add(value)
+
+  if (Array.isArray(value)) {
+    value.forEach((item, index) => ensureSerializable(item, `${path}[${index}]`, seen))
+    seen.delete(value)
+    return
+  }
+
+  if (!isPlainObject(value)) {
+    throw new Error(`Invalid ${path}: non-plain object detected`)
+  }
+
+  Object.entries(value).forEach(([key, nested]) => {
+    ensureSerializable(nested, `${path}.${key}`, seen)
+  })
+  seen.delete(value)
+}
+
 const getErrorMessage = (error) =>
   error?.response?.data?.message ||
   (error?.code === 'ERR_NETWORK' ? 'Network error. Please try again.' : null) ||
@@ -35,6 +78,7 @@ export const createPurchaseOrder = createAsyncThunk(
 
       const vendType = normalizeVendType(data || {})
       const payload = { ...data, vendType }
+      ensureSerializable(payload)
 
       const response = await client.post('/payment_processors/process_payment', payload)
       const result = response.data
@@ -43,7 +87,6 @@ export const createPurchaseOrder = createAsyncThunk(
       return result
     } catch (error) {
       const message = getErrorMessage(error)
-      toast(message, { type: 'error' })
       return rejectWithValue({ message })
     }
   }

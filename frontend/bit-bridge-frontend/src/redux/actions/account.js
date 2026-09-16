@@ -88,6 +88,51 @@ export const getUserAccount = createAsyncThunk(
   }
 )
 
+export const getAnchorOnboardingState = createAsyncThunk(
+  'account/get-anchor-onboarding-state',
+  async (_, { rejectWithValue }) => {
+    try {
+      const response = await client.get('/accounts/anchor_onboarding_state')
+      return response.data
+    } catch (error) {
+      const message = getErrorMessage(error)
+      return rejectWithValue({ message })
+    }
+  }
+)
+
+export const setupAnchorOnboarding = createAsyncThunk(
+  'account/setup-anchor-onboarding',
+  async (data, { rejectWithValue }) => {
+    try {
+      const response = await client.post('/accounts/setup_anchor_onboarding', data)
+      return response.data
+    } catch (error) {
+      const message = getErrorMessage(error)
+      const payload = error?.response?.data || {}
+      return rejectWithValue({
+        message,
+        flow: payload?.flow || null,
+        details: payload?.details || null,
+        response: payload,
+      })
+    }
+  }
+)
+
+export const getAccountSummary = createAsyncThunk(
+  'account/get-account-summary',
+  async (_, { rejectWithValue }) => {
+    try {
+      const response = await client.get('/accounts/account_summary')
+      return response.data
+    } catch (error) {
+      const message = getErrorMessage(error)
+      return rejectWithValue({ message })
+    }
+  }
+)
+
 export const createDepositAccount = createAsyncThunk(
   'account/create-deposite-account',
   async (_data, { rejectWithValue }) => {
@@ -243,6 +288,7 @@ export const getUserCard = createAsyncThunk('card/GET_USER_CARD', async (_, { re
     return rejectWithValue({ message })
   }
 })
+
 
 
 

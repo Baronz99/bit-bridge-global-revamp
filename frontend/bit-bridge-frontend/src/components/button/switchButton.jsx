@@ -1,31 +1,20 @@
-import { Switch } from 'antd'
 import PropTypes from 'prop-types'
-// const onChange = checked => {
-//   console.log(`switch to ${checked}`);
-// };
-const SwitchButton = ({ onChange, checked, disabled, className }) => {
-  return (
-    <Switch
-      className={`bg-red-900 switch-button ${className || ''}`}
-      onChange={onChange}
-      checked={checked}
-      disabled={disabled}
-    />
-  )
-  //   return (
-  //     <input
-  //       className="h-10 w-10"
-  //       type="checkbox"
-  //       //   value={checkInput}
-  //       name="checkInput"
-  //       onChange={(e) => {
-  //         const { checked, value } = e.target
 
-  //         console.log(value, checked)
-  //         setCheckForminput((prev) => !prev)
-  //       }}
-  //     />
-  //   )
+const SwitchButton = ({ onChange, checked, disabled, className = '' }) => {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      disabled={disabled}
+      onClick={() => onChange?.(!checked)}
+      className={`switch-button relative inline-flex h-6 w-11 items-center rounded-full transition ${checked ? 'bg-alt' : 'bg-red-900'} ${disabled ? 'cursor-not-allowed opacity-50' : ''} ${className}`.trim()}
+    >
+      <span
+        className={`inline-block h-5 w-5 transform rounded-full bg-white transition ${checked ? 'translate-x-5' : 'translate-x-1'}`}
+      />
+    </button>
+  )
 }
 
 SwitchButton.propTypes = {

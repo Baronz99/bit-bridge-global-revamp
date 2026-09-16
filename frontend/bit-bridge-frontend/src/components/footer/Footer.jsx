@@ -10,7 +10,6 @@ const Footer = () => {
             <h2 className="text-3xl font-semibold text-primary">
               <img src={logo} className="object-cover max-w-60 m-auto  -mt-20" />
             </h2>
-            {/* <p className="my-2 font-medium text-gray-300">Crypto Market place</p> */}
           </div>
 
           <div className="bg-red-30 text-center md:text-left">
@@ -38,7 +37,6 @@ const Footer = () => {
                 {' '}
                 <NavLink to={'/phone-top-up'}> Phone Top Up</NavLink>{' '}
               </li>
-              {/* <li><NavLink to={"/crypto-exchange"}>Crypto Cards</NavLink></li> */}
             </ul>
           </div>
 

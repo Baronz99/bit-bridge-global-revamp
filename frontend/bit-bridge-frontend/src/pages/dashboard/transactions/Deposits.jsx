@@ -1,3 +1,4 @@
+import PropTypes from 'prop-types'
 import { useDispatch, useSelector } from 'react-redux'
 import dateFormater from '../../../utils/dateFormat'
 import nairaFormat from '../../../utils/nairaFormat'
@@ -9,7 +10,7 @@ import Loading from '../../../components/loader/Loading'
 import statusStyleCard from '../../../utils/statusCard'
 import { resolveReceiptReference } from '../../../utils/receiptReference'
 
-const Deposits = () => {
+const Deposits = ({ walletTypeOverride = null }) => {
   const [toggle, setToggle] = useState(false)
   const [viewImage, setViewImage] = useState(null)
 
@@ -17,7 +18,7 @@ const Deposits = () => {
   const dispatch = useDispatch()
 
   const ctx = useOutletContext()
-  const wallet_type = (ctx?.wallet_type || 'ngn').toLowerCase() === 'usd' ? 'usd' : 'ngn'
+  const wallet_type = (walletTypeOverride || ctx?.wallet_type || 'ngn').toLowerCase() === 'usd' ? 'usd' : 'ngn'
 
   const currencyForFormat = useMemo(() => (wallet_type === 'usd' ? 'usd' : 'ngn'), [wallet_type])
   const visibleTransactions = useMemo(
@@ -166,6 +167,11 @@ const Deposits = () => {
       </AppModal>
     </>
   )
+}
+
+
+Deposits.propTypes = {
+  walletTypeOverride: PropTypes.oneOf(['ngn', 'usd']),
 }
 
 export default Deposits

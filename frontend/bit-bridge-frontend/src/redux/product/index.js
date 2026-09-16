@@ -4,8 +4,6 @@ import { createProduct, fetchProduct, getProducts } from '../actions/product'
 const initialState = {
   product: {},
   products: [],
-  giftcards: [],
-  crypto: [],
   mobileProviders: [],
   utilities: [],
   services: [],
@@ -42,22 +40,17 @@ const productSlice = createSlice({
       .addCase(getProducts.fulfilled, (state, action) => {
         const products = action.payload.data
 
-        const filteredGiftCards = products.filter((item) => item.category === 'gift card')
         const filteredMobileProvider = products.filter(
           (item) => item.category === 'mobile provider'
         )
         const filteredServices = products.filter((item) => item.category === 'service')
         const filteredUtilities = products.filter((item) => item.category === 'utility')
-        const filteredCrypto = products.find((item) => item.category === 'crypto')
-
         return {
           ...state,
           products: action.payload.data,
-          giftcards: filteredGiftCards,
           services: filteredServices,
           mobileProviders: filteredMobileProvider,
           utilities: filteredUtilities,
-          crypto: filteredCrypto,
           loading: false,
         }
       })

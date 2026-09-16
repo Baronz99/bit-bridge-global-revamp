@@ -1,105 +1,59 @@
 import { useCallback } from 'react'
 
-const AccountNumbers = ({ accounts, generate, onView, showView = true }) => {
-  //   const [accounts, setAccounts] = useState({
-  //     savings: null,
-  //     investment: null,
-  //   })
-
+const AccountNumbers = ({ accounts, anchorAccount, generate, onView, showView = true }) => {
   const getAccountName = useCallback((account) => {
     if (account === 'anchor') return 'Anchor'
     return 'Anchor'
   }, [])
 
-  const accountVendors = ['anchor']
-  //   const isVenorAnchor = accounts.some((acc) => acc.vendor === 'anchor')
-
-  const filteredAccounts = (accounts || []).filter((e) => e.vendor === 'anchor')
-  const accountNonexisting = accountVendors.filter((acc) => !filteredAccounts.some((e) => e.vendor == acc))
-  const accountexisting = accountVendors.filter((acc) => filteredAccounts.some((e) => e.vendor == acc))
+  const resolvedAnchorAccount =
+    anchorAccount || (accounts || []).find((entry) => String(entry?.vendor || '').toLowerCase() === 'anchor') || null
+  const hasAnchorRecord = Boolean(resolvedAnchorAccount)
+  const hasAccountNumber = Boolean(resolvedAnchorAccount?.account_number)
 
   return (
     <div className="flex justify-between w-full my-4 rounded-2xl border border-slate-800 bg-slate-900/80 shadow-lg p-6">
       <div className="w-full">
         <div className="grid grid-cols-2 sm:grid-cols-2 gap-6">
-          {/* Savings Account */}
-          {Array.from({ length: accountVendors.length }).map((_, i) => {
-            const useraccountExists =
-              filteredAccounts[i]?.vendor && accountVendors.some((acc) => acc == filteredAccounts[i]?.vendor)
-            const accountIndex = accountVendors.indexOf(filteredAccounts[i]?.vendor ?? 'nil')
-            const canGenerate = accountNonexisting[i - accountexisting.length] === 'anchor'
-            const existingVendor = accountVendors[accountIndex]
-            const missingVendor = accountNonexisting[i - accountexisting.length]
+          <div className="border border-slate-800 bg-slate-950/70 text-center rounded-xl py-3 shadow-sm hover:shadow-md transition-all">
+            <h3 className="text-slate-100 font-medium text-lg mb-2">
+              {getAccountName('anchor')}
+            </h3>
 
-            if (useraccountExists) {
-              return (
-                <div
-                  key={i}
-                  className="border border-slate-800 bg-slate-950/70 text-center rounded-xl py-3 shadow-sm hover:shadow-md transition-all"
-                >
-                  <h3 className="text-slate-100 font-medium text-lg mb-2">
-                    {/* {i === 0 ? 'MoniePoint' : 'Anchor'} */}
-                    {getAccountName(filteredAccounts[i]?.vendor)}
-                  </h3>
+            {hasAnchorRecord && hasAccountNumber ? (
+              <>
+                <p className="text-xs font-bold text-alt tracking-wider">
+                  {resolvedAnchorAccount.account_name}
+                </p>
+                <p className="text-sm text-slate-400 mt-1">
+                  Bank: {resolvedAnchorAccount?.bank_name || 'Anchor'}
+                </p>
 
-                  {filteredAccounts[i]?.account_number ? (
-                    <>
-                      <p className="text-xs font-bold text-alt tracking-wider">
-                        {filteredAccounts[i].account_name}
-                      </p>
-                      <p className="text-sm text-slate-400 mt-1">
-                        Bank: {filteredAccounts[i]?.bank_name || 'Anchor'}
-                      </p>
-
-                      {showView && onView ? (
-                        <button
-                          onClick={() => onView(i, filteredAccounts[i])}
-                          className="text-sm text-slate-100 mt-1 hover:text-alt"
-                        >
-                          View
-                        </button>
-                      ) : null}
-                    </>
-                  ) : accountVendors[accountIndex] === 'anchor' ? (
-                    <button
-                      onClick={() => generate(existingVendor, filteredAccounts[i])}
-                      className="text-slate-400 text-base font-normal hover:text-alt italic"
-                    >
-                      + Continue
-                    </button>
-                  ) : (
-                    <span className="text-slate-500 text-sm italic">
-                      Not available
-                    </span>
-                  )}
-                </div>
-              )
-            } else {
-              return (
-                <div
-                  key={i}
-                  className="border border-slate-800 bg-slate-950/70 text-center rounded-xl p-5 shadow-sm hover:shadow-md transition-all"
-                >
-                  <h3 className="text-slate-300 font-medium text-lg mb-2">
-                    {/* {i === 0 ? 'MoniePoint' : 'Anchor'} */}
-                    {getAccountName(accountNonexisting[i - accountexisting.length])}
-                  </h3>
-                  {canGenerate ? (
-                    <button
-                      onClick={() => generate(missingVendor)}
-                      className="text-slate-400 text-base font-normal hover:text-alt italic"
-                    >
-                      + generate
-                    </button>
-                  ) : (
-                    <span className="text-slate-500 text-sm italic">
-                      Not available
-                    </span>
-                  )}
-                </div>
-              )
-            }
-          })}
+                {showView && onView ? (
+                  <button
+                    onClick={() => onView(0, resolvedAnchorAccount)}
+                    className="text-sm text-slate-100 mt-1 hover:text-alt"
+                  >
+                    View
+                  </button>
+                ) : null}
+              </>
+            ) : hasAnchorRecord ? (
+              <button
+                onClick={() => generate('anchor', resolvedAnchorAccount)}
+                className="text-slate-400 text-base font-normal hover:text-alt italic"
+              >
+                Continue setup
+              </button>
+            ) : (
+              <button
+                onClick={() => generate('anchor')}
+                className="text-slate-400 text-base font-normal hover:text-alt italic"
+              >
+                Create account
+              </button>
+            )}
+          </div>
         </div>
       </div>
     </div>

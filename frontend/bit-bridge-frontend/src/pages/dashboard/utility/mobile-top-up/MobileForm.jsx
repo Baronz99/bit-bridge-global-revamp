@@ -14,6 +14,8 @@ import { SET_LOADING } from '../../../../redux/app'
 import PlainSelect from '../../../../components/formSelect/plainSelect'
 import { splitString } from '../../../../utils'
 
+const readInputValue = (input) => input?.target?.value ?? input ?? ''
+
 const DashboardMobileForm = () => {
   const [id, selectedProvider, service] = useOutletContext()
   const { user } = useSelector((state) => state.auth)
@@ -168,9 +170,8 @@ const DashboardMobileForm = () => {
                     <FormInput
                       type="number"
                       step="0.01"
-                      // value={value}
                       onChange={(input) => {
-                        setValue({ ...value, amount: input })
+                        setValue({ ...value, amount: readInputValue(input) })
                       }}
                       placeholder={'Enter Amount'}
                     />

@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useDispatch, useSelector } from 'react-redux'
 import { userDelete, userPasswordUpdate, userProfile } from '../../redux/actions/auth'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { SET_LOADING, setThemeMode } from '../../redux/app'
 import AppModal from '../../components/modal/Modal'
 import { toast } from 'react-toastify'
@@ -16,9 +16,18 @@ import KycPanel from './profile/KycPanel'
 import SecurityPanel from './profile/SecurityPanel'
 import DangerZonePanel from './profile/DangerZonePanel'
 import FeesLimitsPanel from './profile/FeesLimitsPanel' // ✅ NEW
+import StatementsPanel from './profile/StatementsPanel'
 
 // helper from onboarding API
 import { updateKycProfile } from '../../api/onboarding'
+import { verifyNin } from '../../api/kyc'
+import { confirmEmailChange, requestEmailChange } from '../../api/emailChange'
+import { requestEmailVerification } from '../../api/auth'
+import {
+  EMAIL_VERIFICATION_SUCCESS_MESSAGE,
+  getEmailVerificationFeedback,
+  getEmailVerificationState,
+} from '../../utils/emailVerification'
 
 // ID type options
 const idTypeOptions = [
@@ -281,9 +290,14 @@ const proofOfAddressOptions = [
   { value: 'other', label: 'Other' },
 ]
 
+const VALID_PROFILE_SECTIONS = ['profile', 'kyc', 'security', 'fees', 'statements', 'danger']
+
+const resolveActiveSection = (value) =>
+  VALID_PROFILE_SECTIONS.includes(value) ? value : 'profile'
 const ProfileAccountPage = () => {
   const dispatch = useDispatch()
   const navigate = useNavigate()
+  const [searchParams, setSearchParams] = useSearchParams()
   const { user } = useSelector((state) => state.auth)
   const { themeMode } = useSelector((state) => state.app || {})
 
@@ -298,6 +312,17 @@ const ProfileAccountPage = () => {
 
   const [open, setOpen] = useState(false)
   const [showPhoneModal, setShowPhoneModal] = useState(false)
+  const [showEmailModal, setShowEmailModal] = useState(false)
+  const [emailChangeStep, setEmailChangeStep] = useState('request')
+  const [emailChangeLoading, setEmailChangeLoading] = useState(false)
+  const [emailChangeInfo, setEmailChangeInfo] = useState('')
+  const [emailVerificationLoading, setEmailVerificationLoading] = useState(false)
+  const [emailVerificationInfo, setEmailVerificationInfo] = useState('')
+  const [emailChangeForm, setEmailChangeForm] = useState({
+    new_email: '',
+    current_password: '',
+    phone_otp_code: '',
+  })
 
   // When user clicks "Verify", we seed the modal with whatever is in the input
   const [pendingPhone, setPendingPhone] = useState('')
@@ -328,11 +353,25 @@ const ProfileAccountPage = () => {
   const [proofOfAddressFile, setProofOfAddressFile] = useState(null)
 
   const up = user?.user_profile || {}
+  const emailVerification = useMemo(() => getEmailVerificationState(user), [user])
+  const userBadges = Array.isArray(user?.badges) ? user.badges : []
+  const foundingBadge = userBadges.find((badge) => badge?.key === 'founding_supporter')
 
   const phoneVerified =
     user?.phone_verified === true ||
     !!user?.phone_verified_at ||
     !!up?.phone_verified_at
+
+  useEffect(() => {
+    const nextSection = resolveActiveSection(searchParams.get('section'))
+    setActive((current) => (current === nextSection ? current : nextSection))
+  }, [searchParams])
+
+  const openSection = (section) => {
+    const nextSection = resolveActiveSection(section)
+    setActive(nextSection)
+    setSearchParams({ section: nextSection })
+  }
 
   // IMPORTANT:
   // Never push phone_e164 into the editable input.
@@ -366,14 +405,29 @@ const ProfileAccountPage = () => {
     setIdDocumentFile(null)
     setProofOfAddressFile(null)
     setPendingPhone('')
+    setEmailChangeForm({
+      new_email: '',
+      current_password: '',
+      phone_otp_code: '',
+    })
+    setEmailChangeInfo('')
+    setEmailVerificationInfo('')
+    setEmailChangeStep('request')
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user])
+
+  useEffect(() => {
+    if (emailVerification.isVerified) {
+      setEmailVerificationInfo('')
+    }
+  }, [emailVerification.isVerified])
 
   const headerSubtitle = useMemo(() => {
     if (active === 'profile') return 'Basic information and contact details'
     if (active === 'kyc') return 'Identity and address verification'
-    if (active === 'security') return 'Password and transaction PIN'
+    if (active === 'security') return 'Password, transaction PIN, and protected account mode'
     if (active === 'fees') return 'Transparent fees, limits and pricing' // ✅ NEW
+    if (active === 'statements') return 'Request and download your statement of account'
     if (active === 'danger') return 'Account deletion and irreversible actions'
     return ''
   }, [active])
@@ -390,13 +444,13 @@ const ProfileAccountPage = () => {
 
   const handleUserUpdate = async () => {
     try {
-      if (active === 'kyc') {
-      }
       dispatch(SET_LOADING(true))
 
       const formData = new FormData()
 
       const isKycSave = active === 'kyc'
+      const submittedNin = String(nin || '').replace(/\D/g, '')
+      const shouldVerifyNin = isKycSave && userInfo.id_type === 'nin' && submittedNin.length === 11
 
       if (isKycSave || userInfo.id_type) {
         formData.append('user[id_type]', userInfo.id_type || '')
@@ -421,6 +475,32 @@ const ProfileAccountPage = () => {
       if (proofOfAddressFile) formData.append('user[proof_of_address]', proofOfAddressFile)
 
       await updateKycProfile(formData, true)
+
+      if (shouldVerifyNin) {
+        try {
+          const ninRes = await verifyNin(submittedNin)
+          const ninPayload = ninRes?.data || {}
+          const displayTitle = String(ninPayload?.display?.title || '').trim()
+          const displayMessage = String(ninPayload?.display?.message || '').trim()
+          const fallbackMessage =
+            ninPayload?.message ||
+            (ninPayload?.status === 'verified'
+              ? 'NIN verified successfully.'
+              : ninPayload?.status === 'mismatch'
+              ? 'NIN details do not match your profile records.'
+              : 'NIN verification submitted.')
+
+          toast(
+            displayTitle && displayMessage ? `${displayTitle}: ${displayMessage}` : displayMessage || fallbackMessage,
+            { type: ninPayload?.status === 'verified' ? 'success' : 'info' }
+          )
+        } catch (ninErr) {
+          const ninPayload = ninErr?.response?.data || {}
+          const ninMessage =
+            ninPayload?.display?.message || ninPayload?.message || ninPayload?.error || 'NIN verification failed.'
+          toast(ninMessage, { type: 'error' })
+        }
+      }
 
       // ✅ Refresh Redux user and immediately sync local form state from server
       const refreshedAction = await dispatch(userProfile())
@@ -462,8 +542,7 @@ const ProfileAccountPage = () => {
       dispatch(SET_LOADING(false))
     }
   }
-
-  const handlePasswordUpdate = () => {
+const handlePasswordUpdate = () => {
     if (userPassword.password !== userPassword.confirm_password) {
       toast('password mismatch', { type: 'error' })
       return
@@ -488,7 +567,6 @@ const ProfileAccountPage = () => {
       }
     })
   }
-
   const handleUserDelete = () => {
     dispatch(SET_LOADING(true))
     dispatch(userDelete(user.id)).then((result) => {
@@ -503,12 +581,109 @@ const ProfileAccountPage = () => {
     })
   }
 
+  const openEmailChangeModal = () => {
+    setEmailChangeInfo('')
+    setEmailChangeStep('request')
+    setEmailChangeForm({
+      new_email: '',
+      current_password: '',
+      phone_otp_code: '',
+    })
+    setShowEmailModal(true)
+  }
+
+  const closeEmailChangeModal = () => {
+    if (emailChangeLoading) return
+    setShowEmailModal(false)
+    setEmailChangeInfo('')
+    setEmailChangeStep('request')
+    setEmailChangeForm({
+      new_email: '',
+      current_password: '',
+      phone_otp_code: '',
+    })
+  }
+
+  const handleEmailOtpRequest = async () => {
+    setEmailChangeLoading(true)
+    setEmailChangeInfo('')
+    try {
+      const response = await requestEmailChange({
+        new_email: emailChangeForm.new_email,
+        current_password: emailChangeForm.current_password,
+      })
+      setEmailChangeStep('confirm')
+      setEmailChangeInfo(
+        response?.message || 'Verification code sent to your verified phone number.'
+      )
+      toast(response?.message || 'Verification code sent to your phone.', { type: 'success' })
+    } catch (error) {
+      const message =
+        error?.response?.data?.message ||
+        error?.response?.data?.error ||
+        'Unable to send verification code.'
+      setEmailChangeInfo(message)
+      toast(message, { type: 'error' })
+    } finally {
+      setEmailChangeLoading(false)
+    }
+  }
+
+  const handleEmailChangeConfirm = async () => {
+    setEmailChangeLoading(true)
+    setEmailChangeInfo('')
+    try {
+      const response = await confirmEmailChange({
+        new_email: emailChangeForm.new_email,
+        current_password: emailChangeForm.current_password,
+        phone_otp_code: emailChangeForm.phone_otp_code,
+      })
+      const nextUser = await dispatch(userProfile()).unwrap()
+      setUserInfo((prev) => ({
+        ...prev,
+        email: nextUser?.email || prev.email,
+      }))
+      if (emailChangeForm.new_email) {
+        const nextEmail = emailChangeForm.new_email.trim().toLowerCase()
+        localStorage.setItem('email', nextEmail)
+        localStorage.setItem('confirmation_flow', 'email-change')
+      }
+      toast(response?.message || 'Email change initiated. Check your new inbox.', { type: 'success' })
+      closeEmailChangeModal()
+      navigate('/check-email?flow=email-change')
+    } catch (error) {
+      const message =
+        error?.response?.data?.message ||
+        error?.response?.data?.error ||
+        'Unable to confirm email change.'
+      setEmailChangeInfo(message)
+      toast(message, { type: 'error' })
+    } finally {
+      setEmailChangeLoading(false)
+    }
+  }
+
+  const handleEmailVerificationRequest = async () => {
+    setEmailVerificationLoading(true)
+    setEmailVerificationInfo('')
+
+    try {
+      await requestEmailVerification()
+      setEmailVerificationInfo(EMAIL_VERIFICATION_SUCCESS_MESSAGE)
+      await dispatch(userProfile())
+    } catch (error) {
+      setEmailVerificationInfo(getEmailVerificationFeedback(error))
+    } finally {
+      setEmailVerificationLoading(false)
+    }
+  }
+
   const NavButton = ({ id, title, desc }) => {
     const isActive = active === id
     return (
       <button
         type="button"
-        onClick={() => setActive(id)}
+        onClick={() => openSection(id)}
         className={[
           'relative w-full text-left rounded-2xl border px-4 py-3 transition',
           'backdrop-blur',
@@ -543,6 +718,19 @@ const ProfileAccountPage = () => {
             <div>
               <h1 className="text-2xl md:text-3xl font-bold text-white">Account Settings</h1>
               <p className="text-sm text-slate-300/80 mt-1">{headerSubtitle}</p>
+              {foundingBadge ? (
+                <div className="mt-3 inline-flex items-center gap-2 rounded-2xl border border-amber-400/35 bg-amber-400/10 px-3 py-2 text-sm text-amber-100">
+                  <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-amber-300/20 text-base">
+                    ★
+                  </span>
+                  <div>
+                    <div className="font-semibold">{foundingBadge.name || 'Founding Supporter'}</div>
+                    <div className="text-xs text-amber-100/80">
+                      Awarded for supporting {foundingBadge.source_circle_name || 'the BitBridge Founders Circle'}.
+                    </div>
+                  </div>
+                </div>
+              ) : null}
             </div>
 
             <div className="flex flex-col sm:flex-row sm:items-center gap-3">
@@ -602,6 +790,7 @@ const ProfileAccountPage = () => {
 
                 {/* ✅ NEW */}
                 <NavButton id="fees" title="Fees & Limits" desc="Pricing, transfer fees, card limits" />
+                <NavButton id="statements" title="Statements" desc="Request and download account statements" />
 
                 <NavButton id="danger" title="Danger zone" desc="Delete your account" />
               </div>
@@ -609,6 +798,46 @@ const ProfileAccountPage = () => {
 
             <main className="lg:col-span-8">
               <div className="bb-panel rounded-2xl border border-white/10 bg-white/5 backdrop-blur p-4 md:p-6">
+                <div className="mb-5 rounded-2xl border border-white/10 bg-white/5 px-4 py-4">
+                  <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+                    <div>
+                      <div className="text-sm font-semibold text-white">Email verification</div>
+                      <div className="mt-1 text-sm text-slate-300/80">
+                        {emailVerification.isVerified
+                          ? 'Email verified'
+                          : emailVerification.email
+                          ? 'Email not verified'
+                          : 'Add an email address to enable verification.'}
+                      </div>
+                      {!emailVerification.isVerified && emailVerification.email ? (
+                        <div className="mt-1 text-xs text-slate-400">
+                          Receive receipts, security alerts, and recover your account.
+                        </div>
+                      ) : null}
+                      {emailVerificationInfo ? (
+                        <div className="mt-3 rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-sm text-slate-100">
+                          {emailVerificationInfo}
+                        </div>
+                      ) : null}
+                    </div>
+
+                    {emailVerification.isVerified ? (
+                      <div className="inline-flex items-center rounded-full border border-emerald-400/30 bg-emerald-400/10 px-3 py-1.5 text-xs font-semibold text-emerald-200">
+                        Email verified
+                      </div>
+                    ) : emailVerification.email ? (
+                      <button
+                        type="button"
+                        disabled={emailVerificationLoading}
+                        onClick={handleEmailVerificationRequest}
+                        className="inline-flex items-center justify-center rounded-xl bg-amber-500/90 px-4 py-2 text-sm font-semibold text-slate-950 transition hover:bg-amber-400 disabled:cursor-not-allowed disabled:opacity-60"
+                      >
+                        {emailVerificationLoading ? 'Sending...' : 'Send verification email'}
+                      </button>
+                    ) : null}
+                  </div>
+                </div>
+
                 {active === 'profile' && (
                   <ProfileInfoPanel
                     userInfo={userInfo}
@@ -645,7 +874,14 @@ const ProfileAccountPage = () => {
                     userPassword={userPassword}
                     setUserPassword={setUserPassword}
                     onPasswordUpdate={handlePasswordUpdate}
+                    currentEmail={user?.email || userInfo.email}
+                    pendingEmail={user?.unconfirmed_email || ''}
+                    onOpenEmailChange={openEmailChangeModal}
                     phoneVerified={phoneVerified}
+                    securityLock={user?.security_lock || null}
+                    onRefreshSecurity={async () => {
+                      await dispatch(userProfile())
+                    }}
                     onOpenPhoneVerify={() => {
                       setPendingPhone(String(userInfo?.user_profile?.phone_number || '').trim())
                       setShowPhoneModal(true)
@@ -655,6 +891,7 @@ const ProfileAccountPage = () => {
 
                 {/* ✅ NEW */}
                 {active === 'fees' && <FeesLimitsPanel />}
+                {active === 'statements' && <StatementsPanel />}
 
                 {active === 'danger' && <DangerZonePanel onOpenDelete={() => setOpen(true)} />}
               </div>
@@ -698,8 +935,114 @@ const ProfileAccountPage = () => {
         // ✅ Seed with whatever user is trying to verify (fallback to profile phone)
         defaultPhone={pendingPhone || up?.phone_number || userInfo?.user_profile?.phone_number || ''}
       />
+
+      <AppModal isModalOpen={showEmailModal} handleCancel={closeEmailChangeModal}>
+        <div className="rounded-2xl shadow-lg p-6 max-w-lg mx-auto text-white">
+          <h2 className="text-xl font-semibold mb-2">Change email</h2>
+          <p className="text-sm text-slate-300 mb-5">
+            Secure this change with your current password and an OTP sent to your verified phone.
+            Your login email will only switch after you confirm the link in the new inbox.
+          </p>
+
+          <div className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-slate-200/80">New email</label>
+              <input
+                type="email"
+                value={emailChangeForm.new_email}
+                onChange={(e) =>
+                  setEmailChangeForm((prev) => ({ ...prev, new_email: e.target.value }))
+                }
+                className="mt-1 w-full rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-white outline-none focus:ring-2 focus:ring-amber-500/40"
+                placeholder="new-email@example.com"
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-slate-200/80">Current password</label>
+              <input
+                type="password"
+                value={emailChangeForm.current_password}
+                onChange={(e) =>
+                  setEmailChangeForm((prev) => ({ ...prev, current_password: e.target.value }))
+                }
+                className="mt-1 w-full rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-white outline-none focus:ring-2 focus:ring-amber-500/40"
+                placeholder="Enter current password"
+              />
+            </div>
+
+            {emailChangeStep === 'confirm' ? (
+              <div>
+                <label className="block text-sm font-medium text-slate-200/80">
+                  Phone verification code
+                </label>
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  value={emailChangeForm.phone_otp_code}
+                  onChange={(e) =>
+                    setEmailChangeForm((prev) => ({
+                      ...prev,
+                      phone_otp_code: e.target.value.replace(/\D/g, '').slice(0, 6),
+                    }))
+                  }
+                  className="mt-1 w-full rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-white outline-none focus:ring-2 focus:ring-amber-500/40"
+                  placeholder="Enter 6-digit OTP"
+                />
+              </div>
+            ) : null}
+
+            {emailChangeInfo ? (
+              <div className="rounded-xl border border-white/10 bg-white/5 px-3 py-3 text-sm text-slate-200">
+                {emailChangeInfo}
+              </div>
+            ) : null}
+          </div>
+
+          <div className="mt-6 flex flex-col sm:flex-row gap-3 sm:justify-end">
+            <button
+              type="button"
+              onClick={closeEmailChangeModal}
+              className="px-4 py-2 rounded-xl border border-white/15 bg-white/5 hover:bg-white/10 text-white transition"
+            >
+              Cancel
+            </button>
+            {emailChangeStep === 'confirm' ? (
+              <button
+                type="button"
+                disabled={emailChangeLoading}
+                onClick={handleEmailChangeConfirm}
+                className="px-4 py-2 rounded-xl bg-amber-600 text-white hover:bg-amber-700 transition disabled:opacity-60"
+              >
+                {emailChangeLoading ? 'Confirming...' : 'Confirm email change'}
+              </button>
+            ) : (
+              <button
+                type="button"
+                disabled={emailChangeLoading}
+                onClick={handleEmailOtpRequest}
+                className="px-4 py-2 rounded-xl bg-amber-600 text-white hover:bg-amber-700 transition disabled:opacity-60"
+              >
+                {emailChangeLoading ? 'Sending code...' : 'Send phone OTP'}
+              </button>
+            )}
+          </div>
+        </div>
+      </AppModal>
     </>
   )
 }
 
 export default ProfileAccountPage
+
+
+
+
+
+
+
+
+
+
+
+

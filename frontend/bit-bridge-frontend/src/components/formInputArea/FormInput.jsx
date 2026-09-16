@@ -1,13 +1,12 @@
-import { Form, Input } from 'antd'
+import { Form } from 'antd'
 import './styles.scss'
 import PropTypes from 'prop-types'
-const { TextArea } = Input
+
 const FormInputArea = ({
   placeholder,
   onChange,
   name,
   className,
-
   required = false,
   label,
 }) => {
@@ -24,7 +23,12 @@ const FormInputArea = ({
         ]}
         label={label}
       >
-        <TextArea rows={4} onChange={onChange} cols={6} placeholder={placeholder} />
+        <textarea
+          rows={4}
+          onChange={onChange}
+          placeholder={placeholder}
+          className="app-form-control app-form-textarea"
+        />
       </Form.Item>
     </>
   )

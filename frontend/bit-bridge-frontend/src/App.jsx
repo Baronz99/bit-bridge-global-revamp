@@ -1,116 +1,144 @@
-import { Route, Routes, Navigate } from 'react-router-dom'
-import './App.css'
-import Home from './pages/HomePage'
-import HomeDashboard from './pages/dashboard'
-import DashboardLayout from './layouts/Dashboard'
-import Account from './pages/dashboard/account'
-import GiftCards from './pages/dashboard/gift-card'
-import Transactions from './pages/dashboard/transactions'
-import Orders from './pages/dashboard/transactions/Orders'
-import Trades from './pages/dashboard/transactions/Trades'
-import Withdrawals from './pages/dashboard/transactions/Withdrawals'
-import Bitcoin from './pages/dashboard/crypto-exchange/Bitcoin'
-import Dogecoin from './pages/dashboard/crypto-exchange/Dogecoin'
-import MainLayout from './layouts'
-import UtilityView from './pages/UtilityServicesPage/UtilityView'
-import LoginPage from './pages/auth/Login'
-import CirclesPage from './pages/Circles/CirclesPage'
-import CirclesDetailPage from './pages/Circles/CirclesDetailPage'
-
-// NEW – onboarding + KYC
-import OnboardingStart from './pages/auth/OnboardingStart'
-import UseCaseSetup from './pages/auth/UseCaseSetup'
-import KycCenter from './pages/dashboard/KycCenter'
-
-import PaymentMenthod from './pages/checkout/PaymentMenthod'
-
-import Loader from './components/modal/Loader'
+import { lazy, Suspense } from 'react'
+import { Route, Routes, Navigate, useLocation } from 'react-router-dom'
 import { useSelector } from 'react-redux'
+import './App.css'
+import Loader from './components/modal/Loader'
+import LoaderPage from './components/loader/LoaderPage'
 import userInitializeData from './hooks/userInitializer'
 import { AppToast } from './components/toast'
-
-import AdminHome from './pages/admin'
-import AdminDashboardLayout from './layouts/AdminDashBoard'
-import Purchases from './pages/admin/purchases/purchases'
-import Products from './pages/admin/products/Products'
-import Services from './pages/admin/services/Services'
-import AddProduct from './pages/admin/AddProducts'
-import ALogin from './pages/auth/admin/Login'
-import ASignup from './pages/auth/admin/SignUp'
-import { lazy, Suspense } from 'react'
-import LoaderPage from './components/loader/LoaderPage'
-import CryptoSell from './pages/dashboard/crypto-exchange/CryptoSell'
-import AdminTransactions from './pages/admin/transactions/deposits'
-import Users from './pages/admin/users/Users'
-import KycReviews from './pages/admin/KycReviews'
-import FxSettings from './pages/admin/FxSettings'
-import PricingSpec from './pages/admin/PricingSpec'
-import Deposits from './pages/dashboard/transactions/Deposits'
-import ConfirmOrder from './pages/ConfirmOrder'
-import ViewProduct from './pages/admin/products/View'
-import OrderTransact from './pages/dashboard/components/Orders'
-import BuyPower from './pages/UtilityServicesPage/BuyPower'
-import ViewBuyPower from './pages/UtilityServicesPage/buy-power/ViewBuyPower'
-import PowerForm from './pages/UtilityServicesPage/buy-power/PurchaseForm'
-import PurchaseDetails from './pages/UtilityServicesPage/buy-power/PurchaseDetails'
-import ComfirmPurchase from './pages/UtilityServicesPage/buy-power/ConfirmPurchase'
 import ScrollToTop from './hooks/scrollToTop'
-import ViewOrder from './pages/admin/purchases/ViewOrder'
-import GiftCardOrder from './pages/dashboard/GiftCardOrder'
-import ContactUs from './pages/contact-us/ContactUs'
-import AboutUs from './pages/about-us/AboutUs'
-import TermsCondintion from './pages/policies/TermsCondintion'
-import PrivacyPolicies from './pages/policies/PrivacyPolicies'
-import PurchaseDataDetails from './pages/PhoneTopUp/buy-data/PurchaseDetails'
-import ComfirmDataPurchase from './pages/PhoneTopUp/buy-data/ConfirmPurchase'
-import PurchaseCableDetails from './pages/UtilityServicesPage/buy-cable/PurchaseDetails'
-import Ethereum from './pages/dashboard/crypto-exchange/Ethereum'
-import ForgotPasswordPage from './pages/auth/ForgotPassword'
-import ResetPasswordPage from './pages/auth/PasswordReset'
-import ComfirmCablePurchase from './pages/UtilityServicesPage/buy-cable/ConfirmPurchase'
-import Utility from './pages/dashboard/utility/Utility'
-import PowerUtilities from './pages/dashboard/utility/power/PowerUtilities'
-import PowerView from './pages/dashboard/utility/power/PowerView'
-import DashboardPowerForm from './pages/dashboard/utility/power/PowerForm'
-import MainServices from './pages/services'
-import ProductView from './pages/ProductPage/ViewProduct'
-import CableUtilities from './pages/dashboard/utility/cable/CableUtilities'
-import CableView from './pages/dashboard/utility/cable/PowerView'
-import DashboardCableForm from './pages/dashboard/utility/cable/CableForm'
-import SiteMap from './pages/policies/SiteMap'
-import VulnerabilityDisclosure from './pages/policies/VulnerabilityDisclosure'
-import MobileTopUps from './pages/dashboard/utility/mobile-top-up/MobileTops'
-import DashboardMobileForm from './pages/dashboard/utility/mobile-top-up/MobileForm'
-import MobileView from './pages/dashboard/utility/mobile-top-up/MobileView'
-import ViewTransaction from './pages/admin/transactions/ViewTransaction'
-import ViewUser from './pages/admin/users/ViewUser'
-import ComfirmQuickPurchase from './pages/dashboard/ConfirmQuickPurchase'
-import AdminWithdrawalTransactions from './pages/admin/transactions/withdrawals'
-import AppRedirect from './pages/AppRedirect'
-import ProfileAccountPage from './pages/dashboard/ProfilePage'
-import QueryRequest from './pages/admin/query/QueryRequest'
-import ConfirmEmail from './pages/auth/ConfirmEmail'
-import SendConfirmEmail from './pages/auth/SendConfirmationEmail'
-import ConfirmationSuccess from './pages/auth/ConfirmationSuccess'
-import ConfirmationError from './pages/auth/ConfirmationError'
-import ConfirmPayment from './pages/checkout/ConfirmPayment'
-import DashboardPurchaseDetails from './pages/dashboard/PurchaseDetails'
-import DashboardComfirmPurchase from './pages/dashboard/ConfirmPurchase'
-import VirtualCardApplication from './components/cardView/CardView'
-import VirtualAccounts from './pages/dashboard/VirtualAccounts'
-import Rewards from './pages/dashboard/Rewards'
-import CheckEmail from './pages/auth/CheckEmail'
-import Receipt from './pages/dashboard/Receipt'
-
-// ✅ NEW: Idle logout hook
 import useIdleLogout from './hooks/useIdleLogout'
-
+const Home = lazy(() => import('./pages/HomePage'))
+const DashboardLayout = lazy(() => import('./layouts/Dashboard'))
+const MainLayout = lazy(() => import('./layouts'))
+const AdminDashboardLayout = lazy(() => import('./layouts/AdminDashBoard'))
 const ViewMobileTopUp = lazy(() => import('./pages/PhoneTopUp/ViewMobileTopUp'))
 const PhoneTopUp = lazy(() => import('./pages/PhoneTopUp'))
-const GiftCardPage = lazy(() => import('./pages/GiftCardPage'))
 const UtilityServices = lazy(() => import('./pages/UtilityServicesPage'))
-const ViewGiftCard = lazy(() => import('./pages/GiftCardPage/ViewGiftCard'))
-const CryptoExchangePage = lazy(() => import('./pages/cryptoExchangePage'))
+const UtilityView = lazy(() => import('./pages/UtilityServicesPage/UtilityView'))
+const PaymentMenthod = lazy(() => import('./pages/checkout/PaymentMenthod'))
+const ConfirmOrder = lazy(() => import('./pages/ConfirmOrder'))
+const BuyPower = lazy(() => import('./pages/UtilityServicesPage/BuyPower'))
+const ViewBuyPower = lazy(() => import('./pages/UtilityServicesPage/buy-power/ViewBuyPower'))
+const PowerForm = lazy(() => import('./pages/UtilityServicesPage/buy-power/PurchaseForm'))
+const PurchaseDetails = lazy(() => import('./pages/UtilityServicesPage/buy-power/PurchaseDetails'))
+const ComfirmPurchase = lazy(() => import('./pages/UtilityServicesPage/buy-power/ConfirmPurchase'))
+const ContactUs = lazy(() => import('./pages/contact-us/ContactUs'))
+const AboutUs = lazy(() => import('./pages/about-us/AboutUs'))
+const TermsCondintion = lazy(() => import('./pages/policies/TermsCondintion'))
+const PrivacyPolicies = lazy(() => import('./pages/policies/PrivacyPolicies'))
+const PurchaseDataDetails = lazy(() => import('./pages/PhoneTopUp/buy-data/PurchaseDetails'))
+const ComfirmDataPurchase = lazy(() => import('./pages/PhoneTopUp/buy-data/ConfirmPurchase'))
+const PurchaseCableDetails = lazy(() => import('./pages/UtilityServicesPage/buy-cable/PurchaseDetails'))
+const ForgotPasswordPage = lazy(() => import('./pages/auth/ForgotPassword'))
+const ResetPasswordPage = lazy(() => import('./pages/auth/PasswordReset'))
+const ComfirmCablePurchase = lazy(() => import('./pages/UtilityServicesPage/buy-cable/ConfirmPurchase'))
+const MainServices = lazy(() => import('./pages/services'))
+const ProductView = lazy(() => import('./pages/ProductPage/ViewProduct'))
+const SiteMap = lazy(() => import('./pages/policies/SiteMap'))
+const VulnerabilityDisclosure = lazy(() => import('./pages/policies/VulnerabilityDisclosure'))
+const AppRedirect = lazy(() => import('./pages/AppRedirect'))
+const ConfirmPayment = lazy(() => import('./pages/checkout/ConfirmPayment'))
+const LoginPage = lazy(() => import('./pages/auth/Login'))
+const OnboardingStart = lazy(() => import('./pages/auth/OnboardingStart'))
+const SignupGate = lazy(() => import('./pages/auth/SignupGate'))
+const UseCaseSetup = lazy(() => import('./pages/auth/UseCaseSetup'))
+const ALogin = lazy(() => import('./pages/auth/admin/Login'))
+const ASignup = lazy(() => import('./pages/auth/admin/SignUp'))
+const ConfirmEmail = lazy(() => import('./pages/auth/ConfirmEmail'))
+const SendConfirmEmail = lazy(() => import('./pages/auth/SendConfirmationEmail'))
+const ConfirmationSuccess = lazy(() => import('./pages/auth/ConfirmationSuccess'))
+const ConfirmationError = lazy(() => import('./pages/auth/ConfirmationError'))
+const CheckEmail = lazy(() => import('./pages/auth/CheckEmail'))
+const HomeDashboard = lazy(() => import('./pages/dashboard'))
+const Account = lazy(() => import('./pages/dashboard/account'))
+const BridgeSend = lazy(() => import('./pages/dashboard/BridgeSend'))
+const Transactions = lazy(() => import('./pages/dashboard/transactions'))
+const Orders = lazy(() => import('./pages/dashboard/transactions/Orders'))
+const Trades = lazy(() => import('./pages/dashboard/transactions/Trades'))
+const Withdrawals = lazy(() => import('./pages/dashboard/transactions/Withdrawals'))
+const Deposits = lazy(() => import('./pages/dashboard/transactions/Deposits'))
+const KycCenter = lazy(() => import('./pages/dashboard/KycCenter'))
+const HomeDashboardOrderTransact = lazy(() => import('./pages/dashboard/components/Orders'))
+const Utility = lazy(() => import('./pages/dashboard/utility/Utility'))
+const PowerUtilities = lazy(() => import('./pages/dashboard/utility/power/PowerUtilities'))
+const PowerView = lazy(() => import('./pages/dashboard/utility/power/PowerView'))
+const DashboardPowerForm = lazy(() => import('./pages/dashboard/utility/power/PowerForm'))
+const CableUtilities = lazy(() => import('./pages/dashboard/utility/cable/CableUtilities'))
+const CableView = lazy(() => import('./pages/dashboard/utility/cable/PowerView'))
+const DashboardCableForm = lazy(() => import('./pages/dashboard/utility/cable/CableForm'))
+const MobileTopUps = lazy(() => import('./pages/dashboard/utility/mobile-top-up/MobileTops'))
+const BettingPage = lazy(() => import('./pages/dashboard/utility/betting/BettingPage'))
+const DashboardMobileForm = lazy(() => import('./pages/dashboard/utility/mobile-top-up/MobileForm'))
+const MobileView = lazy(() => import('./pages/dashboard/utility/mobile-top-up/MobileView'))
+const ComfirmQuickPurchase = lazy(() => import('./pages/dashboard/ConfirmQuickPurchase'))
+const ProfileAccountPage = lazy(() => import('./pages/dashboard/ProfilePage'))
+const DashboardPurchaseDetails = lazy(() => import('./pages/dashboard/PurchaseDetails'))
+const DashboardComfirmPurchase = lazy(() => import('./pages/dashboard/ConfirmPurchase'))
+const VirtualCardApplication = lazy(() => import('./components/cardView/CardView'))
+const VirtualAccounts = lazy(() => import('./pages/dashboard/VirtualAccounts'))
+const Rewards = lazy(() => import('./pages/dashboard/Rewards'))
+const Receipt = lazy(() => import('./pages/dashboard/Receipt'))
+const BridgeDashboard = lazy(() => import('./pages/dashboard/BridgeDashboard'))
+const TunnelDashboard = lazy(() => import('./pages/dashboard/TunnelDashboard'))
+const ActivityCenter = lazy(() => import('./pages/dashboard/ActivityCenter'))
+const CoreCenter = lazy(() => import('./pages/dashboard/CoreCenter'))
+const AssistanceCenter = lazy(() => import('./pages/dashboard/AssistanceCenter'))
+const BusinessDashboard = lazy(() => import('./pages/dashboard/BusinessDashboard'))
+const BusinessActivate = lazy(() => import('./pages/dashboard/BusinessActivate'))
+const BusinessOnboarding = lazy(() => import('./pages/dashboard/BusinessOnboarding'))
+const BusinessKyb = lazy(() => import('./pages/dashboard/BusinessKyb'))
+const BusinessTeam = lazy(() => import('./pages/dashboard/BusinessTeam'))
+const BusinessPolicies = lazy(() => import('./pages/dashboard/BusinessPolicies'))
+const BusinessSettings = lazy(() => import('./pages/dashboard/BusinessSettings'))
+const BusinessApprovalInbox = lazy(() => import('./pages/dashboard/BusinessApprovalInbox'))
+const BusinessPayees = lazy(() => import('./pages/dashboard/BusinessPayees'))
+const BusinessPayoutSchedules = lazy(() => import('./pages/dashboard/BusinessPayoutSchedules'))
+const BusinessSend = lazy(() => import('./pages/dashboard/BusinessSend'))
+const BusinessBulkPayouts = lazy(() => import('./pages/dashboard/BusinessBulkPayouts'))
+const BusinessPayrollRunDetail = lazy(() => import('./pages/dashboard/BusinessPayrollRunDetail'))
+const BusinessTransferDetail = lazy(() => import('./pages/dashboard/BusinessTransferDetail'))
+const BusinessReceipt = lazy(() => import('./pages/dashboard/BusinessReceipt'))
+const BusinessTransfers = lazy(() => import('./pages/dashboard/BusinessTransfers'))
+const BusinessReceiptsHub = lazy(() => import('./pages/dashboard/BusinessReceiptsHub'))
+const CirclesPage = lazy(() => import('./pages/Circles/CirclesPage'))
+const CirclesDetailPage = lazy(() => import('./pages/Circles/CirclesDetailPage'))
+const CircleHomePage = lazy(() => import('./pages/Circles/rebuild/CircleHomePage'))
+const CirclePayPage = lazy(() => import('./pages/Circles/rebuild/CirclePayPage'))
+const CircleManagePage = lazy(() => import('./pages/Circles/rebuild/CircleManagePage'))
+const CircleTimelinePage = lazy(() => import('./pages/Circles/rebuild/CircleTimelinePage'))
+const AdminHome = lazy(() => import('./pages/admin'))
+const Purchases = lazy(() => import('./pages/admin/purchases/purchases'))
+const Products = lazy(() => import('./pages/admin/products/Products'))
+const Services = lazy(() => import('./pages/admin/services/Services'))
+const AddProduct = lazy(() => import('./pages/admin/AddProducts'))
+const AdminTransactions = lazy(() => import('./pages/admin/transactions/deposits'))
+const AdminWithdrawalTransactions = lazy(() => import('./pages/admin/transactions/withdrawals'))
+const Users = lazy(() => import('./pages/admin/users/Users'))
+const Businesses = lazy(() => import('./pages/admin/businesses/Businesses'))
+const KycReviews = lazy(() => import('./pages/admin/KycReviews'))
+const FxSettings = lazy(() => import('./pages/admin/FxSettings'))
+const OfficialCircles = lazy(() => import('./pages/admin/OfficialCircles'))
+const RiskMonitoring = lazy(() => import('./pages/admin/RiskMonitoring'))
+const AnchorInboundReview = lazy(() => import('./pages/admin/AnchorInboundReview'))
+const CircleTreasuryReview = lazy(() => import('./pages/admin/CircleTreasuryReview'))
+const TreasurySources = lazy(() => import('./pages/admin/TreasurySources'))
+const ProviderAccounts = lazy(() => import('./pages/admin/ProviderAccounts'))
+const PricingSpec = lazy(() => import('./pages/admin/PricingSpec'))
+const KycReuseReview = lazy(() => import('./pages/admin/KycReuseReview'))
+const ViewProduct = lazy(() => import('./pages/admin/products/View'))
+const ViewOrder = lazy(() => import('./pages/admin/purchases/ViewOrder'))
+const ViewTransaction = lazy(() => import('./pages/admin/transactions/ViewTransaction'))
+const ViewUser = lazy(() => import('./pages/admin/users/ViewUser'))
+const ViewBusiness = lazy(() => import('./pages/admin/businesses/ViewBusiness'))
+const QueryRequest = lazy(() => import('./pages/admin/query/QueryRequest'))
+const TransactionMilestoneFlyer = lazy(() => import('./pages/admin/TransactionMilestoneFlyer'))
+
+function BusinessOnboardingAlias() {
+  const location = useLocation()
+
+  return <Navigate to={`/dashboard/business/onboarding${location.search || ''}`} replace />
+}
 
 function App() {
   const { isLoading } = useSelector((state) => state.app)
@@ -119,8 +147,10 @@ function App() {
   userInitializeData()
   ScrollToTop()
 
-  // ✅ NEW: web idle -> logout
-  useIdleLogout({ idleMs: 10 * 60 * 1000, enabled: true })
+  // Disable forced idle logout globally for now.
+  // The current 10-minute timeout is too aggressive for active dashboard/Circles use
+  // and can terminate sessions during normal navigation.
+  useIdleLogout({ idleMs: 10 * 60 * 1000, enabled: false })
 
   return (
     <div className="bg-gray-100 ">
@@ -138,6 +168,7 @@ function App() {
           />
           <Route path="/app-redirect" element={<AppRedirect />} />
           <Route path="/checkout" element={<ConfirmPayment />} />
+          <Route path="/business/onboarding" element={<BusinessOnboardingAlias />} />
 
           <Route path="/contact-us" element={<ContactUs />} />
           <Route path="/terms-conditions" element={<TermsCondintion />} />
@@ -187,24 +218,6 @@ function App() {
           </Route>
 
           <Route
-            path="/gift-cards"
-            element={
-              <MainLayout>
-                <GiftCardPage />
-              </MainLayout>
-            }
-          />
-
-          <Route
-            path="/crypto-exchange"
-            element={
-              <MainLayout>
-                <CryptoExchangePage />
-              </MainLayout>
-            }
-          />
-
-          <Route
             path="/services"
             element={
               <MainLayout>
@@ -218,24 +231,6 @@ function App() {
             element={
               <MainLayout>
                 <ProductView />
-              </MainLayout>
-            }
-          />
-
-          <Route
-            path="/gift-cards/:id"
-            element={
-              <MainLayout>
-                <ViewGiftCard />
-              </MainLayout>
-            }
-          />
-
-          <Route
-            path="/crypto-exchange/:id"
-            element={
-              <MainLayout>
-                <ViewGiftCard />
               </MainLayout>
             }
           />
@@ -290,16 +285,57 @@ function App() {
             <Route path="rewards" element={<Rewards />} />
             <Route path="receipt/:reference" element={<Receipt />} />
 
+            <Route path="bridge" element={<BridgeDashboard />} />
+            <Route path="bridge/wallet" element={<Navigate to="/dashboard/bridge" replace />} />
+            <Route path="bridge/send" element={<BridgeSend />} />
+            <Route path="bridge/utilities" element={<Navigate to="/dashboard/utilities" replace />} />
+            <Route path="bridge/circles" element={<Navigate to="/dashboard/shared-groups" replace />} />
+            <Route path="bridge/rewards" element={<Navigate to="/dashboard/rewards" replace />} />
+            <Route path="tunnel" element={<TunnelDashboard />} />
+            <Route path="tunnel/cards" element={<Navigate to="/dashboard/virtual-cards" replace />} />
+            <Route path="tunnel/funding" element={<Navigate to="/dashboard/tunnel?panel=funding" replace />} />
+            <Route path="tunnel/virtual-accounts" element={<Navigate to="/dashboard/tunnel/funding" replace />} />
+            <Route path="tunnel/wallet" element={<Navigate to="/dashboard/tunnel" replace />} />
+            <Route path="tunnel/fx" element={<Account />} />
+            <Route path="activity" element={<ActivityCenter />} />
+            <Route path="activity/transactions" element={<Navigate to="/dashboard/activity?tab=transactions" replace />} />
+            <Route path="activity/receipts/:reference" element={<Receipt />} />
+            <Route path="assistance-center" element={<AssistanceCenter />} />
+            <Route path="business/activate" element={<BusinessActivate />} />
+            <Route path="business/onboarding" element={<BusinessOnboarding />} />
+            <Route path="business/kyb" element={<BusinessKyb />} />
+            <Route path="business/team" element={<BusinessTeam />} />
+            <Route path="business/policies" element={<BusinessPolicies />} />
+            <Route path="business/settings" element={<BusinessSettings />} />
+            <Route path="business" element={<BusinessDashboard />} />
+            <Route path="business/approvals" element={<BusinessApprovalInbox />} />
+            <Route path="business/payees" element={<BusinessPayees />} />
+            <Route path="business/schedules" element={<BusinessPayoutSchedules />} />
+            <Route path="business/send" element={<BusinessSend />} />
+            <Route path="business/payouts" element={<BusinessBulkPayouts />} />
+            <Route path="business/payouts/:payoutRunId" element={<BusinessPayrollRunDetail />} />
+            <Route path="business/transfers" element={<BusinessTransfers />} />
+            <Route path="business/transfers/:reference" element={<BusinessTransferDetail />} />
+            <Route path="business/receipts" element={<BusinessReceiptsHub />} />
+            <Route path="business/receipts/:reference" element={<BusinessReceipt />} />
+            <Route path="core" element={<CoreCenter />} />
+            <Route path="core/kyc" element={<Navigate to="/dashboard/kyc" replace />} />
+            <Route path="core/profile" element={<Navigate to="/dashboard/profile-account?section=profile" replace />} />
+            <Route path="core/security" element={<Navigate to="/dashboard/profile-account?section=security" replace />} />
+            <Route path="core/fees" element={<Navigate to="/dashboard/profile-account?section=fees" replace />} />
             <Route path="kyc" element={<KycCenter />} />
 
             <Route path="home" element={<HomeDashboard />}>
-              <Route path="orders-transaction" element={<OrderTransact />} />
+              <Route path="orders-transaction" element={<HomeDashboardOrderTransact />} />
             </Route>
 
             <Route path="shared-groups" element={<CirclesPage />} />
-            <Route path="shared-groups/:id" element={<CirclesDetailPage />} />
+            <Route path="shared-groups/:id" element={<CircleHomePage />} />
+            <Route path="shared-groups/:id/pay" element={<CirclePayPage />} />
+            <Route path="shared-groups/:id/manage" element={<CircleManagePage />} />
+            <Route path="shared-groups/:id/timeline" element={<CircleTimelinePage />} />
+            <Route path="shared-groups/:id/legacy" element={<CirclesDetailPage />} />
 
-            <Route path="approved-gift-cards" element={<GiftCardOrder />} />
             <Route path="wallet" element={<Account />} />
             <Route path="confirm/:id" element={<ComfirmQuickPurchase />} />
 
@@ -319,6 +355,7 @@ function App() {
             </Route>
 
             <Route path="utilities/mobile-top-up" element={<MobileTopUps />} />
+            <Route path="utilities/betting" element={<BettingPage />} />
             <Route path="utilities/mobile-top-up/:id" element={<MobileView />}>
               <Route path="mobileform" element={<DashboardMobileForm />} />
               <Route path="confirm-payment" element={<DashboardComfirmPurchase />} />
@@ -327,7 +364,6 @@ function App() {
 
             <Route path="confirm-payment" element={<DashboardComfirmPurchase />} />
 
-            <Route path="gift-cards" element={<GiftCards />} />
             <Route path="transactions" element={<Transactions />}>
               <Route path="orders" element={<Orders />} />
               <Route path="trades" element={<Trades />} />
@@ -335,11 +371,6 @@ function App() {
               <Route path="withdrawals" element={<Withdrawals />} />
             </Route>
 
-            <Route path="crypto-sell" element={<CryptoSell />}>
-              <Route path="bitcoin" element={<Bitcoin />} />
-              <Route path="dogecoin" element={<Dogecoin />} />
-              <Route path="ethereum" element={<Ethereum />} />
-            </Route>
           </Route>
 
           {/* Onboarding routes */}
@@ -348,7 +379,7 @@ function App() {
 
           {/* AUTH ROUTES */}
           <Route path="/login" element={<LoginPage />} />
-          <Route path="/signup" element={<OnboardingStart />} />
+          <Route path="/signup" element={<SignupGate />} />
           <Route path="/check-email" element={<CheckEmail />} />
           <Route path="/forgot-password" element={<ForgotPasswordPage />} />
           <Route path="/reset_password" element={<ResetPasswordPage />} />
@@ -356,6 +387,7 @@ function App() {
           {/* ADMIN AUTH */}
           <Route path="/admin/login" element={<ALogin />} />
           <Route path="/admin/signup" element={<ASignup />} />
+          <Route path="/admin/social/transaction-milestone" element={<TransactionMilestoneFlyer />} />
           <Route path="/confirmation" element={<ConfirmEmail />} />
           <Route path="/send-confirmation" element={<SendConfirmEmail />} />
           <Route path="/confirmation-success" element={<ConfirmationSuccess />} />
@@ -376,8 +408,17 @@ function App() {
             <Route path="transactions/:id" element={<ViewTransaction />} />
             <Route path="users" element={<Users />} />
             <Route path="users/:id" element={<ViewUser />} />
+            <Route path="businesses" element={<Businesses />} />
+            <Route path="businesses/:id" element={<ViewBusiness />} />
             <Route path="kyc-reviews" element={<KycReviews />} />
+            <Route path="kyc-reuse-review" element={<KycReuseReview />} />
             <Route path="fx-settings" element={<FxSettings />} />
+            <Route path="official-circles" element={<OfficialCircles />} />
+            <Route path="risk-monitoring" element={<RiskMonitoring />} />
+            <Route path="anchor-inbound-review" element={<AnchorInboundReview />} />
+            <Route path="circle-treasury-review" element={<CircleTreasuryReview />} />
+            <Route path="treasury-sources" element={<TreasurySources />} />
+            <Route path="provider-accounts" element={<ProviderAccounts />} />
             <Route path="pricing-spec" element={<PricingSpec />} />
           </Route>
         </Routes>
@@ -389,3 +430,17 @@ function App() {
 }
 
 export default App
+
+
+
+
+
+
+
+
+
+
+
+
+
+
