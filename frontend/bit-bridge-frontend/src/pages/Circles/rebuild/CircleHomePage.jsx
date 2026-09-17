@@ -13,6 +13,7 @@ import PaymentItemPreviewList from './PaymentItemPreviewList'
 import RecentRecords from './RecentRecords'
 import TreasuryCard from './TreasuryCard'
 import { formatCircleRoleLabel } from '../roleLabels'
+import { nairaToCents } from '../../../utils/currency'
 import {
   buildMemberDuesLookup,
   formatDateTimeLabel,
@@ -179,8 +180,8 @@ const CircleHomePage = () => {
   const submitPayout = async (event) => {
     event.preventDefault()
     setPayoutError('')
-    const amountCents = Math.round(Number(String(payout.amount).replace(/,/g, '')) * 100)
-    if (!Number.isFinite(amountCents) || amountCents <= 0) return setPayoutError('Enter a valid payout amount.')
+    const amountCents = nairaToCents(payout.amount)
+    if (amountCents == null) return setPayoutError('Enter a valid payout amount.')
     if (!payout.beneficiary_name || !payout.beneficiary_account_number || !payout.beneficiary_bank_name || !payout.beneficiary_bank_code) return setPayoutError('Complete the beneficiary bank details.')
     if (!/^\d{4}$/.test(payout.transaction_pin)) return setPayoutError('Enter your 4-digit transaction PIN.')
     setPayoutSubmitting(true)

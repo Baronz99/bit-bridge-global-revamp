@@ -233,9 +233,10 @@ const DashboardLayout = () => {
             <MenuUnfoldOutlined className="text-lg" />
           </button>
 
+          <div className="flex w-[16rem] shrink-0 items-center gap-3">
           <NavLink
             to="/dashboard/home"
-            className="flex-1 flex items-center gap-3 text-white"
+            className="flex min-w-0 flex-1 items-center gap-3 text-white"
           >
             <img
               src={logoIcon}
@@ -252,9 +253,10 @@ const DashboardLayout = () => {
               </div>
             </div>
           </NavLink>
+          <div className={`hidden shrink-0 items-center gap-2 rounded-full border px-2.5 py-1.5 text-[10px] uppercase tracking-[0.14em] lg:inline-flex ${kycTierTone}`}><SafetyOutlined className="text-xs" /><span>{kycTierLabel}</span></div>
+          </div>
 
-          <div className="hidden w-full max-w-6xl items-center justify-between gap-4 text-gray-200 md:flex">
-            <div className={`inline-flex items-center gap-2 rounded-full border px-3 py-2 text-[11px] uppercase tracking-[0.18em] ${kycTierTone}`}><SafetyOutlined className="text-sm" /><span>{kycTierLabel}</span></div>
+          <div className="hidden min-w-0 flex-1 items-center justify-between gap-4 text-gray-200 md:flex">
             <nav className="flex-1 flex justify-center">
               <div className="flex items-start rounded-2xl border border-slate-800/70 bg-black/30 px-3 py-3">
                 <div className={desktopSectionClass}>
@@ -270,7 +272,8 @@ const DashboardLayout = () => {
               </div>
             </nav>
 
-            <div className="flex items-center gap-3">
+            <div className="flex shrink-0 items-center gap-2">
+              {isInvestorSandbox ? <div className="hidden max-w-[13rem] whitespace-nowrap rounded-full border border-cyan-400/30 bg-cyan-400/10 px-2.5 py-1.5 text-[10px] font-medium tracking-[0.06em] text-cyan-200 xl:inline-flex">Investor Sandbox · Simulated funds</div> : null}
               <OwnerModeSwitcher
                 compact
                 value={{ mode: ownerMode, businessEntityId: selectedBusinessEntityId, circleId: selectedCircleId }}
@@ -287,7 +290,7 @@ const DashboardLayout = () => {
           </div>
 
           <div className="flex items-center gap-2 md:hidden"><div className={`inline-flex items-center gap-1 rounded-full border px-2 py-1 text-[10px] uppercase tracking-[0.16em] ${kycTierTone}`}><SafetyOutlined className="text-[11px]" /><span>{kycTierLabel}</span></div></div>
-          {isInvestorSandbox ? <div className="hidden sm:block rounded-full border border-cyan-400/30 bg-cyan-400/10 px-3 py-1 text-[10px] font-medium tracking-[0.08em] text-cyan-200">Investor Sandbox · Simulated funds</div> : null}
+          {isInvestorSandbox ? <div className="inline-flex max-w-[12rem] whitespace-nowrap rounded-full border border-cyan-400/30 bg-cyan-400/10 px-2 py-1 text-[9px] font-medium tracking-[0.04em] text-cyan-200 sm:hidden">Investor Sandbox · Simulated funds</div> : null}
         </header>
         ) : null}
 
@@ -389,7 +392,6 @@ DashboardLayout.propTypes = {
 }
 
 export default DashboardLayout
-
 
 
 

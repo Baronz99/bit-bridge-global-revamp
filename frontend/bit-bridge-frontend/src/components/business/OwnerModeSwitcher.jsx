@@ -219,7 +219,7 @@ const OwnerModeSwitcher = ({
         <button
           type="button"
           onClick={() => setOpen((current) => !current)}
-          className="flex min-w-[11rem] max-w-[12.5rem] items-center justify-between rounded-2xl border border-slate-700/70 bg-[linear-gradient(135deg,rgba(15,23,42,0.88),rgba(2,6,23,0.9))] px-3 py-2.5 text-left shadow-[0_12px_28px_rgba(2,6,23,0.18)]"
+          className="flex w-[15rem] min-w-[15rem] max-w-[15rem] items-center justify-between rounded-2xl border border-slate-700/70 bg-[linear-gradient(135deg,rgba(15,23,42,0.88),rgba(2,6,23,0.9))] px-3 py-2.5 text-left shadow-[0_12px_28px_rgba(2,6,23,0.18)]"
         >
           <div className="min-w-0">
             <div className="text-[9px] uppercase tracking-[0.16em] text-slate-500">Account</div>
@@ -270,4 +270,3 @@ OwnerModeSwitcher.propTypes = {
 }
 
 export default OwnerModeSwitcher
-
