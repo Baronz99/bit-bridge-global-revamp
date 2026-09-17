@@ -107,6 +107,7 @@ const CircleHomePage = lazy(() => import('./pages/Circles/rebuild/CircleHomePage
 const CirclePayPage = lazy(() => import('./pages/Circles/rebuild/CirclePayPage'))
 const CircleManagePage = lazy(() => import('./pages/Circles/rebuild/CircleManagePage'))
 const CircleTimelinePage = lazy(() => import('./pages/Circles/rebuild/CircleTimelinePage'))
+const CirclePeoplePage = lazy(() => import('./pages/Circles/rebuild/CirclePeoplePage'))
 const AdminHome = lazy(() => import('./pages/admin'))
 const Purchases = lazy(() => import('./pages/admin/purchases/purchases'))
 const Products = lazy(() => import('./pages/admin/products/Products'))
@@ -334,6 +335,7 @@ function App() {
             <Route path="shared-groups/:id/pay" element={<CirclePayPage />} />
             <Route path="shared-groups/:id/manage" element={<CircleManagePage />} />
             <Route path="shared-groups/:id/timeline" element={<CircleTimelinePage />} />
+            <Route path="shared-groups/:id/people" element={<CirclePeoplePage />} />
             <Route path="shared-groups/:id/legacy" element={<CirclesDetailPage />} />
 
             <Route path="wallet" element={<Account />} />
@@ -430,7 +432,6 @@ function App() {
 }
 
 export default App
-
 
 
 

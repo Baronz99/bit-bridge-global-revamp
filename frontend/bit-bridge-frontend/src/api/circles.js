@@ -25,6 +25,7 @@ export const getCircleDuePlanSummary = (circleId) =>
   client.get(`/circles/${circleId}/due_plan/summary`)
 export const getCirclePaymentItems = (circleId) =>
   client.get(`/circles/${circleId}/payment_items`)
+export const getCirclePeople = (circleId) => client.get(`/circles/${circleId}/people`)
 
 export const getCircleWorkspace = async (circleId, params = {}) => {
   const [circleResponse, contextResponse, treasuryResponse] = await Promise.all([

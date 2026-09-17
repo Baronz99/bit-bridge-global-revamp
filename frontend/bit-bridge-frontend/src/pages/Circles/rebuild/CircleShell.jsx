@@ -34,6 +34,9 @@ const CircleShell = ({ circleId, title, roleLabel, bucketLabel, children }) => {
           <NavLink end to={`/dashboard/shared-groups/${circleId}`} className={navItemClass}>
             Home
           </NavLink>
+          <NavLink to={`/dashboard/shared-groups/${circleId}/people`} className={navItemClass}>
+            People
+          </NavLink>
           <NavLink to={`/dashboard/shared-groups/${circleId}/pay`} className={navItemClass}>
             Contributions
           </NavLink>
