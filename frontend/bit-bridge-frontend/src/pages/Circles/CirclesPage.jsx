@@ -419,7 +419,9 @@ const CirclesPage = () => {
               ) : (
                 <ul className="space-y-3">
                   {filteredGroups.map((group) => {
-                    const memberCount = group.members_count ?? group.member_count ?? 1
+                    const hasParticipantCount = group.participant_count != null
+                    const memberCount = group.participant_count ?? group.members_count ?? group.member_count ?? 0
+                    const memberLabel = hasParticipantCount ? 'participant' : 'workspace member'
                     const roleLabel = formatCircleRoleLabel(group.role || group.current_user_role || 'member')
                     const workspaceActive = ownerMode === 'circle' && String(selectedCircleId || '') === String(group.id)
                     const bucket = bucketMetaFromGroup(group)
@@ -476,7 +478,7 @@ const CirclesPage = () => {
                             </p>
 
                             <p className="mt-1 text-[11px] text-slate-400">
-                              {memberCount} member{memberCount === 1 ? '' : 's'} • Your role: <span>{roleLabel}</span>
+                              {memberCount} {memberLabel}{memberCount === 1 ? '' : 's'} • Your role: <span>{roleLabel}</span>
                             </p>
                           </div>
                         </div>

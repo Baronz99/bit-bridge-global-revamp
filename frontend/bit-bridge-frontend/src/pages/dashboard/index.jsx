@@ -21,7 +21,9 @@ import ShadowValue from '../../components/ShadowValue'
 import { getCircleWorkspace } from '../../api/circles'
 import { getAccountSummary } from '../../redux/actions/account'
 import { userProfile } from '../../redux/actions/auth'
-import { toggleShadowMode } from '../../redux/app'
+import { setOwnerMode, toggleShadowMode } from '../../redux/app'
+import { isInvestorSandbox } from '../../config/sandbox'
+import { SandboxContextCard } from '../../components/investorSandbox/SandboxInvestorTour'
 import { getTimelinePreview, getServiceAvailability } from '../../api/home'
 import { getSectionCatalog } from '../../api/catalog'
 import { resolveReceiptPath } from '../../utils/receiptRouting'
@@ -126,6 +128,16 @@ const HomeDashboard = () => {
   const [circleWorkspace, setCircleWorkspace] = useState(null)
   const [emailVerificationSending, setEmailVerificationSending] = useState(false)
   const [emailVerificationMessage, setEmailVerificationMessage] = useState('')
+
+  const investorCircle = useMemo(
+    () => (circleEntities || []).find((circle) => /greenfield residents/i.test(String(circle?.name || ''))) || (circleEntities || [])[0],
+    [circleEntities]
+  )
+  const openInvestorCircle = () => {
+    if (!investorCircle?.id) return navigate('/dashboard/shared-groups')
+    dispatch(setOwnerMode({ mode: 'circle', circleId: investorCircle.id }))
+    navigate(`/dashboard/shared-groups/${investorCircle.id}`)
+  }
 
   const [showOnboardingBanner, setShowOnboardingBanner] = useState(
     () => localStorage.getItem('bb_hide_onboarding_banner') !== 'true'
@@ -649,6 +661,14 @@ const HomeDashboard = () => {
           </div>
         )}
 
+        {isInvestorSandbox && ownerMode !== 'circle' ? (
+          <div className="mb-6">
+            <SandboxContextCard eyebrow="01 · Personal" title="Your everyday financial relationship" action={openInvestorCircle} actionLabel="Next: Explore Group Finance →">
+              Personal shows the everyday customer relationship: a dedicated account and wallet for receiving money, transfers, bills, cards, FX and financial activity. The next step is to see how the same infrastructure coordinates an organized community.
+            </SandboxContextCard>
+          </div>
+        ) : null}
+
         <section className="mb-6">
           <div className="rounded-[28px] border border-slate-800 bg-[linear-gradient(135deg,rgba(2,6,23,0.96),rgba(15,23,42,0.94))] p-5 md:p-7 shadow-[0_24px_60px_rgba(2,6,23,0.45)]">
             <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4 mb-5">
@@ -1116,5 +1136,3 @@ const HomeDashboard = () => {
 }
 
 export default HomeDashboard
-
-

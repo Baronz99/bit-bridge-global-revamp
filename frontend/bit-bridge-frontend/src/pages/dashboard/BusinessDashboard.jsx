@@ -7,6 +7,8 @@ import BusinessWorkspaceRequired from '../../components/business/BusinessWorkspa
 import useBusinessDashboardPresentation from '../../hooks/useBusinessDashboardPresentation'
 import useSelectedBusiness from '../../hooks/useSelectedBusiness'
 import { createBusinessProvisioning, getBusinessTransactions } from '../../api/business'
+import { isInvestorSandbox } from '../../config/sandbox'
+import { SandboxContextCard } from '../../components/investorSandbox/SandboxInvestorTour'
 
 const cardClass =
   'rounded-3xl border border-slate-800 bg-slate-900/80 p-5 shadow-[0_16px_40px_rgba(15,23,42,0.22)]'
@@ -251,6 +253,12 @@ const BusinessDashboard = () => {
 
         <BusinessWorkspaceNav pendingCount={approvalSummary?.total_pending || 0} visibleNavigationItems={navigationItems} />
 
+        {isInvestorSandbox ? (
+          <SandboxContextCard eyebrow="03 · Business" title="The same infrastructure, extended to business operations">
+            Greenfield Services Ltd shows how the platform extends from personal and group finance into business operations: receiving funds, vendors and payees, operational transfers, controls and payouts. The balances and activity below are the business workspace&apos;s live server-authoritative data.
+          </SandboxContextCard>
+        ) : null}
+
         {errorMessage ? (
           <div className="rounded-3xl border border-rose-500/30 bg-rose-500/10 px-5 py-5">
             <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
@@ -435,6 +443,11 @@ const BusinessDashboard = () => {
                 </section>
               </div>
             </div>
+            {isInvestorSandbox ? (
+              <div className="rounded-2xl border border-cyan-400/20 bg-cyan-400/5 px-4 py-4 text-sm leading-6 text-slate-300">
+                Personal → Group Finance → Business: three relationships operating on the same BitBridge Global financial infrastructure.
+              </div>
+            ) : null}
           </>
         ) : (
           <div className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1.15fr)_minmax(22rem,0.85fr)]">

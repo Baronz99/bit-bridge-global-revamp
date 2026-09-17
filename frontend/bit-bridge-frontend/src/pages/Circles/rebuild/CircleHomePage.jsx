@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { useDispatch, useSelector } from 'react-redux'
 import { useNavigate, useParams } from 'react-router-dom'
 import {
   getCircleDueObligations,
@@ -14,6 +15,9 @@ import RecentRecords from './RecentRecords'
 import TreasuryCard from './TreasuryCard'
 import { formatCircleRoleLabel } from '../roleLabels'
 import { nairaToCents } from '../../../utils/currency'
+import { setOwnerMode } from '../../../redux/app'
+import { isInvestorSandbox } from '../../../config/sandbox'
+import { SandboxContextCard } from '../../../components/investorSandbox/SandboxInvestorTour'
 import {
   buildMemberDuesLookup,
   formatDateTimeLabel,
@@ -134,6 +138,8 @@ const memberRoleLabel = (member) =>
 const CircleHomePage = () => {
   const { id } = useParams()
   const navigate = useNavigate()
+  const dispatch = useDispatch()
+  const { businessEntities = [] } = useSelector((state) => state.app || {})
   const [workspace, setWorkspace] = useState(null)
   const [paymentItems, setPaymentItems] = useState([])
   const [dueObligations, setDueObligations] = useState([])
@@ -254,6 +260,18 @@ const CircleHomePage = () => {
   const memberCount = Number(
     workspace?.member_count || workspace?.members_count || (Array.isArray(workspace?.members) ? workspace.members.length : 0)
   )
+  const participantCount = Number(workspace?.participant_count || 0)
+  const workspaceMemberCount = Number(workspace?.workspace_member_count || memberCount || 0)
+  const investorBusiness = businessEntities.find((business) => /greenfield services/i.test(String(business?.name || ''))) || businessEntities[0]
+  const openInvestorBusiness = () => {
+    if (!investorBusiness?.id) return navigate('/dashboard/business')
+    dispatch(setOwnerMode({ mode: 'business', businessEntityId: investorBusiness.id }))
+    navigate('/dashboard/business')
+  }
+  const dueCounts = dueSummary?.counts || {}
+  const monthlyDuesCents = Number(
+    workspace?.monthly_due_plan?.amount_cents ?? dueSummary?.amount_cents ?? dueSummary?.due_plan?.amount_cents ?? 0
+  ) || 0
 
   const actionRequired = useMemo(() => {
     const dueLabel = duesOutstandingCents > 0 ? formatMoney(duesOutstandingCents) : ''
@@ -425,6 +443,24 @@ const CircleHomePage = () => {
         </div>
       </section>
 
+      {isInvestorSandbox ? (
+        <SandboxContextCard
+          eyebrow="02 · Group Finance"
+          title="A community treasury with structure and control"
+          action={openInvestorBusiness}
+          actionLabel="Next: Explore Business →"
+          metrics={[
+            ...(participantCount > 0 ? [{ label: 'Participants', value: participantCount, helper: 'Operational organization scale' }] : []),
+            ...(workspaceMemberCount > 0 ? [{ label: 'Workspace access', value: workspaceMemberCount, helper: workspaceMemberCount === 1 ? 'Workspace administrator' : 'Workspace members' }] : []),
+            ...(monthlyDuesCents > 0 ? [{ label: 'Monthly dues', value: formatMoney(monthlyDuesCents), helper: 'Recurring obligation plan' }] : []),
+            ...(workspace?.balance_cents != null ? [{ label: 'Shared treasury', value: formatMoney(workspace.balance_cents), helper: 'Server-authoritative balance' }] : []),
+            ...(dueCounts.total != null ? [{ label: 'Dues obligations', value: dueCounts.total, helper: `${dueCounts.paid_current || 0} paid · ${dueCounts.pending || 0} pending · ${dueCounts.overdue || 0} overdue` }] : []),
+          ]}
+        >
+          Greenfield Residents Association demonstrates how a community can replace fragmented bank transfers, spreadsheets and manual reconciliation with structured collections, recurring obligations, shared treasury, governance and payouts. These metrics come from the live Circle workspace and dues contracts.
+        </SandboxContextCard>
+      ) : null}
+
       <TreasuryCard
         balanceCents={workspace?.balance_cents || 0}
         onPay={() => setShowPayout(true)}
@@ -568,11 +604,11 @@ const CircleHomePage = () => {
       <section className="rounded-[28px] border border-slate-900 bg-[#050b1b] px-5 py-5">
         <div className="flex items-center justify-between gap-3">
           <div>
-            <p className="text-[11px] uppercase tracking-[0.24em] text-slate-500">Members</p>
+            <p className="text-[11px] uppercase tracking-[0.24em] text-slate-500">Workspace access</p>
             <h2 className="mt-2 text-lg font-semibold text-white">Who is in this circle</h2>
           </div>
           <span className="rounded-full border border-slate-800 bg-slate-950/60 px-3 py-1 text-[10px] uppercase tracking-[0.16em] text-slate-300">
-            {memberCount} member{memberCount === 1 ? '' : 's'}
+            {workspaceMemberCount} workspace member{workspaceMemberCount === 1 ? '' : 's'}
           </span>
         </div>
         <div className="mt-4 space-y-3">

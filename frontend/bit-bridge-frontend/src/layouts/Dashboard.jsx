@@ -36,6 +36,7 @@ import { getCircles } from '../api/circles'
 import { toast } from 'react-toastify'
 import { SECURITY_LOCK_ACTIVE_EVENT } from '../api/client'
 import { isInvestorSandbox } from '../config/sandbox'
+import SandboxInvestorTour from '../components/investorSandbox/SandboxInvestorTour'
 
 const DashboardLayout = () => {
   const dispatch = useDispatch()
@@ -379,6 +380,7 @@ const DashboardLayout = () => {
                 </div>
               </div>
             ) : null}
+            {isInvestorSandbox ? <SandboxInvestorTour /> : null}
             <Outlet />
           </div>
         </div>
@@ -392,6 +394,5 @@ DashboardLayout.propTypes = {
 }
 
 export default DashboardLayout
-
 
 

@@ -78,6 +78,17 @@ export const normalizeCircleWorkspace = ({ circlePayload, contextPayload, treasu
       : contextBalanceCents != null
         ? contextBalanceCents
         : circleBalanceCents
+  const participantCount = Number(
+    context.circle.participant_count ?? circle.participant_count ?? 0
+  ) || 0
+  const workspaceMemberCount = Number(
+    context.circle.workspace_member_count ??
+      circle.workspace_member_count ??
+      context.circle.member_count ??
+      circle.member_count ??
+      circle.members_count ??
+      0
+  ) || 0
 
   return {
     ...circle,
@@ -96,6 +107,8 @@ export const normalizeCircleWorkspace = ({ circlePayload, contextPayload, treasu
       'member',
     member_count:
       Number(context.circle.member_count || circle.member_count || circle.members_count || 0) || 0,
+    participant_count: participantCount,
+    workspace_member_count: workspaceMemberCount,
     balance_cents: resolvedBalanceCents,
     treasury_balance_cents: treasuryBalanceCents,
     treasury_account: treasuryAccount,
